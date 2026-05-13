@@ -30,6 +30,27 @@ const AnalyticsScreen = lazyRetry(() =>
 const MemoryScreen = lazyRetry(() =>
   import("./components/MemoryScreen").then((module) => ({ default: module.MemoryScreen })),
 );
+const RepoLayout = lazyRetry(() =>
+  import("./components/RepoLayout").then((module) => ({ default: module.RepoLayout })),
+);
+const RepoOverview = lazyRetry(() =>
+  import("./components/RepoOverview").then((module) => ({ default: module.RepoOverview })),
+);
+const RepoJobs = lazyRetry(() =>
+  import("./components/RepoJobs").then((module) => ({ default: module.RepoJobs })),
+);
+const RepoWisdom = lazyRetry(() =>
+  import("./components/RepoWisdom").then((module) => ({ default: module.RepoWisdom })),
+);
+const RepoHealth = lazyRetry(() =>
+  import("./components/RepoHealth").then((module) => ({ default: module.RepoHealth })),
+);
+const RepoCost = lazyRetry(() =>
+  import("./components/RepoCost").then((module) => ({ default: module.RepoCost })),
+);
+const RepoSettings = lazyRetry(() =>
+  import("./components/RepoSettings").then((module) => ({ default: module.RepoSettings })),
+);
 /* SharedJobView disabled — read-only view not useful yet
 const SharedJobView = lazyRetry(() =>
   import("./components/SharedJobView").then((module) => ({ default: module.SharedJobView })),
@@ -131,6 +152,7 @@ export function App() {
   useHotkeys("alt+j", () => navigate("/"), { preventDefault: true });
   useHotkeys("alt+n", () => navigate("/jobs/new"), { preventDefault: true });
   useHotkeys("alt+a", () => navigate("/analytics"), { preventDefault: true });
+  useHotkeys("alt+r", () => navigate("/repos"), { preventDefault: true });
   useHotkeys("alt+h", () => navigate("/history"), { preventDefault: true });
   useHotkeys("ctrl+comma,meta+comma", () => navigate("/settings"), {
     enableOnFormTags: true,
@@ -191,6 +213,14 @@ export function App() {
               <Route path="/history" element={<HistoryScreen />} />
               <Route path="/analytics" element={<AnalyticsScreen />} />
               <Route path="/repos/:repoPath/memory" element={<MemoryScreen />} />
+              <Route path="/repos" element={<RepoLayout />}>
+                <Route path=":repoPath" element={<RepoOverview />} />
+                <Route path=":repoPath/jobs" element={<RepoJobs />} />
+                <Route path=":repoPath/wisdom" element={<RepoWisdom />} />
+                <Route path=":repoPath/health" element={<RepoHealth />} />
+                <Route path=":repoPath/cost" element={<RepoCost />} />
+                <Route path=":repoPath/settings" element={<RepoSettings />} />
+              </Route>
               <Route path="/settings" element={<SettingsScreen />} />
               {/* Share disabled — read-only view not useful yet
               <Route path="/shared/:token" element={<SharedJobView />} />

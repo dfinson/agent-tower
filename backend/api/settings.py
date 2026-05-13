@@ -9,6 +9,8 @@ from pathlib import Path
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.config import (
     DEFAULT_SELF_REVIEW_PROMPT,
@@ -29,14 +31,19 @@ from backend.models.api_schemas import (
     PlatformStatusResponse,
     RegisterRepoRequest,
     RegisterRepoResponse,
+    RepoCostSummary,
     RepoDetailResponse,
     RepoHealthResponse,
+    RepoJobSummary,
     RepoListResponse,
+    RepoMemoryPreview,
+    RepoSummaryResponse,
     SDKInfoResponse,
     SDKListResponse,
     SettingsResponse,
     UpdateSettingsRequest,
 )
+from backend.models.db import JobRow
 from backend.services.coderecon_service import CodeReconService
 from backend.services.git_service import GitError, GitService
 from backend.services.platform_adapter import PlatformRegistry, detect_platform
@@ -197,6 +204,156 @@ async def get_repo_health(
         last_indexed_sha=last_sha,
         community_count=community_count,
         cycle_count=cycle_count,
+    )
+
+
+@router.get("/settings/repos/{repo_path:path}/summary", response_model=RepoSummaryResponse)
+async def get_repo_summary(
+    repo_path: str,
+    config: FromDishka[CPLConfig],
+    git_service: FromDishka[GitService],
+    coderecon: FromDishka[CodeReconService],
+    sf: FromDishka[async_sessionmaker[AsyncSession]],
+) -> RepoSummaryResponse:
+    """Aggregated dashboard overview for a single repository."""
+    from backend.services.workspace_memory import read_memory_detail
+
+    log = structlog.get_logger()
+
+    resolved = str(Path(repo_path).expanduser().resolve())
+    if resolved not in config.repos:
+        raise HTTPException(status_code=404, detail=f"Repository '{repo_path}' is not registered.")
+
+    # --- Git info ---
+    origin_url: str | None = None
+    base_branch: str | None = None
+    current_branch: str | None = None
+    with contextlib.suppress(GitError):
+        raw_url = await git_service.get_origin_url(resolved)
+        if raw_url:
+            origin_url = GitService.strip_url_credentials(raw_url)
+    with contextlib.suppress(GitError):
+        base_branch = await git_service.get_default_branch(resolved)
+    with contextlib.suppress(GitError):
+        current_branch = await git_service.get_current_branch(cwd=resolved)
+
+    platform = detect_platform(origin_url)
+
+    # --- Recent jobs (from DB) ---
+    recent_jobs: list[RepoJobSummary] = []
+    active_job_count = 0
+    cost_summary = RepoCostSummary()
+    try:
+        async with sf() as session:
+            rows = (
+                await session.execute(
+                    select(JobRow)
+                    .where(JobRow.repo == resolved)
+                    .order_by(JobRow.created_at.desc())
+                    .limit(5)
+                )
+            ).scalars().all()
+            for r in rows:
+                recent_jobs.append(
+                    RepoJobSummary(
+                        id=r.id,
+                        title=r.title,
+                        state=r.state,
+                        created_at=r.created_at,
+                        completed_at=r.completed_at,
+                        total_cost_usd=None,  # cost lives in spans, not job row
+                        model=r.model,
+                    )
+                )
+            active_count_result = await session.execute(
+                select(JobRow.id)
+                .where(JobRow.repo == resolved)
+                .where(JobRow.state.in_(("running", "preparing", "paused")))
+            )
+            active_job_count = len(active_count_result.scalars().all())
+    except Exception:
+        log.warning("repo_summary.jobs_query_failed", repo=resolved, exc_info=True)
+
+    # --- Memory preview (filesystem, no DB needed) ---
+    memory_preview = RepoMemoryPreview()
+    try:
+        detail = read_memory_detail(resolved)
+        decisions = detail.get("decisions", "")
+        wisdom_text = detail.get("wisdom", "")
+        archive_text = detail.get("archive", "")
+        memory_preview = RepoMemoryPreview(
+            has_memory=bool(decisions or wisdom_text),
+            decisions_chars=len(decisions),
+            wisdom_chars=len(wisdom_text),
+            archive_chars=len(archive_text),
+            decisions_preview=decisions[:200],
+            wisdom_preview=wisdom_text[:200],
+        )
+    except Exception:
+        log.warning("repo_summary.memory_read_failed", repo=resolved, exc_info=True)
+
+    # --- Health (best-effort) ---
+    health: RepoHealthResponse | None = None
+    if coderecon.available:
+        try:
+            repo_name = await asyncio.wait_for(
+                coderecon.ensure_repo_indexed(resolved), timeout=30.0
+            )
+            h_symbol_count = 0
+            h_file_count = 0
+            h_last_sha = None
+            h_community_count = 0
+            h_cycle_count = 0
+
+            try:
+                status = await coderecon.repo_status(repo_name)
+                if status:
+                    h_symbol_count = status.get("symbol_count", 0)
+                    h_file_count = status.get("file_count", 0)
+                    h_last_sha = status.get("last_indexed_sha")
+            except Exception:
+                log.debug("repo_summary.health_status_failed", repo=resolved, exc_info=True)
+
+            try:
+                communities = await coderecon.graph_communities(repo_name, worktree="main")
+                h_community_count = len(communities.communities) if communities.communities else 0
+            except Exception:
+                log.debug("repo_summary.communities_failed", repo=resolved, exc_info=True)
+
+            try:
+                cycles = await coderecon.graph_cycles(repo_name, worktree="main")
+                h_cycle_count = len(cycles.cycles) if cycles.cycles else 0
+            except Exception:
+                log.debug("repo_summary.cycles_failed", repo=resolved, exc_info=True)
+
+            health = RepoHealthResponse(
+                repo=resolved,
+                available=True,
+                index_status="ready",
+                symbol_count=h_symbol_count,
+                file_count=h_file_count,
+                last_indexed_sha=h_last_sha,
+                community_count=h_community_count,
+                cycle_count=h_cycle_count,
+            )
+        except TimeoutError:
+            log.warning("repo_summary.index_timeout", repo=resolved)
+            health = RepoHealthResponse(repo=resolved, index_status="timeout")
+        except Exception:
+            log.warning("repo_summary.index_failed", repo=resolved, exc_info=True)
+            health = RepoHealthResponse(repo=resolved, index_status="error")
+
+    return RepoSummaryResponse(
+        path=resolved,
+        origin_url=origin_url,
+        base_branch=base_branch,
+        current_branch=current_branch,
+        platform=platform,
+        recent_jobs=recent_jobs,
+        active_job_count=active_job_count,
+        cost=cost_summary,
+        memory=memory_preview,
+        health=health,
     )
 
 

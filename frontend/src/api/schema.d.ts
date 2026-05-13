@@ -3680,10 +3680,10 @@ export interface components {
          *     autonomous — Contained actions auto-approved. Non-contained actions gated.
          *     supervised — Reversible + contained auto-approved. Irreversible or
          *                  non-contained actions gated.
-         *     strict     — Reversible + contained get checkpointed. Everything else gated.
+         *     locked     — Reversible + contained get checkpointed. Everything else gated.
          * @enum {string}
          */
-        Preset: "autonomous" | "supervised" | "strict";
+        Preset: "autonomous" | "supervised" | "locked";
         /** ProgressHeadlinePayload */
         ProgressHeadlinePayload: {
             /** Jobid */

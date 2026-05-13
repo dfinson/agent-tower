@@ -391,6 +391,52 @@ class RepoHealthResponse(CamelModel):
     stale: bool = False
 
 
+class RepoJobSummary(CamelModel):
+    """Minimal job info for repo dashboard."""
+
+    id: str
+    title: str | None = None
+    state: str
+    created_at: datetime
+    completed_at: datetime | None = None
+    total_cost_usd: float | None = None
+    model: str | None = None
+
+
+class RepoCostSummary(CamelModel):
+    """Aggregated cost for a repo over a time period."""
+
+    total_cost_usd: float = 0
+    total_jobs: int = 0
+    total_tokens: int = 0
+
+
+class RepoMemoryPreview(CamelModel):
+    """Short preview of workspace memory."""
+
+    has_memory: bool = False
+    decisions_chars: int = 0
+    wisdom_chars: int = 0
+    archive_chars: int = 0
+    decisions_preview: str = ""
+    wisdom_preview: str = ""
+
+
+class RepoSummaryResponse(CamelModel):
+    """Aggregated overview for a single repo dashboard."""
+
+    path: str
+    origin_url: str | None = None
+    base_branch: str | None = None
+    current_branch: str | None = None
+    platform: str | None = None
+    recent_jobs: list[RepoJobSummary] = []
+    active_job_count: int = 0
+    cost: RepoCostSummary = RepoCostSummary()
+    memory: RepoMemoryPreview = RepoMemoryPreview()
+    health: RepoHealthResponse | None = None
+
+
 # --- SSE Payload Models ---
 
 

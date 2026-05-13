@@ -970,3 +970,59 @@ export function compactRepoMemory(repoPath: string): Promise<CompactResponse> {
     method: "POST",
   });
 }
+
+// --- Repo Summary (dashboard) ---
+
+export interface RepoJobSummary {
+  id: string;
+  title: string | null;
+  state: string;
+  createdAt: string;
+  completedAt: string | null;
+  totalCostUsd: number | null;
+  model: string | null;
+}
+
+export interface RepoCostSummary {
+  totalCostUsd: number;
+  totalJobs: number;
+  totalTokens: number;
+}
+
+export interface RepoMemoryPreview {
+  hasMemory: boolean;
+  decisionsChars: number;
+  wisdomChars: number;
+  archiveChars: number;
+  decisionsPreview: string;
+  wisdomPreview: string;
+}
+
+export interface RepoHealthSummary {
+  repo: string;
+  available: boolean;
+  indexStatus: string | null;
+  symbolCount: number;
+  fileCount: number;
+  lastIndexedSha: string | null;
+  communityCount: number;
+  cycleCount: number;
+  stale: boolean;
+}
+
+export interface RepoSummaryResponse {
+  path: string;
+  originUrl: string | null;
+  baseBranch: string | null;
+  currentBranch: string | null;
+  platform: string | null;
+  recentJobs: RepoJobSummary[];
+  activeJobCount: number;
+  cost: RepoCostSummary;
+  memory: RepoMemoryPreview;
+  health: RepoHealthSummary | null;
+}
+
+export function fetchRepoSummary(repoPath: string): Promise<RepoSummaryResponse> {
+  return request(`/settings/repos/${encodeURIComponent(repoPath)}/summary`);
+}

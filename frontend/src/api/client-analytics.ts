@@ -148,6 +148,7 @@ export function fetchAnalyticsJobs(params?: {
   sdk?: string;
   model?: string;
   status?: string;
+  repo?: string;
   sort?: string;
   desc?: boolean;
   limit?: number;
@@ -158,6 +159,7 @@ export function fetchAnalyticsJobs(params?: {
   if (params?.sdk) sp.set("sdk", params.sdk);
   if (params?.model) sp.set("model", params.model);
   if (params?.status) sp.set("status", params.status);
+  if (params?.repo) sp.set("repo", params.repo);
   if (params?.sort) sp.set("sort", params.sort);
   if (params?.desc !== undefined) sp.set("desc", String(params.desc));
   if (params?.limit) sp.set("limit", String(params.limit));
