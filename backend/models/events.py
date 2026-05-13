@@ -64,6 +64,10 @@ class DomainEventKind(StrEnum):
     monitor_approved = "MonitorApproved"
     monitor_rejected = "MonitorRejected"
     monitor_escalated = "MonitorEscalated"
+    sidecar_transcript = "SidecarTranscript"
+    sidecar_agent_message = "SidecarAgentMessage"
+    sidecar_gate_verdict = "SidecarGateVerdict"
+    sidecar_metadata_update = "SidecarMetadataUpdate"
 
 
 # ---------------------------------------------------------------------------

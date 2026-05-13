@@ -35,6 +35,7 @@ from backend.models.api_schemas import (
     RepoIndexProgressPayload,
     SessionHeartbeatPayload,
     SessionResumedPayload,
+    SidecarTranscriptPayload,
     SnapshotPayload,
     StallDetectedPayload,
     StepEntriesReassignedPayload,
@@ -101,6 +102,10 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.repo_index_complete: "repo_index_complete",
     DomainEventKind.structural_warning: "structural_warning",
     DomainEventKind.stall_detected: "stall_detected",
+    DomainEventKind.sidecar_transcript: "sidecar_transcript",
+    DomainEventKind.sidecar_agent_message: None,  # internal — handled by dispatcher
+    DomainEventKind.sidecar_gate_verdict: None,  # internal — handled by dispatcher
+    DomainEventKind.sidecar_metadata_update: None,  # internal — handled by dispatcher
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)
@@ -128,6 +133,7 @@ _SELECTIVE_SUPPRESSED: frozenset[str] = frozenset(
 _JOB_SCOPED_ONLY: frozenset[str] = frozenset(
     {
         "telemetry_updated",
+        "sidecar_transcript",
     }
 )
 
@@ -509,6 +515,18 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
             "tool_name": ("tool_name", ""),
             "elapsed": ("elapsed", ""),
             "reason": ("reason", ""),
+        },
+    ),
+    "sidecar_transcript": (
+        SidecarTranscriptPayload,
+        {
+            "seq": ("seq", 0),
+            "timestamp": ("timestamp", _TS_FALLBACK),
+            "name": ("sidecar_name", None),
+            "icon": ("sidecar_icon", None),
+            "description": ("sidecar_description", None),
+            "template_id": ("sidecar_template_id", None),
+            "content": ("content", ""),
         },
     ),
 }

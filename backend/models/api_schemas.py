@@ -490,6 +490,19 @@ class ToolGroupSummaryPayload(CamelModel):
     timestamp: datetime
 
 
+class SidecarTranscriptPayload(CamelModel):
+    """Sidecar output injected into the transcript feed."""
+
+    job_id: str
+    seq: int
+    timestamp: datetime
+    name: str | None = None
+    icon: str | None = None
+    description: str | None = None
+    template_id: str | None = None
+    content: str = ""
+
+
 class DiffLineModel(CamelModel):
     type: DiffLineType
     content: str

@@ -1,0 +1,996 @@
+"""Sidecar dispatcher — evaluates triggers and executes pipelines.
+
+Subscribes to the EventBus and runs condition evaluation, context assembly,
+LLM calls, output parsing, and result routing for all active sidecars.
+
+This is the engine that connects sidecar *definitions* (templates) to sidecar
+*sessions* (LLM completers).  It replaces the hardcoded stall-detection and
+plan-inference logic previously scattered across RuntimeService.
+
+Architecture notes:
+- One dispatcher instance per process (APP scope).
+- ``activate(job_id, definitions)`` is called by RuntimeService when a job starts.
+- ``deactivate(job_id)`` is called when a job reaches a terminal state.
+- The dispatcher subscribes to EventBus to evaluate event/regex/content/file
+  conditions.  RuntimeService calls ``increment()`` for threshold counters.
+- Timer conditions are evaluated by a periodic ``tick()`` coroutine.
+- Context providers and output callbacks are registered at startup by the
+  services that own the state.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+import time
+from collections import defaultdict
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from enum import StrEnum
+from fnmatch import fnmatch
+from typing import TYPE_CHECKING, Any
+
+import structlog
+
+if TYPE_CHECKING:
+    from backend.models.events import DomainEvent
+    from backend.services.event_bus import EventBus
+    from backend.services.sidecar_session import SidecarSessionManager
+
+log = structlog.get_logger()
+
+# ---------------------------------------------------------------------------
+# Public type aliases
+# ---------------------------------------------------------------------------
+
+ContextProvider = Callable[[str], Awaitable[dict[str, Any] | None]]
+OutputCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
+
+
+# ---------------------------------------------------------------------------
+# Concurrency policy
+# ---------------------------------------------------------------------------
+
+class Concurrency(StrEnum):
+    skip_if_running = "skip_if_running"
+    queue = "queue"
+    parallel = "parallel"
+
+
+# ---------------------------------------------------------------------------
+# Condition dataclasses (frozen, parametrized, no handler functions)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class EventCondition:
+    event_kinds: tuple[str, ...]
+    event_filter: dict[str, str] = field(default_factory=dict)
+    once: bool = False
+
+
+@dataclass(frozen=True)
+class TimerCondition:
+    interval_s: float
+    idle_guard_s: float | None = None
+
+
+@dataclass(frozen=True)
+class ThresholdCondition:
+    metric: str
+    value: int
+    once: bool = False
+
+
+@dataclass(frozen=True)
+class ManualCondition:
+    pass
+
+
+@dataclass(frozen=True)
+class RegexCondition:
+    pattern: str
+    source: str = "messages"
+    once: bool = False
+
+
+@dataclass(frozen=True)
+class FilePatternCondition:
+    glob: str
+    change_kind: str = "any"
+
+
+@dataclass(frozen=True)
+class ContentMatchCondition:
+    keywords: tuple[str, ...]
+    case_sensitive: bool = False
+    source: str = "messages"
+    once: bool = False
+
+
+TriggerCondition = (
+    EventCondition | TimerCondition | ThresholdCondition | ManualCondition
+    | RegexCondition | FilePatternCondition | ContentMatchCondition
+)
+
+
+# ---------------------------------------------------------------------------
+# Output parsers
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PlainText:
+    strip: bool = True
+
+
+@dataclass(frozen=True)
+class JsonObject:
+    required_keys: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class JsonArray:
+    item_keys: tuple[str, ...] = ()
+
+
+OutputParser = PlainText | JsonObject | JsonArray
+
+
+# ---------------------------------------------------------------------------
+# Output routes
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class EventBusRoute:
+    event_kind: str
+    payload_mapping: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class JobMetadataRoute:
+    field_name: str
+
+
+@dataclass(frozen=True)
+class CallbackRoute:
+    callback_name: str
+
+
+@dataclass(frozen=True)
+class ConditionalRoute:
+    field_name: str
+    value: str
+    inner: OutputRoute
+
+
+@dataclass(frozen=True)
+class AgentMessageRoute:
+    role: str = "system"
+    label: str = ""
+
+
+@dataclass(frozen=True)
+class GateRoute:
+    verdict_field: str = "verdict"
+    reason_field: str = "reason"
+    timeout_s: float = 30.0
+
+
+OutputRoute = (
+    EventBusRoute | JobMetadataRoute | CallbackRoute
+    | ConditionalRoute | AgentMessageRoute | GateRoute
+)
+
+
+# ---------------------------------------------------------------------------
+# Trigger pipeline + sidecar definition
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class TriggerPipeline:
+    condition: TriggerCondition
+    context_sources: tuple[str, ...] = ()
+    prompt_template: str = ""
+    output_parser: OutputParser = field(default_factory=PlainText)
+    output_routes: tuple[OutputRoute, ...] = ()
+    concurrency: Concurrency = Concurrency.skip_if_running
+
+
+@dataclass(frozen=True)
+class SidecarDefinition:
+    name: str
+    phase: str  # "preflight" | "midflight" | "postflight"
+    lifetime: str  # "ephemeral" | "windowed" | "persistent"
+    scope: str = "global"  # "global" | "repo" | "job"
+    model: str | None = None
+    system_prompt: str = ""
+    max_turns: int | None = None
+    timeout_s: float | None = None
+    session_kind: str = "sidecar"
+    gate: str | None = None
+    triggers: tuple[TriggerPipeline, ...] = ()
+    icon: str | None = None
+    description: str = ""
+    template_id: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Per-job runtime state
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _JobState:
+    """Mutable per-job dispatcher state."""
+    definitions: list[SidecarDefinition] = field(default_factory=list)
+    counters: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    in_flight: set[str] = field(default_factory=set)  # sidecar names currently executing
+    fired_once: set[tuple[str, int]] = field(default_factory=set)  # (name, pipeline_idx) already fired
+    last_timer: dict[str, float] = field(default_factory=dict)  # name → monotonic time of last timer fire
+    last_activity: float = field(default_factory=time.monotonic)
+    queued: list[tuple[SidecarDefinition, int, dict[str, Any] | None]] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# JSON → dataclass hydration (for template definitions from DB)
+# ---------------------------------------------------------------------------
+
+def _hydrate_condition(raw: dict[str, Any]) -> TriggerCondition:
+    """Convert a JSON condition dict to a frozen dataclass."""
+    kind = raw.get("kind", "manual")
+    if kind == "event":
+        event_kinds = raw.get("eventKinds") or raw.get("eventKind")
+        if isinstance(event_kinds, str):
+            event_kinds = (event_kinds,)
+        else:
+            event_kinds = tuple(event_kinds or ())
+        return EventCondition(
+            event_kinds=event_kinds,
+            event_filter=raw.get("eventFilter") or {},
+            once=raw.get("once", False),
+        )
+    if kind == "timer":
+        return TimerCondition(
+            interval_s=float(raw.get("intervalS", raw.get("interval_s", 60))),
+            idle_guard_s=raw.get("idleGuardS") or raw.get("idle_guard_s"),
+        )
+    if kind == "threshold":
+        return ThresholdCondition(
+            metric=raw.get("metric", "messages"),
+            value=int(raw.get("value", 1)),
+            once=raw.get("once", False),
+        )
+    if kind == "regex":
+        return RegexCondition(
+            pattern=raw.get("pattern", ""),
+            source=raw.get("source", "messages"),
+            once=raw.get("once", False),
+        )
+    if kind == "file_pattern":
+        return FilePatternCondition(
+            glob=raw.get("glob", "**/*"),
+            change_kind=raw.get("changeKind", raw.get("change_kind", "any")),
+        )
+    if kind == "content_match":
+        kw = raw.get("keywords", [])
+        return ContentMatchCondition(
+            keywords=tuple(kw) if isinstance(kw, list) else (kw,),
+            case_sensitive=raw.get("caseSensitive", False),
+            source=raw.get("source", "messages"),
+            once=raw.get("once", False),
+        )
+    return ManualCondition()
+
+
+def _hydrate_parser(raw: dict[str, Any] | None) -> OutputParser:
+    if not raw:
+        return PlainText()
+    kind = raw.get("kind", "plain_text")
+    if kind == "json_object":
+        keys = raw.get("requiredKeys") or raw.get("required_keys") or ()
+        return JsonObject(required_keys=tuple(keys))
+    if kind == "json_array":
+        keys = raw.get("itemKeys") or raw.get("item_keys") or ()
+        return JsonArray(item_keys=tuple(keys))
+    return PlainText(strip=raw.get("strip", True))
+
+
+def _hydrate_route(raw: dict[str, Any]) -> OutputRoute:
+    kind = raw.get("kind", "event_bus")
+    if kind == "event_bus":
+        return EventBusRoute(
+            event_kind=raw.get("eventKind", "sidecar_result"),
+            payload_mapping=raw.get("payloadMapping") or {},
+        )
+    if kind == "job_metadata":
+        return JobMetadataRoute(field_name=raw.get("field", ""))
+    if kind == "callback":
+        return CallbackRoute(callback_name=raw.get("callbackName", ""))
+    if kind == "conditional":
+        return ConditionalRoute(
+            field_name=raw.get("field", ""),
+            value=raw.get("value", ""),
+            inner=_hydrate_route(raw.get("inner", {})),
+        )
+    if kind == "agent_message":
+        return AgentMessageRoute(
+            role=raw.get("role", "system"),
+            label=raw.get("label", ""),
+        )
+    if kind == "gate":
+        return GateRoute(
+            verdict_field=raw.get("verdictField", "verdict"),
+            reason_field=raw.get("reasonField", "reason"),
+            timeout_s=float(raw.get("timeoutS", raw.get("timeout_s", 30))),
+        )
+    return EventBusRoute(event_kind="sidecar_result")
+
+
+def hydrate_definition(raw: dict[str, Any]) -> SidecarDefinition:
+    """Convert a JSON definition dict (from DB or API) to a SidecarDefinition."""
+    triggers = []
+    for t in raw.get("triggers", []):
+        triggers.append(TriggerPipeline(
+            condition=_hydrate_condition(t.get("condition", {})),
+            context_sources=tuple(t.get("contextSources", ())),
+            prompt_template=t.get("promptTemplate", ""),
+            output_parser=_hydrate_parser(t.get("outputParser")),
+            output_routes=tuple(_hydrate_route(r) for r in t.get("outputRoutes", [])),
+            concurrency=Concurrency(t.get("concurrency", "skip_if_running")),
+        ))
+    return SidecarDefinition(
+        name=raw.get("name", "unnamed"),
+        phase=raw.get("phase", "midflight"),
+        lifetime=raw.get("lifetime", "ephemeral"),
+        scope=raw.get("scope", "global"),
+        model=raw.get("model"),
+        system_prompt=raw.get("systemPrompt", ""),
+        max_turns=raw.get("maxTurns") or raw.get("max_turns"),
+        timeout_s=raw.get("timeoutS") or raw.get("timeout_s"),
+        session_kind=raw.get("sessionKind", "sidecar"),
+        gate=raw.get("gate"),
+        triggers=tuple(triggers),
+        icon=raw.get("icon"),
+        description=raw.get("description", ""),
+        template_id=raw.get("templateId") or raw.get("template_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Dispatcher
+# ---------------------------------------------------------------------------
+
+class SidecarDispatcher:
+    """Central dispatcher for all sidecar trigger evaluation and execution.
+
+    One instance per process.  Subscribes to EventBus at startup, evaluates
+    conditions for all active jobs, and executes matching trigger pipelines.
+    """
+
+    def __init__(
+        self,
+        session_manager: SidecarSessionManager,
+        event_bus: EventBus,
+    ) -> None:
+        self._session_manager = session_manager
+        self._event_bus = event_bus
+        self._jobs: dict[str, _JobState] = {}
+
+        # Extensible registries (populated at startup by service owners)
+        self._context_providers: dict[str, ContextProvider] = {}
+        self._callbacks: dict[str, OutputCallback] = {}
+
+        # Background tasks
+        self._timer_task: asyncio.Task[None] | None = None
+        self._tick_interval_s = 5.0  # base tick rate for timer conditions
+
+    # -- Registration -------------------------------------------------------
+
+    def register_context(self, name: str, provider: ContextProvider) -> None:
+        """Register a named context provider (called at startup)."""
+        self._context_providers[name] = provider
+        log.debug("dispatcher_context_registered", name=name)
+
+    def register_callback(self, name: str, fn: OutputCallback) -> None:
+        """Register a named output callback (called at startup)."""
+        self._callbacks[name] = fn
+        log.debug("dispatcher_callback_registered", name=name)
+
+    # -- Lifecycle ----------------------------------------------------------
+
+    async def start(self) -> None:
+        """Start the periodic timer loop."""
+        self._timer_task = asyncio.create_task(self._timer_loop(), name="sidecar-timer")
+        log.info("sidecar_dispatcher_started")
+
+    async def shutdown(self) -> None:
+        """Stop the timer loop and clean up."""
+        if self._timer_task:
+            self._timer_task.cancel()
+            try:
+                await self._timer_task
+            except asyncio.CancelledError:
+                pass
+        self._jobs.clear()
+        log.info("sidecar_dispatcher_shutdown")
+
+    def activate(self, job_id: str, definitions: list[SidecarDefinition]) -> None:
+        """Register sidecar definitions for a job.
+
+        Called by RuntimeService at job start.  Opens sessions in the
+        session manager for non-ephemeral sidecars.
+        """
+        state = _JobState(definitions=definitions)
+        self._jobs[job_id] = state
+
+        for defn in definitions:
+            if defn.lifetime != "ephemeral":
+                self._session_manager.open(
+                    job_id,
+                    defn.name,
+                    system_prompt=defn.system_prompt,
+                    max_turns=defn.max_turns,
+                    timeout_s=defn.timeout_s,
+                )
+
+        log.info(
+            "dispatcher_activated",
+            job_id=job_id,
+            sidecars=[d.name for d in definitions],
+        )
+
+    async def deactivate(self, job_id: str) -> None:
+        """Close all sidecars for a job and flush metrics."""
+        state = self._jobs.pop(job_id, None)
+        if not state:
+            return
+        self._session_manager.close_job(job_id)
+        log.info("dispatcher_deactivated", job_id=job_id)
+
+    # -- Trigger entry points -----------------------------------------------
+
+    async def handle_event(self, event: DomainEvent) -> None:
+        """EventBus subscriber.  Evaluate event/regex/content/file conditions."""
+        for job_id, state in list(self._jobs.items()):
+            state.last_activity = time.monotonic()
+
+            for defn in state.definitions:
+                for idx, pipeline in enumerate(defn.triggers):
+                    cond = pipeline.condition
+
+                    # EventCondition
+                    if isinstance(cond, EventCondition):
+                        if event.kind not in cond.event_kinds:
+                            continue
+                        # Check event filter (payload key=value matching)
+                        if cond.event_filter:
+                            payload = event.payload or {}
+                            if not all(
+                                str(payload.get(k)) == v
+                                for k, v in cond.event_filter.items()
+                            ):
+                                continue
+                        # Check job_id match (events carry job_id)
+                        if hasattr(event, "job_id") and event.job_id and event.job_id != job_id:
+                            continue
+                        if cond.once and (defn.name, idx) in state.fired_once:
+                            continue
+                        if cond.once:
+                            state.fired_once.add((defn.name, idx))
+                        extra = {"payload": event.payload} if event.payload else None
+                        await self._try_execute(job_id, state, defn, idx, extra)
+
+                    # RegexCondition — match against transcript content from event payload
+                    elif isinstance(cond, RegexCondition):
+                        content = self._extract_content(event, cond.source)
+                        if content is None:
+                            continue
+                        if hasattr(event, "job_id") and event.job_id and event.job_id != job_id:
+                            continue
+                        match = re.search(cond.pattern, content)
+                        if not match:
+                            continue
+                        if cond.once and (defn.name, idx) in state.fired_once:
+                            continue
+                        if cond.once:
+                            state.fired_once.add((defn.name, idx))
+                        extra = {"match": match.group(0), **match.groupdict()}
+                        await self._try_execute(job_id, state, defn, idx, extra)
+
+                    # ContentMatchCondition — keyword substring matching
+                    elif isinstance(cond, ContentMatchCondition):
+                        content = self._extract_content(event, cond.source)
+                        if content is None:
+                            continue
+                        if hasattr(event, "job_id") and event.job_id and event.job_id != job_id:
+                            continue
+                        check_content = content if cond.case_sensitive else content.lower()
+                        matched = any(
+                            (kw if cond.case_sensitive else kw.lower()) in check_content
+                            for kw in cond.keywords
+                        )
+                        if not matched:
+                            continue
+                        if cond.once and (defn.name, idx) in state.fired_once:
+                            continue
+                        if cond.once:
+                            state.fired_once.add((defn.name, idx))
+                        await self._try_execute(job_id, state, defn, idx, None)
+
+                    # FilePatternCondition — match changed file paths from diff events
+                    elif isinstance(cond, FilePatternCondition):
+                        if event.kind != "DiffUpdated":
+                            continue
+                        if hasattr(event, "job_id") and event.job_id and event.job_id != job_id:
+                            continue
+                        changed_files = self._extract_changed_files(event)
+                        if not changed_files:
+                            continue
+                        matched_files = [
+                            f for f in changed_files
+                            if fnmatch(f.get("path", ""), cond.glob)
+                            and (cond.change_kind == "any" or f.get("change_kind") == cond.change_kind)
+                        ]
+                        if not matched_files:
+                            continue
+                        extra = {"matched_files": [f["path"] for f in matched_files]}
+                        await self._try_execute(job_id, state, defn, idx, extra)
+
+    def increment(self, job_id: str, metric: str, delta: int = 1) -> None:
+        """Increment a threshold counter.  Called by RuntimeService."""
+        state = self._jobs.get(job_id)
+        if not state:
+            return
+        state.counters[metric] += delta
+        state.last_activity = time.monotonic()
+
+        # Check threshold conditions synchronously, schedule async execution
+        for defn in state.definitions:
+            for idx, pipeline in enumerate(defn.triggers):
+                cond = pipeline.condition
+                if not isinstance(cond, ThresholdCondition):
+                    continue
+                if cond.metric != metric:
+                    continue
+                if state.counters[metric] < cond.value:
+                    continue
+                if cond.once and (defn.name, idx) in state.fired_once:
+                    continue
+                if cond.once:
+                    state.fired_once.add((defn.name, idx))
+                asyncio.create_task(
+                    self._try_execute(job_id, state, defn, idx, None),
+                    name=f"sidecar-threshold-{defn.name}",
+                )
+
+    async def fire(
+        self, job_id: str, sidecar_name: str, context: dict[str, Any] | None = None,
+    ) -> None:
+        """Manual trigger — fires all ManualCondition pipelines for a sidecar."""
+        state = self._jobs.get(job_id)
+        if not state:
+            log.warning("dispatcher_fire_no_job", job_id=job_id, sidecar=sidecar_name)
+            return
+        for defn in state.definitions:
+            if defn.name != sidecar_name:
+                continue
+            for idx, pipeline in enumerate(defn.triggers):
+                if isinstance(pipeline.condition, ManualCondition):
+                    await self._try_execute(job_id, state, defn, idx, context)
+
+    async def run_postflight(self, job_id: str) -> None:
+        """Execute all postflight sidecars for a completed job."""
+        state = self._jobs.get(job_id)
+        if not state:
+            return
+        for defn in state.definitions:
+            if defn.phase != "postflight":
+                continue
+            # Open session for postflight
+            self._session_manager.open(
+                job_id,
+                defn.name,
+                system_prompt=defn.system_prompt,
+                max_turns=defn.max_turns,
+                timeout_s=defn.timeout_s,
+            )
+            for idx, pipeline in enumerate(defn.triggers):
+                await self._try_execute(job_id, state, defn, idx, None)
+
+    # -- Timer loop ---------------------------------------------------------
+
+    async def _timer_loop(self) -> None:
+        """Periodic tick — evaluates TimerCondition for all active jobs."""
+        while True:
+            try:
+                await asyncio.sleep(self._tick_interval_s)
+                await self._tick()
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                log.error("dispatcher_timer_error", exc_info=True)
+
+    async def _tick(self) -> None:
+        """Single timer tick — check all timer conditions."""
+        now = time.monotonic()
+        for job_id, state in list(self._jobs.items()):
+            for defn in state.definitions:
+                for idx, pipeline in enumerate(defn.triggers):
+                    cond = pipeline.condition
+                    if not isinstance(cond, TimerCondition):
+                        continue
+
+                    # Idle guard: skip if activity is too recent
+                    if cond.idle_guard_s is not None:
+                        idle_s = now - state.last_activity
+                        if idle_s < cond.idle_guard_s:
+                            continue
+
+                    # Interval: skip if too soon since last fire
+                    key = f"{defn.name}:{idx}"
+                    last = state.last_timer.get(key, 0.0)
+                    if (now - last) < cond.interval_s:
+                        continue
+
+                    state.last_timer[key] = now
+                    await self._try_execute(job_id, state, defn, idx, None)
+
+    # -- Pipeline execution -------------------------------------------------
+
+    async def _try_execute(
+        self,
+        job_id: str,
+        state: _JobState,
+        defn: SidecarDefinition,
+        pipeline_idx: int,
+        extra_context: dict[str, Any] | None,
+    ) -> None:
+        """Acquire concurrency slot and execute pipeline, or queue/skip."""
+        pipeline = defn.triggers[pipeline_idx]
+
+        # Gate check
+        if defn.gate:
+            if await self._is_gated(job_id, defn.gate):
+                return
+
+        # Concurrency control
+        flight_key = defn.name
+        if flight_key in state.in_flight:
+            if pipeline.concurrency == Concurrency.skip_if_running:
+                return
+            if pipeline.concurrency == Concurrency.queue:
+                state.queued.append((defn, pipeline_idx, extra_context))
+                return
+            # parallel — fall through
+
+        state.in_flight.add(flight_key)
+        try:
+            await self._execute_pipeline(job_id, defn, pipeline, extra_context)
+        except Exception:
+            log.error(
+                "dispatcher_pipeline_error",
+                job_id=job_id,
+                sidecar=defn.name,
+                exc_info=True,
+            )
+        finally:
+            state.in_flight.discard(flight_key)
+            # Drain queue for this sidecar
+            await self._drain_queue(job_id, state, defn.name)
+
+    async def _drain_queue(
+        self, job_id: str, state: _JobState, sidecar_name: str,
+    ) -> None:
+        """Execute the next queued pipeline for a sidecar, if any."""
+        remaining = []
+        fired = False
+        for queued_defn, queued_idx, queued_ctx in state.queued:
+            if queued_defn.name == sidecar_name and not fired:
+                fired = True
+                state.in_flight.add(sidecar_name)
+                try:
+                    await self._execute_pipeline(
+                        job_id, queued_defn, queued_defn.triggers[queued_idx], queued_ctx,
+                    )
+                except Exception:
+                    log.error("dispatcher_queued_error", exc_info=True)
+                finally:
+                    state.in_flight.discard(sidecar_name)
+            else:
+                remaining.append((queued_defn, queued_idx, queued_ctx))
+        state.queued = remaining
+
+    async def _execute_pipeline(
+        self,
+        job_id: str,
+        defn: SidecarDefinition,
+        pipeline: TriggerPipeline,
+        extra_context: dict[str, Any] | None,
+    ) -> None:
+        """The core execution sequence — same 7 steps for every sidecar."""
+        # 1. Assemble context
+        ctx: dict[str, Any] = {}
+        for source_name in pipeline.context_sources:
+            provider = self._context_providers.get(source_name)
+            if provider is None:
+                log.warning("dispatcher_unknown_provider", name=source_name)
+                continue
+            result = await provider(job_id)
+            if result is None:
+                log.debug(
+                    "dispatcher_skip_null_context",
+                    job_id=job_id,
+                    sidecar=defn.name,
+                    source=source_name,
+                )
+                return  # required context missing → skip
+            ctx.update(result)
+        if extra_context:
+            ctx.update(extra_context)
+
+        # 2. Render prompt
+        if not pipeline.prompt_template:
+            return
+        try:
+            prompt = pipeline.prompt_template.format_map(ctx)
+        except KeyError as e:
+            log.warning(
+                "dispatcher_template_key_error",
+                job_id=job_id,
+                sidecar=defn.name,
+                missing_key=str(e),
+            )
+            return
+
+        # 3. Get or create session
+        if defn.lifetime == "ephemeral":
+            # Ephemeral: create a one-shot session, call, discard
+            session = self._session_manager._make_session(
+                system_prompt=defn.system_prompt,
+                max_turns=1,
+            )
+        else:
+            session = self._session_manager.get(job_id, defn.name)
+            if session is None:
+                # Session expired or not found — re-open for windowed
+                if defn.lifetime == "windowed":
+                    self._session_manager.open(
+                        job_id,
+                        defn.name,
+                        system_prompt=defn.system_prompt,
+                        max_turns=defn.max_turns,
+                        timeout_s=defn.timeout_s,
+                    )
+                    session = self._session_manager.get(job_id, defn.name)
+                if session is None:
+                    log.warning("dispatcher_no_session", job_id=job_id, sidecar=defn.name)
+                    return
+
+        # 4. Call LLM
+        try:
+            raw = await session.complete(prompt, timeout=30.0)
+        except (TimeoutError, OSError, RuntimeError):
+            log.warning("dispatcher_llm_error", job_id=job_id, sidecar=defn.name, exc_info=True)
+            return
+
+        # 5. Parse output
+        parsed = self._parse(raw, pipeline.output_parser)
+        if parsed is None:
+            return
+
+        # 6. Emit sidecar transcript event (for UI visibility)
+        await self._emit_transcript_event(job_id, defn, parsed)
+
+        # 7. Route output
+        for route in pipeline.output_routes:
+            try:
+                await self._route(job_id, defn, parsed, route)
+            except Exception:
+                log.error(
+                    "dispatcher_route_error",
+                    job_id=job_id,
+                    sidecar=defn.name,
+                    route_kind=type(route).__name__,
+                    exc_info=True,
+                )
+
+    # -- Parsing ------------------------------------------------------------
+
+    def _parse(self, raw: str, parser: OutputParser) -> dict[str, Any] | str | list[Any] | None:
+        """Parse raw LLM response according to the output parser spec."""
+        if isinstance(parser, PlainText):
+            return raw.strip() if parser.strip else raw
+
+        text = raw.strip()
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            lines = text.split("\n")
+            if len(lines) >= 2:
+                text = "\n".join(lines[1:])
+            if text.endswith("```"):
+                text = text[:-3].rstrip()
+
+        if isinstance(parser, JsonObject):
+            try:
+                obj = json.loads(text)
+            except (json.JSONDecodeError, ValueError):
+                log.debug("dispatcher_parse_failed", parser="json_object", raw=text[:200])
+                return None
+            if not isinstance(obj, dict):
+                log.debug("dispatcher_parse_not_dict", raw=text[:200])
+                return None
+            for key in parser.required_keys:
+                if key not in obj:
+                    log.debug("dispatcher_parse_missing_key", key=key)
+                    return None
+            return obj
+
+        if isinstance(parser, JsonArray):
+            try:
+                arr = json.loads(text)
+            except (json.JSONDecodeError, ValueError):
+                log.debug("dispatcher_parse_failed", parser="json_array", raw=text[:200])
+                return None
+            if not isinstance(arr, list):
+                return None
+            return arr
+
+        return raw
+
+    # -- Routing ------------------------------------------------------------
+
+    async def _route(
+        self,
+        job_id: str,
+        defn: SidecarDefinition,
+        parsed: Any,
+        route: OutputRoute,
+    ) -> None:
+        """Deliver parsed output to a destination."""
+        from backend.models.events import DomainEvent as DE, DomainEventKind
+
+        if isinstance(route, EventBusRoute):
+            payload: dict[str, Any] = {"sidecar_name": defn.name}
+            if isinstance(parsed, dict):
+                if route.payload_mapping:
+                    for dest_key, src_key in route.payload_mapping.items():
+                        payload[dest_key] = parsed.get(src_key)
+                else:
+                    payload.update(parsed)
+            elif isinstance(parsed, str):
+                payload["content"] = parsed
+            else:
+                payload["result"] = parsed
+            await self._event_bus.publish(DE(
+                job_id=job_id,
+                timestamp=None,
+                kind=route.event_kind,
+                payload=payload,
+            ))
+
+        elif isinstance(route, JobMetadataRoute):
+            # Publish a metadata update event — consumers (job service) handle persistence
+            value = parsed if isinstance(parsed, str) else json.dumps(parsed)
+            await self._event_bus.publish(DE(
+                job_id=job_id,
+                timestamp=None,
+                kind=DomainEventKind.job_title_updated if route.field_name == "title" else "sidecar_metadata_update",
+                payload={"field": route.field_name, "value": value, "sidecar_name": defn.name},
+            ))
+
+        elif isinstance(route, CallbackRoute):
+            callback = self._callbacks.get(route.callback_name)
+            if callback is None:
+                log.warning("dispatcher_unknown_callback", name=route.callback_name)
+                return
+            data = parsed if isinstance(parsed, dict) else {"content": parsed}
+            await callback(job_id, data)
+
+        elif isinstance(route, ConditionalRoute):
+            if isinstance(parsed, dict) and str(parsed.get(route.field_name)) == route.value:
+                await self._route(job_id, defn, parsed, route.inner)
+
+        elif isinstance(route, AgentMessageRoute):
+            content = parsed if isinstance(parsed, str) else json.dumps(parsed)
+            label_prefix = f"[{route.label or defn.name}] " if (route.label or defn.name) else ""
+            await self._event_bus.publish(DE(
+                job_id=job_id,
+                timestamp=None,
+                kind="sidecar_agent_message",
+                payload={
+                    "role": route.role,
+                    "content": f"{label_prefix}{content}",
+                    "sidecar_name": defn.name,
+                    "sidecar_icon": defn.icon,
+                },
+            ))
+
+        elif isinstance(route, GateRoute):
+            if not isinstance(parsed, dict):
+                log.warning("dispatcher_gate_not_dict", sidecar=defn.name)
+                return
+            verdict = str(parsed.get(route.verdict_field, "")).lower()
+            reason = str(parsed.get(route.reason_field, ""))
+            await self._event_bus.publish(DE(
+                job_id=job_id,
+                timestamp=None,
+                kind="sidecar_gate_verdict",
+                payload={
+                    "sidecar_name": defn.name,
+                    "verdict": verdict,
+                    "reason": reason,
+                },
+            ))
+
+    # -- Transcript event ---------------------------------------------------
+
+    async def _emit_transcript_event(
+        self, job_id: str, defn: SidecarDefinition, parsed: Any,
+    ) -> None:
+        """Publish a transcript event so the sidecar's output appears in the feed."""
+        from backend.models.events import DomainEvent as DE
+
+        content = parsed if isinstance(parsed, str) else json.dumps(parsed)
+        await self._event_bus.publish(DE(
+            job_id=job_id,
+            timestamp=None,
+            kind="sidecar_transcript",
+            payload={
+                "sidecar_name": defn.name,
+                "sidecar_icon": defn.icon,
+                "sidecar_description": defn.description,
+                "sidecar_template_id": defn.template_id,
+                "content": content,
+            },
+        ))
+
+    # -- Helpers ------------------------------------------------------------
+
+    async def _is_gated(self, job_id: str, gate_field: str) -> bool:
+        """Check if a job-level gate field is False (disabled)."""
+        # Gate checking requires access to job state — delegate to a context provider
+        provider = self._context_providers.get("job_gate")
+        if provider is None:
+            return False  # no gate provider → not gated
+        result = await provider(job_id)
+        if result is None:
+            return True  # provider returned None → gated
+        return not result.get(gate_field, True)
+
+    @staticmethod
+    def _extract_content(event: DomainEvent, source: str) -> str | None:
+        """Extract text content from a domain event for regex/content matching."""
+        payload = event.payload or {}
+
+        if source == "messages":
+            # TranscriptUpdated events carry role + content
+            if event.kind == "TranscriptUpdated":
+                role = payload.get("role", "")
+                if role in ("agent", "agent_delta"):
+                    return payload.get("content")
+            return None
+
+        if source == "tool_calls":
+            if event.kind == "TranscriptUpdated":
+                if payload.get("role") == "tool_call":
+                    return payload.get("tool_name", "")
+            return None
+
+        if source == "tool_output":
+            if event.kind == "TranscriptUpdated":
+                if payload.get("role") == "tool_call":
+                    return payload.get("tool_result")
+            return None
+
+        return None
+
+    @staticmethod
+    def _extract_changed_files(event: DomainEvent) -> list[dict[str, str]]:
+        """Extract file change info from a DiffUpdated event."""
+        payload = event.payload or {}
+        files = payload.get("files") or payload.get("changed_files") or []
+        if isinstance(files, list):
+            return [
+                f if isinstance(f, dict) else {"path": str(f), "change_kind": "any"}
+                for f in files
+            ]
+        return []

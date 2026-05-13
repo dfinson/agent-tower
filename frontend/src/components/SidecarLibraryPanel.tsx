@@ -111,6 +111,7 @@ export function SidecarLibraryPanel() {
       return {
         name: d.name ?? editingTemplate.name,
         description: d.description ?? editingTemplate.description,
+        scope: d.scope ?? "global",
         phase: d.phase ?? "postflight",
         lifetime: d.lifetime ?? "ephemeral",
         model: d.model ?? "",
@@ -158,6 +159,7 @@ export function SidecarLibraryPanel() {
           let defn: Record<string, unknown> = {};
           try { defn = JSON.parse(t.definitionJson); } catch { /* ok */ }
           const phase = (defn.phase as string) ?? "";
+          const scopeVal = (defn.scope as string) ?? "global";
           const hasGate = JSON.stringify(defn.triggers ?? []).includes('"gate"');
           const hasAgentMsg = JSON.stringify(defn.triggers ?? []).includes('"agent_message"');
 
@@ -172,6 +174,11 @@ export function SidecarLibraryPanel() {
                   {phase && (
                     <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                       {phase}
+                    </Badge>
+                  )}
+                  {scopeVal !== "global" && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                      {scopeVal}
                     </Badge>
                   )}
                   {hasGate && (
@@ -230,6 +237,7 @@ export function SidecarLibraryPanel() {
               onCancel={() => setCreating(false)}
               saving={saving}
               saveLabel="Create Template"
+              hideJobScope
             />
           </div>
         </DialogContent>
@@ -250,6 +258,7 @@ export function SidecarLibraryPanel() {
                 onCancel={() => setEditingId(null)}
                 saving={saving}
                 saveLabel="Update Template"
+                hideJobScope
               />
             )}
           </div>

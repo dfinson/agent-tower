@@ -160,6 +160,29 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
   };
 }
 
+export function handleSidecarTranscript(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const jobId = payload.jobId as string;
+  const entry: TranscriptEntry = {
+    jobId,
+    seq: payload.seq as number,
+    timestamp: payload.timestamp as string,
+    role: "sidecar",
+    content: (payload.content as string) ?? "",
+    sidecarName: payload.name as string | undefined,
+    sidecarIcon: payload.icon as string | undefined,
+    sidecarDescription: payload.description as string | undefined,
+    sidecarTemplateId: payload.templateId as string | undefined,
+  };
+  const existing = state.transcript[jobId] ?? [];
+  if (existing.some((e) => e.timestamp === entry.timestamp && e.role === entry.role && e.content === entry.content)) {
+    return null;
+  }
+  const updated = [...existing, entry];
+  return {
+    transcript: { ...state.transcript, [jobId]: updated.length > 10_000 ? updated.slice(-10_000) : updated },
+  };
+}
+
 export function handleToolGroupSummary(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
   const jobId = payload.jobId as string;
   const turnId = payload.turnId as string;
@@ -182,4 +205,5 @@ export const transcriptHandlers: Record<string, SSEHandler> = {
   log_line: handleLogLine,
   transcript_update: handleTranscriptUpdate,
   tool_group_summary: handleToolGroupSummary,
+  sidecar_transcript: handleSidecarTranscript,
 };

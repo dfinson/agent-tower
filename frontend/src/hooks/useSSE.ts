@@ -126,6 +126,8 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "repo_index_complete",
         // Structural health warnings at step boundaries (§7.2)
         "structural_warning",
+        // Sidecar transcript entries
+        "sidecar_transcript",
       ];
 
       for (const eventType of eventTypes) {

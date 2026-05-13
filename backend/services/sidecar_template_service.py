@@ -27,9 +27,10 @@ _ALLOWED_OUTPUT_ROUTES = ["event_bus", "job_metadata", "agent_message", "gate"]
 # Trigger conditions available to custom sidecars.
 _ALLOWED_CONDITIONS = ["event", "threshold", "manual", "regex", "file_pattern", "content_match"]
 
-# Allowed phases and lifetimes.
+# Allowed phases, lifetimes, and scopes.
 _ALLOWED_PHASES = ["preflight", "midflight", "postflight"]
 _ALLOWED_LIFETIMES = ["ephemeral", "windowed", "persistent"]
+_ALLOWED_SCOPES = ["global", "repo", "job"]
 
 _GENERATE_SYSTEM_PROMPT = """\
 You are a sidecar definition generator for CodePlane, a coding agent control plane.
@@ -41,9 +42,24 @@ produce a valid sidecar definition as a JSON object.
 Available fields:
 - "name": kebab-case identifier (e.g. "security-reviewer"). Required.
 - "description": Short human-readable summary, 1-2 sentences. Required.
+- "icon": Choose one icon name that represents this sidecar's purpose. Available icons:
+  shield, eye, search, zap, brain, target, flask, bug, lock, key, compass,
+  gauge, microscope, alarm, bookmark, clipboard, filter, flag, heart, lightbulb,
+  megaphone, palette, radar, satellite, scanner, scale, siren, telescope, wand.
+  Required.
+- "scope": Where this sidecar applies. One of: "global", "repo", "job". Default "global".
+  - "global": applies to all jobs across all repos — best for universal policies (security reviews, style enforcement, cost monitoring).
+  - "repo": applies to all jobs in a specific repo — best for repo-specific conventions (migration reviewers, test coverage for a monorepo).
+  - "job": applies to a single job — best for one-off or task-specific sidecars (review this PR, audit this refactor).
+  Choose based on how broadly the sidecar's purpose applies. When in doubt, prefer "global".
 - "phase": When the sidecar runs. One of: "preflight", "midflight", "postflight". Required.
 - "lifetime": How long the session lives. One of: "ephemeral", "windowed", "persistent". Required.
-- "model": LLM model to use. Default: "claude-sonnet-4-20250514". Optional.
+  - For "windowed": also include "maxTurns" (int, optional) and/or "timeoutS" (float, optional) to define window bounds.
+- "model": LLM model to use. Pick the cheapest viable option for the task complexity:
+  - Simple classification/extraction: "gpt-4o-mini" (cheapest)
+  - Moderate analysis: "claude-sonnet-4-20250514" or "gpt-4o"
+  - Complex reasoning/review: "claude-sonnet-4-20250514"
+  If omitted, defaults to the system utility model. Optional.
 - "systemPrompt": The system prompt for the sidecar LLM session. Required.
 - "triggers": Array of trigger pipeline objects. Required, at least one.
 
@@ -227,6 +243,11 @@ def _validate_definition(definition_json: str) -> None:
         if field not in defn:
             raise ValueError(f"Missing required field: {field!r}")
 
+    scope = defn.get("scope", "global")
+    if scope not in _ALLOWED_SCOPES:
+        raise ValueError(
+            f"Invalid scope {scope!r}. Allowed: {_ALLOWED_SCOPES}"
+        )
     if defn["phase"] not in _ALLOWED_PHASES:
         raise ValueError(
             f"Invalid phase {defn['phase']!r}. Allowed: {_ALLOWED_PHASES}"

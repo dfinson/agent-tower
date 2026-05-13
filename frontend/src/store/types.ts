@@ -117,6 +117,11 @@ export interface TranscriptEntry {
   toolVisibility?: string;  // tool_call: "hidden" | "collapsed" | "visible"
   // AI-generated group summary — patched in asynchronously via tool_group_summary SSE
   toolGroupSummary?: string;
+  // Sidecar fields — present when role === "sidecar"
+  sidecarName?: string;
+  sidecarIcon?: string;
+  sidecarDescription?: string;
+  sidecarTemplateId?: string;
 }
 
 export interface PlanStep {

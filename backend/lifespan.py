@@ -40,6 +40,7 @@ from backend.services.push_service import PushService
 from backend.services.retention_service import RetentionService
 from backend.services.runtime_service import RuntimeService
 from backend.services.share_service import ShareService
+from backend.services.sidecar_dispatcher import SidecarDispatcher
 from backend.services.sidecar_session import SidecarSessionManager
 from backend.services.sse_manager import SSEManager
 from backend.services.step_persistence import StepPersistenceSubscriber
@@ -443,6 +444,14 @@ async def _wire_core_services(
     )
     log.debug("sidecar_sessions_starting", model=config.runtime.utility_model, sdk=config.runtime.default_sdk)
     await sidecar_sessions.start()
+
+    # --- Sidecar dispatcher (trigger evaluation + pipeline execution) ---
+    sidecar_dispatcher = SidecarDispatcher(
+        session_manager=sidecar_sessions,
+        event_bus=event_bus,
+    )
+    await sidecar_dispatcher.start()
+    event_bus.subscribe(sidecar_dispatcher.handle_event)
 
     # --- Memory compacter (dedicated workspace memory summarization) ---
     memory_compacter = MemoryCompacter(adapter=utility_adapter)
@@ -1110,6 +1119,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             MergeService: services.merge_service,
             PlatformRegistry: services.platform_registry,
             SidecarSessionManager: services.sidecar_sessions,
+            SidecarDispatcher: sidecar_dispatcher,
             NarratorCompleter: services.narrator_completer,
             MemoryCompacter: services.memory_compacter,
             VoiceService: optional.voice_service,
@@ -1186,6 +1196,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if _ephemeral_tasks:
             await asyncio.gather(*_ephemeral_tasks, return_exceptions=True)
         await coderecon_service.stop()
+        await sidecar_dispatcher.shutdown()
         await services.sidecar_sessions.shutdown()
         await services.runtime_service.shutdown()
         sse_manager.close_all()
