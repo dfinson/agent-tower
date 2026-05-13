@@ -213,7 +213,44 @@ class SessionEventKind(StrEnum):
 
 
 # Valid values for SessionConfig.session_kind — used for telemetry grouping.
-SessionKind = Literal["job", "preflight", "memory_extraction", "memory_compaction", "narrator", "sister"]
+SessionKind = Literal["job", "preflight", "memory_extraction", "memory_compaction", "narrator", "sidecar"]
+
+
+# -- Sidecar session configuration -------------------------------------------
+
+# When in the job lifecycle a sidecar runs.
+SidecarPhase = Literal["preflight", "midflight", "postflight"]
+
+# How long a sidecar session lives.
+#   ephemeral  — single completion call, then discarded
+#   windowed   — lives for a bounded window (max_turns or timeout_s), then expires
+#   persistent — lives for the entire job
+SidecarLifetime = Literal["ephemeral", "windowed", "persistent"]
+
+
+@dataclass
+class SidecarConfig:
+    """Declares a named sidecar session attached to a job."""
+
+    name: str
+    phase: SidecarPhase
+    lifetime: SidecarLifetime
+    system_prompt: str
+    # Only meaningful for windowed lifetime — session expires after this many
+    # LLM calls (None = no turn limit).
+    max_turns: int | None = None
+    # Only meaningful for windowed lifetime — session expires after this many
+    # seconds of wall-clock time (None = no time limit).
+    timeout_s: float | None = None
+    # Telemetry dimension — defaults to "sidecar" but preflight/postflight
+    # sidecars may use their own session_kind for separate cost tracking.
+    session_kind: SessionKind = "sidecar"
+
+
+# Well-known sidecar names used by built-in consumers.
+SIDECAR_ARBITER = "arbiter"        # stall detection
+SIDECAR_PLANNER = "planner"        # plan inference + turn classification
+SIDECAR_ENRICHER = "enricher"      # trail enrichment + activity titles
 
 
 # -- Payload TypedDicts per SessionEventKind ----------------------------------
@@ -630,7 +667,7 @@ class SessionConfig:
     disallowed_tools: list[str] = field(default_factory=list)
     # Telemetry dimension — classifies this session for cost tracking.
     # "job" for main agent sessions, or "preflight", "memory_extraction",
-    # "memory_compaction", "narrator", "sister" for sidecar sessions.
+    # "memory_compaction", "narrator", "sidecar" for sidecar sessions.
     session_kind: SessionKind = "job"
 
 
@@ -653,6 +690,8 @@ class JobSpec:
     max_turns: int | None = None
     verify_prompt: str | None = None
     self_review_prompt: str | None = None
+    enable_stall_detection: bool | None = None
+    enable_plan_tracking: bool | None = None
     parent_job_id: str | None = None
     parent_job_context: str | None = None
 
@@ -713,6 +752,8 @@ class Job:
     max_turns: int | None = None
     verify_prompt: str | None = None
     self_review_prompt: str | None = None
+    enable_stall_detection: bool | None = None
+    enable_plan_tracking: bool | None = None
     version: int = 1
     parent_job_id: str | None = None
     source: str = "managed"

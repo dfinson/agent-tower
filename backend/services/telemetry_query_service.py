@@ -16,6 +16,7 @@ import structlog
 
 from backend.models.api_schemas import (
     JobTelemetryResponse,
+    SidecarSessionSummary,
     TelemetryCostBucket,
     TelemetryCostDrivers,
     TelemetryFileAccess,
@@ -150,6 +151,9 @@ class TelemetryQueryService:
         latency_rows = await self._latency_repo.for_job(job_id)
         file_stats = await self._file_repo.reread_stats(job_id)
         top_files = await self._file_repo.most_accessed_files(job_id=job_id)
+
+        # Load sidecar session summaries (preflight, memory, etc.)
+        sidecar_rows = await self._summary_repo.list_sidecars(job_id)
 
         # --- Build tool/LLM call lists ---
         tool_calls: list[TelemetryToolCall] = []
@@ -375,6 +379,17 @@ class TelemetryQueryService:
             quota_snapshots=quota_snapshots,
             review_signals=TelemetryReviewSignals(test_co_modifications=test_co_mods),
             review_complexity=TelemetryReviewComplexity(tier=tier, signals=signals, signal_details=signal_details),
+            sidecar_sessions=[
+                SidecarSessionSummary(
+                    session_kind=str(sr.get("session_kind", "")),
+                    input_tokens=int(sr.get("input_tokens", 0)),
+                    output_tokens=int(sr.get("output_tokens", 0)),
+                    total_cost_usd=float(sr.get("total_cost_usd", 0)),
+                    llm_call_count=int(sr.get("llm_call_count", 0)),
+                    tool_call_count=int(sr.get("tool_call_count", 0)),
+                )
+                for sr in sidecar_rows
+            ],
         )
 
     @staticmethod

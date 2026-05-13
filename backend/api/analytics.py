@@ -52,6 +52,7 @@ from backend.models.api_schemas import (
     RetryCostResponse,
     ScorecardResponse,
     ShellCommandsResponse,
+    SidecarCostEntry,
     TriggerAnalysisResponse,
     TurnEconomicsResponse,
     WasteBreakdown,
@@ -801,6 +802,7 @@ async def analytics_export(
 async def analytics_sidecar_costs(
     svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
-) -> list[dict[str, Any]]:
+) -> list[SidecarCostEntry]:
     """Cost breakdown by session kind for sidecar sessions (preflight, memory, etc)."""
-    return await svc.sidecar_cost_breakdown(period_days=period)
+    rows = await svc.sidecar_cost_breakdown(period_days=period)
+    return [SidecarCostEntry(**r) for r in rows]

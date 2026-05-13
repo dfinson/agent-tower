@@ -46,6 +46,8 @@ class JobRow(Base):
     max_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     verify_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     self_review_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enable_stall_detection: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    enable_plan_tracking: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)

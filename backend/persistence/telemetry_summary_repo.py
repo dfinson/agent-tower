@@ -300,6 +300,19 @@ class TelemetrySummaryRepository(BaseRepository):
             return None
         return cast("TelemetrySummaryRow", dict(row))
 
+    async def list_sidecars(self, job_id: str) -> list[TelemetrySummaryRow]:
+        """Return all non-job session_kind rows for a job."""
+        result = await self._session.execute(
+            text(
+                "SELECT session_kind, input_tokens, output_tokens, total_cost_usd, "
+                "llm_call_count, tool_call_count "
+                "FROM job_telemetry_summary "
+                "WHERE job_id = :job_id AND session_kind != 'job'"
+            ),
+            {"job_id": job_id},
+        )
+        return [cast("TelemetrySummaryRow", dict(r)) for r in result.mappings().all()]
+
     async def batch_cost_tokens(self, job_ids: list[str]) -> dict[str, dict[str, float | int]]:
         """Return {job_id: {total_cost_usd, total_tokens}} for a batch of jobs.
 

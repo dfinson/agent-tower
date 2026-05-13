@@ -48,6 +48,8 @@ class CreateJobRequest(CamelModel):
     max_turns: int | None = Field(None, ge=1, le=10)
     verify_prompt: str | None = Field(None, max_length=5000)
     self_review_prompt: str | None = Field(None, max_length=5000)
+    enable_stall_detection: bool | None = None
+    enable_plan_tracking: bool | None = None
     session_token: str | None = Field(None, max_length=64)
 
     @model_validator(mode="before")
@@ -203,6 +205,8 @@ class JobResponse(CamelModel):
     max_turns: int | None = None
     verify_prompt: str | None = None
     self_review_prompt: str | None = None
+    enable_stall_detection: bool | None = None
+    enable_plan_tracking: bool | None = None
     parent_job_id: str | None = None
     source: str = "managed"
     external_session_id: str | None = None
@@ -241,6 +245,8 @@ class JobResponse(CamelModel):
             max_turns=job.max_turns,
             verify_prompt=job.verify_prompt,
             self_review_prompt=job.self_review_prompt,
+            enable_stall_detection=job.enable_stall_detection,
+            enable_plan_tracking=job.enable_plan_tracking,
             parent_job_id=job.parent_job_id,
             source=job.source,
             external_session_id=job.external_session_id,
@@ -1266,5 +1272,5 @@ class RestoreResponse(CamelModel):
     sha: str
 
 
-# SisterSession*Metrics classes are now canonical in
+# SidecarSession*Metrics classes are now canonical in
 # backend.models.schemas.telemetry (star-imported above).

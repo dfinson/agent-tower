@@ -172,6 +172,8 @@ async def create_job(
             max_turns=body.max_turns,
             verify_prompt=body.verify_prompt,
             self_review_prompt=body.self_review_prompt,
+            enable_stall_detection=body.enable_stall_detection,
+            enable_plan_tracking=body.enable_plan_tracking,
         )
     )
 

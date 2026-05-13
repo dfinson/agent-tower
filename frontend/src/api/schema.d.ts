@@ -2426,6 +2426,10 @@ export interface components {
             verifyPrompt?: string | null;
             /** Selfreviewprompt */
             selfReviewPrompt?: string | null;
+            /** Enablestalldetection */
+            enableStallDetection?: boolean | null;
+            /** Enableplantracking */
+            enablePlanTracking?: boolean | null;
             /** Sessiontoken */
             sessionToken?: string | null;
         };
@@ -2986,6 +2990,10 @@ export interface components {
             verifyPrompt?: string | null;
             /** Selfreviewprompt */
             selfReviewPrompt?: string | null;
+            /** Enablestalldetection */
+            enableStallDetection?: boolean | null;
+            /** Enableplantracking */
+            enablePlanTracking?: boolean | null;
             /** Parentjobid */
             parentJobId?: string | null;
         };

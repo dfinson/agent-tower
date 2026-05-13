@@ -386,6 +386,8 @@ class JobService:
             max_turns=spec.max_turns,
             verify_prompt=spec.verify_prompt,
             self_review_prompt=spec.self_review_prompt,
+            enable_stall_detection=spec.enable_stall_detection,
+            enable_plan_tracking=spec.enable_plan_tracking,
             parent_job_id=spec.parent_job_id,
         )
         await self._job_repo.create(job)
