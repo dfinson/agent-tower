@@ -831,6 +831,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         job_id = event.job_id
         if not job_id:
             return
+        changed_files: list[str] = event.payload.get("files_written", [])
 
         async def _run_check() -> None:
             try:
@@ -847,6 +848,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     return
 
                 repo_name = await coderecon_service.ensure_repo_indexed(repo_path)
+                if changed_files:
+                    await coderecon_service.reindex(repo_name, changed_files, worktree=worktree_path)
                 warnings = await coderecon_service.check_step_structural_health(repo_name, worktree=worktree_path)
                 for w in warnings:
                     await event_bus.publish(
