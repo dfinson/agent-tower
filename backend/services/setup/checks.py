@@ -546,35 +546,6 @@ def verify_requirements(
                         )
                     )
 
-    # --- Disk space ---
-    try:
-        cfg_dir = get_codeplane_dir()
-        disk_path = cfg_dir if cfg_dir.exists() else Path.home()
-        usage = shutil.disk_usage(str(disk_path))
-        free_gb = usage.free / (1024**3)
-        if free_gb > 1:
-            results.append(CheckResult("Disk space", CheckStatus.passed, f"{free_gb:.0f} GB free", category="env"))
-        else:
-            results.append(
-                CheckResult(
-                    "Disk space",
-                    CheckStatus.warn,
-                    f"{free_gb:.1f} GB free",
-                    hint="Less than 1 GB free — may cause issues",
-                    category="env",
-                )
-            )
-    except OSError:
-        results.append(
-            CheckResult(
-                "Disk space",
-                CheckStatus.warn,
-                "Unable to check",
-                hint="Could not read disk usage",
-                category="env",
-            )
-        )
-
     return results
 
 
