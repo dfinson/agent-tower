@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from backend.models.api_schemas import WorkspaceEntry, WorkspaceEntryType, WorkspaceFileResponse, WorkspaceListResponse
-from backend.services.job_service import JobService
+from backend.services.job.job_service import JobService
 
 router = APIRouter(tags=["workspace"], route_class=DishkaRoute)
 

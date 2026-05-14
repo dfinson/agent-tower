@@ -19,7 +19,7 @@ from backend.models.domain import Job, JobSource
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from backend.services.copilot_steer import CopilotSteerClient
+    from backend.services.completers.copilot_steer import CopilotSteerClient
     from backend.services.watcher.claude import ClaudeSessionStateWatcher
     from backend.services.watcher.copilot import SessionStateWatcher
 

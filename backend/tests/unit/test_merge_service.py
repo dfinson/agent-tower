@@ -17,8 +17,8 @@ from backend.models.domain import Job
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
-from backend.services.event_bus import EventBus
-from backend.services.git_service import GitService
+from backend.services.events.event_bus import EventBus
+from backend.services.git.git_service import GitService
 from backend.services.merge_service import MergeService
 
 if TYPE_CHECKING:

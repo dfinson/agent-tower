@@ -1,10 +1,10 @@
-"""Tests for backend.services.telemetry span tracking and public accessors."""
+"""Tests for backend.services.analytics.telemetry span tracking and public accessors."""
 
 from __future__ import annotations
 
 from unittest.mock import patch
 
-from backend.services import telemetry
+from backend.services.analytics import telemetry
 
 # Ensure OTEL providers are initialised for all telemetry tests.
 telemetry.init_telemetry()

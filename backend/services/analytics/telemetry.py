@@ -8,7 +8,7 @@ to Grafana / Jaeger / Prometheus.
 
 Adapters import the instruments and call them with standard OTEL attributes::
 
-    from backend.services.telemetry import tokens_input, llm_duration, tracer
+    from backend.services.analytics.telemetry import tokens_input, llm_duration, tracer
 
     attrs = {"job_id": jid, "sdk": "copilot", "model": "gpt-4o"}
     tokens_input.add(500, attrs)

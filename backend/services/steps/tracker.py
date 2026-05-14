@@ -24,12 +24,12 @@ import structlog
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from backend.services.event_bus import EventBus
-    from backend.services.git_service import GitService
+    from backend.services.events.event_bus import EventBus
+    from backend.services.git.git_service import GitService
 
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.git_service import GitError
-from backend.services.tool_classifier import TOOL_CATEGORIES
+from backend.services.git.git_service import GitError
+from backend.services.tools.tool_classifier import TOOL_CATEGORIES
 
 log = structlog.get_logger()
 

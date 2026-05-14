@@ -15,7 +15,7 @@ import structlog
 from sqlalchemy.exc import DBAPIError
 
 from backend.models.api_schemas import ExecutionPhase
-from backend.services.tool_classifier import (
+from backend.services.tools.tool_classifier import (
     classify_action_from_tools,
     classify_shell_command,
     classify_tool,

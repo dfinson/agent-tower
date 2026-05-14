@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.event_bus import EventBus
+from backend.services.events.event_bus import EventBus
 from backend.services.trail import TrailService
 from backend.services.trail.models import TrailJobState as _TrailJobState
 from backend.services.trail.plan_manager import PlanManager

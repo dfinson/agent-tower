@@ -22,7 +22,7 @@ import httpx
 import structlog
 
 if TYPE_CHECKING:
-    from backend.services.agent_adapter import AgentAdapterInterface, CompletionResult
+    from backend.services.adapters.agent_adapter import AgentAdapterInterface, CompletionResult
 
 log = structlog.get_logger()
 
@@ -180,7 +180,7 @@ class NarratorCompleter:
         return result.text or ""
 
     async def _anthropic_complete(self, prompt: str) -> CompletionResult:
-        from backend.services.agent_adapter import CompletionResult
+        from backend.services.adapters.agent_adapter import CompletionResult
 
         client = await self._get_client()
         resp = await client.post(
@@ -213,7 +213,7 @@ class NarratorCompleter:
         )
 
     async def _openai_complete(self, prompt: str) -> CompletionResult:
-        from backend.services.agent_adapter import CompletionResult
+        from backend.services.adapters.agent_adapter import CompletionResult
 
         client = await self._get_client()
         resp = await client.post(

@@ -1,4 +1,4 @@
-"""Tests for backend.services.statistical_analysis -- all 7 detectors."""
+"""Tests for backend.services.analytics.statistical_analysis -- all 7 detectors."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from backend.models.domain import JobState
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-from backend.services.statistical_analysis import run_analysis
+from backend.services.analytics.statistical_analysis import run_analysis
 
 
 @pytest.fixture

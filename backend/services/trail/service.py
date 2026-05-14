@@ -10,7 +10,7 @@ import structlog
 from backend.config import TrailConfig
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.trail_repo import TrailNodeRepository
-from backend.services.parsing_utils import ensure_dict
+from backend.services.tools.parsing_utils import ensure_dict
 from backend.services.trail.activity_tracker import ActivityTracker
 from backend.services.trail.enricher import TrailEnricher
 from backend.services.trail.node_builder import TrailNodeBuilder
@@ -21,7 +21,7 @@ from backend.services.trail.title_generator import TitleGenerator
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from backend.services.event_bus import EventBus
+    from backend.services.events.event_bus import EventBus
     from backend.services.sidecar.session import SidecarSessionManager
     from backend.services.trail.models import TrailJobState, TrailResponse, TrailSummary
 

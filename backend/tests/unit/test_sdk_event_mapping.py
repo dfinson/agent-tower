@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from backend.models.domain import SessionEventKind
-from backend.services.sdk_event_mapping import (
+from backend.services.adapters.sdk_event_mapping import (
     SDK_KIND_MAP,
     extract_copilot_telemetry,
     extract_result_text,

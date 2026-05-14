@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 import pytest
 
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.sse_manager import SSEConnection, SSEManager, _format_sse
+from backend.services.events.sse_manager import SSEConnection, SSEManager, _format_sse
 
 
 class TestSSEBackpressure:

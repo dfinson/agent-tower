@@ -29,14 +29,14 @@ from backend.di import (
     VoiceMaxBytes,
 )
 from backend.models.db import Base
-from backend.services.approval_service import ApprovalService
-from backend.services.event_bus import EventBus
+from backend.services.adapters.platform_adapter import PlatformRegistry
+from backend.services.completers.voice_service import VoiceService
+from backend.services.events.event_bus import EventBus
+from backend.services.events.sse_manager import SSEManager
+from backend.services.job.approval_service import ApprovalService
 from backend.services.merge_service import MergeService
-from backend.services.platform_adapter import PlatformRegistry
 from backend.services.runtime import RuntimeService
 from backend.services.sidecar.session import SidecarSessionManager
-from backend.services.sse_manager import SSEManager
-from backend.services.voice_service import VoiceService
 
 
 @pytest.fixture

@@ -14,7 +14,7 @@ from starlette.responses import StreamingResponse
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-from backend.services.sse_manager import SSEConnection, SSEManager
+from backend.services.events.sse_manager import SSEConnection, SSEManager
 
 log = structlog.get_logger()
 

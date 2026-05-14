@@ -39,16 +39,16 @@ from backend.models.api_schemas import (  # type: ignore[attr-defined]
     WorkspaceListResponse,
 )
 from backend.models.domain import JobNotFoundError, RepoNotAllowedError, SDKModelMismatchError, StateConflictError
-from backend.services.artifact_service import ArtifactService
-from backend.services.git_service import GitError, GitService
-from backend.services.job_service import JobService
+from backend.services.artifacts.artifact_service import ArtifactService
+from backend.services.git.git_service import GitError, GitService
+from backend.services.job.job_service import JobService
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.config import CPLConfig
     from backend.models.domain import Job
-    from backend.services.approval_service import ApprovalService
+    from backend.services.job.approval_service import ApprovalService
     from backend.services.runtime import RuntimeService
     from backend.services.sidecar.session import SidecarSessionManager
 
@@ -100,7 +100,7 @@ def _make_job_service(
     git: bool = True,
 ) -> JobService:
     from backend.persistence.job_repo import JobRepository
-    from backend.services.naming_service import NamingService
+    from backend.services.completers.naming_service import NamingService
 
     naming: NamingService | None = None
     if state.sidecar_sessions is not None:

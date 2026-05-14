@@ -33,7 +33,7 @@ from backend.models.api_schemas import (
     TelemetryTurnLatency,
     TurnAction,
 )
-from backend.services.tool_classifier import classify_tool, classify_tool_activity, refine_shell_category
+from backend.services.tools.tool_classifier import classify_tool, classify_tool_activity, refine_shell_category
 
 if TYPE_CHECKING:
     from backend.models.domain import TelemetrySpanRow
@@ -398,7 +398,7 @@ class TelemetryQueryService:
         import json as _json
         from collections import Counter
 
-        from backend.services.tool_classifier import classify_tool_activity
+        from backend.services.tools.tool_classifier import classify_tool_activity
 
         # Group tool spans by turn
         turns: dict[str, list[TelemetrySpanRow]] = {}

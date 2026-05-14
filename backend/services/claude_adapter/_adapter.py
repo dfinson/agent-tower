@@ -19,17 +19,17 @@ from backend.models.domain import (
     SessionEventKind,
     SessionEventPayload,
 )
-from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionResult
-from backend.services.base_adapter import (
+from backend.services.adapters.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionResult
+from backend.services.adapters.base_adapter import (
     COMPLETION_TIMEOUT_S,
     BaseAgentAdapter,
     PermissionDecision,
 )
+from backend.services.auth.permission_policy import PermissionRequest
 from backend.services.claude_adapter._helpers import (
     _HIDDEN_TOOLS,
     _kill_sdk_subprocess,
 )
-from backend.services.permission_policy import PermissionRequest
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -37,8 +37,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.models.api_schemas import ExecutionPhase
-    from backend.services.approval_service import ApprovalService
-    from backend.services.event_bus import EventBus
+    from backend.services.events.event_bus import EventBus
+    from backend.services.job.approval_service import ApprovalService
 
 log = structlog.get_logger()
 
@@ -297,7 +297,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                     self._process_tool_result_block(session_id, block, seq, job_id)
         elif isinstance(content, str) and content.strip() and job_id:
             # Human / operator follow-up message
-            from backend.services import telemetry as tel
+            from backend.services.analytics import telemetry as tel
 
             session_kind = self.get_session_kind(session_id)
             tel.messages_counter.add(
@@ -344,7 +344,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                 if not text.strip():
                     continue
                 if job_id:
-                    from backend.services import telemetry as tel
+                    from backend.services.analytics import telemetry as tel
 
                     tel.messages_counter.add(
                         1,
@@ -850,7 +850,7 @@ class ClaudeAdapter(BaseAgentAdapter):
             query,
         )
 
-        from backend.services.agent_adapter import CompletionResult
+        from backend.services.adapters.agent_adapter import CompletionResult
 
         options = ClaudeCodeOptions(
             max_turns=1,

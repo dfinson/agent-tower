@@ -173,7 +173,7 @@ class TestDownloadArtifact:
         """Artifact exists in DB but the file has been deleted from disk."""
         with tempfile.TemporaryDirectory() as artifacts_base:
             monkeypatch.setattr(
-                "backend.services.artifact_service._ARTIFACTS_BASE",
+                "backend.services.artifacts.artifact_service._ARTIFACTS_BASE",
                 Path(artifacts_base),
             )
             job_id = await seed_job()
@@ -199,7 +199,7 @@ class TestDownloadArtifact:
         """Artifact whose disk_path is outside _ARTIFACTS_BASE is rejected."""
         with tempfile.TemporaryDirectory() as artifacts_base:
             monkeypatch.setattr(
-                "backend.services.artifact_service._ARTIFACTS_BASE",
+                "backend.services.artifacts.artifact_service._ARTIFACTS_BASE",
                 Path(artifacts_base),
             )
             job_id = await seed_job()
@@ -224,7 +224,7 @@ class TestDownloadArtifact:
         """Downloading a valid artifact returns 200 with correct content."""
         with tempfile.TemporaryDirectory() as artifacts_base:
             monkeypatch.setattr(
-                "backend.services.artifact_service._ARTIFACTS_BASE",
+                "backend.services.artifacts.artifact_service._ARTIFACTS_BASE",
                 Path(artifacts_base),
             )
             job_id = await seed_job()

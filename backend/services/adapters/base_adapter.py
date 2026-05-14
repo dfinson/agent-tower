@@ -24,12 +24,12 @@ from backend.models.domain import (
     SessionEvent,
     SessionEventKind,
 )
-from backend.services.agent_adapter import AgentAdapterInterface, normalize_model_name
-from backend.services.parsing_utils import ensure_dict
-from backend.services.permission_policy import (
+from backend.services.adapters.agent_adapter import AgentAdapterInterface, normalize_model_name
+from backend.services.auth.permission_policy import (
     PermissionRequest,
     is_git_reset_hard,
 )
+from backend.services.tools.parsing_utils import ensure_dict
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Coroutine
@@ -38,9 +38,9 @@ if TYPE_CHECKING:
 
     from backend.models.api_schemas import ExecutionPhase
     from backend.services.action_policy.classifier import CostContext
-    from backend.services.approval_service import ApprovalService
-    from backend.services.event_bus import EventBus
-    from backend.services.retry_tracker import RetryTracker
+    from backend.services.events.event_bus import EventBus
+    from backend.services.job.approval_service import ApprovalService
+    from backend.services.job.retry_tracker import RetryTracker
 
 log = structlog.get_logger()
 
@@ -568,7 +568,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         session_kind: str = "job",
     ) -> None:
         """Record OTEL counters + DB summary increment for an LLM call."""
-        from backend.services import telemetry as tel
+        from backend.services.analytics import telemetry as tel
 
         attrs: dict[str, Any] = {
             "job_id": job_id,
@@ -676,7 +676,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         tool_title: str | None = None,
     ) -> dict[str, Any]:
         """Build the ``role=tool_running`` transcript event payload."""
-        from backend.services.event_enricher import build_tool_running_payload
+        from backend.services.events.event_enricher import build_tool_running_payload
 
         return build_tool_running_payload(
             tool_name,
@@ -702,7 +702,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
 
         Applies edit-success correction and issue extraction automatically.
         """
-        from backend.services.event_enricher import build_tool_call_payload
+        from backend.services.events.event_enricher import build_tool_call_payload
 
         return build_tool_call_payload(
             tool_name,
@@ -735,8 +735,8 @@ class BaseAgentAdapter(AgentAdapterInterface):
         file access tracking, file_changed events, summary increment, and
         span insertion.
         """
-        from backend.services import telemetry as tel
-        from backend.services.tool_classifier import (
+        from backend.services.analytics import telemetry as tel
+        from backend.services.tools.tool_classifier import (
             classify_tool,
             extract_file_paths,
             extract_tool_target,
@@ -763,7 +763,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         turn_num = self._turn_counters.get(job_id, 0)
 
         # Retry detection
-        from backend.services.retry_tracker import RetryTracker
+        from backend.services.job.retry_tracker import RetryTracker
 
         if job_id not in self._retry_trackers:
             self._retry_trackers[job_id] = RetryTracker()

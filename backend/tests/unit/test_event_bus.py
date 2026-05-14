@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import pytest
 
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.event_bus import EventBus
+from backend.services.events.event_bus import EventBus
 
 
 def _make_event(kind: DomainEventKind = DomainEventKind.job_created) -> DomainEvent:

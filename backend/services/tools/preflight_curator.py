@@ -24,8 +24,8 @@ import structlog
 from backend.models.domain import SessionConfig, SessionEventKind
 
 if TYPE_CHECKING:
-    from backend.services.agent_adapter import AgentAdapterInterface
-    from backend.services.coderecon_service import CodeReconService
+    from backend.services.adapters.agent_adapter import AgentAdapterInterface
+    from backend.services.coderecon.coderecon_service import CodeReconService
 
 log = structlog.get_logger()
 
@@ -135,7 +135,7 @@ class PreflightCurator:
         Returns the curated brief (may be empty if nothing is relevant).
         Raises on failure (caller handles).
         """
-        from backend.services.coderecon_tools import build_coderecon_tools
+        from backend.services.coderecon.coderecon_tools import build_coderecon_tools
 
         # Build read-only toolkit (preflight tier — no checkpoint/refactor)
         toolkit = build_coderecon_tools(

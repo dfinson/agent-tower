@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from backend.services.naming_service import NamingError, NamingService
+from backend.services.completers.naming_service import NamingError, NamingService
 
 
 class FakeBackend:

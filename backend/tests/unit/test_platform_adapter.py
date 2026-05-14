@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from backend.config import PlatformConfig
-from backend.services.platform_adapter import (
+from backend.services.adapters.platform_adapter import (
     AzureDevOpsAdapter,
     GenericGitAdapter,
     GitHubAdapter,
@@ -106,13 +106,13 @@ class TestGitHubAdapter:
     async def test_name(self) -> None:
         assert GitHubAdapter().name == "github"
 
-    @patch("backend.services.platform_adapter.shutil.which", return_value=None)
+    @patch("backend.services.adapters.platform_adapter.shutil.which", return_value=None)
     async def test_check_auth_no_cli(self, _mock: object) -> None:
         status = await GitHubAdapter().check_auth()
         assert status.authenticated is False
         assert "not installed" in (status.error or "").lower()
 
-    @patch("backend.services.platform_adapter.shutil.which", return_value=None)
+    @patch("backend.services.adapters.platform_adapter.shutil.which", return_value=None)
     async def test_create_pr_no_cli(self, _mock: object) -> None:
         result = await GitHubAdapter().create_pr(cwd="/tmp", head="feat", base="main", title="t", body="b")
         assert result.ok is False
@@ -133,13 +133,13 @@ class TestAzureDevOpsAdapter:
     async def test_name(self) -> None:
         assert AzureDevOpsAdapter().name == "azure_devops"
 
-    @patch("backend.services.platform_adapter.shutil.which", return_value=None)
+    @patch("backend.services.adapters.platform_adapter.shutil.which", return_value=None)
     async def test_check_auth_no_cli(self, _mock: object) -> None:
         status = await AzureDevOpsAdapter().check_auth()
         assert status.authenticated is False
         assert "not installed" in (status.error or "").lower()
 
-    @patch("backend.services.platform_adapter.shutil.which", return_value=None)
+    @patch("backend.services.adapters.platform_adapter.shutil.which", return_value=None)
     async def test_create_pr_no_cli(self, _mock: object) -> None:
         result = await AzureDevOpsAdapter().create_pr(cwd="/tmp", head="feat", base="main", title="t", body="b")
         assert result.ok is False
@@ -154,12 +154,12 @@ class TestGitLabAdapter:
     async def test_name(self) -> None:
         assert GitLabAdapter().name == "gitlab"
 
-    @patch("backend.services.platform_adapter.shutil.which", return_value=None)
+    @patch("backend.services.adapters.platform_adapter.shutil.which", return_value=None)
     async def test_check_auth_no_cli(self, _mock: object) -> None:
         status = await GitLabAdapter().check_auth()
         assert status.authenticated is False
 
-    @patch("backend.services.platform_adapter.shutil.which", return_value=None)
+    @patch("backend.services.adapters.platform_adapter.shutil.which", return_value=None)
     async def test_create_pr_no_cli(self, _mock: object) -> None:
         result = await GitLabAdapter().create_pr(cwd="/tmp", head="feat", base="main", title="t", body="b")
         assert result.ok is False

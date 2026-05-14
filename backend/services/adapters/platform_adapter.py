@@ -469,7 +469,7 @@ class PlatformRegistry:
 
         # 2. Auto-detect from origin URL
         if origin_url is None:
-            from backend.services.git_service import GitService
+            from backend.services.git.git_service import GitService
 
             git = GitService.__new__(GitService)
             git._worktrees_dirname = ".codeplane-worktrees"

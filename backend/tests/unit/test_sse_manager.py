@@ -11,7 +11,7 @@ import pytest
 from backend.models.api_schemas import SnapshotPayload
 from backend.models.domain import Job
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.sse_manager import (
+from backend.services.events.sse_manager import (
     MAX_REPLAY_AGE,
     MAX_REPLAY_EVENTS,
     SSEConnection,

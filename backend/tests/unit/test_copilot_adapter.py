@@ -217,7 +217,7 @@ def _make_config(**overrides: Any) -> SessionConfig:
 
 def _install_auto_approve_router(adapter: Any, job_id: str = "job-1") -> None:
     """Install a mock policy router that auto-approves everything."""
-    from backend.services.base_adapter import PermissionDecision
+    from backend.services.adapters.base_adapter import PermissionDecision
 
     mock_router = MagicMock()
     adapter._policy_router[job_id] = mock_router
@@ -697,12 +697,12 @@ class TestEventTelemetry:
         )
 
         with (
-            patch("backend.services.telemetry.tokens_input") as mock_in,
-            patch("backend.services.telemetry.tokens_output") as mock_out,
-            patch("backend.services.telemetry.tokens_cache_read") as mock_cr,
-            patch("backend.services.telemetry.tokens_cache_write") as mock_cw,
-            patch("backend.services.telemetry.cost_usd") as mock_cost,
-            patch("backend.services.telemetry.llm_duration") as mock_dur,
+            patch("backend.services.analytics.telemetry.tokens_input") as mock_in,
+            patch("backend.services.analytics.telemetry.tokens_output") as mock_out,
+            patch("backend.services.analytics.telemetry.tokens_cache_read") as mock_cr,
+            patch("backend.services.analytics.telemetry.tokens_cache_write") as mock_cw,
+            patch("backend.services.analytics.telemetry.cost_usd") as mock_cost,
+            patch("backend.services.analytics.telemetry.llm_duration") as mock_dur,
         ):
             session.fire_event(_FakeSdkSessionEvent("assistant.usage", data))
 
@@ -809,7 +809,7 @@ class TestEventTelemetry:
             tool_title=None,
         )
 
-        with patch("backend.services.telemetry.tool_duration") as mock_tool_dur:
+        with patch("backend.services.analytics.telemetry.tool_duration") as mock_tool_dur:
             session.fire_event(_FakeSdkSessionEvent("tool.execution_start", start_data))
 
             # Verify start time recorded
@@ -917,7 +917,7 @@ class TestEventTelemetry:
 
         data = _FakeEventData(current_tokens=5000)
 
-        with patch("backend.services.telemetry.context_tokens_gauge") as mock_gauge:
+        with patch("backend.services.analytics.telemetry.context_tokens_gauge") as mock_gauge:
             session.fire_event(_FakeSdkSessionEvent("session.usage_info", data))
 
             mock_gauge.set.assert_called_once_with(5000, {"job_id": "job-tel", "sdk": "copilot", "session_kind": "job"})
@@ -929,9 +929,9 @@ class TestEventTelemetry:
         data = _FakeEventData(pre_compaction_tokens=10000, post_compaction_tokens=3000)
 
         with (
-            patch("backend.services.telemetry.compactions_counter") as mock_comp,
-            patch("backend.services.telemetry.tokens_compacted") as mock_tc,
-            patch("backend.services.telemetry.context_tokens_gauge") as mock_ctx,
+            patch("backend.services.analytics.telemetry.compactions_counter") as mock_comp,
+            patch("backend.services.analytics.telemetry.tokens_compacted") as mock_tc,
+            patch("backend.services.analytics.telemetry.context_tokens_gauge") as mock_ctx,
         ):
             session.fire_event(_FakeSdkSessionEvent("session.compaction_complete", data))
 
@@ -946,7 +946,7 @@ class TestEventTelemetry:
 
         data = _FakeEventData(token_limit=128000)
 
-        with patch("backend.services.telemetry.context_window_gauge") as mock_gauge:
+        with patch("backend.services.analytics.telemetry.context_window_gauge") as mock_gauge:
             session.fire_event(_FakeSdkSessionEvent("session.truncation", data))
 
             mock_gauge.set.assert_called_once_with(
@@ -970,7 +970,7 @@ class TestEventTelemetry:
 
         data = _FakeEventData(content="hello", title=None, turn_id=None)
 
-        with patch("backend.services.telemetry.messages_counter") as mock_msg:
+        with patch("backend.services.analytics.telemetry.messages_counter") as mock_msg:
             session.fire_event(_FakeSdkSessionEvent("assistant.message", data))
 
             mock_msg.add.assert_called_once_with(
@@ -983,7 +983,7 @@ class TestEventTelemetry:
 
         data = _FakeEventData(content="user prompt", message=None)
 
-        with patch("backend.services.telemetry.messages_counter") as mock_msg:
+        with patch("backend.services.analytics.telemetry.messages_counter") as mock_msg:
             session.fire_event(_FakeSdkSessionEvent("user.message", data))
 
             mock_msg.add.assert_called_once_with(

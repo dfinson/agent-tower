@@ -32,18 +32,18 @@ from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMax
 from backend.models.db import Base, JobRow
 from backend.models.domain import JobNotFoundError
 from backend.persistence.database import _set_sqlite_pragmas
-from backend.services.approval_service import ApprovalService
-from backend.services.coderecon_service import CodeReconService
-from backend.services.event_bus import EventBus
-from backend.services.git_service import GitService
-from backend.services.ingest_service import IngestService
+from backend.services.adapters.platform_adapter import PlatformRegistry
+from backend.services.coderecon.coderecon_service import CodeReconService
+from backend.services.completers.voice_service import VoiceService
+from backend.services.events.event_bus import EventBus
+from backend.services.events.ingest_service import IngestService
+from backend.services.events.sse_manager import SSEManager
+from backend.services.git.git_service import GitService
+from backend.services.job.approval_service import ApprovalService
 from backend.services.merge_service import MergeService
-from backend.services.platform_adapter import PlatformRegistry
 from backend.services.runtime import RuntimeService
 from backend.services.sidecar.session import SidecarSessionManager
-from backend.services.sse_manager import SSEManager
-from backend.services.terminal_service import TerminalService
-from backend.services.voice_service import VoiceService
+from backend.services.terminal.terminal_service import TerminalService
 
 # ---------------------------------------------------------------------------
 # Database
@@ -255,7 +255,7 @@ async def app(
 
     # -- config overrides (for non-dishka load_config calls) ----
     monkeypatch.setattr("backend.config.load_config", _test_config)
-    monkeypatch.setattr("backend.services.job_service.load_config", _test_config)
+    monkeypatch.setattr("backend.services.job.job_service.load_config", _test_config)
 
     yield application
 

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.event_bus import EventBus
+from backend.services.events.event_bus import EventBus
 
 # Import after models to avoid circular
 from backend.services.trail.activity_tracker import ActivityTracker

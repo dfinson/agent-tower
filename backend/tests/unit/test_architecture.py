@@ -25,8 +25,8 @@ ALLOWED_EVENT_REPO_CONSUMERS = {
     "backend/di.py",
     "backend/lifespan.py",
     "backend/api/job_artifacts.py",
-    "backend/services/job_service.py",
-    "backend/services/sse_manager.py",
+    "backend/services/job/job_service.py",
+    "backend/services/events/sse_manager.py",
 }
 
 

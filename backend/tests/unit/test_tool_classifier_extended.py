@@ -1,10 +1,10 @@
-"""Tests for backend.services.tool_classifier — pure classification functions."""
+"""Tests for backend.services.tools.tool_classifier — pure classification functions."""
 
 from __future__ import annotations
 
 import json
 
-from backend.services.tool_classifier import (
+from backend.services.tools.tool_classifier import (
     _classify_segment,
     _is_verification_segment,
     _split_shell,

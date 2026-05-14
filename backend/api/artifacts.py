@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from backend.models.api_schemas import ArtifactListResponse, ArtifactResponse
-from backend.services.artifact_service import ArtifactService, get_artifacts_base
+from backend.services.artifacts.artifact_service import ArtifactService, get_artifacts_base
 
 router = APIRouter(tags=["artifacts"], route_class=DishkaRoute)
 

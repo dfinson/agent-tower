@@ -26,8 +26,8 @@ import structlog
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from backend.services.coderecon_service import CodeReconService
-    from backend.services.naming_service import Completable
+    from backend.services.coderecon.coderecon_service import CodeReconService
+    from backend.services.completers.naming_service import Completable
 
 log = structlog.get_logger()
 

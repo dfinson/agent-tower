@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.models.schemas.base import CamelModel
 from backend.persistence.policy_repo import PolicyRepository
-from backend.services.event_bus import EventBus
+from backend.services.events.event_bus import EventBus
 
 router = APIRouter(prefix="/settings/policy", tags=["policy"], route_class=DishkaRoute)
 log = structlog.get_logger()

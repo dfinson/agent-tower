@@ -199,7 +199,7 @@ def _mock_terminal_svc_for_ws(*, session_id: str = "s1", scrollback: str = "") -
 
 def _set_container_svc(app: FastAPI, svc: Mock) -> None:
     """Replace the TerminalService value in the DI container for WS tests."""
-    from backend.services.terminal_service import TerminalService
+    from backend.services.terminal.terminal_service import TerminalService
 
     app.state.dishka_container._context[TerminalService] = svc
 

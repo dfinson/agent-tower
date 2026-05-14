@@ -24,7 +24,7 @@ import structlog
 
 from backend.models.domain import Job, JobSource, JobState, SessionEvent, SessionEventKind
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.event_enricher import ToolEventEnricher
+from backend.services.events.event_enricher import ToolEventEnricher
 from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin
 
 if TYPE_CHECKING:
@@ -33,9 +33,9 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.config import CPLConfig
-    from backend.services.coderecon_service import CodeReconService
-    from backend.services.event_bus import EventBus
-    from backend.services.git_service import GitService
+    from backend.services.coderecon.coderecon_service import CodeReconService
+    from backend.services.events.event_bus import EventBus
+    from backend.services.git.git_service import GitService
     from backend.services.runtime import RuntimeService
 
 log = structlog.get_logger()
@@ -894,7 +894,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
     async def _handle_assistant_event(self, raw: dict[str, Any], session_id: str, job_id: str) -> None:
         """Handle an assistant-type JSONL event."""
-        from backend.services.tool_classifier import classify_tool, extract_file_paths
+        from backend.services.tools.tool_classifier import classify_tool, extract_file_paths
 
         message = raw.get("message", {})
         content_blocks = message.get("content", [])
@@ -1004,7 +1004,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         message: dict[str, Any],
     ) -> None:
         """Extract token usage and cost telemetry from assistant message."""
-        from backend.services import telemetry as tel
+        from backend.services.analytics import telemetry as tel
 
         input_toks = int(usage.get("input_tokens", 0))
         output_toks = int(usage.get("output_tokens", 0))

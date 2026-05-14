@@ -1,8 +1,8 @@
-from backend.services.cost_attribution import (
+from backend.services.analytics.cost_attribution import (
     _classify_turn_intent,
     _infer_execution_phases,
 )
-from backend.services.tool_classifier import classify_shell_command, classify_tool
+from backend.services.tools.tool_classifier import classify_shell_command, classify_tool
 
 
 def test_infer_execution_phases_uses_neighboring_valid_phases() -> None:

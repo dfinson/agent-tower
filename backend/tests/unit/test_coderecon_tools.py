@@ -1,11 +1,11 @@
-"""Tests for backend.services.coderecon_tools — helper functions and constants."""
+"""Tests for backend.services.coderecon.coderecon_tools — helper functions and constants."""
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 
-from backend.services.coderecon_tools import (
+from backend.services.coderecon.coderecon_tools import (
     _TOOL_DEFS,
     _TOOL_GUIDANCE_FULL,
     _TOOL_GUIDANCE_STANDARD,

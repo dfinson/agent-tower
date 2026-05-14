@@ -26,9 +26,9 @@ from backend.models.domain import (
     StateConflictError,
     validate_state_transition,
 )
-from backend.services.agent_adapter import validate_sdk_model
-from backend.services.git_service import GitError
-from backend.services.naming_service import NamingError
+from backend.services.adapters.agent_adapter import validate_sdk_model
+from backend.services.completers.naming_service import NamingError
+from backend.services.git.git_service import GitError
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,11 +37,11 @@ if TYPE_CHECKING:
     from backend.models.events import DomainEvent, DomainEventKind
     from backend.persistence.event_repo import EventRepository
     from backend.persistence.job_repo import JobRepository
-    from backend.services.coderecon_service import CodeReconService
-    from backend.services.event_bus import EventBus
-    from backend.services.git_service import GitService
+    from backend.services.coderecon.coderecon_service import CodeReconService
+    from backend.services.completers.naming_service import NamingService
+    from backend.services.events.event_bus import EventBus
+    from backend.services.git.git_service import GitService
     from backend.services.merge_service import MergeService
-    from backend.services.naming_service import NamingService
 
 log = structlog.get_logger()
 
@@ -94,7 +94,7 @@ class JobService:
         job_repo = JobRepository(session)
         event_repo = EventRepository(session)
         if git_service is None:
-            from backend.services.git_service import GitService
+            from backend.services.git.git_service import GitService
 
             git_service = GitService(config)
         return cls(

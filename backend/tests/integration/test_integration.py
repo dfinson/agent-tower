@@ -15,10 +15,10 @@ from backend.models.db import Base
 from backend.models.domain import JobSpec
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
-from backend.services.approval_service import ApprovalService
-from backend.services.event_bus import EventBus
-from backend.services.git_service import GitService
-from backend.services.job_service import JobService
+from backend.services.events.event_bus import EventBus
+from backend.services.git.git_service import GitService
+from backend.services.job.approval_service import ApprovalService
+from backend.services.job.job_service import JobService
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -62,7 +62,7 @@ def config() -> CPLConfig:
 @pytest.fixture(autouse=True)
 def patch_job_service_load_config(monkeypatch: pytest.MonkeyPatch, config: CPLConfig) -> None:
     """Patch job_service.load_config so _resolve_repos uses the test config."""
-    monkeypatch.setattr("backend.services.job_service.load_config", lambda: config)
+    monkeypatch.setattr("backend.services.job.job_service.load_config", lambda: config)
 
 
 @pytest.fixture

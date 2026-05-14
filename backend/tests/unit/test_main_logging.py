@@ -38,7 +38,7 @@ def test_console_noise_filter_suppresses_invalid_http_request() -> None:
 
 def test_console_noise_filter_suppresses_sse_info() -> None:
     filt = ConsoleNoiseFilter()
-    assert filt.filter(_record("backend.services.sse_manager", logging.INFO)) is False
+    assert filt.filter(_record("backend.services.events.sse_manager", logging.INFO)) is False
 
 
 def test_console_noise_filter_allows_backend_main_info() -> None:

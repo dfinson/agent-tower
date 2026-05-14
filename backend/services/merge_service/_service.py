@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.models.domain import GitMergeOutcome
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.git_service import GitError
+from backend.services.git.git_service import GitError
 from backend.services.merge_service._types import (
     _NOT_MERGED,
     _PR_TITLE_MAX_PROMPT_LEN,
@@ -31,10 +31,10 @@ if TYPE_CHECKING:
 
     from backend.config import CompletionConfig
     from backend.models.domain import Job
-    from backend.services.diff_service import DiffService
-    from backend.services.event_bus import EventBus
-    from backend.services.git_service import GitService
-    from backend.services.platform_adapter import PlatformRegistry
+    from backend.services.adapters.platform_adapter import PlatformRegistry
+    from backend.services.artifacts.diff_service import DiffService
+    from backend.services.events.event_bus import EventBus
+    from backend.services.git.git_service import GitService
 
 log = structlog.get_logger()
 

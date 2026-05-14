@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, UploadFile
 
 from backend.di import VoiceMaxBytes
 from backend.models.api_schemas import TranscribeResponse
-from backend.services.voice_service import VoiceService
+from backend.services.completers.voice_service import VoiceService
 
 router = APIRouter(tags=["voice"], route_class=DishkaRoute)
 

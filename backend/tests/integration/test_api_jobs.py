@@ -37,7 +37,7 @@ def _patch_for_job_creation(
 ) -> None:
     """Replace GitService so create/rerun/continue routes use the mock."""
     monkeypatch.setattr(
-        "backend.services.git_service.GitService",
+        "backend.services.git.git_service.GitService",
         lambda config: mock_git_service,
     )
 
@@ -115,7 +115,7 @@ class TestJobsCrud:
         from backend.config import CPLConfig
 
         shared_config = CPLConfig(repos=[])
-        monkeypatch.setattr("backend.services.job_service.load_config", lambda: shared_config)
+        monkeypatch.setattr("backend.services.job.job_service.load_config", lambda: shared_config)
 
         # Repo not yet in the allowlist — must be rejected
         resp = await client.post("/api/jobs", json=_create_body(repo="/new/repo"))

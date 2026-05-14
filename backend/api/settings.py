@@ -45,9 +45,9 @@ from backend.models.api_schemas import (
     UpdateSettingsRequest,
 )
 from backend.models.db import JobRow
-from backend.services.coderecon_service import CodeReconService
-from backend.services.git_service import GitError, GitService
-from backend.services.platform_adapter import PlatformRegistry, detect_platform
+from backend.services.adapters.platform_adapter import PlatformRegistry, detect_platform
+from backend.services.coderecon.coderecon_service import CodeReconService
+from backend.services.git.git_service import GitError, GitService
 
 router = APIRouter(tags=["settings"], route_class=DishkaRoute)
 

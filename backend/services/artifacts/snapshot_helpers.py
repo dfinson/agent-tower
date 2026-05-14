@@ -23,13 +23,13 @@ from backend.models.api_schemas import (
 )
 from backend.models.domain import JobState
 from backend.models.events import DomainEventKind
-from backend.services.git_service import GitError
+from backend.services.git.git_service import GitError
 from backend.services.steps.tracker import hydrate_plan_steps
 
 if TYPE_CHECKING:
     from backend.persistence.approval_repo import ApprovalRepository
-    from backend.services.diff_service import DiffService
-    from backend.services.job_service import JobService, ProgressPreview
+    from backend.services.artifacts.diff_service import DiffService
+    from backend.services.job.job_service import JobService, ProgressPreview
 
 # Event query limits — bound the maximum rows returned from the event store.
 # Default (2000) covers a typical 1–2 hour session; ceiling (5000)

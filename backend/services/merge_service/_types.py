@@ -21,7 +21,7 @@ from backend.models.domain import GitMergeOutcome
 from backend.validators import REF_PATTERN as _REF_PATTERN  # noqa: F401
 
 if TYPE_CHECKING:
-    from backend.services.git_service import GitError
+    from backend.services.git.git_service import GitError
 
 
 class _MergeOutcome(StrEnum):

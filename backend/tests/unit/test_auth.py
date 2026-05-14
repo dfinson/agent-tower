@@ -1,4 +1,4 @@
-"""Tests for password-based authentication (backend.services.auth)."""
+"""Tests for password-based authentication (backend.services.auth.middleware)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.services import auth
+from backend.services.auth import middleware as auth
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -181,8 +181,8 @@ class TestIsLocalhost:
 
 
 class TestHasCloudflareAccess:
-    @patch("backend.services.cf_access.is_configured", return_value=True)
-    @patch("backend.services.cf_access.verify_token", return_value=True)
+    @patch("backend.services.auth.cf_access.is_configured", return_value=True)
+    @patch("backend.services.auth.cf_access.verify_token", return_value=True)
     def test_returns_true_with_valid_jwt(self, _mock_verify, _mock_configured) -> None:
         req = _make_request(headers={"cf-access-jwt-assertion": "eyJ.valid.sig"})
         assert auth._has_cloudflare_access(req) is True
@@ -195,13 +195,13 @@ class TestHasCloudflareAccess:
         req = _make_request(headers={"cf-access-jwt-assertion": ""})
         assert auth._has_cloudflare_access(req) is False
 
-    @patch("backend.services.cf_access.is_configured", return_value=False)
+    @patch("backend.services.auth.cf_access.is_configured", return_value=False)
     def test_returns_false_when_cf_access_not_configured(self, _mock_configured) -> None:
         req = _make_request(headers={"cf-access-jwt-assertion": "eyJ.test.sig"})
         assert auth._has_cloudflare_access(req) is False
 
-    @patch("backend.services.cf_access.is_configured", return_value=True)
-    @patch("backend.services.cf_access.verify_token", return_value=False)
+    @patch("backend.services.auth.cf_access.is_configured", return_value=True)
+    @patch("backend.services.auth.cf_access.verify_token", return_value=False)
     def test_returns_false_when_token_invalid(self, _mock_verify, _mock_configured) -> None:
         req = _make_request(headers={"cf-access-jwt-assertion": "eyJ.bad.sig"})
         assert auth._has_cloudflare_access(req) is False
@@ -213,8 +213,8 @@ class TestHasCloudflareAccess:
 
 
 class TestIsRequestAuthenticated:
-    @patch("backend.services.cf_access.is_configured", return_value=True)
-    @patch("backend.services.cf_access.verify_token", return_value=True)
+    @patch("backend.services.auth.cf_access.is_configured", return_value=True)
+    @patch("backend.services.auth.cf_access.verify_token", return_value=True)
     def test_cf_access_jwt_bypasses_password_auth(
         self, _mock_verify, _mock_configured, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -232,8 +232,8 @@ class TestIsRequestAuthenticated:
         req = _make_request(client_host="203.0.113.1")
         assert auth.is_request_authenticated(req) is False
 
-    @patch("backend.services.cf_access.is_configured", return_value=True)
-    @patch("backend.services.cf_access.verify_token", return_value=False)
+    @patch("backend.services.auth.cf_access.is_configured", return_value=True)
+    @patch("backend.services.auth.cf_access.verify_token", return_value=False)
     def test_invalid_cf_token_does_not_bypass(
         self, _mock_verify, _mock_configured, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -459,8 +459,8 @@ class TestAuthMiddleware:
         call_next.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("backend.services.cf_access.is_configured", return_value=True)
-    @patch("backend.services.cf_access.verify_token", return_value=True)
+    @patch("backend.services.auth.cf_access.is_configured", return_value=True)
+    @patch("backend.services.auth.cf_access.verify_token", return_value=True)
     async def test_cloudflare_access_jwt_bypasses_auth(
         self, _mock_verify, _mock_configured, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -488,8 +488,8 @@ class TestAuthMiddleware:
         assert resp.status_code == 401
 
     @pytest.mark.asyncio
-    @patch("backend.services.cf_access.is_configured", return_value=True)
-    @patch("backend.services.cf_access.verify_token", return_value=False)
+    @patch("backend.services.auth.cf_access.is_configured", return_value=True)
+    @patch("backend.services.auth.cf_access.verify_token", return_value=False)
     async def test_forged_cf_header_does_not_bypass(
         self, _mock_verify, _mock_configured, monkeypatch: pytest.MonkeyPatch
     ) -> None:

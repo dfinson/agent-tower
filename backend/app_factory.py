@@ -59,7 +59,7 @@ from backend.models.domain import (
     SDKModelMismatchError,
     StateConflictError,
 )
-from backend.services.share_service import InvalidShareTokenError
+from backend.services.sharing.share_service import InvalidShareTokenError
 
 _FRONTEND_DIR = Path(__file__).resolve().parent / "web"
 
@@ -168,7 +168,7 @@ def _configure_middleware(
 
     # Password auth — enabled when password is provided (tunnel mode or explicit)
     if password:
-        from backend.services.auth import (
+        from backend.services.auth.middleware import (
             auth_middleware,
             authenticate_login_request,
             authenticate_logout_request,

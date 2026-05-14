@@ -7,7 +7,7 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter
 
 from backend.models.api_schemas import JobTelemetryResponse
-from backend.services.telemetry_query_service import TelemetryQueryService
+from backend.services.analytics.telemetry_query_service import TelemetryQueryService
 
 router = APIRouter(tags=["jobs"], route_class=DishkaRoute)
 

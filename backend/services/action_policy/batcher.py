@@ -13,7 +13,7 @@ import structlog
 
 if TYPE_CHECKING:
     from backend.services.action_policy.classifier import Action, Classification
-    from backend.services.event_bus import EventBus
+    from backend.services.events.event_bus import EventBus
 
 log = structlog.get_logger()
 

@@ -21,7 +21,7 @@ from backend.models.domain import (
     SessionEvent,
     SessionEventKind,
 )
-from backend.services.base_adapter import PermissionDecision
+from backend.services.adapters.base_adapter import PermissionDecision
 
 # ---------------------------------------------------------------------------
 # Fake claude_code_sdk types (injected before the adapter is imported)
@@ -189,7 +189,7 @@ _fake_errors = ModuleType("claude_code_sdk._errors")
 _fake_errors.MessageParseError = type("MessageParseError", (Exception,), {})
 sys.modules.setdefault("claude_code_sdk._errors", _fake_errors)
 
-from backend.services.base_adapter import BaseAgentAdapter  # noqa: E402
+from backend.services.adapters.base_adapter import BaseAgentAdapter  # noqa: E402
 from backend.services.claude_adapter import (  # noqa: E402
     _HIDDEN_TOOLS,
     ClaudeAdapter,
@@ -674,12 +674,12 @@ class TestProcessResultMessage:
         )
 
         with (
-            patch("backend.services.telemetry.tokens_input") as mock_in,
-            patch("backend.services.telemetry.tokens_output") as mock_out,
-            patch("backend.services.telemetry.tokens_cache_read") as mock_cr,
-            patch("backend.services.telemetry.tokens_cache_write") as mock_cw,
-            patch("backend.services.telemetry.cost_usd") as mock_cost,
-            patch("backend.services.telemetry.llm_duration") as mock_dur,
+            patch("backend.services.analytics.telemetry.tokens_input") as mock_in,
+            patch("backend.services.analytics.telemetry.tokens_output") as mock_out,
+            patch("backend.services.analytics.telemetry.tokens_cache_read") as mock_cr,
+            patch("backend.services.analytics.telemetry.tokens_cache_write") as mock_cw,
+            patch("backend.services.analytics.telemetry.cost_usd") as mock_cost,
+            patch("backend.services.analytics.telemetry.llm_duration") as mock_dur,
         ):
             adapter._process_result_message(sid, msg, [0])
 
@@ -1113,7 +1113,7 @@ class TestToolResultTelemetry:
         adapter._session_to_job[sid] = "job-1"
         adapter._tool_start_times["tool-1"] = time.monotonic() - 1.0
 
-        with patch("backend.services.telemetry.tool_duration") as mock_tool_dur:
+        with patch("backend.services.analytics.telemetry.tool_duration") as mock_tool_dur:
             adapter._process_tool_result_block(
                 sid,
                 _FakeToolResultBlock(tool_use_id="tool-1", content="ok"),
@@ -1131,7 +1131,7 @@ class TestToolResultTelemetry:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
 
-        with patch("backend.services.telemetry.tool_duration") as mock_tool_dur:
+        with patch("backend.services.analytics.telemetry.tool_duration") as mock_tool_dur:
             adapter._process_tool_result_block(
                 sid,
                 _FakeToolResultBlock(tool_use_id="tool-2", content="ok"),

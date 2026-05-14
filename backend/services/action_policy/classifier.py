@@ -291,7 +291,7 @@ def _classify_sdk_tool(action: Action, policy: RepoPolicy) -> tuple[bool, bool, 
 
     # Fallback: check tool_classifier categories to avoid marking
     # read-only tools as irreversible just because they're not in the table
-    from backend.services.tool_classifier import classify_tool
+    from backend.services.tools.tool_classifier import classify_tool
 
     category = classify_tool(tool)
     if category in _SAFE_TOOL_CATEGORIES:

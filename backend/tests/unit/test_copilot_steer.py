@@ -1,4 +1,4 @@
-"""Tests for backend.services.copilot_steer — CopilotSteerClient."""
+"""Tests for backend.services.completers.copilot_steer — CopilotSteerClient."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from backend.services.copilot_steer import CopilotSteerClient
+from backend.services.completers.copilot_steer import CopilotSteerClient
 
 
 @pytest.fixture()

@@ -1,4 +1,4 @@
-"""Tests for backend.services.narrator_completer — provider detection, token lookup, helpers."""
+"""Tests for backend.services.completers.narrator_completer — provider detection, token lookup, helpers."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from backend.services.narrator_completer import (
+from backend.services.completers.narrator_completer import (
     NarratorCompleter,
     _lookup_max_output_tokens,
 )
@@ -22,7 +22,7 @@ class TestLookupMaxOutputTokens:
         pricing = {"claude-sonnet-4-20250514": {"max_output_tokens": 16384}}
         pricing_file = tmp_path / "pricing.json"
         pricing_file.write_text(json.dumps(pricing))
-        with patch("backend.services.narrator_completer._PRICING_PATH", pricing_file):
+        with patch("backend.services.completers.narrator_completer._PRICING_PATH", pricing_file):
             result = _lookup_max_output_tokens("claude-sonnet-4-20250514")
         assert result == 16384
 
@@ -30,7 +30,7 @@ class TestLookupMaxOutputTokens:
         pricing = {"claude-sonnet-4-20250514": {"max_output_tokens": 16384}}
         pricing_file = tmp_path / "pricing.json"
         pricing_file.write_text(json.dumps(pricing))
-        with patch("backend.services.narrator_completer._PRICING_PATH", pricing_file):
+        with patch("backend.services.completers.narrator_completer._PRICING_PATH", pricing_file):
             result = _lookup_max_output_tokens("unknown-model")
         assert result is None
 
@@ -38,20 +38,20 @@ class TestLookupMaxOutputTokens:
         pricing = {"claude-haiku-4-20250414": {"max_output_tokens": 8192}}
         pricing_file = tmp_path / "pricing.json"
         pricing_file.write_text(json.dumps(pricing))
-        with patch("backend.services.narrator_completer._PRICING_PATH", pricing_file):
+        with patch("backend.services.completers.narrator_completer._PRICING_PATH", pricing_file):
             result = _lookup_max_output_tokens("claude-haiku-4-20250414")
         assert result == 8192
 
     def test_missing_file(self, tmp_path: Path):
         pricing_file = tmp_path / "nonexistent.json"
-        with patch("backend.services.narrator_completer._PRICING_PATH", pricing_file):
+        with patch("backend.services.completers.narrator_completer._PRICING_PATH", pricing_file):
             result = _lookup_max_output_tokens("any-model")
         assert result is None
 
     def test_invalid_json(self, tmp_path: Path):
         pricing_file = tmp_path / "bad.json"
         pricing_file.write_text("not json")
-        with patch("backend.services.narrator_completer._PRICING_PATH", pricing_file):
+        with patch("backend.services.completers.narrator_completer._PRICING_PATH", pricing_file):
             result = _lookup_max_output_tokens("any-model")
         assert result is None
 
@@ -59,7 +59,7 @@ class TestLookupMaxOutputTokens:
         pricing = {"claude-sonnet-4-20250514": {"cost_per_token": 0.001}}
         pricing_file = tmp_path / "pricing.json"
         pricing_file.write_text(json.dumps(pricing))
-        with patch("backend.services.narrator_completer._PRICING_PATH", pricing_file):
+        with patch("backend.services.completers.narrator_completer._PRICING_PATH", pricing_file):
             result = _lookup_max_output_tokens("claude-sonnet-4-20250514")
         assert result is None
 
@@ -158,7 +158,7 @@ class TestComplete:
     @pytest.mark.asyncio()
     async def test_fallback_to_adapter(self):
         """When no direct provider, falls back to adapter.complete()."""
-        from backend.services.agent_adapter import CompletionResult
+        from backend.services.adapters.agent_adapter import CompletionResult
 
         adapter = AsyncMock()
         adapter.complete.return_value = CompletionResult(
@@ -177,7 +177,7 @@ class TestComplete:
 
     @pytest.mark.asyncio()
     async def test_fallback_empty_text(self):
-        from backend.services.agent_adapter import CompletionResult
+        from backend.services.adapters.agent_adapter import CompletionResult
 
         adapter = AsyncMock()
         adapter.complete.return_value = CompletionResult(

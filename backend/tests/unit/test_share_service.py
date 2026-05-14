@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from backend.services.share_service import InvalidShareTokenError, ShareService
+from backend.services.sharing.share_service import InvalidShareTokenError, ShareService
 
 
 class TestShareService:
@@ -31,7 +31,7 @@ class TestShareService:
         svc = ShareService(ttl=1)
         entry = svc.create_token("job-1")
         # Fast-forward monotonic time past TTL
-        with patch("backend.services.share_service.time") as mock_time:
+        with patch("backend.services.sharing.share_service.time") as mock_time:
             # created_at is real monotonic; make "now" be 100s later
             mock_time.monotonic.return_value = entry.created_at + 100
             with pytest.raises(InvalidShareTokenError):
@@ -52,7 +52,7 @@ class TestShareService:
         svc = ShareService(ttl=1)
         entry1 = svc.create_token("job-1")
         # Manually expire entry1
-        with patch("backend.services.share_service.time") as mock_time:
+        with patch("backend.services.sharing.share_service.time") as mock_time:
             mock_time.monotonic.return_value = entry1.created_at + 100
             # Creating a new token triggers eviction
             svc.create_token("job-2")

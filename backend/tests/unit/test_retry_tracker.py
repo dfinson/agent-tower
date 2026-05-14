@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.services.retry_tracker import RetryTracker
+from backend.services.job.retry_tracker import RetryTracker
 
 
 class TestRetryTracker:

@@ -1,4 +1,4 @@
-"""Tests for backend.services.summarization_service — session summarization."""
+"""Tests for backend.services.completers.summarization_service — session summarization."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.summarization_service import (
+from backend.services.completers.summarization_service import (
     SummarizationService,
     _clean_transcript,
     _extract_json,
@@ -440,7 +440,7 @@ class TestSummarizeAndStore:
         with (
             patch("backend.persistence.event_repo.EventRepository"),
             patch("backend.persistence.artifact_repo.ArtifactRepository"),
-            patch("backend.services.artifact_service.ArtifactService", return_value=mock_artifact_svc),
+            patch("backend.services.artifacts.artifact_service.ArtifactService", return_value=mock_artifact_svc),
         ):
             result = await svc.summarize_and_store(
                 job_id="job-1",
@@ -484,7 +484,7 @@ class TestSummarizeAndStore:
         with (
             patch("backend.persistence.trail_repo.TrailNodeRepository", return_value=mock_trail_repo),
             patch("backend.persistence.artifact_repo.ArtifactRepository"),
-            patch("backend.services.artifact_service.ArtifactService", return_value=mock_artifact_svc),
+            patch("backend.services.artifacts.artifact_service.ArtifactService", return_value=mock_artifact_svc),
         ):
             await svc.summarize_and_store(
                 job_id="job-1",
@@ -504,7 +504,7 @@ class TestSummarizeAndStore:
         with (
             patch("backend.persistence.event_repo.EventRepository"),
             patch("backend.persistence.artifact_repo.ArtifactRepository"),
-            patch("backend.services.artifact_service.ArtifactService", return_value=AsyncMock()),
+            patch("backend.services.artifacts.artifact_service.ArtifactService", return_value=AsyncMock()),
         ):
             await svc.summarize_and_store(
                 job_id="job-1",
@@ -529,7 +529,7 @@ class TestSummarizeAndStore:
         with (
             patch("backend.persistence.event_repo.EventRepository"),
             patch("backend.persistence.artifact_repo.ArtifactRepository"),
-            patch("backend.services.artifact_service.ArtifactService", return_value=AsyncMock()),
+            patch("backend.services.artifacts.artifact_service.ArtifactService", return_value=AsyncMock()),
         ):
             await svc.summarize_and_store(
                 job_id="job-1",
@@ -553,7 +553,7 @@ class TestSummarizeAndStore:
         with (
             patch("backend.persistence.event_repo.EventRepository"),
             patch("backend.persistence.artifact_repo.ArtifactRepository"),
-            patch("backend.services.artifact_service.ArtifactService", return_value=mock_artifact_svc),
+            patch("backend.services.artifacts.artifact_service.ArtifactService", return_value=mock_artifact_svc),
         ):
             result = await svc.summarize_and_store(
                 job_id="job-1",
@@ -577,7 +577,7 @@ class TestSummarizeAndStore:
         with (
             patch("backend.persistence.event_repo.EventRepository"),
             patch("backend.persistence.artifact_repo.ArtifactRepository"),
-            patch("backend.services.artifact_service.ArtifactService", return_value=AsyncMock()),
+            patch("backend.services.artifacts.artifact_service.ArtifactService", return_value=AsyncMock()),
         ):
             result = await svc.summarize_and_store(
                 job_id="job-1",

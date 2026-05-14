@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from backend.config import CPLConfig
-from backend.services.git_service import GitError, GitService
+from backend.services.git.git_service import GitError, GitService
 
 # ------------------------------------------------------------------
 # Fixtures

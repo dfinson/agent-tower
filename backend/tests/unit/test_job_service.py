@@ -24,8 +24,8 @@ from backend.models.domain import (
 )
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
-from backend.services.git_service import GitService
-from backend.services.job_service import (
+from backend.services.git.git_service import GitService
+from backend.services.job.job_service import (
     JobNotFoundError,
     JobService,
     RepoNotAllowedError,
@@ -53,7 +53,7 @@ def config(tmp_path: object) -> CPLConfig:
 @pytest.fixture(autouse=True)
 def patch_job_service_load_config(monkeypatch: pytest.MonkeyPatch, config: CPLConfig) -> None:
     """Patch job_service.load_config so _resolve_repos uses the test config."""
-    monkeypatch.setattr("backend.services.job_service.load_config", lambda: config)
+    monkeypatch.setattr("backend.services.job.job_service.load_config", lambda: config)
 
 
 @pytest.fixture
@@ -430,7 +430,7 @@ class TestJobService:
         session: AsyncSession,
     ) -> None:
         """Worktree failure during setup_workspace transitions job to failed."""
-        from backend.services.git_service import GitError
+        from backend.services.git.git_service import GitError
 
         with patch.object(
             job_service._git,

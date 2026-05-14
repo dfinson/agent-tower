@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
-    from backend.services.coderecon_service import CodeReconService
+    from backend.services.coderecon.coderecon_service import CodeReconService
 
 log = structlog.get_logger()
 

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.models.domain import Job
-    from backend.services.summarization_service import SummarizationService
+    from backend.services.completers.summarization_service import SummarizationService
 
 log = structlog.get_logger()
 
@@ -31,7 +31,7 @@ async def load_handoff_context_for_job(
 
     from backend.persistence.artifact_repo import ArtifactRepository
     from backend.persistence.trail_repo import TrailNodeRepository
-    from backend.services.artifact_service import ArtifactService
+    from backend.services.artifacts.artifact_service import ArtifactService
 
     # Use short-lived sessions for reads so we don't hold an implicit
     # transaction open across the (potentially long) summarisation call.
@@ -121,7 +121,7 @@ async def build_resume_handoff_prompt_for_job(
     summarization_service: SummarizationService | None,
 ) -> str:
     """Build the resume handoff prompt for a job."""
-    from backend.services.summarization_service import build_resume_prompt
+    from backend.services.completers.summarization_service import build_resume_prompt
 
     summary_text, changed_files = await load_handoff_context_for_job(
         session, session_factory, job, summarization_service
@@ -137,7 +137,7 @@ async def build_followup_handoff_prompt_for_job(
     summarization_service: SummarizationService | None,
 ) -> str:
     """Build the follow-up handoff prompt for a job."""
-    from backend.services.summarization_service import build_followup_prompt
+    from backend.services.completers.summarization_service import build_followup_prompt
 
     summary_text, changed_files = await load_handoff_context_for_job(
         session, session_factory, job, summarization_service

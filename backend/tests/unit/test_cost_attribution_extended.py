@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.services.cost_attribution import (
+from backend.services.analytics.cost_attribution import (
     _classify_motivation,
     _classify_turn_intent,
     _compute_subagent_distributions,

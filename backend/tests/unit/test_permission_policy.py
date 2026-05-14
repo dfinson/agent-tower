@@ -1,10 +1,10 @@
-"""Tests for is_git_reset_hard (backend.services.permission_policy)."""
+"""Tests for is_git_reset_hard (backend.services.auth.permission_policy)."""
 
 from __future__ import annotations
 
 import pytest
 
-from backend.services.permission_policy import is_git_reset_hard
+from backend.services.auth.permission_policy import is_git_reset_hard
 
 
 class TestIsGitResetHard:

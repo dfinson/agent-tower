@@ -21,11 +21,11 @@ from backend.models.api_schemas import (
     DiffUpdatePayload,
 )
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.git_service import GitError
+from backend.services.git.git_service import GitError
 
 if TYPE_CHECKING:
-    from backend.services.event_bus import EventBus
-    from backend.services.git_service import GitService
+    from backend.services.events.event_bus import EventBus
+    from backend.services.git.git_service import GitService
 
 log = structlog.get_logger()
 

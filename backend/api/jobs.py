@@ -22,9 +22,9 @@ from backend.models.api_schemas import (
     SuggestNamesRequest,
     SuggestNamesResponse,
 )
-from backend.services.ingest_service import IngestService
-from backend.services.job_service import JobService, ProgressPreview
-from backend.services.naming_service import NamingService
+from backend.services.completers.naming_service import NamingService
+from backend.services.events.ingest_service import IngestService
+from backend.services.job.job_service import JobService, ProgressPreview
 from backend.services.runtime import RuntimeService
 from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 
@@ -124,7 +124,7 @@ async def suggest_names(
     Uses a one-shot utility session (suggest-names is called before a job exists).
     Returns 503 if the utility LLM is not configured.
     """
-    from backend.services.naming_service import NamingError
+    from backend.services.completers.naming_service import NamingError
 
     try:
         title, description, branch_name, worktree_name = await naming_service.generate(body.prompt)

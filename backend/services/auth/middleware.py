@@ -185,7 +185,7 @@ def _has_cloudflare_access(request: Request) -> bool:
     - The header is missing or empty
     - The JWT fails signature / audience / expiry validation
     """
-    from backend.services import cf_access
+    from backend.services.auth import cf_access
 
     if not cf_access.is_configured():
         return False
@@ -245,7 +245,7 @@ def check_websocket_auth(*, client_host: str | None, cookies: dict[str, str], cf
     if client_host and client_host in LOCALHOST_ADDRS:
         return True
     if cf_access_jwt:
-        from backend.services import cf_access
+        from backend.services.auth import cf_access
 
         if cf_access.is_configured() and cf_access.verify_token(cf_access_jwt):
             return True
@@ -258,7 +258,7 @@ def check_websocket_auth(*, client_host: str | None, cookies: dict[str, str], cf
     return valid
 
 
-_LOGIN_HTML_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "login.html"
+_LOGIN_HTML_TEMPLATE_PATH = Path(__file__).resolve().parent.parent.parent / "templates" / "login.html"
 _LOGIN_HTML: str | None = None
 
 

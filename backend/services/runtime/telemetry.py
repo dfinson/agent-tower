@@ -23,9 +23,9 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from backend.services.agent_adapter import AgentAdapterInterface
-    from backend.services.event_bus import EventBus
-    from backend.services.job_service import JobService
+    from backend.services.adapters.agent_adapter import AgentAdapterInterface
+    from backend.services.events.event_bus import EventBus
+    from backend.services.job.job_service import JobService
     from backend.services.trail import TrailService
 
 log = structlog.get_logger()
@@ -90,8 +90,8 @@ class RuntimeTelemetry:
         import time as _time
 
         from backend.models.domain import SessionConfig
-        from backend.services import telemetry as tel
-        from backend.services.parsing_utils import best_effort
+        from backend.services.analytics import telemetry as tel
+        from backend.services.tools.parsing_utils import best_effort
 
         assert isinstance(config, SessionConfig)
         tel.end_job_span(job_id)
@@ -138,21 +138,21 @@ class RuntimeTelemetry:
             # Run post-job cost attribution pipeline
             async with best_effort(log, "cost_attribution", level="warning", job_id=job_id):  # noqa: SIM117
                 async with serialized_write(self._session_factory) as session:
-                    from backend.services.cost_attribution import compute_attribution
+                    from backend.services.analytics.cost_attribution import compute_attribution
 
                     await compute_attribution(session, job_id, session_factory=self._session_factory)
 
             # Run post-job latency attribution pipeline
             async with best_effort(log, "latency_attribution", level="warning", job_id=job_id):  # noqa: SIM117
                 async with serialized_write(self._session_factory) as session:
-                    from backend.services.latency_attribution import compute_latency_attribution
+                    from backend.services.analytics.latency_attribution import compute_latency_attribution
 
                     await compute_latency_attribution(session, job_id)
 
             # Run statistical analysis (fire-and-forget, non-blocking)
             async with best_effort(log, "statistical_analysis", job_id=job_id):  # noqa: SIM117
                 async with serialized_write(self._session_factory) as session:
-                    from backend.services.statistical_analysis import run_analysis
+                    from backend.services.analytics.statistical_analysis import run_analysis
 
                     await run_analysis(session)
 
@@ -174,7 +174,7 @@ class RuntimeTelemetry:
 
     async def store_post_completion_artifacts(self, job_id: str) -> None:
         """Persist internal state (telemetry, plan, approvals) as downloadable artifacts."""
-        from backend.services.parsing_utils import best_effort
+        from backend.services.tools.parsing_utils import best_effort
 
         try:
             # Look up job slug for human-friendly artifact names
@@ -190,7 +190,7 @@ class RuntimeTelemetry:
 
             async with serialized_write(self._session_factory) as session:
                 from backend.persistence.artifact_repo import ArtifactRepository
-                from backend.services.artifact_service import ArtifactService
+                from backend.services.artifacts.artifact_service import ArtifactService
 
                 artifact_svc = ArtifactService(ArtifactRepository(session))
 

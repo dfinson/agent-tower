@@ -167,7 +167,7 @@ class TestBuildConflictResumePrompt:
         """When merge_conflict events exist, the prompt lists conflicting files."""
         from backend.config import CPLConfig
         from backend.persistence.event_repo import EventRepository
-        from backend.services.job_service import JobService
+        from backend.services.job.job_service import JobService
 
         job_repo = JobRepository(session)
         event_repo = EventRepository(session)
@@ -201,7 +201,7 @@ class TestBuildConflictResumePrompt:
         """When no merge_conflict events exist, prompt omits file list."""
         from backend.config import CPLConfig
         from backend.persistence.event_repo import EventRepository
-        from backend.services.job_service import JobService
+        from backend.services.job.job_service import JobService
 
         job_repo = JobRepository(session)
         event_repo = EventRepository(session)
@@ -227,7 +227,7 @@ class TestBuildConflictResumePrompt:
         """When multiple merge_conflict events exist, the prompt uses the latest one."""
         from backend.config import CPLConfig
         from backend.persistence.event_repo import EventRepository
-        from backend.services.job_service import JobService
+        from backend.services.job.job_service import JobService
 
         job_repo = JobRepository(session)
         event_repo = EventRepository(session)

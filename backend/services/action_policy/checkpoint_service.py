@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
-    from backend.services.git_service import GitService
+    from backend.services.git.git_service import GitService
 
 log = structlog.get_logger()
 

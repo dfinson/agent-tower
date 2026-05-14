@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from backend.services.snapshot_helpers import (
+from backend.services.artifacts.snapshot_helpers import (
     _apply_reassignments,
     _build_logs,
     _build_timeline,

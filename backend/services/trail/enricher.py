@@ -37,7 +37,7 @@ from backend.services.trail.prompts import (
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from backend.services.event_bus import EventBus
+    from backend.services.events.event_bus import EventBus
     from backend.services.sidecar.session import SidecarSessionManager
 
 log = structlog.get_logger()

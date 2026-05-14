@@ -17,14 +17,14 @@ from backend.models.api_schemas import (
     StepDiffPayload,
 )
 from backend.models.events import DomainEventKind
-from backend.services.diff_service import DiffService
+from backend.services.artifacts.diff_service import DiffService
 
 if TYPE_CHECKING:
     from backend.models.domain import TelemetrySpanRow
     from backend.persistence.step_repo import StepRepository
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-    from backend.services.git_service import GitService
-    from backend.services.job_service import JobService
+    from backend.services.git.git_service import GitService
+    from backend.services.job.job_service import JobService
 
 log = structlog.get_logger()
 

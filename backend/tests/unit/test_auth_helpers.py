@@ -1,8 +1,8 @@
-"""Tests for backend.services.auth — pure helpers."""
+"""Tests for backend.services.auth.middleware — pure helpers."""
 
 from __future__ import annotations
 
-from backend.services.auth import (
+from backend.services.auth.middleware import (
     _check_password,
     _create_session_token,
     _header_indicates_https,

@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.models.domain import JobSpec, JobState
-from backend.services.git_service import GitError
-from backend.services.job_service import JobService
+from backend.services.git.git_service import GitError
+from backend.services.job.job_service import JobService
 
 
 def _make_config(**overrides: Any) -> Any:

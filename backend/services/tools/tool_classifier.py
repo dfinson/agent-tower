@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from backend.services.parsing_utils import ensure_dict
+from backend.services.tools.parsing_utils import ensure_dict
 
 TOOL_CATEGORIES: dict[str, str] = {
     # file_read — reading file contents

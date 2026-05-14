@@ -1,4 +1,4 @@
-"""Tests for backend.services.lightweight_completer — provider detection and fallback."""
+"""Tests for backend.services.completers.lightweight_completer — provider detection and fallback."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from backend.services.lightweight_completer import LightweightCompleter
+from backend.services.completers.lightweight_completer import LightweightCompleter
 
 
 class TestIsAnthropicModel:
@@ -59,7 +59,7 @@ class TestDetectProvider:
 class TestCompleteFallback:
     @pytest.mark.asyncio()
     async def test_fallback_to_adapter(self):
-        from backend.services.agent_adapter import CompletionResult
+        from backend.services.adapters.agent_adapter import CompletionResult
 
         adapter = AsyncMock()
         adapter.complete.return_value = CompletionResult(

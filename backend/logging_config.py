@@ -34,8 +34,8 @@ _CONSOLE_NOISE_PREFIXES: tuple[str, ...] = (
     "uvicorn.access",
     "uvicorn.error",
     "mcp.server.streamable_http_manager",
-    "backend.services.sse_manager",
-    "backend.services.voice_service",
+    "backend.services.events.sse_manager",
+    "backend.services.completers.voice_service",
     "backend.services.sidecar.session",
 )
 

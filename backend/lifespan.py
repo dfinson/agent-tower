@@ -26,29 +26,29 @@ from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.database import create_engine, create_session_factory, serialized_write
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.step_repo import StepRepository
-from backend.services.adapter_registry import AdapterRegistry
-from backend.services.approval_service import ApprovalService
-from backend.services.coderecon_service import CodeReconService
-from backend.services.diff_service import DiffService
-from backend.services.event_bus import EventBus
-from backend.services.git_service import GitService
+from backend.services.adapters.adapter_registry import AdapterRegistry
+from backend.services.adapters.platform_adapter import PlatformRegistry
+from backend.services.artifacts.diff_service import DiffService
+from backend.services.coderecon.coderecon_service import CodeReconService
+from backend.services.completers.narrator_completer import NarratorCompleter
+from backend.services.completers.summarization_service import SummarizationService
+from backend.services.completers.voice_service import VoiceService
+from backend.services.events.event_bus import EventBus
+from backend.services.events.sse_manager import SSEManager
+from backend.services.git.git_service import GitService
+from backend.services.job.approval_service import ApprovalService
+from backend.services.job.retention_service import RetentionService
 from backend.services.memory.compacter import MemoryCompacter
 from backend.services.merge_service import MergeService
-from backend.services.narrator_completer import NarratorCompleter
-from backend.services.platform_adapter import PlatformRegistry
-from backend.services.push_service import PushService
-from backend.services.retention_service import RetentionService
 from backend.services.runtime import RuntimeService
-from backend.services.share_service import ShareService
+from backend.services.sharing.push_service import PushService
+from backend.services.sharing.share_service import ShareService
+from backend.services.sharing.vapid_keys import get_or_create_vapid_keys
 from backend.services.sidecar.dispatcher import SidecarDispatcher
 from backend.services.sidecar.session import SidecarSessionManager
-from backend.services.sse_manager import SSEManager
 from backend.services.steps.persistence import StepPersistenceSubscriber
 from backend.services.steps.tracker import StepTracker
-from backend.services.summarization_service import SummarizationService
-from backend.services.terminal_service import TerminalService
-from backend.services.vapid_keys import get_or_create_vapid_keys
-from backend.services.voice_service import VoiceService
+from backend.services.terminal.terminal_service import TerminalService
 
 
 class _JobLike:
@@ -458,7 +458,7 @@ async def _wire_core_services(
     memory_compacter = MemoryCompacter(adapter=utility_adapter)
 
     # --- Preflight curator (pre-job context curation: memory + structural) ---
-    from backend.services.preflight_curator import PreflightCurator
+    from backend.services.tools.preflight_curator import PreflightCurator
 
     preflight_curator = PreflightCurator(adapter=utility_adapter, coderecon=coderecon_service)
 
@@ -701,7 +701,7 @@ async def _init_optional_services(
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage engine lifecycle — create on startup, dispose on shutdown."""
-    from backend.services.telemetry import init_telemetry
+    from backend.services.analytics.telemetry import init_telemetry
 
     init_telemetry()
 
@@ -1058,12 +1058,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     event_bus.subscribe(_persist_structural_analytics)
 
     # --- IngestService (operator message routing) ---
-    from backend.services.ingest_service import IngestService
+    from backend.services.events.ingest_service import IngestService
 
     steer_client = None
     copilot_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if copilot_token:
-        from backend.services.copilot_steer import CopilotSteerClient
+        from backend.services.completers.copilot_steer import CopilotSteerClient
 
         steer_client = CopilotSteerClient(copilot_token)
 

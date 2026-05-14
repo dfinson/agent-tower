@@ -8,8 +8,8 @@ import pytest
 
 from backend.models.domain import SessionEvent, SessionEventKind
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.event_bus import EventBus
-from backend.services.event_processor import EventProcessor
+from backend.services.events.event_bus import EventBus
+from backend.services.events.event_processor import EventProcessor
 
 
 @pytest.fixture

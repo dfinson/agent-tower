@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
-from backend.services.vapid_keys import get_or_create_vapid_keys
+from backend.services.sharing.vapid_keys import get_or_create_vapid_keys
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.models.db import Base, JobTelemetrySpanRow, TrailNodeRow
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.trail_repo import TrailNodeRepository
-from backend.services.event_bus import EventBus
+from backend.services.events.event_bus import EventBus
 from backend.services.trail import TrailService
 from backend.services.trail.node_builder import (
     _extract_snippet,

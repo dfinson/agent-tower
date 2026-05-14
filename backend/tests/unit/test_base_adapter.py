@@ -1,4 +1,4 @@
-"""Tests for backend.services.base_adapter — shared adapter infrastructure.
+"""Tests for backend.services.adapters.base_adapter — shared adapter infrastructure.
 
 Covers the pure-logic helpers and state management that don't require
 a running SDK subprocess:
@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.services.base_adapter import BaseAgentAdapter, PermissionDecision
+from backend.services.adapters.base_adapter import BaseAgentAdapter, PermissionDecision
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -434,7 +434,7 @@ class TestEvaluatePermission:
     async def test_paused_session_denied(self) -> None:
         adapter = _make_adapter()
         adapter._paused_sessions.add("s1")
-        from backend.services.permission_policy import PermissionRequest
+        from backend.services.auth.permission_policy import PermissionRequest
 
         result = await adapter._evaluate_permission(
             "s1",
@@ -461,7 +461,7 @@ class TestEvaluatePermission:
         adapter._repo_policies["j1"] = MagicMock(cost_rules=[])
         adapter._worktree_paths["j1"] = "/tmp"
 
-        from backend.services.permission_policy import PermissionRequest
+        from backend.services.auth.permission_policy import PermissionRequest
 
         result = await adapter._evaluate_permission(
             "s1",
@@ -479,7 +479,7 @@ class TestEvaluatePermission:
         adapter = _make_adapter(approval_service=mock_approval)
         adapter._queues["s1"] = asyncio.Queue()
 
-        from backend.services.permission_policy import PermissionRequest
+        from backend.services.auth.permission_policy import PermissionRequest
 
         result = await adapter._evaluate_permission(
             "s1",
@@ -497,7 +497,7 @@ class TestEvaluatePermission:
         adapter = _make_adapter(approval_service=mock_approval)
         adapter._queues["s1"] = asyncio.Queue()
 
-        from backend.services.permission_policy import PermissionRequest
+        from backend.services.auth.permission_policy import PermissionRequest
 
         result = await adapter._evaluate_permission(
             "s1",

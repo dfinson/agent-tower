@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from backend.models.api_schemas import DiffFileStatus, DiffLineType
-from backend.services.diff_service import DiffService
-from backend.services.git_service import GitError
+from backend.services.artifacts.diff_service import DiffService
+from backend.services.git.git_service import GitError
 
 
 @pytest.fixture

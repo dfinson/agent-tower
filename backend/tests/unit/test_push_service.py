@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from backend.services.push_service import PushService, PushSubscription
+from backend.services.sharing.push_service import PushService, PushSubscription
 
 
 @pytest.fixture

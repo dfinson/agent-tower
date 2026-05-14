@@ -18,7 +18,6 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 
 from rich.console import Console
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.services.conversation_ledger import (
+from backend.services.completers.conversation_ledger import (
     ConversationLedger,
     LedgerEntry,
     MessageCategory,

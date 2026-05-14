@@ -39,7 +39,7 @@ import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.services.tool_classifier import classify_tool, refine_shell_category
+from backend.services.tools.tool_classifier import classify_tool, refine_shell_category
 
 log = structlog.get_logger()
 

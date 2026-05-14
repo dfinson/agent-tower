@@ -17,7 +17,7 @@ except ImportError:
     termios = None  # type: ignore[assignment]
 
 from backend.models.domain import ServiceInitError
-from backend.services.terminal_service import (
+from backend.services.terminal.terminal_service import (
     PtySession,
     TerminalService,
     _detect_shell,
@@ -157,7 +157,7 @@ class TestPtySession:
 class TestTerminalServiceInit:
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
     def test_default_init(self) -> None:
@@ -177,18 +177,18 @@ class TestTerminalServiceInit:
 class TestCreateSession:
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
-    @patch("backend.services.terminal_service.asyncio.create_task")
-    @patch("backend.services.terminal_service.fcntl.fcntl", return_value=0)
-    @patch("backend.services.terminal_service.fcntl.ioctl")
-    @patch("backend.services.terminal_service.os.close")
-    @patch("backend.services.terminal_service.subprocess.Popen")
-    @patch("backend.services.terminal_service.pty.openpty", return_value=(10, 11))
-    @patch("backend.services.terminal_service.secrets.token_hex", return_value="deadbeef" * 4)
-    @patch("backend.services.terminal_service.os.path.isdir", return_value=True)
-    @patch("backend.services.terminal_service.os.path.isfile", return_value=True)
+    @patch("backend.services.terminal.terminal_service.asyncio.create_task")
+    @patch("backend.services.terminal.terminal_service.fcntl.fcntl", return_value=0)
+    @patch("backend.services.terminal.terminal_service.fcntl.ioctl")
+    @patch("backend.services.terminal.terminal_service.os.close")
+    @patch("backend.services.terminal.terminal_service.subprocess.Popen")
+    @patch("backend.services.terminal.terminal_service.pty.openpty", return_value=(10, 11))
+    @patch("backend.services.terminal.terminal_service.secrets.token_hex", return_value="deadbeef" * 4)
+    @patch("backend.services.terminal.terminal_service.os.path.isdir", return_value=True)
+    @patch("backend.services.terminal.terminal_service.os.path.isfile", return_value=True)
     def test_create_session_happy_path(
         self,
         mock_isfile: MagicMock,
@@ -227,15 +227,15 @@ class TestCreateSession:
         # Reader should be added for master FD
         mock_loop.add_reader.assert_called_once()
 
-    @patch("backend.services.terminal_service.asyncio.create_task")
-    @patch("backend.services.terminal_service.fcntl.fcntl", return_value=0)
-    @patch("backend.services.terminal_service.fcntl.ioctl")
-    @patch("backend.services.terminal_service.os.close")
-    @patch("backend.services.terminal_service.subprocess.Popen")
-    @patch("backend.services.terminal_service.pty.openpty", return_value=(10, 11))
-    @patch("backend.services.terminal_service.secrets.token_hex", return_value="deadbeef" * 4)
-    @patch("backend.services.terminal_service.os.path.isdir", return_value=True)
-    @patch("backend.services.terminal_service.os.path.isfile", return_value=True)
+    @patch("backend.services.terminal.terminal_service.asyncio.create_task")
+    @patch("backend.services.terminal.terminal_service.fcntl.fcntl", return_value=0)
+    @patch("backend.services.terminal.terminal_service.fcntl.ioctl")
+    @patch("backend.services.terminal.terminal_service.os.close")
+    @patch("backend.services.terminal.terminal_service.subprocess.Popen")
+    @patch("backend.services.terminal.terminal_service.pty.openpty", return_value=(10, 11))
+    @patch("backend.services.terminal.terminal_service.secrets.token_hex", return_value="deadbeef" * 4)
+    @patch("backend.services.terminal.terminal_service.os.path.isdir", return_value=True)
+    @patch("backend.services.terminal.terminal_service.os.path.isfile", return_value=True)
     def test_create_session_uses_prompt_label_for_bash_prompt(
         self,
         mock_isfile: MagicMock,
@@ -267,9 +267,9 @@ class TestCreateSession:
         with pytest.raises(ServiceInitError, match="Maximum terminal sessions"):
             svc.create_session()
 
-    @patch("backend.services.terminal_service.os.path.isfile", return_value=False)
-    @patch("backend.services.terminal_service.shutil.which", return_value=None)
-    @patch("backend.services.terminal_service._detect_shell", return_value="/nonexistent/shell")
+    @patch("backend.services.terminal.terminal_service.os.path.isfile", return_value=False)
+    @patch("backend.services.terminal.terminal_service.shutil.which", return_value=None)
+    @patch("backend.services.terminal.terminal_service._detect_shell", return_value="/nonexistent/shell")
     def test_create_session_shell_not_found(
         self, mock_detect: MagicMock, mock_which: MagicMock, mock_isfile: MagicMock
     ) -> None:
@@ -277,16 +277,16 @@ class TestCreateSession:
         with pytest.raises(ValueError, match="Shell not found"):
             svc.create_session(shell="/nonexistent/shell")
 
-    @patch("backend.services.terminal_service.os.path.isfile", return_value=False)
-    @patch("backend.services.terminal_service.shutil.which", return_value="/usr/bin/bash")
-    @patch("backend.services.terminal_service.asyncio.create_task")
-    @patch("backend.services.terminal_service.fcntl.fcntl", return_value=0)
-    @patch("backend.services.terminal_service.fcntl.ioctl")
-    @patch("backend.services.terminal_service.os.close")
-    @patch("backend.services.terminal_service.subprocess.Popen")
-    @patch("backend.services.terminal_service.pty.openpty", return_value=(10, 11))
-    @patch("backend.services.terminal_service.secrets.token_hex", return_value="aabb" * 8)
-    @patch("backend.services.terminal_service.os.path.isdir", return_value=True)
+    @patch("backend.services.terminal.terminal_service.os.path.isfile", return_value=False)
+    @patch("backend.services.terminal.terminal_service.shutil.which", return_value="/usr/bin/bash")
+    @patch("backend.services.terminal.terminal_service.asyncio.create_task")
+    @patch("backend.services.terminal.terminal_service.fcntl.fcntl", return_value=0)
+    @patch("backend.services.terminal.terminal_service.fcntl.ioctl")
+    @patch("backend.services.terminal.terminal_service.os.close")
+    @patch("backend.services.terminal.terminal_service.subprocess.Popen")
+    @patch("backend.services.terminal.terminal_service.pty.openpty", return_value=(10, 11))
+    @patch("backend.services.terminal.terminal_service.secrets.token_hex", return_value="aabb" * 8)
+    @patch("backend.services.terminal.terminal_service.os.path.isdir", return_value=True)
     def test_create_session_resolves_shell_via_which(
         self,
         mock_isdir: MagicMock,
@@ -307,19 +307,19 @@ class TestCreateSession:
         session = svc.create_session(shell="bash")
         assert session.shell == "/usr/bin/bash"
 
-    @patch("backend.services.terminal_service.os.path.isdir", return_value=False)
-    @patch("backend.services.terminal_service.os.path.isfile", return_value=True)
+    @patch("backend.services.terminal.terminal_service.os.path.isdir", return_value=False)
+    @patch("backend.services.terminal.terminal_service.os.path.isfile", return_value=True)
     def test_create_session_cwd_not_found(self, mock_isfile: MagicMock, mock_isdir: MagicMock) -> None:
         svc = TerminalService()
         with pytest.raises(ValueError, match="Working directory does not exist"):
             svc.create_session(cwd="/nonexistent")
 
-    @patch("backend.services.terminal_service.os.close")
-    @patch("backend.services.terminal_service.fcntl.ioctl")
-    @patch("backend.services.terminal_service.subprocess.Popen", side_effect=OSError("spawn failed"))
-    @patch("backend.services.terminal_service.pty.openpty", return_value=(10, 11))
-    @patch("backend.services.terminal_service.os.path.isdir", return_value=True)
-    @patch("backend.services.terminal_service.os.path.isfile", return_value=True)
+    @patch("backend.services.terminal.terminal_service.os.close")
+    @patch("backend.services.terminal.terminal_service.fcntl.ioctl")
+    @patch("backend.services.terminal.terminal_service.subprocess.Popen", side_effect=OSError("spawn failed"))
+    @patch("backend.services.terminal.terminal_service.pty.openpty", return_value=(10, 11))
+    @patch("backend.services.terminal.terminal_service.os.path.isdir", return_value=True)
+    @patch("backend.services.terminal.terminal_service.os.path.isfile", return_value=True)
     def test_create_session_popen_failure_closes_fds(
         self,
         mock_isfile: MagicMock,
@@ -343,7 +343,7 @@ class TestCreateSession:
 class TestGetSession:
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
     def test_get_existing_session(self) -> None:
@@ -360,7 +360,7 @@ class TestGetSession:
 class TestListSessions:
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
     def test_list_empty(self) -> None:
@@ -387,7 +387,7 @@ class TestListSessions:
 class TestKillSession:
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
     @pytest.mark.asyncio
@@ -400,8 +400,8 @@ class TestKillSession:
         svc._sessions["s1"] = session
 
         with (
-            patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
-            patch("backend.services.terminal_service.os.close"),
+            patch("backend.services.terminal.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
+            patch("backend.services.terminal.terminal_service.os.close"),
         ):
             result = await svc.kill_session("s1")
 
@@ -419,7 +419,7 @@ class TestKillSession:
 class TestKillSessionsForJob:
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
     @pytest.mark.asyncio
@@ -434,8 +434,8 @@ class TestKillSessionsForJob:
         svc._sessions = {"s1": s1, "s2": s2, "s3": s3}
 
         with (
-            patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
-            patch("backend.services.terminal_service.os.close"),
+            patch("backend.services.terminal.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
+            patch("backend.services.terminal.terminal_service.os.close"),
         ):
             count = await svc.kill_sessions_for_job("job-1")
 
@@ -455,10 +455,10 @@ class TestKillSessionsForJob:
 class TestWrite:
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
-    @patch("backend.services.terminal_service.os.write")
+    @patch("backend.services.terminal.terminal_service.os.write")
     def test_write_to_session(self, mock_write: MagicMock) -> None:
         svc = TerminalService()
         svc._sessions["s1"] = _make_session(session_id="s1", master_fd=42)
@@ -466,13 +466,13 @@ class TestWrite:
         svc.write("s1", b"ls\n")
         mock_write.assert_called_once_with(42, b"ls\n")
 
-    @patch("backend.services.terminal_service.os.write")
+    @patch("backend.services.terminal.terminal_service.os.write")
     def test_write_to_nonexistent_session(self, mock_write: MagicMock) -> None:
         svc = TerminalService()
         svc.write("nope", b"data")
         mock_write.assert_not_called()
 
-    @patch("backend.services.terminal_service.os.write", side_effect=OSError("write failed"))
+    @patch("backend.services.terminal.terminal_service.os.write", side_effect=OSError("write failed"))
     def test_write_handles_os_error(self, mock_write: MagicMock) -> None:
         svc = TerminalService()
         svc._sessions["s1"] = _make_session(session_id="s1")
@@ -484,11 +484,11 @@ class TestWrite:
 class TestResize:
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
-    @patch("backend.services.terminal_service.os.kill")
-    @patch("backend.services.terminal_service.fcntl.ioctl")
+    @patch("backend.services.terminal.terminal_service.os.kill")
+    @patch("backend.services.terminal.terminal_service.fcntl.ioctl")
     def test_resize_session(self, mock_ioctl: MagicMock, mock_kill: MagicMock) -> None:
         svc = TerminalService()
         session = _make_session(session_id="s1", master_fd=42, pid=999)
@@ -500,13 +500,13 @@ class TestResize:
         mock_ioctl.assert_called_once_with(42, termios.TIOCSWINSZ, expected_winsize)
         mock_kill.assert_called_once_with(999, signal.SIGWINCH)
 
-    @patch("backend.services.terminal_service.fcntl.ioctl")
+    @patch("backend.services.terminal.terminal_service.fcntl.ioctl")
     def test_resize_nonexistent_session(self, mock_ioctl: MagicMock) -> None:
         svc = TerminalService()
         svc.resize("nope", cols=80, rows=24)
         mock_ioctl.assert_not_called()
 
-    @patch("backend.services.terminal_service.fcntl.ioctl", side_effect=OSError("resize failed"))
+    @patch("backend.services.terminal.terminal_service.fcntl.ioctl", side_effect=OSError("resize failed"))
     def test_resize_handles_os_error(self, mock_ioctl: MagicMock) -> None:
         svc = TerminalService()
         svc._sessions["s1"] = _make_session(session_id="s1")
@@ -517,7 +517,7 @@ class TestResize:
 class TestGetScrollback:
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
     def test_get_scrollback_returns_sanitized(self) -> None:
@@ -538,7 +538,7 @@ class TestGetScrollback:
 class TestShutdown:
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
     @pytest.mark.asyncio
@@ -551,8 +551,8 @@ class TestShutdown:
             svc._sessions[sid] = s
 
         with (
-            patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
-            patch("backend.services.terminal_service.os.close"),
+            patch("backend.services.terminal.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
+            patch("backend.services.terminal.terminal_service.os.close"),
         ):
             await svc.shutdown()
 
@@ -563,10 +563,10 @@ class TestShutdown:
 class TestOnPtyReadable:
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
-    @patch("backend.services.terminal_service.os.read", return_value=b"hello output")
+    @patch("backend.services.terminal.terminal_service.os.read", return_value=b"hello output")
     def test_reads_data_and_appends_scrollback(self, mock_read: MagicMock) -> None:
         svc = TerminalService()
         session = _make_session(session_id="s1", master_fd=42)
@@ -577,14 +577,14 @@ class TestOnPtyReadable:
         mock_read.assert_called_once_with(42, 65536)
         assert "hello output" in session.scrollback
 
-    @patch("backend.services.terminal_service.os.read", side_effect=OSError("read error"))
+    @patch("backend.services.terminal.terminal_service.os.read", side_effect=OSError("read error"))
     def test_handles_read_os_error(self, mock_read: MagicMock) -> None:
         svc = TerminalService()
         svc._sessions["s1"] = _make_session(session_id="s1")
         # Should not raise
         svc._on_pty_readable("s1")
 
-    @patch("backend.services.terminal_service.os.read", return_value=b"")
+    @patch("backend.services.terminal.terminal_service.os.read", return_value=b"")
     def test_empty_read_returns_early(self, mock_read: MagicMock) -> None:
         svc = TerminalService()
         session = _make_session(session_id="s1")
@@ -598,8 +598,8 @@ class TestOnPtyReadable:
         # Should not raise
         svc._on_pty_readable("nope")
 
-    @patch("backend.services.terminal_service.os.read", return_value=b"data")
-    @patch("backend.services.terminal_service.asyncio.ensure_future")
+    @patch("backend.services.terminal.terminal_service.os.read", return_value=b"data")
+    @patch("backend.services.terminal.terminal_service.asyncio.ensure_future")
     def test_broadcasts_to_websocket_clients(self, mock_ensure: MagicMock, mock_read: MagicMock) -> None:
         svc = TerminalService()
         session = _make_session(session_id="s1")
@@ -613,8 +613,8 @@ class TestOnPtyReadable:
         # The message sent should be JSON with type=output
         # ws.send_text was the coroutine passed to ensure_future
 
-    @patch("backend.services.terminal_service.os.read", return_value=b"data")
-    @patch("backend.services.terminal_service.asyncio.ensure_future", side_effect=RuntimeError("ws dead"))
+    @patch("backend.services.terminal.terminal_service.os.read", return_value=b"data")
+    @patch("backend.services.terminal.terminal_service.asyncio.ensure_future", side_effect=RuntimeError("ws dead"))
     def test_removes_dead_clients(self, mock_ensure: MagicMock, mock_read: MagicMock) -> None:
         svc = TerminalService()
         session = _make_session(session_id="s1")
@@ -632,7 +632,7 @@ class TestOnPtyReadable:
 class TestWatchExit:
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
     @pytest.mark.asyncio
@@ -642,9 +642,10 @@ class TestWatchExit:
         session = _make_session(session_id="s1", master_fd=42)
         svc._sessions["s1"] = session
 
+        _mod = "backend.services.terminal.terminal_service"
         with (
-            patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock, return_value=0),
-            patch("backend.services.terminal_service.os.close"),
+            patch(f"{_mod}.asyncio.to_thread", new_callable=AsyncMock, return_value=0),
+            patch(f"{_mod}.os.close"),
         ):
             await svc._watch_exit("s1")
 
@@ -665,9 +666,10 @@ class TestWatchExit:
         session.clients.add(ws)
         svc._sessions["s1"] = session
 
+        _mod = "backend.services.terminal.terminal_service"
         with (
-            patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock, return_value=0),
-            patch("backend.services.terminal_service.os.close"),
+            patch(f"{_mod}.asyncio.to_thread", new_callable=AsyncMock, return_value=0),
+            patch(f"{_mod}.os.close"),
         ):
             await svc._watch_exit("s1")
 
@@ -681,7 +683,7 @@ class TestWatchExit:
 class TestCleanupSession:
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
     @pytest.mark.asyncio
@@ -694,8 +696,8 @@ class TestCleanupSession:
         session._exit_task = mock_task
 
         with (
-            patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
-            patch("backend.services.terminal_service.os.close"),
+            patch("backend.services.terminal.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
+            patch("backend.services.terminal.terminal_service.os.close"),
         ):
             await svc._cleanup_session(session)
 
@@ -709,8 +711,8 @@ class TestCleanupSession:
         session._exit_task = None
 
         with (
-            patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
-            patch("backend.services.terminal_service.os.close"),
+            patch("backend.services.terminal.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
+            patch("backend.services.terminal.terminal_service.os.close"),
         ):
             await svc._cleanup_session(session)
 
@@ -724,7 +726,7 @@ class TestCleanupSession:
         session._exit_task = None
         session.process.kill.side_effect = ProcessLookupError
 
-        with patch("backend.services.terminal_service.os.close"):
+        with patch("backend.services.terminal.terminal_service.os.close"):
             # Should not raise
             await svc._cleanup_session(session)
 
@@ -739,8 +741,8 @@ class TestCleanupSession:
         session.clients = {ws1, ws2}
 
         with (
-            patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
-            patch("backend.services.terminal_service.os.close"),
+            patch("backend.services.terminal.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
+            patch("backend.services.terminal.terminal_service.os.close"),
         ):
             await svc._cleanup_session(session)
 
@@ -762,8 +764,8 @@ class TestCleanupSession:
         session._exit_task = None
 
         with (
-            patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
-            patch("backend.services.terminal_service.os.close"),
+            patch("backend.services.terminal.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
+            patch("backend.services.terminal.terminal_service.os.close"),
         ):
             await svc._cleanup_session(session)
 
@@ -799,7 +801,7 @@ class TestWindowsTerminalService:
 
     @pytest.fixture(autouse=True)
     def _patch_detect_shell(self):
-        with patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash"):
+        with patch("backend.services.terminal.terminal_service._detect_shell", return_value="/bin/bash"):
             yield
 
     def _make_win_session(self, session_id: str = "win1", pid: int = 99999, **kwargs) -> PtySession:
@@ -813,11 +815,11 @@ class TestWindowsTerminalService:
         )
 
     @patch(
-        "backend.services.terminal_service.shutil.which",
+        "backend.services.terminal.terminal_service.shutil.which",
         side_effect=lambda x: f"C:\\Windows\\{x}.exe" if x == "pwsh" else None,
     )
     def test_detect_shell_windows_returns_pwsh(self, mock_which: MagicMock) -> None:
-        with patch("backend.services.terminal_service.sys") as mock_sys:
+        with patch("backend.services.terminal.terminal_service.sys") as mock_sys:
             mock_sys.platform = "win32"
             result = _detect_shell()
         assert result == "C:\\Windows\\pwsh.exe"
@@ -827,7 +829,7 @@ class TestWindowsTerminalService:
         session = self._make_win_session()
         svc._sessions["win1"] = session
 
-        with patch("backend.services.terminal_service.sys") as mock_sys:
+        with patch("backend.services.terminal.terminal_service.sys") as mock_sys:
             mock_sys.platform = "win32"
             svc.write("win1", b"hello\n")
 
@@ -838,7 +840,7 @@ class TestWindowsTerminalService:
         session = self._make_win_session()
         svc._sessions["win1"] = session
 
-        with patch("backend.services.terminal_service.sys") as mock_sys:
+        with patch("backend.services.terminal.terminal_service.sys") as mock_sys:
             mock_sys.platform = "win32"
             svc.resize("win1", cols=80, rows=24)
 
@@ -850,7 +852,7 @@ class TestWindowsTerminalService:
         session = self._make_win_session()
         session._exit_task = None
 
-        with patch("backend.services.terminal_service.sys") as mock_sys:
+        with patch("backend.services.terminal.terminal_service.sys") as mock_sys:
             mock_sys.platform = "win32"
             await svc._cleanup_session(session)
 
@@ -878,7 +880,7 @@ class TestWindowsTerminalService:
         # First read returns data, second raises EOFError to stop the loop
         session.process.read.side_effect = ["hello output", EOFError()]
 
-        with patch("backend.services.terminal_service.asyncio.ensure_future") as mock_ef:
+        with patch("backend.services.terminal.terminal_service.asyncio.ensure_future") as mock_ef:
             await svc._windows_reader("win1")
 
         mock_ef.assert_called_once()
@@ -895,9 +897,10 @@ class TestWindowsTerminalService:
         session.process.isalive.side_effect = [True, False]
         session.process.exitstatus = 42
 
-        with patch("backend.services.terminal_service.sys") as mock_sys:
+        _mod = "backend.services.terminal.terminal_service"
+        with patch(f"{_mod}.sys") as mock_sys:
             mock_sys.platform = "win32"
-            with patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock, return_value=42):
+            with patch(f"{_mod}.asyncio.to_thread", new_callable=AsyncMock, return_value=42):
                 await svc._watch_exit("win1")
 
         assert "win1" not in svc.sessions
@@ -911,9 +914,10 @@ class TestWindowsTerminalService:
         session.clients.add(ws)
         svc._sessions["win1"] = session
 
-        with patch("backend.services.terminal_service.sys") as mock_sys:
+        _mod = "backend.services.terminal.terminal_service"
+        with patch(f"{_mod}.sys") as mock_sys:
             mock_sys.platform = "win32"
-            with patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock, return_value=0):
+            with patch(f"{_mod}.asyncio.to_thread", new_callable=AsyncMock, return_value=0):
                 await svc._watch_exit("win1")
 
         ws.send_text.assert_called_once()
@@ -921,7 +925,7 @@ class TestWindowsTerminalService:
         assert msg["type"] == "exit"
         assert msg["code"] == 0
 
-    @patch("backend.services.terminal_service.asyncio.create_task")
+    @patch("backend.services.terminal.terminal_service.asyncio.create_task")
     def test_create_session_windows_pwsh_prompt_injection(self, mock_create_task: MagicMock) -> None:
         """create_session on Windows injects prompt via -NoExit -Command argv for pwsh."""
         mock_win_proc = _make_win_proc()
@@ -929,11 +933,11 @@ class TestWindowsTerminalService:
         mock_win_proc_class.spawn.return_value = mock_win_proc
 
         with (
-            patch("backend.services.terminal_service.sys") as mock_sys,
-            patch("backend.services.terminal_service._WinPtyProcess", mock_win_proc_class, create=True),
-            patch("backend.services.terminal_service.os.path.isfile", return_value=True),
-            patch("backend.services.terminal_service.os.path.isdir", return_value=True),
-            patch("backend.services.terminal_service.secrets.token_hex", return_value="winhex1"),
+            patch("backend.services.terminal.terminal_service.sys") as mock_sys,
+            patch("backend.services.terminal.terminal_service._WinPtyProcess", mock_win_proc_class, create=True),
+            patch("backend.services.terminal.terminal_service.os.path.isfile", return_value=True),
+            patch("backend.services.terminal.terminal_service.os.path.isdir", return_value=True),
+            patch("backend.services.terminal.terminal_service.secrets.token_hex", return_value="winhex1"),
         ):
             mock_sys.platform = "win32"
             svc = TerminalService()
@@ -949,7 +953,7 @@ class TestWindowsTerminalService:
         # The prompt function definition should be in the command string
         assert any("function prompt" in str(a) for a in argv)
 
-    @patch("backend.services.terminal_service.asyncio.create_task")
+    @patch("backend.services.terminal.terminal_service.asyncio.create_task")
     def test_create_session_windows_cmd_prompt_env(self, mock_create_task: MagicMock) -> None:
         """create_session on Windows sets PROMPT env var for cmd.exe."""
         mock_win_proc = _make_win_proc()
@@ -957,11 +961,11 @@ class TestWindowsTerminalService:
         mock_win_proc_class.spawn.return_value = mock_win_proc
 
         with (
-            patch("backend.services.terminal_service.sys") as mock_sys,
-            patch("backend.services.terminal_service._WinPtyProcess", mock_win_proc_class, create=True),
-            patch("backend.services.terminal_service.os.path.isfile", return_value=True),
-            patch("backend.services.terminal_service.os.path.isdir", return_value=True),
-            patch("backend.services.terminal_service.secrets.token_hex", return_value="winhex2"),
+            patch("backend.services.terminal.terminal_service.sys") as mock_sys,
+            patch("backend.services.terminal.terminal_service._WinPtyProcess", mock_win_proc_class, create=True),
+            patch("backend.services.terminal.terminal_service.os.path.isfile", return_value=True),
+            patch("backend.services.terminal.terminal_service.os.path.isdir", return_value=True),
+            patch("backend.services.terminal.terminal_service.secrets.token_hex", return_value="winhex2"),
         ):
             mock_sys.platform = "win32"
             svc = TerminalService()
@@ -990,8 +994,8 @@ class TestWindowsTerminalService:
             close_calls.append(fd)
 
         with (
-            patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
-            patch("backend.services.terminal_service.os.close", side_effect=_tracking_close),
+            patch("backend.services.terminal.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
+            patch("backend.services.terminal.terminal_service.os.close", side_effect=_tracking_close),
         ):
             # First cleanup — should close fd 42 and set master_fd = -1
             await svc._cleanup_session(session)

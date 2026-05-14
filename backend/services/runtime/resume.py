@@ -57,7 +57,7 @@ async def ensure_resumable_worktree(host: RuntimeService, job_repo: JobRepositor
     """Ensure a job has a usable worktree before resuming or recovering it."""
     from pathlib import Path
 
-    from backend.services.git_service import GitError, GitService
+    from backend.services.git.git_service import GitError, GitService
 
     if not job.worktree_path or job.worktree_path == job.repo:
         return job

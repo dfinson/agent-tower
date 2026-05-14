@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.services.latency_attribution import (
+from backend.services.analytics.latency_attribution import (
     _classify_turnless_span_activity,
     _compute_wall_clock,
     _percentile,

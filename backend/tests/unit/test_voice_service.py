@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from backend.services.voice_service import VoiceService
+from backend.services.completers.voice_service import VoiceService
 
 
 class TestVoiceServiceInit:
@@ -18,7 +18,7 @@ class TestVoiceServiceInit:
 
 
 class TestModelLoading:
-    @patch("backend.services.voice_service._import_whisper")
+    @patch("backend.services.completers.voice_service._import_whisper")
     def test_loads_model_once(self, mock_import: MagicMock) -> None:
         mock_cls = MagicMock()
         mock_import.return_value = mock_cls
@@ -29,7 +29,7 @@ class TestModelLoading:
 
 
 class TestTranscribe:
-    @patch("backend.services.voice_service._import_whisper")
+    @patch("backend.services.completers.voice_service._import_whisper")
     def test_transcribes_audio(self, mock_import: MagicMock) -> None:
         mock_segment = MagicMock()
         mock_segment.text = "hello world"
@@ -42,7 +42,7 @@ class TestTranscribe:
         result = svc.transcribe(b"fake-audio-data")
         assert "hello world" in result
 
-    @patch("backend.services.voice_service._import_whisper")
+    @patch("backend.services.completers.voice_service._import_whisper")
     def test_empty_segments_returns_empty(self, mock_import: MagicMock) -> None:
         mock_model = MagicMock()
         mock_model.transcribe.return_value = ([], MagicMock())

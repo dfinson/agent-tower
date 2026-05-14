@@ -23,7 +23,7 @@ import structlog
 
 from backend.models.domain import Job, JobSource, JobState, SessionEvent, SessionEventKind
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.event_enricher import ToolEventEnricher
+from backend.services.events.event_enricher import ToolEventEnricher
 from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin
 
 if TYPE_CHECKING:
@@ -32,10 +32,10 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.config import CPLConfig
-    from backend.services.coderecon_service import CodeReconService
-    from backend.services.copilot_steer import CopilotSteerClient
-    from backend.services.event_bus import EventBus
-    from backend.services.git_service import GitService
+    from backend.services.coderecon.coderecon_service import CodeReconService
+    from backend.services.completers.copilot_steer import CopilotSteerClient
+    from backend.services.events.event_bus import EventBus
+    from backend.services.git.git_service import GitService
     from backend.services.runtime import RuntimeService
 
 log = structlog.get_logger()
@@ -615,7 +615,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         labels, visibility, duration, intent) so CLI sessions produce identical
         transcript payloads to managed sessions.
         """
-        from backend.services.sdk_event_mapping import (
+        from backend.services.adapters.sdk_event_mapping import (
             emit_copilot_otel,
             extract_copilot_telemetry,
         )
@@ -666,7 +666,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         """
         import json as _json
 
-        from backend.services.sdk_event_mapping import SDK_KIND_MAP, extract_result_text
+        from backend.services.adapters.sdk_event_mapping import SDK_KIND_MAP, extract_result_text
 
         kind = SDK_KIND_MAP.get(kind_str)
         if kind is None:

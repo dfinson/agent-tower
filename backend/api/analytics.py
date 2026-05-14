@@ -59,7 +59,7 @@ from backend.models.api_schemas import (
     YieldCategoryRow,
     YieldResponse,
 )
-from backend.services.analytics_service import AnalyticsService
+from backend.services.analytics.analytics_service import AnalyticsService
 
 router = APIRouter(route_class=DishkaRoute, tags=["analytics"])
 log = structlog.get_logger()
@@ -338,7 +338,7 @@ async def turn_economics_for_job(
     """Per-turn cost curve for a specific job, enriched with activity tags."""
     from backend.models.api_schemas import TelemetryCostBucket
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-    from backend.services.telemetry_query_service import TelemetryQueryService
+    from backend.services.analytics.telemetry_query_service import TelemetryQueryService
 
     summary = await svc.get_summary(job_id)
     turns = await svc.cost_drivers_for_job(job_id)
@@ -440,7 +440,7 @@ async def trigger_analysis(
     session: FromDishka[AsyncSession],
 ) -> TriggerAnalysisResponse:
     """Manually trigger the statistical analysis pass."""
-    from backend.services.statistical_analysis import run_analysis
+    from backend.services.analytics.statistical_analysis import run_analysis
 
     count = await run_analysis(session)
     await session.commit()

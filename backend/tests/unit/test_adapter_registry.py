@@ -10,8 +10,8 @@ from backend.models.domain import (
     AgentSDK,
     SessionConfig,
 )
-from backend.services.adapter_registry import AdapterRegistry
-from backend.services.agent_adapter import AgentAdapterInterface
+from backend.services.adapters.adapter_registry import AdapterRegistry
+from backend.services.adapters.agent_adapter import AgentAdapterInterface
 
 # ---------------------------------------------------------------------------
 # AdapterRegistry tests
@@ -137,7 +137,7 @@ class TestClaudeAdapterPermissions:
         """When the policy router allows, the callback returns PermissionResultAllow."""
         from claude_code_sdk import PermissionResultAllow
 
-        from backend.services.base_adapter import PermissionDecision
+        from backend.services.adapters.base_adapter import PermissionDecision
 
         adapter._evaluate_permission = AsyncMock(return_value=PermissionDecision.allow)
         adapter._session_to_job["sess-1"] = "job-1"
@@ -151,7 +151,7 @@ class TestClaudeAdapterPermissions:
         """When the policy router denies, the callback returns PermissionResultDeny."""
         from claude_code_sdk import PermissionResultDeny
 
-        from backend.services.base_adapter import PermissionDecision
+        from backend.services.adapters.base_adapter import PermissionDecision
 
         adapter._evaluate_permission = AsyncMock(return_value=PermissionDecision.deny)
         adapter._session_to_job["sess-1"] = "job-1"
@@ -176,7 +176,7 @@ class TestClaudeAdapterPermissions:
         """Trusted jobs skip all permission checks."""
         from claude_code_sdk import PermissionResultAllow
 
-        from backend.services.base_adapter import PermissionDecision
+        from backend.services.adapters.base_adapter import PermissionDecision
 
         # Trust bypass is checked inside _evaluate_permission, so mock it
         adapter._evaluate_permission = AsyncMock(return_value=PermissionDecision.allow)
@@ -191,25 +191,25 @@ class TestClaudeAdapterToolSummary:
     """Test the _build_permission_description helper."""
 
     def test_bash_summary(self) -> None:
-        from backend.services.base_adapter import BaseAgentAdapter
+        from backend.services.adapters.base_adapter import BaseAgentAdapter
 
         result = BaseAgentAdapter._build_permission_description("shell", "Bash", {"command": "make test"}, None)
         assert "make test" in result
 
     def test_edit_summary(self) -> None:
-        from backend.services.base_adapter import BaseAgentAdapter
+        from backend.services.adapters.base_adapter import BaseAgentAdapter
 
         result = BaseAgentAdapter._build_permission_description("write", "Edit", {"file_path": "src/main.py"}, None)
         assert "src/main.py" in result
 
     def test_web_fetch_summary(self) -> None:
-        from backend.services.base_adapter import BaseAgentAdapter
+        from backend.services.adapters.base_adapter import BaseAgentAdapter
 
         result = BaseAgentAdapter._build_permission_description("url", "WebFetch", {"url": "https://example.com"}, None)
         assert "example.com" in result
 
     def test_fallback_summary(self) -> None:
-        from backend.services.base_adapter import BaseAgentAdapter
+        from backend.services.adapters.base_adapter import BaseAgentAdapter
 
         result = BaseAgentAdapter._build_permission_description("custom-tool", "CustomTool", {"key": "value"}, None)
         assert "key" in result
@@ -219,14 +219,14 @@ class TestSDKModelValidation:
     """Test SDK-model compatibility validation."""
 
     def test_copilot_accepts_any_model(self) -> None:
-        from backend.services.agent_adapter import validate_sdk_model
+        from backend.services.adapters.agent_adapter import validate_sdk_model
 
         validate_sdk_model("copilot", "gpt-4o")
         validate_sdk_model("copilot", "claude-sonnet-4-20250514")
         validate_sdk_model("copilot", "o1-preview")
 
     def test_claude_accepts_claude_models(self) -> None:
-        from backend.services.agent_adapter import validate_sdk_model
+        from backend.services.adapters.agent_adapter import validate_sdk_model
 
         validate_sdk_model("claude", "claude-sonnet-4-20250514")
         validate_sdk_model("claude", "claude-3-opus-20240229")
@@ -234,7 +234,7 @@ class TestSDKModelValidation:
 
     def test_claude_rejects_non_claude_models(self) -> None:
         from backend.models.domain import SDKModelMismatchError
-        from backend.services.agent_adapter import validate_sdk_model
+        from backend.services.adapters.agent_adapter import validate_sdk_model
 
         with pytest.raises(SDKModelMismatchError, match="not compatible with the claude SDK"):
             validate_sdk_model("claude", "gpt-4o")
@@ -242,20 +242,20 @@ class TestSDKModelValidation:
             validate_sdk_model("claude", "o1-preview")
 
     def test_none_model_always_ok(self) -> None:
-        from backend.services.agent_adapter import validate_sdk_model
+        from backend.services.adapters.agent_adapter import validate_sdk_model
 
         validate_sdk_model("copilot", None)
         validate_sdk_model("claude", None)
 
     def test_empty_model_always_ok(self) -> None:
-        from backend.services.agent_adapter import validate_sdk_model
+        from backend.services.adapters.agent_adapter import validate_sdk_model
 
         validate_sdk_model("copilot", "")
         validate_sdk_model("claude", "")
 
     def test_unknown_sdk_raises(self) -> None:
         from backend.models.domain import SDKModelMismatchError
-        from backend.services.agent_adapter import validate_sdk_model
+        from backend.services.adapters.agent_adapter import validate_sdk_model
 
         with pytest.raises(SDKModelMismatchError, match="Unknown SDK"):
             validate_sdk_model("unknown", "gpt-4o")

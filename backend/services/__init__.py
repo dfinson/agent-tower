@@ -2,79 +2,61 @@
 
 Organisation
 ------------
-Services are organised into sub-packages by domain and flat modules for
-cross-cutting or standalone concerns.
+All services are organised into sub-packages by domain concern.
 
 Sub-packages:
 
-* **runtime/** — Job execution, queueing, heartbeat, resume, verify.
-* **sidecar/** — Sidecar session management, dispatcher, templates.
-* **watcher/** — Claude CLI and Copilot SDK session watchers.
-* **setup/** — Preflight checks, dependency validation, setup wizard.
-* **steps/** — Step tracking, diffing, persistence.
-* **memory/** — Workspace memory compaction, extraction, read/write.
-* **story/** — Story generation, review narrative, motivation.
-* **trail/** — Activity timeline, plan tracking, enrichment.
 * **action_policy/** — Permission evaluation, shell classification, batching.
+* **adapters/** — Agent adapter abstraction layer, SDK event mapping.
+* **analytics/** — Cost attribution, latency, telemetry, statistical analysis.
+* **artifacts/** — Artifact storage, diffs, and snapshot helpers.
+* **auth/** — Authentication middleware, Cloudflare Access, permission policy.
+* **claude_adapter/** — Claude CLI adapter.
+* **coderecon/** — CodeRecon integration services.
+* **completers/** — LLM completion, summarization, naming, narration, voice.
+* **copilot_adapter/** — Copilot SDK adapter.
+* **events/** — Event bus, SSE, event processing pipeline.
+* **git/** — Git operations service.
+* **job/** — Job lifecycle, approval, retry, retention.
+* **memory/** — Workspace memory compaction, extraction, read/write.
 * **merge_service/** — Git merge orchestration.
-
-Flat modules:
-
-* **Agent adapters** — ``agent_adapter``, ``base_adapter``,
-  ``copilot_adapter/``, ``claude_adapter/``, ``adapter_registry``.
-* **Telemetry & analytics** — ``telemetry``, ``telemetry_query_service``,
-  ``cost_attribution``, ``analytics_service``, ``statistical_analysis``.
-* **Infrastructure** — ``event_bus``, ``sse_manager``, ``push_service``,
-  ``retention_service``.
-* **Utilities** — ``git_service``, ``naming_service``, ``summarization_service``,
-  ``tool_formatters/``, ``tool_classifier``, ``voice_service``,
-  ``terminal_service``, ``tunnel_service``, ``platform_adapter``,
-  ``parsing_utils``, ``snapshot_helpers``.
-* **Auth & sharing** — ``auth``, ``cf_access``, ``share_service``,
-  ``vapid_keys``.
-* **Content** — ``artifact_service``, ``lightweight_completer``.
+* **runtime/** — Job execution, queueing, heartbeat, resume, verify.
+* **setup/** — Preflight checks, dependency validation, setup wizard.
+* **sharing/** — Sharing, tunnels, push notifications, VAPID keys.
+* **sidecar/** — Sidecar session management, dispatcher, templates.
+* **steps/** — Step tracking, diffing, persistence.
+* **story/** — Story generation, review narrative, motivation.
+* **terminal/** — PTY-based terminal session management.
+* **tool_formatters/** — Tool display formatting and visibility.
+* **tools/** — Tool classification, preflight curation, parsing utilities.
+* **trail/** — Activity timeline, plan tracking, enrichment.
+* **watcher/** — Claude CLI and Copilot SDK session watchers.
 """
 
 __all__ = [
     "action_policy",
-    "adapter_registry",
-    "agent_adapter",
-    "approval_service",
-    "artifact_service",
+    "adapters",
+    "analytics",
+    "artifacts",
     "auth",
-    "base_adapter",
     "claude_adapter",
+    "coderecon",
+    "completers",
     "copilot_adapter",
-    "cost_attribution",
-    "diff_service",
-    "event_bus",
-    "git_service",
-    "job_service",
-    "lightweight_completer",
+    "events",
+    "git",
+    "job",
     "memory",
     "merge_service",
-    "naming_service",
-    "permission_policy",
-    "platform_adapter",
-    "push_service",
-    "retention_service",
-    "retry_tracker",
     "runtime",
     "setup",
-    "share_service",
+    "sharing",
     "sidecar",
-    "sse_manager",
-    "statistical_analysis",
     "steps",
     "story",
-    "summarization_service",
-    "telemetry",
-    "terminal_service",
-    "tool_classifier",
+    "terminal",
     "tool_formatters",
+    "tools",
     "trail",
-    "tunnel_service",
-    "vapid_keys",
-    "voice_service",
     "watcher",
 ]

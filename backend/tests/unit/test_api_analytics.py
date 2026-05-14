@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.services.analytics_service import AnalyticsService
+from backend.services.analytics.analytics_service import AnalyticsService
 
 # ---------------------------------------------------------------------------
 # Helpers

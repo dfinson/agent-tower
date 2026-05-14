@@ -28,8 +28,8 @@ from backend.services.action_policy.project_context import (
 if TYPE_CHECKING:
     from backend.persistence.trail_repo import TrailNodeRepository
     from backend.services.action_policy.classifier import Action, Classification
-    from backend.services.coderecon_service import CodeReconService
-    from backend.services.lightweight_completer import LightweightCompleter
+    from backend.services.coderecon.coderecon_service import CodeReconService
+    from backend.services.completers.lightweight_completer import LightweightCompleter
 
 log = structlog.get_logger()
 

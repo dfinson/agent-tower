@@ -15,14 +15,14 @@ from backend.models.domain import (
     SessionEvent,
     SessionEventKind,
 )
-from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionResult
-from backend.services.base_adapter import (
+from backend.services.adapters.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionResult
+from backend.services.adapters.base_adapter import (
     CLIENT_STOP_TIMEOUT_S,
     COMPLETION_TIMEOUT_S,
     BaseAgentAdapter,
     PermissionDecision,
 )
-from backend.services.permission_policy import PermissionRequest as PolicyRequest
+from backend.services.auth.permission_policy import PermissionRequest as PolicyRequest
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -52,8 +52,8 @@ if TYPE_CHECKING:
     from copilot.session import CopilotSession, PermissionRequestResult, SystemMessageAppendConfig
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from backend.services.approval_service import ApprovalService
-    from backend.services.event_bus import EventBus
+    from backend.services.events.event_bus import EventBus
+    from backend.services.job.approval_service import ApprovalService
 
 log = structlog.get_logger()
 
@@ -159,7 +159,7 @@ class CopilotAdapter(BaseAgentAdapter):
     # --- Dispatch tables for telemetry and SDK→SessionEvent bridging ---
 
     # Use the shared canonical mapping; avoid duplicating the dict here.
-    from backend.services.sdk_event_mapping import SDK_KIND_MAP as _SDK_KIND_MAP  # noqa: E301
+    from backend.services.adapters.sdk_event_mapping import SDK_KIND_MAP as _SDK_KIND_MAP  # noqa: E301
 
     # --- Extracted telemetry handlers ---
 
@@ -174,7 +174,7 @@ class CopilotAdapter(BaseAgentAdapter):
         session_kind: str = "job",
     ) -> None:
 
-        from backend.services import telemetry as tel
+        from backend.services.analytics import telemetry as tel
 
         actual_model = data.model or ""
 
@@ -358,7 +358,7 @@ class CopilotAdapter(BaseAgentAdapter):
         *,
         session_kind: str = "job",
     ) -> None:
-        from backend.services import telemetry as tel
+        from backend.services.analytics import telemetry as tel
 
         current = int(data.current_tokens or 0)
         attrs = {"job_id": job_id, "sdk": "copilot", "session_kind": session_kind}
@@ -378,7 +378,7 @@ class CopilotAdapter(BaseAgentAdapter):
         *,
         session_kind: str = "job",
     ) -> None:
-        from backend.services import telemetry as tel
+        from backend.services.analytics import telemetry as tel
 
         pre = int(data.pre_compaction_tokens or 0)
         post = int(data.post_compaction_tokens or 0)
@@ -755,7 +755,7 @@ class CopilotAdapter(BaseAgentAdapter):
             job_id = self._session_to_job.get(session_id)
             session_kind = self.get_session_kind(session_id)
             if job_id and data:
-                from backend.services import telemetry as tel
+                from backend.services.analytics import telemetry as tel
 
                 if kind_str == "assistant.usage":
                     self._handle_usage_event(
@@ -905,7 +905,7 @@ class CopilotAdapter(BaseAgentAdapter):
         from copilot._jsonrpc import JsonRpcError, ProcessExitedError
         from copilot.session import PermissionRequestResult as _Result
 
-        from backend.services.agent_adapter import CompletionResult
+        from backend.services.adapters.agent_adapter import CompletionResult
 
         client = CopilotClient()
         tmp_session_id = str(uuid.uuid4())

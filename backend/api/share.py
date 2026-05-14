@@ -18,11 +18,11 @@ from backend.models.api_schemas import (
     ShareTokenResponse,
 )
 from backend.persistence.approval_repo import ApprovalRepository
-from backend.services.diff_service import DiffService
-from backend.services.job_service import JobService
-from backend.services.share_service import ShareService
-from backend.services.sse_manager import SSEConnection, SSEManager
-from backend.services.telemetry_query_service import TelemetryQueryService
+from backend.services.analytics.telemetry_query_service import TelemetryQueryService
+from backend.services.artifacts.diff_service import DiffService
+from backend.services.events.sse_manager import SSEConnection, SSEManager
+from backend.services.job.job_service import JobService
+from backend.services.sharing.share_service import ShareService
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -148,7 +148,7 @@ async def get_shared_snapshot(
 ) -> JobSnapshotResponse:
     """Full state hydration via share token — same shape as /jobs/{id}/snapshot."""
     from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full
-    from backend.services.snapshot_helpers import assemble_snapshot
+    from backend.services.artifacts.snapshot_helpers import assemble_snapshot
 
     job_id = share_service.validate(token)
     job = await svc.get_job(job_id)

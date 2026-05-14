@@ -17,9 +17,9 @@ from backend.models.api_schemas import (
     TerminalSessionInfo,
     TerminalSessionListResponse,
 )
-from backend.services.auth import LOCALHOST_ADDRS, check_websocket_auth
+from backend.services.auth.middleware import LOCALHOST_ADDRS, check_websocket_auth
 from backend.services.sidecar.session import SidecarSessionManager
-from backend.services.terminal_service import TerminalService
+from backend.services.terminal.terminal_service import TerminalService
 
 log = structlog.get_logger()
 

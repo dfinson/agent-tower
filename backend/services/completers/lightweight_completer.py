@@ -18,7 +18,7 @@ import httpx
 import structlog
 
 if TYPE_CHECKING:
-    from backend.services.agent_adapter import AgentAdapterInterface, CompletionResult
+    from backend.services.adapters.agent_adapter import AgentAdapterInterface, CompletionResult
 
 log = structlog.get_logger()
 
@@ -149,7 +149,7 @@ class LightweightCompleter:
 
     async def _anthropic_complete(self, prompt: str) -> CompletionResult:
         """Call Anthropic Messages API directly."""
-        from backend.services.agent_adapter import CompletionResult
+        from backend.services.adapters.agent_adapter import CompletionResult
 
         client = await self._get_client()
         resp = await client.post(
@@ -183,7 +183,7 @@ class LightweightCompleter:
 
     async def _openai_complete(self, prompt: str) -> CompletionResult:
         """Call OpenAI Chat Completions API directly."""
-        from backend.services.agent_adapter import CompletionResult
+        from backend.services.adapters.agent_adapter import CompletionResult
 
         client = await self._get_client()
         resp = await client.post(

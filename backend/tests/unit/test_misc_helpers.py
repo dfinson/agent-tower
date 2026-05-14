@@ -9,10 +9,10 @@ from unittest.mock import patch
 import pytest
 
 from backend.models.schemas.base import ArtifactType
-from backend.services.artifact_service import _classify_artifact, _guess_mime
-from backend.services.platform_adapter import _validate_refs, detect_platform
+from backend.services.adapters.platform_adapter import _validate_refs, detect_platform
+from backend.services.artifacts.artifact_service import _classify_artifact, _guess_mime
+from backend.services.sharing.tunnel_service import RemoteProvider, validate_remote_provider
 from backend.services.trail.node_builder import _extract_snippet, classify_step
-from backend.services.tunnel_service import RemoteProvider, validate_remote_provider
 
 # ---------------------------------------------------------------------------
 # _extract_snippet

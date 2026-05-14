@@ -1,10 +1,10 @@
-"""Tests for backend.services.telemetry_query_service — pure helper functions."""
+"""Tests for backend.services.analytics.telemetry_query_service — pure helper functions."""
 
 from __future__ import annotations
 
 import json
 
-from backend.services.telemetry_query_service import (
+from backend.services.analytics.telemetry_query_service import (
     _SHELL_TOOL_NAMES,
     _refine_tool_category,
     _shell_display_name,

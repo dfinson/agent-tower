@@ -1,4 +1,4 @@
-"""Comprehensive tests for backend.services.telemetry_query_service.
+"""Comprehensive tests for backend.services.analytics.telemetry_query_service.
 
 Covers the TelemetryQueryService class (get_telemetry, _enrich_turn_curve)
 and the module-level helper functions (_shell_display_name, _refine_tool_category).
@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from backend.models.api_schemas import TelemetryCostBucket
-from backend.services.telemetry_query_service import (
+from backend.services.analytics.telemetry_query_service import (
     TelemetryQueryService,
     _refine_tool_category,
     _shell_display_name,

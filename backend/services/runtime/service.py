@@ -43,7 +43,7 @@ from backend.models.domain import (
 )
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.job_repo import JobRepository
-from backend.services.job_service import JobService
+from backend.services.job.job_service import JobService
 from backend.services.runtime.handoff import (
     build_followup_handoff_prompt_for_job,
     build_resume_handoff_prompt_for_job,
@@ -82,12 +82,12 @@ from backend.validators import REF_PATTERN
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from backend.services.coderecon_service import CodeReconService
+    from backend.services.coderecon.coderecon_service import CodeReconService
     from backend.services.memory.compacter import MemoryCompacter
     from backend.services.memory.extractor import MemoryExtractor
-    from backend.services.preflight_curator import PreflightCurator
     from backend.services.steps.tracker import StepTracker
-    from backend.services.terminal_service import TerminalService
+    from backend.services.terminal.terminal_service import TerminalService
+    from backend.services.tools.preflight_curator import PreflightCurator
     from backend.services.trail import TrailService
 
 
@@ -169,16 +169,16 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.config import CPLConfig
-    from backend.services.adapter_registry import AdapterRegistry
-    from backend.services.agent_adapter import AgentAdapterInterface
-    from backend.services.approval_service import ApprovalService
-    from backend.services.diff_service import DiffService
-    from backend.services.event_bus import EventBus
-    from backend.services.git_service import GitService
+    from backend.services.adapters.adapter_registry import AdapterRegistry
+    from backend.services.adapters.agent_adapter import AgentAdapterInterface
+    from backend.services.adapters.platform_adapter import PlatformRegistry
+    from backend.services.artifacts.diff_service import DiffService
+    from backend.services.completers.summarization_service import SummarizationService
+    from backend.services.events.event_bus import EventBus
+    from backend.services.git.git_service import GitService
+    from backend.services.job.approval_service import ApprovalService
     from backend.services.merge_service import MergeService
-    from backend.services.platform_adapter import PlatformRegistry
     from backend.services.sidecar.session import SidecarSessionManager
-    from backend.services.summarization_service import SummarizationService
 
 log = structlog.get_logger()
 
@@ -572,7 +572,7 @@ class RuntimeService:
         # subscriber (handle_event) — no explicit start_tracking call needed.
 
         # Start telemetry tracking — init OTEL spans and SQLite summary row.
-        from backend.services import telemetry as tel
+        from backend.services.analytics import telemetry as tel
 
         tel.start_job_span(job_id, sdk=config.sdk, model=config.model or "")
 
@@ -968,7 +968,7 @@ class RuntimeService:
 
             trail_repo = TrailNodeRepository(self._session_factory)
             adapter = self._resolve_adapter(config.sdk)
-            from backend.services.lightweight_completer import LightweightCompleter
+            from backend.services.completers.lightweight_completer import LightweightCompleter
 
             completer = LightweightCompleter(adapter, model=self._config.runtime.utility_model)
             monitor = MonitorSession(
@@ -2168,7 +2168,7 @@ class RuntimeService:
         worktree_path = job.worktree_path
         if not worktree_path or worktree_path == job.repo:
             return  # main worktree — leave it alone
-        from backend.services.git_service import GitError, GitService
+        from backend.services.git.git_service import GitError, GitService
 
         git = GitService(self._config)
         with contextlib.suppress(GitError, OSError):

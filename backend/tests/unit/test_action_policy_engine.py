@@ -21,7 +21,7 @@ from backend.services.action_policy.classifier import (
     _safe_regex_search,
     classify,
 )
-from backend.services.event_bus import EventBus
+from backend.services.events.event_bus import EventBus
 
 # ---------------------------------------------------------------------------
 # _apply_cost_promotion
@@ -393,7 +393,7 @@ def _make_adapter_with_db_session() -> Any:
     """Create a minimal BaseAgentAdapter-like object for testing _get_cost_context."""
     from contextlib import asynccontextmanager
 
-    from backend.services.base_adapter import BaseAgentAdapter
+    from backend.services.adapters.base_adapter import BaseAgentAdapter
 
     class _TestAdapter(BaseAgentAdapter):
         def __init__(self) -> None:

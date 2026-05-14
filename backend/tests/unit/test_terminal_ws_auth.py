@@ -10,8 +10,8 @@ import pytest
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-import backend.services.auth as auth_mod
-from backend.services.auth import check_websocket_auth, set_password
+import backend.services.auth.middleware as auth_mod
+from backend.services.auth.middleware import check_websocket_auth, set_password
 
 
 @pytest.fixture(autouse=True)
@@ -58,8 +58,8 @@ class TestCheckWebsocketAuth:
         assert check_websocket_auth(client_host=None, cookies={"cpl_session": token}) is True
         assert check_websocket_auth(client_host=None, cookies={}) is False
 
-    @patch("backend.services.cf_access.is_configured", return_value=True)
-    @patch("backend.services.cf_access.verify_token", return_value=True)
+    @patch("backend.services.auth.cf_access.is_configured", return_value=True)
+    @patch("backend.services.auth.cf_access.verify_token", return_value=True)
     def test_cf_access_jwt_bypasses_auth(self, _mock_verify, _mock_configured) -> None:
         set_password("secret")
         assert (
@@ -82,8 +82,8 @@ class TestCheckWebsocketAuth:
             is False
         )
 
-    @patch("backend.services.cf_access.is_configured", return_value=True)
-    @patch("backend.services.cf_access.verify_token", return_value=False)
+    @patch("backend.services.auth.cf_access.is_configured", return_value=True)
+    @patch("backend.services.auth.cf_access.verify_token", return_value=False)
     def test_forged_cf_access_jwt_does_not_bypass(self, _mock_verify, _mock_configured) -> None:
         set_password("secret")
         assert (

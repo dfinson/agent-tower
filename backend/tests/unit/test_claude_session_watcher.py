@@ -426,7 +426,7 @@ class TestIngestServiceRouting:
     ) -> None:
         from backend.models.domain import Job, JobSource, JobState
         from backend.persistence.job_repo import JobRepository
-        from backend.services.ingest_service import IngestService
+        from backend.services.events.ingest_service import IngestService
 
         # Create a claude_cli job via ORM
         async with db_session() as session:
@@ -465,7 +465,7 @@ class TestIngestServiceRouting:
     ) -> None:
         from backend.models.domain import Job, JobSource, JobState
         from backend.persistence.job_repo import JobRepository
-        from backend.services.ingest_service import IngestService
+        from backend.services.events.ingest_service import IngestService
 
         async with db_session() as session:
             repo = JobRepository(session)

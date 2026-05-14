@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.models.db import Base, JobRow
 from backend.models.domain import ApprovalAlreadyResolvedError, ApprovalNotFoundError
 from backend.persistence.database import _set_sqlite_pragmas
-from backend.services.approval_service import ApprovalService
+from backend.services.job.approval_service import ApprovalService
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

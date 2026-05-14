@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from backend.services.tool_classifier import (
+from backend.services.tools.tool_classifier import (
     TOOL_CATEGORIES,
     classify_tool,
     extract_file_paths,

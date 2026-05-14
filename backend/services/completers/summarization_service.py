@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.models.events import DomainEvent
-    from backend.services.naming_service import Completable
+    from backend.services.completers.naming_service import Completable
 
 log = structlog.get_logger()
 
@@ -156,7 +156,7 @@ class SummarizationService:
         from backend.persistence.artifact_repo import ArtifactRepository
         from backend.persistence.database import serialized_write
         from backend.persistence.trail_repo import TrailNodeRepository
-        from backend.services.artifact_service import ArtifactService
+        from backend.services.artifacts.artifact_service import ArtifactService
 
         # --- Read phase (no write lock needed) ---
         trail_repo = TrailNodeRepository(self._session_factory)
@@ -210,7 +210,7 @@ class SummarizationService:
         from backend.persistence.artifact_repo import ArtifactRepository
         from backend.persistence.job_repo import JobRepository
         from backend.persistence.trail_repo import TrailNodeRepository
-        from backend.services.artifact_service import ArtifactService
+        from backend.services.artifacts.artifact_service import ArtifactService
 
         try:
             async with self._session_factory() as session:

@@ -110,7 +110,7 @@ def emit_copilot_otel(kind_str: str, counters: dict[str, Any], job_id: str) -> N
 
     Call after ``extract_copilot_telemetry`` with the returned counters dict.
     """
-    from backend.services import telemetry as tel
+    from backend.services.analytics import telemetry as tel
 
     attrs = {"job_id": job_id, "sdk": "copilot"}
     otel = counters.get("_otel", {})

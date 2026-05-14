@@ -22,12 +22,12 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from sqlalchemy.exc import DBAPIError
 
-from backend.services.parsing_utils import ensure_dict
+from backend.services.tools.parsing_utils import ensure_dict
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from backend.services.naming_service import Completable
+    from backend.services.completers.naming_service import Completable
 
 log = structlog.get_logger()
 

@@ -10,7 +10,7 @@ from backend.models.api_schemas import (
     UnsubscribeRequest,
     VapidKeyResponse,
 )
-from backend.services.push_service import PushService
+from backend.services.sharing.push_service import PushService
 
 router = APIRouter(tags=["notifications"], route_class=DishkaRoute)
 

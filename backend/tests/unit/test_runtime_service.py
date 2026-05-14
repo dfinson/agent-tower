@@ -42,9 +42,9 @@ from backend.models.domain import (
 )
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.database import _set_sqlite_pragmas
-from backend.services.adapter_registry import AdapterRegistry
-from backend.services.agent_adapter import AgentAdapterInterface, CompletionResult
-from backend.services.event_bus import EventBus
+from backend.services.adapters.adapter_registry import AdapterRegistry
+from backend.services.adapters.agent_adapter import AgentAdapterInterface, CompletionResult
+from backend.services.events.event_bus import EventBus
 from backend.services.runtime import (
     AgentSession,
     RuntimeService,
@@ -903,7 +903,7 @@ class TestResumeFallback:
     ) -> None:
         from pathlib import Path
 
-        from backend.services.git_service import GitError, GitService
+        from backend.services.git.git_service import GitError, GitService
 
         runtime = RuntimeService(
             session_factory=session_factory,

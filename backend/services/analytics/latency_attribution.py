@@ -21,12 +21,12 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from backend.models.api_schemas import ExecutionPhase
-from backend.services.cost_attribution import (
+from backend.services.analytics.cost_attribution import (
     TurnContext,
     _classify_turn_intent,
     _compute_subagent_distributions,
 )
-from backend.services.tool_classifier import classify_tool, refine_shell_category
+from backend.services.tools.tool_classifier import classify_tool, refine_shell_category
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

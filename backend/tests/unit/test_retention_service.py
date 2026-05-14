@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.config import CPLConfig
 from backend.models.db import ArtifactRow, Base, JobRow
 from backend.persistence.database import _set_sqlite_pragmas
-from backend.services.retention_service import RetentionService
+from backend.services.job.retention_service import RetentionService
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

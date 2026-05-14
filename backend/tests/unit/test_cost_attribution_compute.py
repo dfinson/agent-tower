@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.services.cost_attribution import (
+from backend.services.analytics.cost_attribution import (
     _accumulate,
     _compute_attribution,
     _count_edit_retries,
@@ -775,7 +775,7 @@ class TestComputeAttributionCostFromAttrs:
 
 @pytest.mark.asyncio
 class TestComputeAttributionPublicWrapper:
-    @patch("backend.services.cost_attribution._compute_attribution", new_callable=AsyncMock)
+    @patch("backend.services.analytics.cost_attribution._compute_attribution", new_callable=AsyncMock)
     @patch("backend.persistence.file_cost_repo.FileCostRepository")
     @patch("backend.persistence.file_access_repo.FileAccessRepository")
     @patch("backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository")
@@ -798,7 +798,7 @@ class TestComputeAttributionPublicWrapper:
         assert call_kwargs["job_id"] == "job-42"
         assert call_kwargs["trail_repo"] is None  # no session_factory
 
-    @patch("backend.services.cost_attribution._compute_attribution", new_callable=AsyncMock)
+    @patch("backend.services.analytics.cost_attribution._compute_attribution", new_callable=AsyncMock)
     @patch("backend.persistence.file_cost_repo.FileCostRepository")
     @patch("backend.persistence.file_access_repo.FileAccessRepository")
     @patch("backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository")

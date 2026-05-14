@@ -25,8 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.services.cost_attribution import _classify_turn_intent
-from backend.services.tool_classifier import classify_tool, classify_tool_activity, refine_shell_category
+from backend.services.analytics.cost_attribution import _classify_turn_intent
+from backend.services.tools.tool_classifier import classify_tool, classify_tool_activity, refine_shell_category
 
 
 def _zero_bucket() -> dict:

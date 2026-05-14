@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.services.tunnel_service import (
+from backend.services.sharing.tunnel_service import (
     _CODEPLANE_TUNNEL_PREFIX,
     RemoteProvider,
     TunnelHandle,
@@ -61,14 +61,14 @@ def test_validate_remote_provider_local_has_no_requirements() -> None:
     assert validate_remote_provider(RemoteProvider.local) is None
 
 
-@patch("backend.services.tunnel_service.shutil.which", return_value=None)
+@patch("backend.services.sharing.tunnel_service.shutil.which", return_value=None)
 def test_validate_remote_provider_devtunnel_requires_cli(mock_which) -> None:
     error = validate_remote_provider(RemoteProvider.devtunnel)
     assert error is not None
     assert "devtunnel" in error.lower()
 
 
-@patch("backend.services.tunnel_service.shutil.which", return_value="/usr/bin/cloudflared")
+@patch("backend.services.sharing.tunnel_service.shutil.which", return_value="/usr/bin/cloudflared")
 def test_validate_remote_provider_cloudflare_requires_token_and_hostname(mock_which) -> None:
     error = validate_remote_provider(RemoteProvider.cloudflare)
     assert error is not None
@@ -76,7 +76,7 @@ def test_validate_remote_provider_cloudflare_requires_token_and_hostname(mock_wh
     assert "CPL_CLOUDFLARE_TUNNEL_TOKEN" in error
 
 
-@patch("backend.services.tunnel_service.shutil.which", return_value="/usr/bin/cloudflared")
+@patch("backend.services.sharing.tunnel_service.shutil.which", return_value="/usr/bin/cloudflared")
 def test_validate_remote_provider_cloudflare_with_config_passes(mock_which) -> None:
     error = validate_remote_provider(
         RemoteProvider.cloudflare,
@@ -110,7 +110,7 @@ def test_watchdog_restart_process_retries_until_healthy() -> None:
     watchdog._BACKOFF_BASE = 0  # Skip backoff delay in tests
 
     with (
-        patch("backend.services.tunnel_service.subprocess.Popen", side_effect=[failed_proc, recovered_proc]),
+        patch("backend.services.sharing.tunnel_service.subprocess.Popen", side_effect=[failed_proc, recovered_proc]),
         patch.object(watchdog, "_wait_for_recovery", side_effect=[True]),
     ):
         restarted = watchdog._restart_process()
@@ -131,7 +131,7 @@ def test_watchdog_restart_process_gives_up_after_retries() -> None:
     watchdog._BACKOFF_BASE = 0  # Skip backoff delay in tests
     failed_procs = [_FakeProc(poll_result=1, output=f"failure {index}") for index in range(3)]
 
-    with patch("backend.services.tunnel_service.subprocess.Popen", side_effect=failed_procs):
+    with patch("backend.services.sharing.tunnel_service.subprocess.Popen", side_effect=failed_procs):
         restarted = watchdog._restart_process()
 
     assert restarted is False
@@ -146,12 +146,12 @@ def test_watchdog_restart_process_gives_up_after_retries() -> None:
 class TestTunnelNameRandomization:
     """Cover the new auto-random naming and prefix reuse logic."""
 
-    @patch("backend.services.tunnel_service._list_devtunnels", return_value=[])
+    @patch("backend.services.sharing.tunnel_service._list_devtunnels", return_value=[])
     def test_find_existing_tunnel_returns_none_when_empty(self, _mock) -> None:
         assert _find_existing_codeplane_tunnel() is None
 
     @patch(
-        "backend.services.tunnel_service._list_devtunnels",
+        "backend.services.sharing.tunnel_service._list_devtunnels",
         return_value=[{"tunnelId": "cpl-a1b2c3d4.usw2"}],
     )
     def test_find_existing_tunnel_matches_prefix(self, _mock) -> None:
@@ -162,7 +162,7 @@ class TestTunnelNameRandomization:
         assert region == "usw2"
 
     @patch(
-        "backend.services.tunnel_service._list_devtunnels",
+        "backend.services.sharing.tunnel_service._list_devtunnels",
         return_value=[{"tunnelId": "user-codeplane.usw2"}],
     )
     def test_find_existing_tunnel_ignores_old_naming_convention(self, _mock) -> None:
@@ -170,7 +170,7 @@ class TestTunnelNameRandomization:
         assert result is None
 
     @patch(
-        "backend.services.tunnel_service._list_devtunnels",
+        "backend.services.sharing.tunnel_service._list_devtunnels",
         return_value=[{"tunnelId": "cpl-abc."}],  # empty region
     )
     def test_find_existing_tunnel_skips_empty_region(self, _mock) -> None:
@@ -178,7 +178,7 @@ class TestTunnelNameRandomization:
         assert result is None
 
     @patch(
-        "backend.services.tunnel_service._list_devtunnels",
+        "backend.services.sharing.tunnel_service._list_devtunnels",
         return_value=[{"tunnelId": "cpl-abcd1234.euw1"}, {"tunnelId": "unrelated.usw2"}],
     )
     def test_lookup_devtunnel_exact_match(self, _mock) -> None:
@@ -186,7 +186,7 @@ class TestTunnelNameRandomization:
         assert found is True
         assert region == "euw1"
 
-    @patch("backend.services.tunnel_service._list_devtunnels", return_value=[])
+    @patch("backend.services.sharing.tunnel_service._list_devtunnels", return_value=[])
     def test_lookup_devtunnel_not_found(self, _mock) -> None:
         found, region = _lookup_devtunnel("nonexistent")
         assert found is False
@@ -229,7 +229,7 @@ class TestWatchdogLock:
         watchdog._stop_event = threading.Event()
 
         with (
-            patch("backend.services.tunnel_service.subprocess.Popen", return_value=new_proc),
+            patch("backend.services.sharing.tunnel_service.subprocess.Popen", return_value=new_proc),
             patch.object(watchdog, "_wait_for_recovery", return_value=True),
         ):
             watchdog._restart_process()
@@ -439,7 +439,7 @@ class TestRestartBackoff:
         failed_procs = [_FakeProc(poll_result=1) for _ in range(3)]
 
         with (
-            patch("backend.services.tunnel_service.subprocess.Popen", side_effect=failed_procs),
+            patch("backend.services.sharing.tunnel_service.subprocess.Popen", side_effect=failed_procs),
             patch.object(watchdog._stop_event, "wait", side_effect=tracking_wait),
         ):
             watchdog._restart_process()

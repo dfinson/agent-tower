@@ -1,4 +1,4 @@
-"""Tests for backend.services.summarization_service — pure helpers."""
+"""Tests for backend.services.completers.summarization_service — pure helpers."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003
 from typing import Any
 
-from backend.services.summarization_service import (
+from backend.services.completers.summarization_service import (
     _clean_transcript,
     _clean_transcript_from_trail,
     _extract_json,

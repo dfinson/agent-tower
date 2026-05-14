@@ -32,11 +32,11 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from backend.services.lightweight_completer import LightweightCompleter
+from backend.services.completers.lightweight_completer import LightweightCompleter
 
 if TYPE_CHECKING:
     from backend.models.domain import SidecarConfig
-    from backend.services.agent_adapter import AgentAdapterInterface
+    from backend.services.adapters.agent_adapter import AgentAdapterInterface
 
 log = structlog.get_logger()
 

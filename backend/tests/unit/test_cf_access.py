@@ -1,4 +1,4 @@
-"""Tests for Cloudflare Access JWT verification (backend.services.cf_access)."""
+"""Tests for Cloudflare Access JWT verification (backend.services.auth.cf_access)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import jwt as pyjwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from backend.services import cf_access
+from backend.services.auth import cf_access
 
 # ---------------------------------------------------------------------------
 # Key helpers
@@ -93,7 +93,7 @@ def jwks_response(rsa_keypair):
 
 class TestConfigure:
     def test_configure_fetches_jwks_and_sets_state(self, rsa_keypair, jwks_response):
-        with patch("backend.services.cf_access.urllib.request.urlopen") as mock_urlopen:
+        with patch("backend.services.auth.cf_access.urllib.request.urlopen") as mock_urlopen:
             resp = MagicMock()
             resp.read.return_value = jwks_response
             mock_urlopen.return_value = resp
@@ -104,14 +104,15 @@ class TestConfigure:
         assert len(cf_access._jwks_keys) == 1
 
     def test_configure_raises_on_network_error(self):
+        _urlopen = "backend.services.auth.cf_access.urllib.request.urlopen"
         with (
-            patch("backend.services.cf_access.urllib.request.urlopen", side_effect=Exception("timeout")),
+            patch(_urlopen, side_effect=Exception("timeout")),
             pytest.raises(cf_access.CfAccessConfigError, match="Failed to fetch"),
         ):
             cf_access.configure(team="badteam", aud="aud")
 
     def test_configure_raises_on_empty_keys(self):
-        with patch("backend.services.cf_access.urllib.request.urlopen") as mock_urlopen:
+        with patch("backend.services.auth.cf_access.urllib.request.urlopen") as mock_urlopen:
             resp = MagicMock()
             resp.read.return_value = json.dumps({"keys": []}).encode()
             mock_urlopen.return_value = resp
@@ -128,7 +129,7 @@ class TestConfigure:
 class TestVerifyToken:
     def test_valid_token_passes(self, rsa_keypair, jwks_response):
         private_key, _ = rsa_keypair
-        with patch("backend.services.cf_access.urllib.request.urlopen") as mock_urlopen:
+        with patch("backend.services.auth.cf_access.urllib.request.urlopen") as mock_urlopen:
             resp = MagicMock()
             resp.read.return_value = jwks_response
             mock_urlopen.return_value = resp
@@ -139,7 +140,7 @@ class TestVerifyToken:
 
     def test_expired_token_rejected(self, rsa_keypair, jwks_response):
         private_key, _ = rsa_keypair
-        with patch("backend.services.cf_access.urllib.request.urlopen") as mock_urlopen:
+        with patch("backend.services.auth.cf_access.urllib.request.urlopen") as mock_urlopen:
             resp = MagicMock()
             resp.read.return_value = jwks_response
             mock_urlopen.return_value = resp
@@ -150,7 +151,7 @@ class TestVerifyToken:
 
     def test_wrong_audience_rejected(self, rsa_keypair, jwks_response):
         private_key, _ = rsa_keypair
-        with patch("backend.services.cf_access.urllib.request.urlopen") as mock_urlopen:
+        with patch("backend.services.auth.cf_access.urllib.request.urlopen") as mock_urlopen:
             resp = MagicMock()
             resp.read.return_value = jwks_response
             mock_urlopen.return_value = resp
@@ -162,7 +163,7 @@ class TestVerifyToken:
     def test_wrong_key_rejected(self, rsa_keypair, jwks_response):
         # Sign with a different key than the one in JWKS
         other_key, _ = _generate_rsa_keypair()
-        with patch("backend.services.cf_access.urllib.request.urlopen") as mock_urlopen:
+        with patch("backend.services.auth.cf_access.urllib.request.urlopen") as mock_urlopen:
             resp = MagicMock()
             resp.read.return_value = jwks_response
             mock_urlopen.return_value = resp
@@ -175,7 +176,7 @@ class TestVerifyToken:
         assert cf_access.verify_token("anything") is False
 
     def test_empty_token_returns_false(self, rsa_keypair, jwks_response):
-        with patch("backend.services.cf_access.urllib.request.urlopen") as mock_urlopen:
+        with patch("backend.services.auth.cf_access.urllib.request.urlopen") as mock_urlopen:
             resp = MagicMock()
             resp.read.return_value = jwks_response
             mock_urlopen.return_value = resp
@@ -184,7 +185,7 @@ class TestVerifyToken:
         assert cf_access.verify_token("") is False
 
     def test_garbage_token_returns_false(self, rsa_keypair, jwks_response):
-        with patch("backend.services.cf_access.urllib.request.urlopen") as mock_urlopen:
+        with patch("backend.services.auth.cf_access.urllib.request.urlopen") as mock_urlopen:
             resp = MagicMock()
             resp.read.return_value = jwks_response
             mock_urlopen.return_value = resp
@@ -203,7 +204,7 @@ class TestIsConfigured:
         assert cf_access.is_configured() is False
 
     def test_configured_after_setup(self, rsa_keypair, jwks_response):
-        with patch("backend.services.cf_access.urllib.request.urlopen") as mock_urlopen:
+        with patch("backend.services.auth.cf_access.urllib.request.urlopen") as mock_urlopen:
             resp = MagicMock()
             resp.read.return_value = jwks_response
             mock_urlopen.return_value = resp
@@ -211,7 +212,7 @@ class TestIsConfigured:
         assert cf_access.is_configured() is True
 
     def test_reset_clears_configuration(self, rsa_keypair, jwks_response):
-        with patch("backend.services.cf_access.urllib.request.urlopen") as mock_urlopen:
+        with patch("backend.services.auth.cf_access.urllib.request.urlopen") as mock_urlopen:
             resp = MagicMock()
             resp.read.return_value = jwks_response
             mock_urlopen.return_value = resp

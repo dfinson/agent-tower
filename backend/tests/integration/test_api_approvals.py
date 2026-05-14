@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
     from httpx import AsyncClient
 
-    from backend.services.approval_service import ApprovalService
+    from backend.services.job.approval_service import ApprovalService
 
     from .conftest import SeedJobFn
 

@@ -113,7 +113,7 @@ def up(
     from backend.app_factory import create_app
     from backend.logging_config import setup_logging
     from backend.persistence.database import run_migrations
-    from backend.services.tunnel_service import (
+    from backend.services.sharing.tunnel_service import (
         RemoteProvider,
         TunnelHandle,
         TunnelStartError,
@@ -200,7 +200,7 @@ def up(
             effective_password = env_pw
 
     if not effective_password and not no_password and remote:
-        from backend.services.auth import generate_password
+        from backend.services.auth.middleware import generate_password
 
         effective_password = generate_password()
 
@@ -237,7 +237,7 @@ def up(
 
     # Auto-generate password when binding to all interfaces without one set
     if host == "0.0.0.0" and not effective_password:  # noqa: S104
-        from backend.services.auth import generate_password as _gen_pw
+        from backend.services.auth.middleware import generate_password as _gen_pw
 
         effective_password = _gen_pw()
         click.secho(
@@ -280,7 +280,7 @@ def up(
     # are fetched lazily on the first verification request so that transient
     # DNS failures at startup don't prevent the server from starting.
     if cf_access_team and cf_access_aud:
-        from backend.services.cf_access import configure as configure_cf_access
+        from backend.services.auth.cf_access import configure as configure_cf_access
 
         configure_cf_access(team=cf_access_team, aud=cf_access_aud, eager=False)
     elif cf_access_team or cf_access_aud:

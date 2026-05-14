@@ -1,8 +1,8 @@
-"""Tests for backend.services.preflight_curator — constants and PreflightCurator."""
+"""Tests for backend.services.tools.preflight_curator — constants and PreflightCurator."""
 
 from __future__ import annotations
 
-from backend.services.preflight_curator import (
+from backend.services.tools.preflight_curator import (
     _DISALLOWED_BUILTIN_TOOLS,
     _MAX_TURNS,
     _PREFLIGHT_SYSTEM_PROMPT,

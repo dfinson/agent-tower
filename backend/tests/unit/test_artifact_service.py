@@ -16,7 +16,7 @@ from backend.models.api_schemas import (
     ExecutionPhase,
 )
 from backend.models.domain import Artifact
-from backend.services.artifact_service import ArtifactService, _guess_mime
+from backend.services.artifacts.artifact_service import ArtifactService, _guess_mime
 
 
 def _make_artifact(
@@ -59,7 +59,7 @@ class TestStoreDiffSnapshot:
     async def test_stores_diff_snapshot_to_disk(
         self, artifact_service: ArtifactService, mock_repo: AsyncMock, tmp_path: Path
     ) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig_base = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path
@@ -88,7 +88,7 @@ class TestStoreDiffSnapshot:
 class TestCollectFromWorkspace:
     @pytest.mark.asyncio
     async def test_collects_artifacts_from_workspace(self, artifact_service: ArtifactService, tmp_path: Path) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig_base = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path / "store"
@@ -107,7 +107,7 @@ class TestCollectFromWorkspace:
 
     @pytest.mark.asyncio
     async def test_skips_symlinks(self, artifact_service: ArtifactService, tmp_path: Path) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig_base = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path / "store"
@@ -125,7 +125,7 @@ class TestCollectFromWorkspace:
 
     @pytest.mark.asyncio
     async def test_skips_large_files(self, artifact_service: ArtifactService, tmp_path: Path) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig_base = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path / "store"
@@ -150,7 +150,7 @@ class TestCollectFromWorkspace:
 class TestCollectFromSessionStorage:
     @pytest.mark.asyncio
     async def test_collects_md_files(self, artifact_service: ArtifactService, tmp_path: Path) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig_base = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path / "store"
@@ -173,7 +173,7 @@ class TestCollectFromSessionStorage:
 
     @pytest.mark.asyncio
     async def test_ignores_non_md_files(self, artifact_service: ArtifactService, tmp_path: Path) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig_base = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path / "store"
@@ -195,7 +195,7 @@ class TestCollectFromSessionStorage:
     @pytest.mark.asyncio
     async def test_ignores_other_subdirectory_md_files(self, artifact_service: ArtifactService, tmp_path: Path) -> None:
         """checkpoints/ and other subdirs (except files/) must be skipped."""
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig_base = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path / "store"
@@ -216,7 +216,7 @@ class TestCollectFromSessionStorage:
     @pytest.mark.asyncio
     async def test_collects_files_subdir_md_files(self, artifact_service: ArtifactService, tmp_path: Path) -> None:
         """files/ subdirectory is explicitly scanned; names are prefixed with 'files/'."""
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig_base = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path / "store"
@@ -241,7 +241,7 @@ class TestCollectFromSessionStorage:
     @pytest.mark.asyncio
     async def test_files_subdir_name_collision(self, artifact_service: ArtifactService, tmp_path: Path) -> None:
         """Same filename in top-level and files/ produces two distinct artifacts."""
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig_base = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path / "store"
@@ -263,7 +263,7 @@ class TestCollectFromSessionStorage:
 
     @pytest.mark.asyncio
     async def test_skips_symlinks(self, artifact_service: ArtifactService, tmp_path: Path) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig_base = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path / "store"
@@ -339,7 +339,7 @@ class TestStoreTelemetryReportUpsert:
     async def test_creates_artifact_on_first_call(
         self, artifact_service: ArtifactService, mock_repo: AsyncMock, tmp_path: Path
     ) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path
@@ -355,7 +355,7 @@ class TestStoreTelemetryReportUpsert:
     async def test_upserts_on_second_call(
         self, artifact_service: ArtifactService, mock_repo: AsyncMock, tmp_path: Path
     ) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path
@@ -390,7 +390,7 @@ class TestStoreLogArtifactUpsert:
     async def test_creates_artifact_on_first_call(
         self, artifact_service: ArtifactService, mock_repo: AsyncMock, tmp_path: Path
     ) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path
@@ -408,7 +408,7 @@ class TestStoreLogArtifactUpsert:
     async def test_upserts_on_second_call(
         self, artifact_service: ArtifactService, mock_repo: AsyncMock, tmp_path: Path
     ) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path
@@ -442,7 +442,7 @@ class TestStoreAgentPlanUpsert:
     async def test_creates_artifact_on_first_call(
         self, artifact_service: ArtifactService, mock_repo: AsyncMock, tmp_path: Path
     ) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path
@@ -459,7 +459,7 @@ class TestStoreAgentPlanUpsert:
     async def test_upserts_on_second_call(
         self, artifact_service: ArtifactService, mock_repo: AsyncMock, tmp_path: Path
     ) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path
@@ -493,7 +493,7 @@ class TestStoreApprovalHistoryUpsert:
     async def test_creates_artifact_on_first_call(
         self, artifact_service: ArtifactService, mock_repo: AsyncMock, tmp_path: Path
     ) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path
@@ -519,7 +519,7 @@ class TestStoreApprovalHistoryUpsert:
     async def test_upserts_on_second_call(
         self, artifact_service: ArtifactService, mock_repo: AsyncMock, tmp_path: Path
     ) -> None:
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path
@@ -563,7 +563,7 @@ class TestCollectFromSessionStorageUpsert:
         self, artifact_service: ArtifactService, mock_repo: AsyncMock, tmp_path: Path
     ) -> None:
         """Second session with updated plan.md should overwrite the existing artifact, not create a new one."""
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path / "store"
@@ -605,7 +605,7 @@ class TestCollectFromSessionStorageUpsert:
         self, artifact_service: ArtifactService, mock_repo: AsyncMock, tmp_path: Path
     ) -> None:
         """First session: no existing artifacts, so new ones are created."""
-        import backend.services.artifact_service as mod
+        import backend.services.artifacts.artifact_service as mod
 
         orig = mod._ARTIFACTS_BASE
         mod._ARTIFACTS_BASE = tmp_path / "store"
