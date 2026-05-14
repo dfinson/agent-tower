@@ -16,8 +16,7 @@ CodePlane is a **local server** that wraps the agent CLIs you already use and bu
 
 ## High-Level Architecture
 
-<!-- TODO: replace with updated architecture diagram -->
-![Architecture diagram: You — Browser — CodePlane — Agent CLI — Repository](images/architecture-overview.png)
+<!-- PLACEHOLDER: Architecture Overview Diagram -->
 
 **You → Browser → CodePlane → Agent CLI → Repository**
 

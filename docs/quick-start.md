@@ -66,13 +66,9 @@ Go to **Settings** (`Ctrl+,`) and add a local Git repository path. This tells Co
 
 The agent starts working in an isolated Git worktree. Your working directory is never modified.
 
-<div class="screenshot-desktop" markdown>
-![Create Job](images/screenshots/desktop/create-job-flow.gif)
-</div>
+<!-- PLACEHOLDER: Create Job -->
 
-<div class="screenshot-mobile" markdown>
-![Create Job — Mobile](images/screenshots/mobile/create-job-flow.gif)
-</div>
+<!-- PLACEHOLDER: Create Job — Mobile -->
 
 ## Watch It Run
 
@@ -83,13 +79,9 @@ The job detail view shows live updates:
 - **Plan** — the agent's planned steps and progress
 - **Metrics** — token usage, live cost badge, and activity-based cost breakdown
 
-<div class="screenshot-desktop" markdown>
-![Running Job](images/screenshots/desktop/transcript-streaming.gif)
-</div>
+<!-- PLACEHOLDER: Running Job -->
 
-<div class="screenshot-mobile" markdown>
-![Running Job — Mobile](images/screenshots/mobile/transcript-streaming.gif)
-</div>
+<!-- PLACEHOLDER: Running Job — Mobile -->
 
 ## Handle Approvals
 
@@ -113,13 +105,9 @@ When an approval prompt appears, choose:
 
 When the agent finishes, review the diff:
 
-<div class="screenshot-desktop" markdown>
-![Diff Viewer](images/screenshots/desktop/job-diff-viewer.gif)
-</div>
+<!-- PLACEHOLDER: Diff Viewer -->
 
-<div class="screenshot-mobile" markdown>
-![Diff Viewer — Mobile](images/screenshots/mobile/job-diff-viewer.gif)
-</div>
+<!-- PLACEHOLDER: Diff Viewer — Mobile -->
 
 Then resolve the job:
 

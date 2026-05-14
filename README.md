@@ -22,8 +22,7 @@
 
 CodePlane is a local server that wraps the agent CLIs you already use — Claude Code and GitHub Copilot. Launch jobs headless, or mirror native CLI sessions with zero workflow change. Either way you get a normalized provenance database, real-time supervision, cost attribution, structural risk scoring, and a narrative review that explains *why* each change was made.
 
-<!-- TODO: capture hero-dashboard screenshot -->
-<p align="center"><img src="docs/images/screenshots/desktop/hero-dashboard.png" alt="CodePlane — dashboard with active jobs" width="800" /></p>
+<!-- PLACEHOLDER: Hero Dashboard Screenshot -->
 
 ## Two Ways to Use It
 

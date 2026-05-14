@@ -28,15 +28,9 @@ CodePlane is a local server that wraps the agent CLIs you already use — Claude
 
 </div>
 
-<!-- TODO: capture hero-dashboard screenshot -->
-<div class="screenshot-desktop" markdown>
-![CodePlane Dashboard](images/screenshots/desktop/hero-dashboard.png)
-</div>
+<!-- PLACEHOLDER: CodePlane Dashboard -->
 
-<!-- TODO: capture hero-dashboard-mobile screenshot -->
-<div class="screenshot-mobile" markdown>
-![CodePlane Dashboard — Mobile](images/screenshots/mobile/hero-dashboard.png)
-</div>
+<!-- PLACEHOLDER: CodePlane Dashboard — Mobile -->
 
 ## Two Modes, One Pipeline
 
@@ -74,15 +68,9 @@ External agents can also orchestrate CodePlane programmatically through its buil
 
 Launch headless jobs from a dashboard or discover native CLI sessions automatically. Watch live transcripts, plan progress, and cost as the agent works. Gate risky actions for approval — from your phone, tablet, or desktop. Push notifications when the agent needs you.
 
-<!-- TODO: capture supervise GIF -->
-<div class="screenshot-desktop" markdown>
-![Live supervision](images/screenshots/desktop/hero-supervise.gif)
-</div>
+<!-- PLACEHOLDER: Live supervision -->
 
-<!-- TODO: capture supervise-mobile GIF -->
-<div class="screenshot-mobile" markdown>
-![Live supervision — Mobile](images/screenshots/mobile/hero-supervise.gif)
-</div>
+<!-- PLACEHOLDER: Live supervision — Mobile -->
 
 </div>
 
@@ -91,15 +79,9 @@ Launch headless jobs from a dashboard or discover native CLI sessions automatica
 
 When the agent finishes, you don't get a raw diff. You get a narrative that explains what changed and why — with verified file references traced back through the decision trail. Structural risk scoring tells you which changes are breaking, which are additive, and whether callers were verified. A merge confidence verdict before you read a single line of code.
 
-<!-- TODO: capture review-story GIF -->
-<div class="screenshot-desktop" markdown>
-![Narrative review](images/screenshots/desktop/hero-review-story.gif)
-</div>
+<!-- PLACEHOLDER: Narrative review -->
 
-<!-- TODO: capture review-story-mobile GIF -->
-<div class="screenshot-mobile" markdown>
-![Narrative review — Mobile](images/screenshots/mobile/hero-review-story.gif)
-</div>
+<!-- PLACEHOLDER: Narrative review — Mobile -->
 
 </div>
 
@@ -108,15 +90,9 @@ When the agent finishes, you don't get a raw diff. You get a narrative that expl
 
 Every token, tool call, and dollar — attributed by activity, model, file, and phase. Waste patterns surface across jobs: rework, rereads, retry storms, cost escalation. The analysis compounds — your 50th job is more valuable than your first because the system has learned what your codebase costs.
 
-<!-- TODO: capture analytics GIF -->
-<div class="screenshot-desktop" markdown>
-![Analytics dashboard](images/screenshots/desktop/hero-analytics.gif)
-</div>
+<!-- PLACEHOLDER: Analytics dashboard -->
 
-<!-- TODO: capture analytics-mobile GIF -->
-<div class="screenshot-mobile" markdown>
-![Analytics dashboard — Mobile](images/screenshots/mobile/hero-analytics.gif)
-</div>
+<!-- PLACEHOLDER: Analytics dashboard — Mobile -->
 
 </div>
 

@@ -7,14 +7,9 @@ hide:
 
 CodePlane tracks every token, tool call, and dollar across all jobs — giving you fleet-wide visibility into what your coding agents cost and how they perform. All analytics are computed from the normalized [provenance data layer](architecture.md#data-architecture) — the same SQLite database you can query directly. Open the analytics dashboard with **Alt+A**.
 
-<!-- TODO: capture updated screenshot -->
-<div class="screenshot-desktop" markdown>
-![Analytics Dashboard](images/screenshots/desktop/analytics-dashboard.png)
-</div>
+<!-- PLACEHOLDER: Analytics Dashboard -->
 
-<div class="screenshot-mobile" markdown>
-![Analytics Dashboard — Mobile](images/screenshots/mobile/analytics-dashboard.png)
-</div>
+<!-- PLACEHOLDER: Analytics Dashboard — Mobile -->
 
 ---
 
@@ -22,14 +17,9 @@ CodePlane tracks every token, tool call, and dollar across all jobs — giving y
 
 The scorecard is the top-level summary. It shows per-SDK budget totals, job activity breakdown, and daily cost trends over a configurable period (7–365 days).
 
-<!-- TODO: capture updated screenshot -->
-<div class="screenshot-desktop" markdown>
-![Scorecard](images/screenshots/desktop/analytics-scorecard.png)
-</div>
+<!-- PLACEHOLDER: Scorecard -->
 
-<div class="screenshot-mobile" markdown>
-![Scorecard — Mobile](images/screenshots/mobile/analytics-scorecard.png)
-</div>
+<!-- PLACEHOLDER: Scorecard — Mobile -->
 
 - **Budget by SDK** — Total spend for each SDK (Copilot, Claude, etc.) with cost trends
 - **Activity breakdown** — Jobs by resolution: running, merged, PR created, discarded, failed, cancelled
@@ -45,14 +35,9 @@ The scorecard is the top-level summary. It shows per-SDK budget totals, job acti
 
 Compare models head-to-head on cost, speed, and outcomes.
 
-<!-- TODO: capture updated screenshot -->
-<div class="screenshot-desktop" markdown>
-![Model Comparison](images/screenshots/desktop/analytics-model-comparison.png)
-</div>
+<!-- PLACEHOLDER: Model Comparison -->
 
-<div class="screenshot-mobile" markdown>
-![Model Comparison — Mobile](images/screenshots/mobile/analytics-model-comparison.png)
-</div>
+<!-- PLACEHOLDER: Model Comparison — Mobile -->
 
 | Metric | Description |
 |--------|-------------|
@@ -70,14 +55,9 @@ Filter by repository to compare model performance on specific codebases.
 
 See which repos drive the most spend and activity.
 
-<!-- TODO: capture updated screenshot -->
-<div class="screenshot-desktop" markdown>
-![Repository Breakdown](images/screenshots/desktop/analytics-repo-breakdown.png)
-</div>
+<!-- PLACEHOLDER: Repository Breakdown -->
 
-<div class="screenshot-mobile" markdown>
-![Repository Breakdown — Mobile](images/screenshots/mobile/analytics-repo-breakdown.png)
-</div>
+<!-- PLACEHOLDER: Repository Breakdown — Mobile -->
 
 - Cost, job count, and token totals per repository
 - Tool calls and average job duration
@@ -89,14 +69,9 @@ See which repos drive the most spend and activity.
 
 Monitor the reliability and latency of every tool your agents use.
 
-<!-- TODO: capture updated screenshot -->
-<div class="screenshot-desktop" markdown>
-![Tool Health](images/screenshots/desktop/analytics-tool-health.png)
-</div>
+<!-- PLACEHOLDER: Tool Health -->
 
-<div class="screenshot-mobile" markdown>
-![Tool Health — Mobile](images/screenshots/mobile/analytics-tool-health.png)
-</div>
+<!-- PLACEHOLDER: Tool Health — Mobile -->
 
 - **Call counts** — How often each tool is invoked
 - **Failure rate** — Percentage of calls that errored (flagged when ≥20%, critical at ≥50%)
@@ -109,14 +84,9 @@ Monitor the reliability and latency of every tool your agents use.
 
 Identify which jobs, models, and repos contribute the most to your spend.
 
-<!-- TODO: capture updated screenshot -->
-<div class="screenshot-desktop" markdown>
-![Cost Drivers](images/screenshots/desktop/analytics-cost-drivers.png)
-</div>
+<!-- PLACEHOLDER: Cost Drivers -->
 
-<div class="screenshot-mobile" markdown>
-![Cost Drivers — Mobile](images/screenshots/mobile/analytics-cost-drivers.png)
-</div>
+<!-- PLACEHOLDER: Cost Drivers — Mobile -->
 
 ### Activity Breakdown
 
