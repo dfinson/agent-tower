@@ -77,7 +77,7 @@ CodePlane uses a **tiered action policy** system that classifies every agent act
 |--------|-----------|----------------------|
 | `autonomous` | All contained actions within worktree | Non-contained actions (external calls, outside worktree) |
 | `supervised` | Contained, reversible actions | Non-contained or irreversible actions |
-| `strict` | Nothing without checkpoint | Contained actions get git savepoint; all others gated |
+| `locked` | Nothing without checkpoint | Contained actions get git savepoint; all others gated |
 
 **Decision tiers:**
 
@@ -200,7 +200,7 @@ Share tokens provide **read-only** access to a single job:
 ## Best Practices
 
 1. **Keep password enabled** for any non-localhost access
-2. **Use `supervised` or `strict` preset** for repositories you don't fully trust
+2. **Use `supervised` or `locked` preset** for repositories you don't fully trust
 3. **Define path rules** in Settings → Policy for infrastructure and CI/CD files
 4. **Set cost rules** to escalate oversight when spend exceeds your comfort level
 5. **Don't leave CodePlane running unattended** with active agents

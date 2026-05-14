@@ -73,9 +73,9 @@ class ProjectContext:
         # structural auto-approval.  Entries added after a context
         # rebuild (triggered by the agent modifying a manifest) are
         # tracked for LLM prompts but cannot bypass the gate on their own.
-        self._initial_dependencies: set[str] | None = None
-        self._initial_hosts: set[str] | None = None
-        self._initial_services: set[str] | None = None
+        self._initial_dependencies: frozenset[str] | None = None
+        self._initial_hosts: frozenset[str] | None = None
+        self._initial_services: frozenset[str] | None = None
 
     @property
     def built(self) -> bool:

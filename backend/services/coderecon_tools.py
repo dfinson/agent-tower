@@ -115,13 +115,19 @@ _TOOL_DEFS: dict[str, dict[str, Any]] = {
         },
     },
     "recon_understand": {
-        "description": "Full codebase narrative briefing — structure, PageRank, communities. Use scope to zoom into a specific module/directory.",
+        "description": (
+            "Full codebase narrative briefing \u2014 structure, PageRank, communities."
+            " Use scope to zoom into a specific module/directory."
+        ),
         "schema": {
             "type": "object",
             "properties": {
                 "scope": {
                     "type": "string",
-                    "description": "Optional directory or module path (relative to repo root) to zoom into, e.g. 'backend/services'.",
+                    "description": (
+                        "Optional directory or module path (relative to repo root)"
+                        " to zoom into, e.g. 'backend/services'."
+                    ),
                 },
             },
         },

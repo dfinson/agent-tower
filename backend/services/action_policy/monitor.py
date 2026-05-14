@@ -177,9 +177,8 @@ class MonitorSession:
         # Package install check (initial snapshot only).
         # ALL packages must be known dependencies — a single unknown
         # package means the entire install goes to LLM/human.
-        if packages:
-            if all(self._context.has_initial_dependency(p) for p in packages):
-                return MonitorVerdict.approve, "all packages are existing project dependencies (pre-existing)"
+        if packages and all(self._context.has_initial_dependency(p) for p in packages):
+            return MonitorVerdict.approve, "all packages are existing project dependencies (pre-existing)"
 
         # Docker/compose service check — word-boundary match, skip
         # dangerously short names (db, ws, …) that match as substrings.

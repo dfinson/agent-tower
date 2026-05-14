@@ -37,9 +37,9 @@ The action policy system controls what an agent can do without your approval. Co
 |--------|---------|
 | `autonomous` | Only non-contained actions (outside worktree, external calls) require approval |
 | `supervised` | Contained and reversible actions proceed; all others require approval (default) |
-| `strict` | Even safe actions create a git checkpoint first; non-contained/irreversible actions require approval |
+| `locked` | Even safe actions create a git checkpoint first; non-contained/irreversible actions require approval |
 
-The preset and all policy rules are managed in **Settings → Policy** in the UI, or via the REST API (`/settings/policy/`). The config file no longer controls permission modes — they are stored in the database and can be changed at runtime (running jobs reload automatically).
+The preset and all policy rules are managed in **Settings → Policy** in the UI, or via the REST API (`/settings/policy/`). These settings are stored in the database and can be changed at runtime (running jobs reload automatically).
 
 See [Usage Guide > Action Policy](guide.md#action-policy) for full details on tiers, rules, and overrides.
 

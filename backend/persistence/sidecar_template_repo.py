@@ -96,4 +96,5 @@ class SidecarTemplateRepository(BaseRepository):
         stmt = delete(SidecarTemplateRow).where(SidecarTemplateRow.id == template_id)
         result = await self._session.execute(stmt)
         await self._session.flush()
-        return result.rowcount > 0
+        rowcount = getattr(result, "rowcount", 0) or 0
+        return rowcount > 0

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from backend.services.action_policy.classifier import Action
 from backend.services.action_policy.trust_store import (
     TrustGrant,
     TrustStore,
@@ -11,11 +12,11 @@ from backend.services.action_policy.trust_store import (
 )
 
 
-def _make_action(**kw):
+def _make_action(**kw: object) -> Action:
     """Build a minimal Action-like object for testing grant matching."""
-    from backend.services.action_policy.classifier import Action, ActionKind
+    from backend.services.action_policy.classifier import ActionKind
 
-    defaults = {
+    defaults: dict[str, object] = {
         "kind": ActionKind.shell,
         "path": None,
         "command": None,
@@ -24,11 +25,11 @@ def _make_action(**kw):
         "job_id": "j1",
     }
     defaults.update(kw)
-    return Action(**defaults)
+    return Action(**defaults)  # type: ignore[arg-type]
 
 
-def _make_grant(**kw) -> TrustGrant:
-    defaults = {
+def _make_grant(**kw: object) -> TrustGrant:
+    defaults: dict[str, object] = {
         "id": "g1",
         "kinds": {"shell"},
         "path_pattern": None,

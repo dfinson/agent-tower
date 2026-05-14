@@ -14,7 +14,7 @@ import re
 import shlex
 from typing import Any
 
-from sh_guard import classify as sh_guard_classify
+from sh_guard import classify as sh_guard_classify  # type: ignore[import-untyped]
 
 log = logging.getLogger(__name__)
 
@@ -618,7 +618,7 @@ def classify_shell(command: str) -> tuple[bool, bool]:
     try:
         result = sh_guard_classify(command)
     except Exception:
-        log.warning("sh_guard_classify_error", command=command[:80])
+        log.warning("sh_guard_classify_error", extra={"command": command[:80]})
         return _BLOCKED
 
     if _collect_risk_factors(result) & _INJECTION_RISKS:
@@ -707,9 +707,8 @@ def _classify_cross_platform_tool(
         if subcmd == "compose" and _get_compose_subcommand(command) in ("exec", "run"):
             return _BLOCKED
 
-    if binary in ("pip", "pip3") and subcmd == "install":
-        if _PIP_REMOTE_RE.search(command):
-            return _BLOCKED
+    if binary in ("pip", "pip3") and subcmd == "install" and _PIP_REMOTE_RE.search(command):
+        return _BLOCKED
 
     # Table lookup
     if subcmd:

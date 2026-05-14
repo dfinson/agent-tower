@@ -169,16 +169,16 @@ class TestClassifyMotivation:
         assert _classify_motivation(3, nodes, ctx) == "plan_execution"
 
     def test_user_directed_first_turn(self) -> None:
-        nodes = []
+        nodes: list[dict[str, object]] = []
         ctx = _ctx()
         assert _classify_motivation(1, nodes, ctx) == "user_directed"
 
     def test_context_gathering(self) -> None:
-        nodes = []
+        nodes: list[dict[str, object]] = []
         ctx = _ctx(cats=["file_read", "file_search"])
         assert _classify_motivation(5, nodes, ctx) == "context_gathering"
 
     def test_agent_exploration_default(self) -> None:
-        nodes = []
+        nodes: list[dict[str, object]] = []
         ctx = _ctx()
         assert _classify_motivation(5, nodes, ctx) == "agent_exploration"

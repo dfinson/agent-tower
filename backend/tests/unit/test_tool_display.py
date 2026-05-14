@@ -145,7 +145,7 @@ class TestFmtMultiEdit:
         assert "Edit" in result
 
     def test_no_paths(self):
-        args = {"edits": [{}, {}]}
+        args: dict[str, list[dict[str, str]]] = {"edits": [{}, {}]}
         result = _fmt_multi_edit(args)
         assert "2 locations" in result
 

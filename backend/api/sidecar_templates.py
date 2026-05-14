@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
@@ -22,7 +24,7 @@ log = structlog.get_logger()
 router = APIRouter(tags=["sidecar-templates"], route_class=DishkaRoute)
 
 
-def _to_response(template) -> SidecarTemplateResponse:
+def _to_response(template: Any) -> SidecarTemplateResponse:
     return SidecarTemplateResponse(
         id=template.id,
         name=template.name,

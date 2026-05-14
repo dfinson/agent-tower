@@ -166,7 +166,7 @@ Share endpoints bypass CodePlane's password but not tunnel-level identity gates.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/settings/policy` | Get current policy config (preset, rules) |
-| `PUT` | `/api/settings/policy/preset` | Update the active preset (`autonomous`, `supervised`, `strict`) |
+| `PUT` | `/api/settings/policy/preset` | Update the active preset (`autonomous`, `supervised`, `locked`) |
 | `GET` | `/api/settings/policy/rules` | List all path, action, and cost rules |
 | `POST` | `/api/settings/policy/rules` | Create a new rule |
 | `DELETE` | `/api/settings/policy/rules/{rule_id}` | Delete a rule |

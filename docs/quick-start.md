@@ -99,7 +99,7 @@ Whether the agent pauses for approval depends on the **action policy preset**:
 |--------|----------|
 | `autonomous` | Most actions proceed — only non-contained operations require approval |
 | `supervised` | Contained, reversible actions proceed; writes and mutations require approval (default) |
-| `strict` | All actions checkpoint or gate — maximum oversight |
+| `locked` | All actions checkpoint or gate — maximum oversight |
 
 You can set the preset per-job, globally in Settings → Policy, or via the API — see [Configuration](configuration.md).
 
@@ -146,5 +146,5 @@ CodePlane is a Progressive Web App — on mobile browsers you can "Add to Home S
 ## What's Next
 
 - [Usage Guide](guide.md) — the full workflow in detail
-- [Configuration](configuration.md) — permission modes, remote access, tunnels
+- [Configuration](configuration.md) — action policy presets, remote access, tunnels
 - [CLI Reference](reference/cli.md) — all `cpl` commands

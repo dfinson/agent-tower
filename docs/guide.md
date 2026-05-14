@@ -77,9 +77,9 @@ Every job runs under a **preset** that controls how aggressively actions are gat
 |--------|----------|
 | **`autonomous`** | Only non-contained actions (external calls, operations outside the worktree) require approval. Everything else proceeds immediately. |
 | **`supervised`** | Default. Contained and reversible actions proceed; anything non-contained or irreversible requires approval. |
-| **`strict`** | Even contained, reversible actions create a git checkpoint before proceeding. Non-contained or irreversible actions require approval. |
+| **`locked`** | Even contained, reversible actions create a git checkpoint before proceeding. Non-contained or irreversible actions require approval. |
 
-Set the preset globally via **Settings → Policy**, per-job in the creation form, or via the API (`PUT /settings/policy/preset`).
+Set the preset globally via **Settings → Policy**, per-job in the creation form, or via the API (`PUT /api/settings/policy/preset`).
 
 ### Decision Tiers
 

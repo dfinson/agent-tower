@@ -293,7 +293,4 @@ def _grant_matches(grant: TrustGrant, action: Action) -> bool:
         return False
 
     # MCP tool scope — when set, only covers the specific tool
-    if grant.mcp_tool and (not action.mcp_tool or grant.mcp_tool != action.mcp_tool):
-        return False
-
-    return True
+    return not (grant.mcp_tool and (not action.mcp_tool or grant.mcp_tool != action.mcp_tool))

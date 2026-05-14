@@ -102,6 +102,8 @@ runtime-evaluated-decorators = ["dishka.integrations.fastapi.FromDishka"]
 "backend/di.py" = ["TC001", "TC002", "TC003"]
 # api_schemas re-exports via star imports intentionally for backward compat.
 "backend/models/api_schemas.py" = ["F405"]
+# Template service contains long LLM prompt strings that cannot be wrapped.
+"backend/services/sidecar/template_service.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"

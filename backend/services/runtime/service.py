@@ -927,13 +927,13 @@ class RuntimeService:
         from backend.services.action_policy.trust_store import TrustStore
 
         async with self._session_factory() as session:
-            repo = PolicyRepository(session)
-            db_config = await repo.get_config()
+            policy_repo = PolicyRepository(session)
+            db_config = await policy_repo.get_config()
 
-            path_rules = await repo.list_path_rules()
-            action_rules = await repo.list_action_rules()
-            cost_rules = await repo.list_cost_rules()
-            mcp_configs_list = await repo.list_mcp_configs()
+            path_rules = await policy_repo.list_path_rules()
+            action_rules = await policy_repo.list_action_rules()
+            cost_rules = await policy_repo.list_cost_rules()
+            mcp_configs_list = await policy_repo.list_mcp_configs()
 
         # Build MCP config lookup: name → server config dict
         mcp_configs = {c["name"]: c for c in mcp_configs_list}

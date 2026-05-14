@@ -21,20 +21,23 @@ Architecture notes:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 import time
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import StrEnum
 from fnmatch import fnmatch
 from string import Formatter
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
 if TYPE_CHECKING:
+    from backend.models.domain import SidecarLifetime, SidecarPhase
     from backend.models.events import DomainEvent
     from backend.services.event_bus import EventBus
     from backend.services.sidecar.session import SidecarSessionManager
@@ -55,7 +58,8 @@ class _SafeFormatter(Formatter):
         # Only allow simple key names — no dots, brackets, or conversions
         if not field_name.isidentifier():
             raise KeyError(field_name)
-        return super().get_field(field_name, args, kwargs)
+        val, key = super().get_field(field_name, args, kwargs)
+        return val, key
 
 
 _safe_fmt = _SafeFormatter()
@@ -270,10 +274,7 @@ def _hydrate_condition(raw: dict[str, Any]) -> TriggerCondition:
     kind = raw.get("kind", "manual")
     if kind == "event":
         event_kinds = raw.get("eventKinds") or raw.get("eventKind")
-        if isinstance(event_kinds, str):
-            event_kinds = (event_kinds,)
-        else:
-            event_kinds = tuple(event_kinds or ())
+        event_kinds = (event_kinds,) if isinstance(event_kinds, str) else tuple(event_kinds or ())
         return EventCondition(
             event_kinds=event_kinds,
             event_filter=raw.get("eventFilter") or {},
@@ -449,10 +450,8 @@ class SidecarDispatcher:
         """Stop the timer loop and clean up."""
         if self._timer_task:
             self._timer_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._timer_task
-            except asyncio.CancelledError:
-                pass
         self._jobs.clear()
         log.info("sidecar_dispatcher_shutdown")
 
@@ -472,8 +471,8 @@ class SidecarDispatcher:
                     defn.name,
                     config=SidecarConfig(
                         name=defn.name,
-                        phase=defn.phase,
-                        lifetime=defn.lifetime,
+                        phase=cast("SidecarPhase", defn.phase),
+                        lifetime=cast("SidecarLifetime", defn.lifetime),
                         system_prompt=defn.system_prompt,
                         max_turns=defn.max_turns,
                         timeout_s=defn.timeout_s,
@@ -538,7 +537,7 @@ class SidecarDispatcher:
                             continue
                         if cond.once:
                             state.fired_once.add((defn.name, idx))
-                        extra = {"match": match.group(0), **match.groupdict()}
+                        extra: dict[str, Any] = {"match": match.group(0), **match.groupdict()}  # type: ignore[no-redef]
                         await self._try_execute(job_id, state, defn, idx, extra)
 
                     # ContentMatchCondition — keyword substring matching
@@ -577,7 +576,7 @@ class SidecarDispatcher:
                         ]
                         if not matched_files:
                             continue
-                        extra = {"matched_files": [f["path"] for f in matched_files]}
+                        extra: dict[str, Any] = {"matched_files": [f["path"] for f in matched_files]}  # type: ignore[no-redef]
                         await self._try_execute(job_id, state, defn, idx, extra)
 
     def increment(self, job_id: str, metric: str, delta: int = 1) -> None:
@@ -639,14 +638,14 @@ class SidecarDispatcher:
                 defn.name,
                 config=SidecarConfig(
                     name=defn.name,
-                    phase=defn.phase,
-                    lifetime=defn.lifetime,
+                    phase=cast("SidecarPhase", defn.phase),
+                    lifetime=cast("SidecarLifetime", defn.lifetime),
                     system_prompt=defn.system_prompt,
                     max_turns=defn.max_turns,
                     timeout_s=defn.timeout_s,
                 ),
             )
-            for idx, pipeline in enumerate(defn.triggers):
+            for idx, _pipeline in enumerate(defn.triggers):
                 await self._try_execute(job_id, state, defn, idx, None)
 
     # -- Timer loop ---------------------------------------------------------
@@ -701,9 +700,8 @@ class SidecarDispatcher:
         pipeline = defn.triggers[pipeline_idx]
 
         # Gate check
-        if defn.gate:
-            if await self._is_gated(job_id, defn.gate):
-                return
+        if defn.gate and await self._is_gated(job_id, defn.gate):
+            return
 
         # Concurrency control
         flight_key = defn.name
@@ -813,8 +811,8 @@ class SidecarDispatcher:
                 max_turns=1,
             )
         else:
-            session = self._session_manager.get(job_id, defn.name)
-            if session is None:
+            session_or_none = self._session_manager.get(job_id, defn.name)
+            if session_or_none is None:
                 # Session expired or not found — re-open for windowed
                 if defn.lifetime == "windowed":
                     self._session_manager.open(
@@ -822,17 +820,18 @@ class SidecarDispatcher:
                         defn.name,
                         config=SidecarConfig(
                             name=defn.name,
-                            phase=defn.phase,
-                            lifetime=defn.lifetime,
+                            phase=cast("SidecarPhase", defn.phase),
+                            lifetime=cast("SidecarLifetime", defn.lifetime),
                             system_prompt=defn.system_prompt,
                             max_turns=defn.max_turns,
                             timeout_s=defn.timeout_s,
                         ),
                     )
-                    session = self._session_manager.get(job_id, defn.name)
-                if session is None:
+                    session_or_none = self._session_manager.get(job_id, defn.name)
+                if session_or_none is None:
                     log.warning("dispatcher_no_session", job_id=job_id, sidecar=defn.name)
                     return
+            session = session_or_none
 
         # 4. Call LLM
         try:
@@ -915,8 +914,7 @@ class SidecarDispatcher:
         route: OutputRoute,
     ) -> None:
         """Deliver parsed output to a destination."""
-        from backend.models.events import DomainEvent as DE
-        from backend.models.events import DomainEventKind
+        from backend.models.events import DomainEvent, DomainEventKind
 
         if isinstance(route, EventBusRoute):
             payload: dict[str, Any] = {"sidecar_name": defn.name}
@@ -931,10 +929,11 @@ class SidecarDispatcher:
             else:
                 payload["result"] = parsed
             await self._event_bus.publish(
-                DE(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
                     job_id=job_id,
-                    timestamp=None,
-                    kind=route.event_kind,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind(route.event_kind),
                     payload=payload,
                 )
             )
@@ -943,12 +942,13 @@ class SidecarDispatcher:
             # Publish a metadata update event — consumers (job service) handle persistence
             value = parsed if isinstance(parsed, str) else json.dumps(parsed)
             await self._event_bus.publish(
-                DE(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
                     job_id=job_id,
-                    timestamp=None,
+                    timestamp=datetime.now(UTC),
                     kind=DomainEventKind.job_title_updated
                     if route.field_name == "title"
-                    else "sidecar_metadata_update",
+                    else DomainEventKind.sidecar_metadata_update,
                     payload={"field": route.field_name, "value": value, "sidecar_name": defn.name},
                 )
             )
@@ -969,10 +969,11 @@ class SidecarDispatcher:
             content = parsed if isinstance(parsed, str) else json.dumps(parsed)
             label_prefix = f"[{route.label or defn.name}] " if (route.label or defn.name) else ""
             await self._event_bus.publish(
-                DE(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
                     job_id=job_id,
-                    timestamp=None,
-                    kind="sidecar_agent_message",
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.sidecar_agent_message,
                     payload={
                         "role": route.role,
                         "content": f"{label_prefix}{content}",
@@ -989,10 +990,11 @@ class SidecarDispatcher:
             verdict = str(parsed.get(route.verdict_field, "")).lower()
             reason = str(parsed.get(route.reason_field, ""))
             await self._event_bus.publish(
-                DE(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
                     job_id=job_id,
-                    timestamp=None,
-                    kind="sidecar_gate_verdict",
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.sidecar_gate_verdict,
                     payload={
                         "sidecar_name": defn.name,
                         "verdict": verdict,
@@ -1010,14 +1012,15 @@ class SidecarDispatcher:
         parsed: Any,
     ) -> None:
         """Publish a transcript event so the sidecar's output appears in the feed."""
-        from backend.models.events import DomainEvent as DE
+        from backend.models.events import DomainEvent, DomainEventKind
 
         content = parsed if isinstance(parsed, str) else json.dumps(parsed)
         await self._event_bus.publish(
-            DE(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
                 job_id=job_id,
-                timestamp=None,
-                kind="sidecar_transcript",
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.sidecar_transcript,
                 payload={
                     "sidecar_name": defn.name,
                     "sidecar_icon": defn.icon,
@@ -1051,19 +1054,17 @@ class SidecarDispatcher:
             if event.kind == "TranscriptUpdated":
                 role = payload.get("role", "")
                 if role in ("agent", "agent_delta"):
-                    return payload.get("content")
+                    return str(payload.get("content")) if payload.get("content") is not None else None
             return None
 
         if source == "tool_calls":
-            if event.kind == "TranscriptUpdated":
-                if payload.get("role") == "tool_call":
-                    return payload.get("tool_name", "")
+            if event.kind == "TranscriptUpdated" and payload.get("role") == "tool_call":
+                return str(payload.get("tool_name", ""))
             return None
 
         if source == "tool_output":
-            if event.kind == "TranscriptUpdated":
-                if payload.get("role") == "tool_call":
-                    return payload.get("tool_result")
+            if event.kind == "TranscriptUpdated" and payload.get("role") == "tool_call":
+                return str(payload.get("tool_result")) if payload.get("tool_result") is not None else None
             return None
 
         return None

@@ -37,6 +37,12 @@ from backend.services.setup.wizard import (  # noqa: F401
     execute_setup_wizard,
 )
 
+__all__ = [
+    "diagnose_configuration",
+    "execute_setup_wizard",
+    "validate_preflight",
+]
+
 # ---------------------------------------------------------------------------
 # Inline fix helpers (used by preflight)
 # ---------------------------------------------------------------------------

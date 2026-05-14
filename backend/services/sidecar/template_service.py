@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -201,7 +201,7 @@ class SidecarTemplateService:
         """Mark a template as recently used."""
         await self._repo.touch_last_used(template_id, datetime.now(UTC))
 
-    async def generate_definition(self, description: str) -> dict:
+    async def generate_definition(self, description: str) -> dict[str, Any]:
         """Use an LLM to generate a sidecar definition from a natural language description.
 
         Returns the parsed JSON definition dict.

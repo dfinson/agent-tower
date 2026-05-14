@@ -6,7 +6,11 @@ Every job in CodePlane follows a state machine that governs its lifecycle.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> queued
+    [*] --> preparing
+    preparing --> queued : workspace ready
+    preparing --> failed : setup error
+    preparing --> canceled : operator cancels
+
     queued --> running : session starts
     queued --> canceled : operator cancels
 
@@ -36,7 +40,8 @@ stateDiagram-v2
 
 | State | Description | Terminal? |
 |-------|-------------|-----------|
-| `queued` | Job created, waiting to start | No |
+| `preparing` | Job created, workspace being set up | No |
+| `queued` | Workspace ready, waiting to start | No |
 | `running` | Agent is actively executing | No |
 | `waiting_for_approval` | Agent paused, waiting for operator to approve/reject an action | No |
 | `review` | Agent completed successfully, awaiting operator review (merge/PR/discard) | No |
@@ -48,6 +53,9 @@ stateDiagram-v2
 
 | From | To | Trigger |
 |------|----|---------|
+| `preparing` | `queued` | Workspace setup complete |
+| `preparing` | `failed` | Setup error |
+| `preparing` | `canceled` | Operator cancels during setup |
 | `queued` | `running` | Agent session starts |
 | `queued` | `canceled` | Operator cancels before start |
 | `running` | `waiting_for_approval` | Agent requests permission for risky action |

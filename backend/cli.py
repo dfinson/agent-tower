@@ -458,7 +458,7 @@ def info(host: str, port: int, tunnel_url: str | None, password: str | None) -> 
 @cli.command()
 def setup() -> None:
     """Interactive setup wizard — check dependencies, configure data directory, authenticate."""
-    from backend.services.setup.service import execute_setup_wizard  # type: ignore[attr-defined]
+    from backend.services.setup.service import execute_setup_wizard
 
     execute_setup_wizard()
 

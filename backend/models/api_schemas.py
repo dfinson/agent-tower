@@ -1281,7 +1281,7 @@ class GenerateSidecarRequest(CamelModel):
 
 
 class GenerateSidecarResponse(CamelModel):
-    definition: dict
+    definition: dict[str, Any]
 
 
 class CreateSidecarTemplateRequest(CamelModel):

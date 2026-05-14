@@ -106,9 +106,7 @@ class SidecarSession:
         """True if this session has exceeded its windowed lifetime limits."""
         if self._max_turns is not None and self.call_count >= self._max_turns:
             return True
-        if self._timeout_s is not None and (time.monotonic() - self.created_at) >= self._timeout_s:
-            return True
-        return False
+        return self._timeout_s is not None and (time.monotonic() - self.created_at) >= self._timeout_s
 
     def _reset_metrics(self) -> None:
         """Zero out all metric counters (used when recycling back to pool)."""

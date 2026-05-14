@@ -15,6 +15,7 @@ adapter interface, so the same flow works with any underlying SDK.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from typing import TYPE_CHECKING
 
@@ -180,14 +181,14 @@ class PreflightCurator:
                     if event.kind == SessionEventKind.transcript:
                         payload = event.payload
                         if isinstance(payload, dict) and payload.get("role") == "agent":
-                            content = payload.get("content", "")
+                            content = str(payload.get("content", ""))
                             if content and content.strip():
                                 agent_chunks.append(content)
 
                     elif event.kind == SessionEventKind.done:
                         # ResultMessage carries the complete final text
                         if isinstance(event.payload, dict):
-                            r = event.payload.get("result", "")
+                            r = str(event.payload.get("result", ""))
                             if r and r.strip():
                                 result_text = r
                         break
@@ -195,7 +196,7 @@ class PreflightCurator:
                     elif event.kind == SessionEventKind.error:
                         msg = ""
                         if isinstance(event.payload, dict):
-                            msg = event.payload.get("message", "")
+                            msg = str(event.payload.get("message", ""))
                         log.warning("preflight_curator.session_error", error=msg)
                         break
         except TimeoutError:
@@ -203,17 +204,13 @@ class PreflightCurator:
                 "preflight_curator.session_timeout",
                 timeout_s=_SESSION_TIMEOUT_S,
             )
-            try:
+            with contextlib.suppress(Exception):
                 await self._adapter.abort_session(session_id)
-            except Exception:
-                pass
             # Return whatever the agent produced so far
         except Exception:
             log.warning("preflight_curator.stream_failed", exc_info=True)
-            try:
+            with contextlib.suppress(Exception):
                 await self._adapter.abort_session(session_id)
-            except Exception:
-                pass
             raise
 
         elapsed_ms = (time.monotonic() - t0) * 1000
