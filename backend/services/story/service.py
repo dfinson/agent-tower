@@ -320,29 +320,6 @@ def _col_for_verbosity(verbosity: str) -> str:
 # Token estimation and model-context lookup
 # ---------------------------------------------------------------------------
 
-_PRICING_PATH = __import__("pathlib").Path(__file__).resolve().parent.parent.parent / "data" / "model_pricing.json"
-
-
-def _get_model_max_input_tokens(model: str) -> int | None:
-    """Look up a model's max input tokens from the pricing dataset.
-
-    Returns ``None`` when the model isn't found — callers should fall back
-    to single-pass generation in that case (never truncate).
-    """
-    try:
-        data = json.loads(_PRICING_PATH.read_text())
-    except (OSError, json.JSONDecodeError):
-        return None
-
-    # Exact match first, then normalized
-    entry = data.get(model)
-    if not entry:
-        normalized = re.sub(r"-+", "-", re.sub(r"[^a-z0-9]", "-", model.lower())).strip("-")
-        entry = data.get(normalized)
-    if entry and isinstance(entry.get("max_input_tokens"), (int, float)):
-        return int(entry["max_input_tokens"])
-    return None
-
 
 def _estimate_tokens(text: str) -> int:
     """Rough token count estimate.
@@ -990,10 +967,12 @@ class StoryService:
         completer: Completable,
         coderecon: CodeReconService | None = None,
         session_factory: Any | None = None,
+        model_pricing: Any | None = None,
     ) -> None:
         self._completer = completer
         self._coderecon = coderecon
         self._session_factory = session_factory
+        self._model_pricing = model_pricing
         self._gen_locks: dict[str, asyncio.Lock] = {}
 
     async def get_or_generate(
@@ -1211,9 +1190,13 @@ class StoryService:
         system = _STORY_SYSTEM + _STORY_VERBOSITY_SUFFIX.get(verbosity, "")
 
         # Determine whether multi-pass is needed (#7)
-        # Look up the model's context window from pricing data.
+        # Look up the model's context window from pricing service.
         model_name = getattr(self._completer, "model", None) or ""
-        max_input_tokens = _get_model_max_input_tokens(model_name) if model_name else None
+        max_input_tokens = (
+            self._model_pricing.get_max_input_tokens(model_name)
+            if self._model_pricing and model_name
+            else None
+        )
 
         blocks = await self._generate_passes(
             refs=refs,

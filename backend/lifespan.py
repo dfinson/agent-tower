@@ -28,6 +28,7 @@ from backend.persistence.event_repo import EventRepository
 from backend.persistence.step_repo import StepRepository
 from backend.services.adapters.adapter_registry import AdapterRegistry
 from backend.services.adapters.platform_adapter import PlatformRegistry
+from backend.services.analytics.model_pricing import ModelPricingService
 from backend.services.artifacts.diff_service import DiffService
 from backend.services.coderecon.coderecon_service import CodeReconService
 from backend.services.completers.narrator_completer import NarratorCompleter
@@ -1067,6 +1068,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         steer_client = CopilotSteerClient(copilot_token)
 
+    # --- ModelPricingService (runtime-fetched LLM pricing) ---
+    model_pricing_service = ModelPricingService(
+        cache_path=get_codeplane_dir() / "model_pricing_cache.json",
+        refresh_interval_hours=config.pricing.refresh_interval_hours,
+    )
+    await model_pricing_service.refresh()
+    model_pricing_service.start_background_refresh()
+
     # --- SessionStateWatcher (auto-discover Copilot --remote sessions) ---
     # Watchers feed events through RuntimeService so imported sessions get the
     # full pipeline: sidecar sessions, heartbeat, stall detection, plan
@@ -1094,6 +1103,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         config=config,
         git_service=services.git_service,
         coderecon_service=coderecon_service,
+        model_pricing=model_pricing_service,
     )
     await claude_session_watcher.start()
 
@@ -1133,6 +1143,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             TerminalService: optional.terminal_service,
             CodeReconService: coderecon_service,
             IngestService: ingest_service,
+            ModelPricingService: model_pricing_service,
             SessionStateWatcher: session_state_watcher,
             ClaudeSessionStateWatcher: claude_session_watcher,
         },
@@ -1192,6 +1203,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Stop SessionStateWatcher and steer client
         await session_state_watcher.stop()
         await claude_session_watcher.stop()
+        await model_pricing_service.stop()
         if steer_client is not None:
             await steer_client.close()
         # Drain any in-flight ephemeral background tasks before tearing down services.

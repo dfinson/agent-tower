@@ -27,6 +27,7 @@ from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 from backend.services.adapters.platform_adapter import PlatformRegistry
 from backend.services.analytics.analytics_service import AnalyticsService
+from backend.services.analytics.model_pricing import ModelPricingService
 from backend.services.analytics.telemetry_query_service import TelemetryQueryService
 from backend.services.artifacts.artifact_service import ArtifactService
 from backend.services.artifacts.diff_service import DiffService
@@ -88,6 +89,7 @@ class AppProvider(Provider):
     narrator_completer = from_context(provides=NarratorCompleter)
     memory_compacter = from_context(provides=MemoryCompacter)
     ingest_service = from_context(provides=IngestService)
+    model_pricing = from_context(provides=ModelPricingService)
     claude_session_watcher = from_context(provides=ClaudeSessionStateWatcher)
 
     @provide
@@ -104,8 +106,9 @@ class AppProvider(Provider):
         narrator: NarratorCompleter,
         coderecon: CodeReconService,
         sf: async_sessionmaker[AsyncSession],
+        model_pricing: ModelPricingService,
     ) -> StoryService:
-        return StoryService(completer=narrator, coderecon=coderecon, session_factory=sf)
+        return StoryService(completer=narrator, coderecon=coderecon, session_factory=sf, model_pricing=model_pricing)
 
     @provide
     def step_repo(self, sf: async_sessionmaker[AsyncSession]) -> StepRepository:

@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.config import CPLConfig
+    from backend.services.analytics.model_pricing import ModelPricingService
     from backend.services.coderecon.coderecon_service import CodeReconService
     from backend.services.events.event_bus import EventBus
     from backend.services.git.git_service import GitService
@@ -59,65 +60,6 @@ _SESSION_ID_PATTERN = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTU
 
 # Regex to match JSONL session files (UUID format)
 _SESSION_FILE_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$")
-
-# ---------------------------------------------------------------------------
-# Model pricing cache (reloads automatically when file changes)
-# ---------------------------------------------------------------------------
-
-_MODEL_PRICING: dict[str, dict[str, float]] | None = None
-_PRICING_MTIME: float = 0.0
-_PRICING_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "model_pricing.json"
-
-
-def _get_pricing() -> dict[str, dict[str, float]]:
-    """Load model pricing data ($/MTok) from bundled JSON. Reloads on file change."""
-    global _MODEL_PRICING, _PRICING_MTIME  # noqa: PLW0603
-    try:
-        current_mtime = _PRICING_PATH.stat().st_mtime
-    except OSError:
-        if _MODEL_PRICING is None:
-            _MODEL_PRICING = {}
-        return _MODEL_PRICING
-
-    if _MODEL_PRICING is None or current_mtime != _PRICING_MTIME:
-        try:
-            _MODEL_PRICING = json.loads(_PRICING_PATH.read_text())
-            _PRICING_MTIME = current_mtime
-        except (json.JSONDecodeError, OSError):
-            log.debug("claude_watcher_pricing_unavailable")
-            if _MODEL_PRICING is None:
-                _MODEL_PRICING = {}
-    return _MODEL_PRICING
-
-
-def _normalize_model_key(model: str) -> str:
-    """Normalize model name to match pricing keys (lowercase, non-alnum → hyphen)."""
-    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]", "-", model.lower())).strip("-")
-
-
-def _compute_cost(
-    model: str,
-    input_tokens: int,
-    output_tokens: int,
-    cache_read_tokens: int,
-    cache_write_tokens: int,
-) -> float:
-    """Compute USD cost from token counts using bundled pricing data.
-
-    Returns 0.0 if model is unknown or pricing data unavailable.
-    """
-    pricing = _get_pricing()
-    entry = pricing.get(model) or pricing.get(_normalize_model_key(model))
-    if not entry:
-        return 0.0
-    # Pricing values are $/MTok (per 1M tokens)
-    cost = (
-        input_tokens * entry.get("input", 0)
-        + output_tokens * entry.get("output", 0)
-        + cache_read_tokens * entry.get("cache_read", 0)
-        + cache_write_tokens * entry.get("cache_write", 0)
-    ) / 1_000_000
-    return cost
 
 
 def _encode_cwd(path: str) -> str:
@@ -199,6 +141,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         config: CPLConfig,
         git_service: GitService | None = None,
         coderecon_service: CodeReconService | None = None,
+        model_pricing: ModelPricingService | None = None,
     ) -> None:
         self._event_bus = event_bus
         self._runtime = runtime_service
@@ -206,6 +149,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         self._config = config
         self._git = git_service
         self._coderecon = coderecon_service
+        self._model_pricing = model_pricing
 
         # Track which session IDs we're already tailing
         self._tracked_sessions: set[str] = set()
@@ -1019,8 +963,12 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         tel.tokens_cache_write.add(cache_write, attrs)
         tel.messages_counter.add(1, {**attrs, "role": "agent"})
 
-        # Compute cost from bundled model pricing
-        cost_usd = _compute_cost(model, input_toks, output_toks, cache_read, cache_write)
+        # Compute cost from model pricing service
+        cost_usd = (
+            self._model_pricing.compute_cost(model, input_toks, output_toks, cache_read, cache_write)
+            if self._model_pricing
+            else 0.0
+        )
         if cost_usd > 0:
             tel.cost_usd.add(cost_usd, attrs)
 

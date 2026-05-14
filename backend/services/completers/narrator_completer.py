@@ -33,7 +33,7 @@ _HTTP_TIMEOUT = 120.0
 _CLIENT_MAX_AGE_S = 300.0
 
 # Pricing data for looking up model output limits
-_PRICING_PATH = Path(__file__).resolve().parent.parent / "data" / "model_pricing.json"
+_PRICING_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "model_pricing.json"
 
 
 def _lookup_max_output_tokens(model: str) -> int | None:

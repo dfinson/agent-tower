@@ -620,23 +620,30 @@ class TestLivenessCheck:
 
 class TestCostCalculation:
     def test_compute_cost_known_model(self) -> None:
-        from backend.services.watcher.claude import _compute_cost
+        from backend.services.analytics.model_pricing import ModelPricingService
 
-        # Use a model that exists in pricing data
-        cost = _compute_cost(
+        svc = ModelPricingService(cache_path=Path("/tmp/nonexistent-pricing-cache.json"))
+        # Load bundled pricing data synchronously for test
+        bundled = svc._read_bundled()
+        assert bundled is not None
+        svc._pricing = bundled
+
+        cost = svc.compute_cost(
             "claude-sonnet-4-20250514",
             input_tokens=1_000_000,
             output_tokens=1_000_000,
             cache_read_tokens=0,
             cache_write_tokens=0,
         )
-        # Should be input_rate + output_rate ($/MTok applied to 1M tokens each)
         assert cost > 0
 
     def test_compute_cost_unknown_model(self) -> None:
-        from backend.services.watcher.claude import _compute_cost
+        from backend.services.analytics.model_pricing import ModelPricingService
 
-        cost = _compute_cost(
+        svc = ModelPricingService(cache_path=Path("/tmp/nonexistent-pricing-cache.json"))
+        svc._pricing = {"known-model": {"input": 1.0, "output": 2.0}}
+
+        cost = svc.compute_cost(
             "totally-fake-model-xyz",
             input_tokens=1000,
             output_tokens=500,
@@ -646,16 +653,21 @@ class TestCostCalculation:
         assert cost == 0.0
 
     def test_compute_cost_includes_cache(self) -> None:
-        from backend.services.watcher.claude import _compute_cost
+        from backend.services.analytics.model_pricing import ModelPricingService
 
-        cost_no_cache = _compute_cost(
+        svc = ModelPricingService(cache_path=Path("/tmp/nonexistent-pricing-cache.json"))
+        bundled = svc._read_bundled()
+        assert bundled is not None
+        svc._pricing = bundled
+
+        cost_no_cache = svc.compute_cost(
             "claude-sonnet-4-20250514",
             input_tokens=1000,
             output_tokens=500,
             cache_read_tokens=0,
             cache_write_tokens=0,
         )
-        cost_with_cache = _compute_cost(
+        cost_with_cache = svc.compute_cost(
             "claude-sonnet-4-20250514",
             input_tokens=1000,
             output_tokens=500,
@@ -671,6 +683,15 @@ class TestCostCalculation:
         runtime_service: MagicMock,
     ) -> None:
         """_extract_usage_telemetry should accumulate cost_usd in pending telemetry."""
+        from backend.services.analytics.model_pricing import ModelPricingService
+
+        # Inject a pricing service with bundled data
+        pricing_svc = ModelPricingService(cache_path=Path("/tmp/nonexistent-pricing-cache.json"))
+        bundled = pricing_svc._read_bundled()
+        assert bundled is not None
+        pricing_svc._pricing = bundled
+        watcher._model_pricing = pricing_svc
+
         watcher._session_to_job["sess-1"] = "job-cost"
         watcher._job_to_session["job-cost"] = "sess-1"
 
@@ -832,38 +853,43 @@ class TestPidLiveness:
 
 
 class TestPricingReload:
-    def test_pricing_reloads_on_mtime_change(self, tmp_path: Path) -> None:
-        """_get_pricing should reload when file mtime changes."""
-        import backend.services.watcher.claude as mod
+    def test_pricing_cache_read_write(self, tmp_path: Path) -> None:
+        """ModelPricingService should write and read cache files correctly."""
+        from backend.services.analytics.model_pricing import ModelPricingService
 
-        pricing_file = tmp_path / "model_pricing.json"
-        pricing_file.write_text(json.dumps({"model-a": {"input": 1.0, "output": 2.0}}))
+        cache_path = tmp_path / "pricing_cache.json"
+        svc = ModelPricingService(cache_path=cache_path)
 
-        # Patch the module-level state
-        orig_path = mod._PRICING_PATH
-        orig_pricing = mod._MODEL_PRICING
-        orig_mtime = mod._PRICING_MTIME
-        try:
-            mod._PRICING_PATH = pricing_file
-            mod._MODEL_PRICING = None
-            mod._PRICING_MTIME = 0.0
+        # Write pricing to cache
+        pricing_data = {"model-a": {"input": 1.0, "output": 2.0}}
+        svc._write_cache(pricing_data)
+        assert cache_path.exists()
 
-            # First load
-            result = mod._get_pricing()
-            assert "model-a" in result
-            assert result["model-a"]["input"] == 1.0
+        # Read it back
+        result = svc._read_cache()
+        assert result is not None
+        assert "model-a" in result
+        assert result["model-a"]["input"] == 1.0
 
-            # Update the file with different content and a new mtime
-            import time
+    def test_pricing_fallback_to_bundled(self, tmp_path: Path) -> None:
+        """When cache doesn't exist, _read_bundled returns bundled data."""
+        from backend.services.analytics.model_pricing import ModelPricingService
 
-            time.sleep(0.05)  # ensure mtime differs
-            pricing_file.write_text(json.dumps({"model-b": {"input": 3.0, "output": 4.0}}))
+        svc = ModelPricingService(cache_path=tmp_path / "nonexistent.json")
+        bundled = svc._read_bundled()
+        assert bundled is not None
+        assert len(bundled) > 0
 
-            # Should reload
-            result = mod._get_pricing()
-            assert "model-b" in result
-            assert "model-a" not in result
-        finally:
-            mod._PRICING_PATH = orig_path
-            mod._MODEL_PRICING = orig_pricing
-            mod._PRICING_MTIME = orig_mtime
+    def test_pricing_normalize_key(self) -> None:
+        """Normalized model key lookup should work."""
+        from backend.services.analytics.model_pricing import ModelPricingService
+
+        svc = ModelPricingService(cache_path=Path("/tmp/nonexistent.json"))
+        svc._pricing = {"claude-sonnet-4": {"input": 3.0, "output": 15.0}}
+
+        # Exact match
+        assert svc.get("claude-sonnet-4") is not None
+        # Normalized match
+        assert svc.get("Claude_Sonnet_4") is not None
+        # No match
+        assert svc.get("totally-fake") is None

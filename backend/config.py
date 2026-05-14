@@ -233,6 +233,13 @@ class TelemetryConfig:
 
 
 @dataclass
+class PricingConfig:
+    """Model pricing refresh configuration."""
+
+    refresh_interval_hours: int = 24
+
+
+@dataclass
 class TrailConfig:
     """Agent audit trail enrichment tuning."""
 
@@ -253,6 +260,7 @@ class CPLConfig:
     terminal: TerminalConfig = field(default_factory=TerminalConfig)
     verification: VerificationConfig = field(default_factory=VerificationConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
+    pricing: PricingConfig = field(default_factory=PricingConfig)
     trail: TrailConfig = field(default_factory=TrailConfig)
     platforms: dict[str, PlatformConfig] = field(default_factory=dict)
     repos: list[str] = field(default_factory=list)
@@ -300,6 +308,7 @@ def load_config(path: Path | None = None) -> CPLConfig:
         terminal=_parse_section(raw, TerminalConfig, "terminal"),
         verification=_parse_section(raw, VerificationConfig, "verification"),
         telemetry=_parse_section(raw, TelemetryConfig, "telemetry"),
+        pricing=_parse_section(raw, PricingConfig, "pricing"),
         trail=_parse_section(raw, TrailConfig, "trail"),
         platforms=platforms,
         repos=[str(r) for r in raw.get("repos", []) if r is not None] if isinstance(raw.get("repos", []), list) else [],

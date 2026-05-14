@@ -85,7 +85,7 @@ _password_hash: bytes | None = None
 _password_salt: bytes | None = None
 
 # Load logo as base64 for the login page — deferred to first use
-_logo_path = Path(__file__).resolve().parent.parent.parent / "docs" / "images" / "logo.png"
+_logo_path = Path(__file__).resolve().parent.parent.parent.parent / "docs" / "images" / "logo.png"
 _logo_b64: str | None = None
 
 
