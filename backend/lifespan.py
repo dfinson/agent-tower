@@ -831,7 +831,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         job_id = event.job_id
         if not job_id:
             return
-        changed_files: list[str] = event.payload.get("files_written", [])
+        raw_files = event.payload.get("files_written", [])
+        changed_files: list[str] = [str(f) for f in raw_files] if isinstance(raw_files, list) else []
 
         async def _run_check() -> None:
             try:

@@ -21,10 +21,7 @@ import structlog
 
 log = structlog.get_logger()
 
-_LITELLM_URL = (
-    "https://raw.githubusercontent.com/BerriAI/litellm/main/"
-    "model_prices_and_context_window.json"
-)
+_LITELLM_URL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 _PROVIDERS = frozenset({"anthropic", "openai"})
 _BUNDLED_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "model_pricing.json"
 
@@ -159,9 +156,7 @@ class ModelPricingService:
         """Spawn a background task that refreshes pricing periodically."""
         if self._refresh_task is not None:
             return
-        self._refresh_task = asyncio.create_task(
-            self._refresh_loop(), name="model-pricing-refresh"
-        )
+        self._refresh_task = asyncio.create_task(self._refresh_loop(), name="model-pricing-refresh")
 
     async def stop(self) -> None:
         """Cancel the background refresh task."""

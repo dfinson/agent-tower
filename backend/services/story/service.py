@@ -1193,9 +1193,7 @@ class StoryService:
         # Look up the model's context window from pricing service.
         model_name = getattr(self._completer, "model", None) or ""
         max_input_tokens = (
-            self._model_pricing.get_max_input_tokens(model_name)
-            if self._model_pricing and model_name
-            else None
+            self._model_pricing.get_max_input_tokens(model_name) if self._model_pricing and model_name else None
         )
 
         blocks = await self._generate_passes(
