@@ -285,18 +285,27 @@ function ReasoningHint({ content, streamingText }: { content: string; streamingT
 
 function InlineApprovalCard({ approval }: { approval: ApprovalRequest }) {
   const [resolving, setResolving] = useState<"approved" | "rejected" | null>(null);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
   const isPlanApproval = approval.proposedAction === "execute_plan";
   const planSteps = useStore(selectJobPlan(approval.jobId));
 
   const handleResolve = async (resolution: "approved" | "rejected") => {
+    // For plan rejections, show feedback form first
+    if (resolution === "rejected" && isPlanApproval && !showFeedback) {
+      setShowFeedback(true);
+      return;
+    }
     setResolving(resolution);
     try {
-      await resolveApproval(approval.id, resolution);
+      const notes = feedbackText.trim() || undefined;
+      await resolveApproval(approval.id, resolution, notes);
     } catch (err) {
       toast.error("Failed to resolve approval");
       console.error("Failed to resolve approval:", err);
     } finally {
       setResolving(null);
+      setShowFeedback(false);
     }
   };
 
@@ -330,6 +339,37 @@ function InlineApprovalCard({ approval }: { approval: ApprovalRequest }) {
                 ? <><CheckCircle2 size={12} className="text-emerald-400/60" /> Approved</>
                 : <><XCircleIcon size={12} className="text-red-400/60" /> Rejected</>
               }
+            </div>
+          ) : showFeedback ? (
+            <div className="space-y-2">
+              <textarea
+                className="w-full text-xs bg-black/30 border border-border/40 rounded px-2 py-1.5 text-foreground/80 placeholder:text-muted-foreground/40 resize-none focus:outline-none focus:border-primary/40"
+                rows={3}
+                placeholder="What should the agent change? (optional)"
+                value={feedbackText}
+                onChange={(e) => setFeedbackText(e.target.value)}
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleResolve("rejected")}
+                  disabled={!!resolving}
+                  className="text-xs h-7 sm:h-7 min-h-[44px] sm:min-h-0 border-red-700/40 text-red-400 hover:bg-red-950/30"
+                >
+                  {resolving === "rejected" ? <Spinner className="w-3 h-3" /> : "Submit & Revise"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => { setShowFeedback(false); setFeedbackText(""); }}
+                  disabled={!!resolving}
+                  className="text-xs h-7 sm:h-7 min-h-[44px] sm:min-h-0 text-muted-foreground/60"
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="flex gap-2">

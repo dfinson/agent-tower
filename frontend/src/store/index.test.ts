@@ -60,6 +60,7 @@ describe("AppStore", () => {
           resolvedAt: null,
           resolution: null,
           requiresExplicitApproval: false,
+          notes: null,
         },
       ];
 
@@ -82,6 +83,7 @@ describe("AppStore", () => {
           resolvedAt: null,
           resolution: null,
           requiresExplicitApproval: false,
+          notes: null,
         },
       ];
 
@@ -215,6 +217,7 @@ describe("AppStore", () => {
             resolvedAt: null,
             resolution: null,
             requiresExplicitApproval: false,
+            notes: null,
           },
         },
       });

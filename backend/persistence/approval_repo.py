@@ -28,6 +28,7 @@ class ApprovalRepository(BaseRepository):
             resolved_at=row.resolved_at,
             resolution=ApprovalResolution(row.resolution) if row.resolution else None,
             requires_explicit_approval=row.requires_explicit_approval or False,
+            notes=row.notes,
         )
 
     async def create(self, approval: Approval) -> Approval:
@@ -73,16 +74,20 @@ class ApprovalRepository(BaseRepository):
         approval_id: str,
         resolution: ApprovalResolution,
         resolved_at: datetime,
+        notes: str | None = None,
     ) -> Approval | None:
         """Mark an approval as resolved atomically. Returns updated approval or None.
 
         Uses UPDATE ... WHERE resolution IS NULL to prevent double-resolve race.
         Returns None if the row doesn't exist or was already resolved.
         """
+        values: dict[str, object] = {"resolution": resolution, "resolved_at": resolved_at}
+        if notes is not None:
+            values["notes"] = notes
         stmt = (
             update(ApprovalRow)
             .where(ApprovalRow.id == approval_id, ApprovalRow.resolution.is_(None))
-            .values(resolution=resolution, resolved_at=resolved_at)
+            .values(**values)
         )
         result = await self._session.execute(stmt)
         # CursorResult.rowcount is always present for DML but missing from the generic Result type stub

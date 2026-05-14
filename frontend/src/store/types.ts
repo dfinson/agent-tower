@@ -63,6 +63,7 @@ export interface ApprovalRequest {
   resolvedAt: string | null;
   resolution: string | null;
   requiresExplicitApproval: boolean;
+  notes: string | null;
 }
 
 /** A batch of gate-tier actions awaiting operator approval. */

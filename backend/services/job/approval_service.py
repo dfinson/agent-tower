@@ -99,13 +99,13 @@ class ApprovalService:
         )
         return approval
 
-    async def resolve(self, approval_id: str, resolution: ApprovalResolution) -> Approval:
+    async def resolve(self, approval_id: str, resolution: ApprovalResolution, notes: str | None = None) -> Approval:
         """Resolve an approval and unblock the waiting runtime future."""
         now = datetime.now(UTC)
         async with self._session_factory() as session:
             repo = self._make_repo(session)
             # Atomic update: only succeeds if resolution IS NULL
-            updated = await repo.resolve(approval_id, resolution, now)
+            updated = await repo.resolve(approval_id, resolution, now, notes=notes)
             if updated is None:
                 # Either not found or already resolved — check which
                 existing = await repo.get(approval_id)
@@ -136,6 +136,12 @@ class ApprovalService:
         if future is None:
             raise ApprovalNotFoundError(f"No pending future for approval {approval_id}")
         return await future
+
+    async def get(self, approval_id: str) -> Approval | None:
+        """Fetch a single approval by ID."""
+        async with self._session_factory() as session:
+            repo = self._make_repo(session)
+            return await repo.get(approval_id)
 
     async def list_for_job(self, job_id: str) -> list[Approval]:
         """List all approvals for a job."""

@@ -56,7 +56,10 @@ class CreateJobRequest(CamelModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _validate_sdk(cls, values: Any) -> Any:
+    def _validate_mode_and_sdk(cls, values: Any) -> Any:
+        mode = values.get("mode")
+        if mode == JobMode.plan_implementing:
+            raise ValueError("Cannot create a job in plan_implementing mode — use 'plan' or 'standard'")
         sdk = values.get("sdk")
         if sdk is not None:
             from backend.models.domain import AgentSDK
@@ -77,6 +80,13 @@ class ResumeJobRequest(CamelModel):
     instruction: str | None = Field(default=None, max_length=50_000)
 
 
+class ResolveGateRequest(CamelModel):
+    """Operator resolution for a sidecar gate verdict."""
+
+    action: str = Field(description="'approve' or 'reject'", pattern=r"^(approve|reject)$")
+    message: str | None = Field(default=None, max_length=10_000, description="Optional follow-up message to the agent")
+
+
 class ContinueJobRequest(CamelModel):
     instruction: str = Field(min_length=1, max_length=10_000)
 
@@ -89,6 +99,7 @@ class ContinueJobRequest(CamelModel):
 
 class ResolveApprovalRequest(CamelModel):
     resolution: ApprovalResolution
+    notes: str | None = Field(None, max_length=10_000)
 
 
 class ResolveBatchRequest(CamelModel):
@@ -119,6 +130,7 @@ class UpdateSettingsRequest(CamelModel):
     max_turns: int | None = Field(None, ge=1, le=10)
     verify_prompt: str | None = Field(None, max_length=5000)
     self_review_prompt: str | None = Field(None, max_length=5000)
+    cli_sidecars: list[str] | None = Field(None, description="Sidecar names for CLI sessions; null leaves current value unchanged")
 
 
 class SettingsResponse(CamelModel):
@@ -134,6 +146,7 @@ class SettingsResponse(CamelModel):
     max_turns: int
     verify_prompt: str
     self_review_prompt: str
+    cli_sidecars: list[str] | None
 
 
 class RegisterRepoRequest(CamelModel):
@@ -286,6 +299,7 @@ class ApprovalResponse(CamelModel):
     # True when this approval was triggered by a hard-blocked operation (e.g.
     # git reset --hard) that cannot be auto-resolved by a trust grant.
     requires_explicit_approval: bool = False
+    notes: str | None = None
 
 
 class ArtifactResponse(CamelModel):

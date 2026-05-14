@@ -363,6 +363,7 @@ describe("job_state_changed evicts stale approvals", () => {
           resolvedAt: null,
           resolution: null,
           requiresExplicitApproval: false,
+          notes: null,
         },
       },
     });
@@ -392,6 +393,7 @@ describe("job_state_changed evicts stale approvals", () => {
           resolvedAt: "2025-01-01T00:01:00Z",
           resolution: "approved",
           requiresExplicitApproval: false,
+          notes: null,
         },
       },
     });
@@ -424,6 +426,7 @@ describe("job_state_changed evicts stale approvals", () => {
           resolvedAt: null,
           resolution: null,
           requiresExplicitApproval: false,
+          notes: null,
         },
         "a-2": {
           id: "a-2",
@@ -434,6 +437,7 @@ describe("job_state_changed evicts stale approvals", () => {
           resolvedAt: null,
           resolution: null,
           requiresExplicitApproval: false,
+          notes: null,
         },
       },
     });

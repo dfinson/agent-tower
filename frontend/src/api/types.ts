@@ -61,6 +61,7 @@ export interface ApprovalRequest {
   resolvedAt: string | null;
   resolution: string | null;
   requiresExplicitApproval: boolean;
+  notes: string | null;
 }
 
 // --- Action Policy batch types ---

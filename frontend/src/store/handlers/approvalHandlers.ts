@@ -19,6 +19,7 @@ export function handleApprovalRequested(state: AppState, payload: Record<string,
     resolvedAt: null,
     resolution: null,
     requiresExplicitApproval: (payload.requiresExplicitApproval as boolean) ?? false,
+    notes: null,
   };
   return {
     approvals: { ...state.approvals, [approval.id]: approval },

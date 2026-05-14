@@ -386,6 +386,10 @@ class JobRepository(BaseRepository):
         """Update the preset (permission policy) on a job."""
         await self._update_row(job_id, preset=preset)
 
+    async def update_mode(self, job_id: str, mode: str) -> None:
+        """Update the execution mode (e.g. plan → plan_implementing)."""
+        await self._update_row(job_id, mode=mode)
+
     async def update_tail_offset(self, job_id: str, offset: int) -> None:
         """Persist the events.jsonl tail offset for resume-after-restart."""
         await self._update_row(job_id, tail_offset=offset)

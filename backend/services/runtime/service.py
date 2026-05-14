@@ -84,6 +84,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from backend.services.coderecon.coderecon_service import CodeReconService
+    from backend.services.events.ingest_service import IngestService
     from backend.services.memory.compacter import MemoryCompacter
     from backend.services.memory.extractor import MemoryExtractor
     from backend.services.steps.tracker import StepTracker
@@ -275,6 +276,9 @@ class RuntimeService:
         self._memory_compacter: MemoryCompacter | None = None
         self._preflight_curator: PreflightCurator | None = None
         self._memory_extractor: MemoryExtractor | None = None
+        self._ingest_service: IngestService | None = None
+        # Active sidecar gates per job: job_id → {sidecar_name: reason}
+        self._active_gates: dict[str, dict[str, str]] = {}
 
         # Subscribe to policy settings changes for mid-job reload
         self._event_bus.subscribe(self._on_policy_settings_changed)
@@ -318,6 +322,10 @@ class RuntimeService:
         """Wire the MemoryExtractor for post-job knowledge extraction."""
         self._memory_extractor = extractor
 
+    def set_ingest_service(self, svc: IngestService) -> None:
+        """Wire the IngestService for operator message delivery to CLI sessions."""
+        self._ingest_service = svc
+
     def _resolve_adapter(self, sdk: str) -> AgentAdapterInterface:
         """Resolve the adapter for a given SDK via the registry."""
         return self._adapter_registry.get_adapter(sdk)
@@ -330,6 +338,11 @@ class RuntimeService:
             event_bus=self._event_bus,
             coderecon=self._coderecon_service,
         )
+
+    async def _get_job(self, job_id: str) -> Job | None:
+        """Load a job by id (convenience wrapper)."""
+        async with self._session_factory() as db:
+            return await self._make_job_service(db).get_job(job_id)
 
     async def _finalize_diff_safe(self, job_id: str, worktree_path: str | None, base_ref: str | None) -> None:
         """Finalize the diff snapshot, swallowing exceptions."""
@@ -686,7 +699,8 @@ class RuntimeService:
                 return
 
             # --- Plan mode: planning session completed → approval gate ---
-            if job is not None and job.mode == JobMode.plan and not config.plan_phase_done:
+            # job.mode is persisted: "plan" = planning phase, "plan_implementing" = implementation phase.
+            if job is not None and job.mode == JobMode.plan:
                 plan_result = await self._handle_plan_session_completed(
                     job_id, job, agent_session, config, worktree_path, base_ref, session_number,
                 )
@@ -1320,12 +1334,15 @@ class RuntimeService:
         """
         self._last_activity[job_id] = time.monotonic()
 
-        # Open built-in sidecar sessions for external jobs
+        # Open sidecar sessions — use configured list or fall back to built-in defaults.
         if self._sidecar_sessions is not None:
             from backend.models.domain import SIDECAR_ARBITER, SIDECAR_ENRICHER, SIDECAR_PLANNER
 
+            names = self._config.runtime.cli_sidecars
+            if names is None:
+                names = [SIDECAR_ARBITER, SIDECAR_PLANNER, SIDECAR_ENRICHER]
             try:
-                for name in (SIDECAR_ARBITER, SIDECAR_PLANNER, SIDECAR_ENRICHER):
+                for name in names:
                     self._sidecar_sessions.open(job_id, name)
             except Exception:
                 log.warning("external_sidecar_session_setup_failed", job_id=job_id, exc_info=True)
@@ -2042,6 +2059,81 @@ class RuntimeService:
         log.info("job_pause_requested", job_id=job_id)
         return True
 
+    async def handle_sidecar_gate(
+        self,
+        job_id: str,
+        sidecar_name: str,
+        verdict: str,
+        reason: str,
+    ) -> None:
+        """Handle a sidecar gate verdict — pause or resume the agent.
+
+        Called by the dispatcher's gate handler callback.  For managed
+        sessions this pauses/resumes tools directly.  For imported CLI
+        sessions it queues an operator message (soft gate).
+        """
+        if verdict in ("approve", "pass", "ok"):
+            # Resume if previously gated.
+            self._active_gates.get(job_id, {}).pop(sidecar_name, None)
+            agent_session = self._agent_sessions.get(job_id)
+            if agent_session is not None and not self._active_gates.get(job_id):
+                agent_session.resume_tools()
+            log.info("sidecar_gate_resumed", job_id=job_id, sidecar=sidecar_name)
+            return
+
+        if verdict not in ("reject", "hold", "deny", "block"):
+            log.warning("sidecar_gate_unknown_verdict", job_id=job_id, verdict=verdict)
+            return
+
+        # Record the active gate.
+        self._active_gates.setdefault(job_id, {})[sidecar_name] = reason or verdict
+
+        # Check if this is an imported session (soft gate via messaging).
+        job = await self._get_job(job_id)
+        if job and job.source != JobSource.managed:
+            # Soft gate — deliver via the CLI channel (Stop hook / Steer API).
+            gate_msg = f"[GATE:{sidecar_name}] {reason}" if reason else f"[GATE:{sidecar_name}] Action blocked by sidecar."
+            if self._ingest_service is not None:
+                await self._ingest_service.send_operator_message(job_id, gate_msg)
+            else:
+                log.warning("sidecar_gate_no_ingest", job_id=job_id, sidecar=sidecar_name)
+            log.info("sidecar_gate_soft", job_id=job_id, sidecar=sidecar_name, source=job.source)
+            return
+
+        # Hard gate — pause tools on the managed session.
+        agent_session = self._agent_sessions.get(job_id)
+        if agent_session is None:
+            log.warning("sidecar_gate_no_session", job_id=job_id, sidecar=sidecar_name)
+            return
+
+        agent_session.pause_tools()
+        log.info("sidecar_gate_paused", job_id=job_id, sidecar=sidecar_name, reason=reason)
+
+    async def resolve_sidecar_gate(
+        self,
+        job_id: str,
+        action: str,
+        message: str | None = None,
+    ) -> None:
+        """Operator resolution of a sidecar gate.
+
+        ``action='approve'`` resumes tools (and optionally sends a message).
+        ``action='reject'`` keeps tools paused (message is still delivered).
+        """
+        gates = self._active_gates.get(job_id)
+        if not gates:
+            log.warning("resolve_gate_no_active_gate", job_id=job_id, action=action)
+            return
+
+        if action == "approve":
+            self._active_gates.pop(job_id, None)
+            agent_session = self._agent_sessions.get(job_id)
+            if agent_session is not None:
+                agent_session.resume_tools()
+            log.info("sidecar_gate_resolved_approve", job_id=job_id)
+        if message:
+            await self.send_message(job_id, message)
+
     async def _dequeue_next(self) -> None:
         """Start the next queued job if capacity allows."""
         if self._shutting_down:
@@ -2384,7 +2476,6 @@ class RuntimeService:
         """
         from backend.services.runtime.plan_mode import (
             build_implementation_handoff,
-            build_planning_prompt,
             build_replan_prompt,
             format_plan_text,
         )
@@ -2442,6 +2533,9 @@ class RuntimeService:
 
         # Await operator decision
         resolution = await self._approval_service.wait_for_resolution(approval.id)
+        # Fetch the full approval to read operator notes (if any)
+        resolved_approval = await self._approval_service.get(approval.id)
+        operator_notes = (resolved_approval.notes if resolved_approval else None) or ""
 
         await self._event_bus.publish(
             DomainEvent(
@@ -2459,58 +2553,117 @@ class RuntimeService:
 
         self._waiting_for_approval.discard(job_id)
 
-        if resolution == ApprovalResolution.rejected:
-            # Re-plan: start a new planning session with operator feedback
+        # -- Rejection → re-plan loop (iterative, not recursive) ----------
+        while resolution == ApprovalResolution.rejected:
             log.info("plan_mode.plan_rejected", job_id=job_id)
 
-            # Transition back to running for the re-plan session
-            async with self._session_factory() as sess:
-                svc = self._make_job_service(sess)
-                await svc.transition_state(job_id, JobState.running)
-                await sess.commit()
-            await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
-
-            # Retrieve the rejection reason from the resolved approval
-            resolved_approval = None
             try:
-                approvals = await self._approval_service.list_for_job(job_id)
-                resolved_approval = next(
-                    (a for a in approvals if a.id == approval.id),
-                    None,
+                # Transition back to running for the re-plan session
+                async with self._session_factory() as sess:
+                    svc = self._make_job_service(sess)
+                    await svc.transition_state(job_id, JobState.running)
+                    await sess.commit()
+                await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
+
+                feedback = operator_notes or "The operator rejected the plan without specific feedback."
+                replan_prompt = build_replan_prompt(job, plan_text, feedback)
+
+                replan_config = dataclass_replace(config, prompt=replan_prompt)
+                new_agent_session = AgentSession()
+                self._agent_sessions[job_id] = new_agent_session
+                result = await self._execute_session_attempt(
+                    job_id, new_agent_session, replan_config,
+                    worktree_path, base_ref, session_number=session_number,
                 )
+                if result.error_reason:
+                    await self._finalize_diff_safe(job_id, worktree_path, base_ref)
+                    await self._fail_job(job_id, result.error_reason)
+                    return JobState.failed
+
+                # Re-read plan steps from the re-plan session
+                plan_steps = []
+                if self._trail_service is not None:
+                    plan_steps = self._trail_service.get_plan_steps(job_id)
+
+                if not plan_steps:
+                    log.warning("plan_mode.replan_no_plan_produced", job_id=job_id)
+                    await self._fail_job(job_id, "Re-planning session ended without producing a plan")
+                    return JobState.failed
+
+                plan_text = format_plan_text(plan_steps)
+                config = replan_config
+
+                # Raise a new approval gate for the revised plan
+                approval = await self._approval_service.create_request(
+                    job_id=job_id,
+                    description=f"Agent revised the plan ({len(plan_steps)} steps). Review and approve to proceed.",
+                    proposed_action="execute_plan",
+                    requires_explicit_approval=True,
+                )
+
+                async with self._session_factory() as sess:
+                    svc = self._make_job_service(sess)
+                    await svc.transition_state(job_id, JobState.waiting_for_approval)
+                    await sess.commit()
+                self._waiting_for_approval.add(job_id)
+
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=DomainEvent.make_event_id(),
+                        job_id=job_id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.approval_requested,
+                        payload={
+                            "approval_id": approval.id,
+                            "description": approval.description,
+                            "proposed_action": "execute_plan",
+                            "requires_explicit_approval": True,
+                            "timestamp": datetime.now(UTC).isoformat(),
+                        },
+                    )
+                )
+
+                resolution = await self._approval_service.wait_for_resolution(approval.id)
+                resolved_approval = await self._approval_service.get(approval.id)
+                operator_notes = (resolved_approval.notes if resolved_approval else None) or ""
+
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=DomainEvent.make_event_id(),
+                        job_id=job_id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.approval_resolved,
+                        payload={
+                            "approval_id": approval.id,
+                            "resolution": resolution,
+                            "timestamp": datetime.now(UTC).isoformat(),
+                        },
+                    )
+                )
+
+                self._waiting_for_approval.discard(job_id)
+
+            except asyncio.CancelledError:
+                raise  # Let cancellation propagate to _run_job's handler
             except Exception:
-                pass
-
-            feedback = "The operator rejected the plan. Please revise it."
-            replan_prompt = build_replan_prompt(job, plan_text, feedback)
-
-            replan_config = dataclass_replace(config, prompt=replan_prompt)
-            # Re-run the planning session (recursive, but bounded by operator patience)
-            new_agent_session = AgentSession()
-            self._agent_sessions[job_id] = new_agent_session
-            result = await self._execute_session_attempt(
-                job_id, new_agent_session, replan_config,
-                worktree_path, base_ref, session_number=session_number,
-            )
-            if result.error_reason:
+                log.error("plan_mode.replan_failed", job_id=job_id, exc_info=True)
                 await self._finalize_diff_safe(job_id, worktree_path, base_ref)
-                await self._fail_job(job_id, result.error_reason)
+                await self._fail_job(job_id, "Re-planning failed unexpectedly")
                 return JobState.failed
-
-            # Recurse: check for plan again after re-plan session
-            return await self._handle_plan_session_completed(
-                job_id, job, new_agent_session, replan_config,
-                worktree_path, base_ref, session_number,
-            )
 
         # Approved — start the implementation session
         log.info("plan_mode.plan_approved", job_id=job_id, step_count=len(plan_steps))
 
-        # Transition back to running
-        async with self._session_factory() as sess:
+        # Persist phase transition so crash recovery knows this is the implementation phase.
+        # Both state and mode update in one transaction to avoid a window where
+        # mode=plan + state=running could cause recovery to replay the planning phase.
+        from backend.persistence.database import serialized_write
+
+        async with serialized_write(self._session_factory) as sess:
+            job_repo = JobRepository(sess)
             svc = self._make_job_service(sess)
             await svc.transition_state(job_id, JobState.running)
-            await sess.commit()
+            await job_repo.update_mode(job_id, JobMode.plan_implementing)
         await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
 
         # Build implementation handoff prompt
@@ -2518,21 +2671,16 @@ class RuntimeService:
             job,
             plan_text,
             curated_context=curated_context,
+            operator_notes=operator_notes,
         )
 
         # Fresh session config — planning tokens are gone
         impl_config = dataclass_replace(
             config,
             prompt=impl_prompt,
-            plan_phase_done=True,
             resume_sdk_session_id=None,  # fresh session, no reuse
             memory_context=curated_context or None,
         )
-
-        # Reset plan step statuses to pending for tracking during implementation
-        if self._trail_service is not None:
-            # Reset plan steps so implementation progress is tracked fresh
-            pass  # The trail service will update steps as the agent calls manage_todo_list
 
         new_agent_session = AgentSession()
         self._agent_sessions[job_id] = new_agent_session

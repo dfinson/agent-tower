@@ -94,6 +94,8 @@ class ApprovalRow(Base):
     # Hard-blocked operations (e.g. git reset --hard) set this to True so that
     # blanket trust grants cannot auto-resolve them.
     requires_explicit_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    # Operator notes attached when resolving (e.g. rejection feedback for plan mode)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Action policy metadata (populated by action classifier)
     batch_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     tier: Mapped[str | None] = mapped_column(String(12), nullable=True)

@@ -165,14 +165,18 @@ class AgentSDK(StrEnum):
 class JobMode(StrEnum):
     """Execution mode for a job.
 
-    standard — Normal execution: agent receives task and runs freely.
-    plan     — Plan-first: a planning session produces a structured plan,
-               the operator reviews it, then a fresh implementation session
-               executes the approved plan.
+    standard          — Normal execution: agent receives task and runs freely.
+    plan              — Plan-first: a planning session produces a structured plan,
+                        the operator reviews it, then a fresh implementation session
+                        executes the approved plan.
+    plan_implementing — The planning phase is done and the implementation session
+                        is running.  Persisted so crash recovery knows which phase
+                        the job is in.
     """
 
     standard = "standard"
     plan = "plan"
+    plan_implementing = "plan_implementing"
 
 
 class JobSource(StrEnum):
@@ -694,10 +698,6 @@ class SessionConfig:
     # "job" for main agent sessions, or "preflight", "memory_extraction",
     # "memory_compaction", "narrator", "sidecar" for sidecar sessions.
     session_kind: SessionKind = "job"
-    # Plan mode: set to True after the planning session completes and the
-    # implementation session starts, so the runtime doesn't re-enter the
-    # plan-approval gate on the second session.
-    plan_phase_done: bool = False
 
 
 @dataclass
@@ -807,6 +807,8 @@ class Approval:
     # git reset --hard) and MUST NOT be auto-resolved by a blanket trust grant.
     # The operator must explicitly click Approve for each occurrence.
     requires_explicit_approval: bool = False
+    # Operator notes attached when resolving (e.g. rejection feedback for plan mode)
+    notes: str | None = None
 
 
 @dataclass

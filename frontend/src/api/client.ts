@@ -504,10 +504,13 @@ export function fetchApprovals(jobId: string): Promise<ApprovalRequest[]> {
 export function resolveApproval(
   approvalId: string,
   resolution: "approved" | "rejected",
+  notes?: string,
 ): Promise<ApprovalRequest> {
+  const body: Record<string, string> = { resolution };
+  if (notes) body.notes = notes;
   return request(`/approvals/${encodeURIComponent(approvalId)}/resolve`, {
     method: "POST",
-    body: JSON.stringify({ resolution }),
+    body: JSON.stringify(body),
   });
 }
 
