@@ -100,7 +100,7 @@ export function MetricsChatPanel({ period, onMetricPinned }: MetricsChatPanelPro
     }
   };
 
-  const handlePin = async (msg: MetricsChatMessage) => {
+  const handlePin = async (msg: MetricsChatMessage, question: string) => {
     const firstSql = msg.sqlQueries?.[0];
     if (!msg.vizData || !firstSql) return;
     const vizType = msg.viz ?? "table";
@@ -110,7 +110,7 @@ export function MetricsChatPanel({ period, onMetricPinned }: MetricsChatPanelPro
         sql: firstSql,
         viz: vizType,
         vizConfig: msg.vizConfig,
-        originalQuestion: messages.find((m) => m.role === "user")?.content ?? "",
+        originalQuestion: question,
         explanation: msg.narrative,
       });
       onMetricPinned?.();
@@ -175,11 +175,14 @@ export function MetricsChatPanel({ period, onMetricPinned }: MetricsChatPanelPro
               </div>
             )}
 
-            {messages.map((msg) => (
+            {messages.map((msg, idx) => (
               <ChatBubble
                 key={msg.id}
                 message={msg}
-                onPin={msg.response && !msg.response.error ? () => handlePin(msg.response!) : undefined}
+                onPin={msg.response && !msg.response.error ? () => {
+                  const q = messages.slice(0, idx).reverse().find(m => m.role === "user")?.content ?? "";
+                  return handlePin(msg.response!, q);
+                } : undefined}
               />
             ))}
 

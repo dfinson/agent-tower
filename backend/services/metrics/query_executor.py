@@ -82,9 +82,10 @@ _COMMA_TABLE_RE = re.compile(
 )
 
 # Extract CTE alias names from WITH clauses so they don't trigger
-# the allowed-table check.
+# the allowed-table check.  Handles optional column lists:
+#   WITH cte AS (...)  and  WITH cte(a, b) AS (...)
 _CTE_ALIAS_RE = re.compile(
-    r'(?:\bWITH\b(?:\s+RECURSIVE)?\s+|,\s*)([a-zA-Z_]\w*)\s+AS\s*\(',
+    r'(?:\bWITH\b(?:\s+RECURSIVE)?\s+|,\s*)([a-zA-Z_]\w*)(?:\s*\([^)]*\))?\s+AS\s*\(',
     re.IGNORECASE,
 )
 
@@ -122,9 +123,12 @@ def validate_query(sql: str) -> str:
     # Defense in depth: denied table names as substring check.
     # Catches comma-join bypasses, quoted identifiers, and any other
     # creative table reference technique.
+    # Strip string literals first to avoid false positives on values
+    # like WHERE name = 'approvals needed'.
     lower_sql = cleaned.lower()
+    stripped_sql = re.sub(r"'[^']*'", "''", lower_sql)
     for denied in _DENIED_TABLES:
-        if denied in lower_sql:
+        if denied in stripped_sql:
             raise QueryValidationError(
                 f"Reference to '{denied}' is not allowed"
             )

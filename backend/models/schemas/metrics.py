@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import Field
+
 from backend.models.schemas.base import CamelModel
 
 
@@ -13,8 +15,8 @@ from backend.models.schemas.base import CamelModel
 
 
 class MetricsChatRequest(CamelModel):
-    question: str
-    conversation_id: str | None = None
+    question: str = Field(max_length=10_000)
+    conversation_id: str | None = Field(default=None, max_length=64)
     period_days: int | None = None
 
 
@@ -41,9 +43,9 @@ class MetricsChatResponse(CamelModel):
 
 
 class PinMetricRequest(CamelModel):
-    name: str
-    sql: str
-    viz: str
+    name: str = Field(max_length=200)
+    sql: str = Field(max_length=10_000)
+    viz: str = Field(max_length=50)
     viz_config: dict[str, Any] | None = None
     period_relative: bool = True
     pin_dashboard: bool = True
