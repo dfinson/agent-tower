@@ -87,6 +87,7 @@ if TYPE_CHECKING:
     from backend.services.events.ingest_service import IngestService
     from backend.services.memory.compacter import MemoryCompacter
     from backend.services.memory.extractor import MemoryExtractor
+    from backend.services.sidecar.dispatcher import SidecarDispatcher
     from backend.services.steps.tracker import StepTracker
     from backend.services.terminal.terminal_service import TerminalService
     from backend.services.tools.preflight_curator import PreflightCurator
@@ -243,6 +244,7 @@ class RuntimeService:
         step_tracker: StepTracker | None = None,
         trail_service: TrailService | None = None,
         coderecon_service: CodeReconService | None = None,
+        sidecar_dispatcher: SidecarDispatcher | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._event_bus = event_bus
@@ -257,6 +259,7 @@ class RuntimeService:
         self._sidecar_sessions = sidecar_sessions
         self._step_tracker = step_tracker
         self._coderecon_service = coderecon_service
+        self._sidecar_dispatcher = sidecar_dispatcher
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._agent_sessions: dict[str, AgentSession] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
@@ -417,6 +420,10 @@ class RuntimeService:
             except Exception:
                 log.warning("sidecar_session_setup_failed", job_id=job.id, exc_info=True)
 
+        # Activate custom sidecar templates from the library
+        if self._sidecar_dispatcher is not None:
+            await self._activate_custom_sidecars(job)
+
         if self._shutting_down:
             log.warning("job_rejected_shutting_down", job_id=job.id)
             return
@@ -436,6 +443,43 @@ class RuntimeService:
             if resume_sdk_session_id is not None:
                 self._queued_resume_session_ids[job.id] = resume_sdk_session_id
             log.info("job_enqueued", job_id=job.id, running=self.running_count)
+
+    async def _activate_custom_sidecars(self, job: Job) -> None:
+        """Load custom sidecar templates from the DB and activate them via the dispatcher."""
+        import json
+
+        from backend.persistence.sidecar_template_repo import SidecarTemplateRepository
+        from backend.services.sidecar.dispatcher import hydrate_definition
+
+        try:
+            async with self._session_factory() as session:
+                repo = SidecarTemplateRepository(session)
+                templates = await repo.list_all()
+
+            definitions = []
+            for tpl in templates:
+                try:
+                    raw = json.loads(tpl.definition_json)
+                    defn = hydrate_definition(raw)
+                    # Activate global and repo-scoped templates automatically;
+                    # job-scoped templates require explicit attachment (not yet implemented)
+                    if defn.scope in ("global", "repo"):
+                        defn_with_id = hydrate_definition({**raw, "templateId": tpl.id})
+                        definitions.append(defn_with_id)
+                except Exception:
+                    log.warning("sidecar_template_hydration_failed", template_id=tpl.id, exc_info=True)
+
+            if definitions:
+                assert self._sidecar_dispatcher is not None
+                self._sidecar_dispatcher.activate(job.id, definitions)
+                log.info(
+                    "custom_sidecars_activated",
+                    job_id=job.id,
+                    count=len(definitions),
+                    names=[d.name for d in definitions],
+                )
+        except Exception:
+            log.warning("custom_sidecar_activation_failed", job_id=job.id, exc_info=True)
 
     async def _ensure_resumable_worktree(self, job_repo: JobRepository, job: Job) -> Job:
         """Ensure a job has a usable worktree before resuming or recovering it."""
@@ -494,6 +538,18 @@ class RuntimeService:
                 from backend.services.runtime.plan_mode import build_planning_prompt
 
                 session_config = dataclass_replace(session_config, prompt=build_planning_prompt(job))
+
+            # --- Wire action policy router (mandatory) ---
+            # Must run BEFORE any sessions (preflight, sidecar, main) so that
+            # all tool-permission checks have the approval plumbing present.
+            await self._setup_action_policy(
+                job.id,
+                session_config,
+                job.worktree_path or job.repo,
+                job_preset=job.preset or "supervised",
+                job_prompt=job.prompt or "",
+                repo=job.repo,
+            )
 
             # Workspace memory — curate relevant entries via sidecar session
             session_config = await self._curate_workspace_memory(job, session_config)
@@ -650,17 +706,6 @@ class RuntimeService:
                     kind=DomainEventKind.execution_phase_changed,
                     payload={"phase": ExecutionPhase.agent_reasoning},
                 )
-            )
-
-            # --- Wire action policy router (mandatory) ---
-            job_preset = job.preset if job is not None else "supervised"
-            await self._setup_action_policy(
-                job_id,
-                config,
-                worktree_path,
-                job_preset=job_preset,
-                job_prompt=job.prompt if job is not None else "",
-                repo=job.repo if job is not None else None,
             )
 
             result = await self._execute_session_attempt(
@@ -1136,12 +1181,21 @@ class RuntimeService:
                 log.warning("trust_grant_cleanup_failed", job_id=job_id, exc_info=True)
             router.cleanup_job(job_id)
         self._policy_batchers.pop(job_id, None)
+        # Clean up adapter-side policy state (survives session cleanup for retries)
+        for adapter in self._adapter_registry._adapters.values():
+            if hasattr(adapter, "cleanup_job_policy"):
+                adapter.cleanup_job_policy(job_id)
         self._echo_suppress.pop(job_id, None)
         self._turn_ids.pop(job_id, None)
         self._active_gates.pop(job_id, None)
         self._pending_starts.pop(job_id, None)
         self._queued_override_prompts.pop(job_id, None)
         self._queued_resume_session_ids.pop(job_id, None)
+        if self._sidecar_dispatcher is not None:
+            try:
+                await self._sidecar_dispatcher.deactivate(job_id)
+            except Exception:
+                log.warning("sidecar_dispatcher_deactivate_failed", job_id=job_id, exc_info=True)
         if self._sidecar_sessions is not None:
             try:
                 self._sidecar_sessions.close_job(job_id)
@@ -1459,6 +1513,11 @@ class RuntimeService:
                 log.debug("workspace_memory.post_job_failed", job_id=job_id, exc_info=True)
 
         # Sidecar session cleanup (metrics snapshot + pool return)
+        if self._sidecar_dispatcher is not None:
+            try:
+                await self._sidecar_dispatcher.deactivate(job_id)
+            except Exception:
+                log.warning("sidecar_dispatcher_deactivate_failed", job_id=job_id, exc_info=True)
         if self._sidecar_sessions is not None:
             try:
                 self._sidecar_sessions.close_job(job_id)

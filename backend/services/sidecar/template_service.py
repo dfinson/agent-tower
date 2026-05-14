@@ -24,7 +24,7 @@ _ALLOWED_CONTEXT_SOURCES = ["trigger_event", "job_diff", "job_prompt", "recent_m
 _ALLOWED_OUTPUT_ROUTES = ["event_bus", "job_metadata", "agent_message", "gate"]
 
 # Trigger conditions available to custom sidecars.
-_ALLOWED_CONDITIONS = ["event", "threshold", "manual", "regex", "file_pattern", "content_match"]
+_ALLOWED_CONDITIONS = ["event", "timer", "threshold", "manual", "regex", "file_pattern", "content_match"]
 
 # Allowed phases, lifetimes, and scopes.
 _ALLOWED_PHASES = ["preflight", "midflight", "postflight"]
@@ -111,8 +111,9 @@ Available fields:
 - "triggers": Array of trigger pipeline objects. Required, at least one.
 
 Each trigger object has:
-- "condition": {"kind": "<kind>"} where kind is one of: "event", "threshold", "manual", "regex", "file_pattern", "content_match".
+- "condition": {"kind": "<kind>"} where kind is one of: "event", "timer", "threshold", "manual", "regex", "file_pattern", "content_match".
   - event conditions: {"kind": "event", "eventKind": "<event_type>"}
+  - timer conditions: {"kind": "timer", "intervalS": <seconds>}. Fires periodically at the given interval. Optional "idleGuardS": <seconds> to skip if the agent was recently active.
   - threshold conditions: {"kind": "threshold", "metric": "messages"|"tool_calls", "value": <int>}
   - manual conditions: {"kind": "manual"}
   - regex conditions: {"kind": "regex", "pattern": "<regex>", "source": "messages"|"tool_calls"|"tool_output"}. Named capture groups become template variables.

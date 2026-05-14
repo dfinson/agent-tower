@@ -500,6 +500,7 @@ async def _wire_core_services(
             git_service=git_service,
         ),
         coderecon_service=coderecon_service,
+        sidecar_dispatcher=sidecar_dispatcher,
     )
 
     # Wire the memory sessions
