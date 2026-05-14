@@ -279,7 +279,7 @@ class CodeReconService:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
-            lambda: kit.recon_impact(target=target, justification=justification, worktree=Path(worktree).name),
+            lambda: kit.impact(target=target, worktree=Path(worktree).name),
         )
 
     async def scaffold(self, repo: str, *, path: str = "", worktree: str) -> Any:
