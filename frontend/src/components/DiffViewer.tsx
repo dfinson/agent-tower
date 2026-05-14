@@ -14,7 +14,6 @@ import { MicButton } from "./VoiceButton";
 
 import { useDrag } from "../hooks/useDrag";
 import type { DiffFileModel, DiffHunkModel, FileMotivation, HunkMotivation, StepDiffResponse } from "../api/types";
-import { StoryBanner } from "./StoryBanner";
 import { BottomSheet } from "./ui/bottom-sheet";
 import { DiffViewerFileList, STATUS_ICON, STATUS_BADGE, STATUS_ICON_CLASS } from "./DiffViewerFileList";
 
@@ -619,11 +618,6 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
           <Lightbulb size={14} className="text-amber-400 shrink-0 mt-0.5" />
           <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{stepContext}</p>
         </div>
-      )}
-
-      {/* Story banner — collapsible code-review narrative */}
-      {!isFiltered && diffs.length > 0 && (
-        <StoryBanner jobId={jobId} diffs={diffs} onSelectFile={setSelectedIdx} />
       )}
 
       {stepDiffsLoading && isFiltered && (
