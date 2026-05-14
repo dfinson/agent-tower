@@ -16,7 +16,7 @@ hide:
 
 **Run any agent from anywhere. Own the data. Review with intelligence.**
 
-CodePlane is a local server that wraps the agent CLIs you already use — Claude Code and GitHub Copilot. Launch jobs headless, or mirror native CLI sessions with zero workflow change. Either way you get a normalized provenance database, real-time supervision, cost attribution, structural risk scoring, and a narrative review that explains *why* each change was made.
+CodePlane wraps Claude Code and GitHub Copilot with a fleet dashboard and its own AI that watches while your agents work, catching stalls, tracking progress, and scoring the risk of every code change. When an agent finishes, you get a narrative explaining what changed and why, not just a diff. Run multiple agents from a kanban board, chat mid-run, approve from your phone. Or keep using your agents the way you already do and CodePlane picks them up automatically.
 
 <div class="hero-actions" markdown>
 [Quick Start](quick-start.md){ .md-button .md-button--primary }
