@@ -118,32 +118,39 @@ Some commands **always** require approval regardless of preset: `git merge`, `gi
 
 ## Code Review
 
-The **Diff** tab shows all files modified by the agent with syntax-highlighted, side-by-side diffs. Diffs update in real time as the agent works.
+When a job finishes, the review experience has three layers: the narrative story, structural analysis, and the raw diff.
 
-The **Workspace** view lets you browse the full file tree — not just changed files. This is useful for checking context or verifying overall structure.
+### Review Story
 
-### Structural Review (CodeRecon)
+The **Review** tab opens with a narrative that explains what the agent changed and why — not a summary of the diff, but a story traced back through the decision trail. The narrative includes:
 
-When CodeRecon is enabled, CodePlane provides an intelligent **structural code review** that goes beyond text diffs:
+- **What changed** — a structured walkthrough of the modifications with verified file references
+- **Why it changed** — motivation provenance traced from the agent's reasoning through trail enrichment
+- **Attention items** — structural concerns, unverified callers, and risk areas flagged for human review
+- **Merge confidence verdict** — HIGH / MEDIUM / LOW based on structural risk scoring, dependency cycles, and caller verification
+
+This is designed so you can decide whether to merge *before* reading a single line of code.
+
+### Structural Analysis
+
+CodeRecon provides graph-based structural analysis that goes beyond text diffs:
 
 - **Semantic diff** — changes classified as added, removed, modified, or moved symbols (not just lines)
 - **Risk scoring** — each change gets a composite risk score based on category severity, unverified caller ratio, and test coverage gaps
-- **Merge confidence** — HIGH / MEDIUM / LOW verdict based on overall change risk and dependency cycles
 - **Reference tiers** — callers of modified symbols are classified by confidence:
     - *Proven* — direct static references
     - *Strong / Anchored / Semantic* — inferred via type or semantic analysis
     - *Unknown* — found but not verified
 - **Communities** — related changes grouped by module/feature for holistic review
-- **Review story** — structured narrative with attention-required items, structural concerns, what changed, and a verdict
+- **Dependency cycles** — new cycles introduced by the change are flagged
 
-The structural review dashboard appears in the job detail view when changes are ready. Use the triage bar to filter changes by risk category and focus on what matters.
+Use the triage bar to filter changes by risk category and focus on what matters.
 
-Enable CodeRecon in `~/.codeplane/config.yaml`:
+### Diff & Workspace
 
-```yaml
-coderecon:
-  enabled: true
-```
+The **Diff** tab shows all files modified by the agent with syntax-highlighted, side-by-side diffs. Diffs update in real time as the agent works.
+
+The **Workspace** view lets you browse the full file tree — not just changed files. This is useful for checking context or verifying overall structure.
 
 ---
 
@@ -239,6 +246,28 @@ https://{tunnel-url}/api/preview/{port}/
 ```
 
 For example, a Vite dev server on port 5173 would be accessible at `/api/preview/5173/`. Ports must be in the range 1024–65535.
+
+---
+
+## Decision Trail
+
+Every agent action is recorded as a node in a structured intent graph — the **decision trail**. This is richer than a transcript: each node captures what the agent did, why it did it, what kind of action it was (goal, turn, reasoning, modify, verify, investigate, backtrack), and its policy tier.
+
+An async LLM pipeline enriches trail nodes with:
+
+- **Rationale** — why the agent chose this action
+- **Intent** — the semantic purpose (implementation, investigation, verification, etc.)
+- **Edit motivation** — for file modifications, why this specific change was made
+
+The trail feeds the narrative review, cost attribution by activity, and post-hoc debugging of agent behavior. Browse the trail in the Activity panel — click any node to jump to the corresponding transcript turn.
+
+---
+
+## Workspace Memory
+
+CodePlane maintains **per-repo workspace memory** — knowledge distilled from completed jobs that carries forward to future sessions. After a job finishes, observations about the codebase (patterns, conventions, risk areas, cost characteristics) are persisted and made available to subsequent jobs in the same repository.
+
+This means your 50th job in a repo starts with context your first job didn't have. The agent and sidecars can reference workspace memory to avoid repeating mistakes, respect discovered conventions, and build on prior analysis.
 
 ---
 

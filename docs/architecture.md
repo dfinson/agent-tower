@@ -5,36 +5,71 @@ hide:
 
 # How It Works
 
-CodePlane is an **orchestration and observability layer** for coding agents. It does not contain its own AI — it wraps the agent CLIs you already use and adds supervision, cost intelligence, structural review, and cross-job memory.
+CodePlane is a **local server** that wraps the agent CLIs you already use and builds a normalized intelligence layer on top. It does not contain its own AI — it orchestrates, observes, and enriches agent sessions from Claude Code and GitHub Copilot.
 
 ## What CodePlane Is
 
 - A **BYOCLI platform**. You install and authenticate agent CLIs (Claude Code, GitHub Copilot). CodePlane manages them — or simply observes them.
 - A **headless, local-first server** that runs on your workstation — no editor required. Access it from any browser, or remotely from your phone via tunnels.
-- An **intelligence layer** that enriches raw agent sessions with semantic trails, cost attribution, structural risk scoring, motivation provenance, and workspace memory.
-- **Zero workflow change** if you want it. Mirror native CLI sessions you're already running — no need to launch jobs through CodePlane's UI to get the value.
-
-## What CodePlane Is Not
-
-- Not an AI model or agent. It orchestrates and observes agents built by others.
-- Not a task decomposer — by design. One prompt, one agent, full transparency into every action it takes.
-- Not a cloud service. It runs locally with optional remote access via tunnels.
-- Not a replacement for your existing tools. It uses your Git, your CLI credentials, and your repos as-is.
-
-## Authentication
-
-CodePlane uses **your existing CLI authentication**. There is no separate auth system to configure.
-
-- For GitHub Copilot CLI: your existing GitHub authentication (`gh auth login`)
-- For Claude Code CLI: your existing Anthropic credentials
-
-If the agent CLIs work on your machine, CodePlane can use them. Run `cpl doctor` to verify.
+- An **intelligence layer** that enriches raw agent sessions with semantic trails, cost attribution, structural risk scoring, narrative review, and workspace memory.
+- **Zero workflow change** if you want it. Mirror native CLI sessions you’re already running — no need to launch jobs through CodePlane to get the value.
 
 ## High-Level Architecture
 
+<!-- TODO: replace with updated architecture diagram -->
 ![Architecture diagram: You — Browser — CodePlane — Agent CLI — Repository](images/architecture-overview.png)
 
 **You → Browser → CodePlane → Agent CLI → Repository**
+
+## Data Architecture
+
+Every agent session — managed or mirrored — is normalized into a **local SQLite database** at `~/.codeplane/`. The schema captures:
+
+- **Jobs** — prompt, repo, agent, model, timestamps, state transitions
+- **Events** — every domain event (transcript updates, approval requests, state changes, log lines, telemetry)
+- **Spans** — per-turn token counts and precomputed cost with model-aware pricing
+- **Trails** — structured intent graph nodes with enrichment (rationale, intent, motivation)
+- **Activities** — semantic groupings of related turns (implementation, verification, investigation) with cost rollups
+- **Observations** — cross-job patterns: waste, rework, cost anomalies, behavioral signals that persist across sessions
+- **Steps** — plan tracking with structural health checks per step
+
+No data leaves your machine unless you explicitly configure OTEL export or push a branch to a remote.
+
+The database is a standalone asset. Query it with `sqlite3`, point a notebook at it, or let another agent analyze your agent history — even if you never open the UI.
+
+## Sidecar Intelligence
+
+CodePlane runs **parallel LLM sessions** alongside the agent — not hooks that fire after the fact, but persistent reasoning processes that observe and intervene in real time.
+
+### Built-in Sidecars
+
+| Sidecar | What It Does |
+|---------|-------------|
+| **Enricher** | Annotates trail nodes with rationale, purpose, and edit motivations as the agent works |
+| **Planner** | Infers the agent’s strategy and tracks progress against it |
+| **Arbiter** | Detects stalled or looping agents and autonomously recovers them via message injection |
+| **Activity Detector** | Groups turns into semantic activities and detects boundaries |
+
+### Custom Sidecars
+
+Define custom sidecars in plain English. A sidecar is a system prompt, a trigger condition, and an action — CodePlane manages the LLM session and the observation pipeline.
+
+### Feedback Loop
+
+Sidecars can feed intelligence back to the agent via `AgentMessageRoute`. This is unique — most tools fire one-shot hooks. CodePlane maintains a persistent reasoning session that can intervene mid-run.
+
+## Structural Code Analysis
+
+CodePlane integrates **CodeRecon** for graph-based structural analysis of agent-generated code changes. After each step, CodeRecon:
+
+- Classifies changes as symbol additions, removals, modifications, or moves
+- Traces callers and references of modified symbols and assigns confidence tiers
+- Scores each change by risk (severity × unknown ratio × test gap)
+- Detects dependency cycles introduced by the change
+- Groups related changes into communities and measures coupling drift
+- Produces a **merge confidence verdict** (HIGH / MEDIUM / LOW)
+
+This provides reviewers with a structural signal grounded in code graph analysis — a fundamentally different input from LLM-based code review.
 
 ## Key Concepts
 
@@ -46,56 +81,70 @@ A job is a single coding task. You provide a prompt, repository, agent, and mode
 
 Every job runs in a Git worktree — a separate checkout of the repository on a temporary branch. Your main working directory is never modified. When the job completes, you choose to merge, create a PR, or discard.
 
-### Events
+### Events & SSE
 
 All activity flows through domain events: job state changes, transcript updates, approval requests, log lines, diff updates, and telemetry. The browser receives these as a live SSE stream for real-time updates.
 
 ### Agent Adapters
 
-Each agent CLI/SDK is wrapped behind a common adapter interface. CodePlane manages the SDK internals so you don't have to — you just install and authenticate the CLI. Adding support for a new agent means writing one adapter file.
+Each agent CLI/SDK is wrapped behind a common adapter interface. CodePlane manages the SDK internals so you don’t have to — you just install and authenticate the CLI. Adding support for a new agent means writing one adapter file.
 
-### Permission Callbacks
-
-When an agent tries to perform an action, the agent fires a permission callback. CodePlane's **action policy engine** classifies the action (by kind, containment, reversibility, path rules, and cost thresholds) and assigns a tier: observe (proceed), checkpoint (savepoint + proceed), or gate (block until operator approves). The job pauses only for gated actions.
-
-## Agent Audit Trail
+### Decision Trail
 
 Every agent action is recorded as a **trail node** — a structured entry in an intent graph that captures what the agent did, why, and how:
 
 - **Node kinds**: goal, turn, reasoning, decision, modify, write, verify, investigate, backtrack
 - **Intent enrichment**: an async LLM pipeline annotates nodes with intent, rationale, and outcome
-- **Activity grouping**: related turns are grouped into semantic activities (implementation, verification, investigation, etc.) with LLM-driven boundary detection
+- **Activity grouping**: related turns are grouped into semantic activities with LLM-driven boundary detection
 - **Policy context**: each node records its tier classification, reversibility, and checkpoint reference
 
-The trail provides a complete audit record for post-hoc analysis, cost attribution, and debugging agent behavior.
+The trail feeds the narrative review, cost attribution, and post-hoc debugging of agent behavior.
 
-## Structural Analysis (CodeRecon)
+### Action Policy Engine
 
-When enabled, CodePlane runs a CodeRecon daemon alongside the agent. After changes are made, CodeRecon performs semantic analysis:
+When an agent tries to perform an action, CodePlane’s **action policy engine** classifies it and assigns a tier:
 
-- Classifies changes as symbol additions, removals, modifications, or moves
-- Traces callers/references of modified symbols and assigns confidence tiers
-- Scores each change by risk (severity × unknown ratio × test gap)
-- Detects dependency cycles introduced by the change
-- Groups related changes into communities for holistic review
-- Produces a merge confidence verdict (HIGH / MEDIUM / LOW)
+| Tier | Behavior |
+|------|----------|
+| **Observe** | Proceed — record only |
+| **Checkpoint** | Create a Git savepoint, then proceed |
+| **Gate** | Block until operator approves |
 
-This provides reviewers with structural understanding beyond line-level diffs.
+Classification considers action kind, containment, reversibility, path rules, and cost thresholds. The engine supports cost-aware tier escalation, batch approval (consecutive gate-tier actions become one prompt), session trust grants with TTL, protected path rules, and cost ceiling rules.
 
-## Data Storage
+### Authentication
 
-CodePlane stores job data, events, and metrics in a local SQLite database at `~/.codeplane/`. No data leaves your machine unless you explicitly configure OTEL export or create a PR on a remote.
+CodePlane uses **your existing CLI authentication**. There is no separate auth system.
 
-## Sharing & Public Access
+- For GitHub Copilot CLI: your existing GitHub authentication (`gh auth login`)
+- For Claude Code CLI: your existing Anthropic credentials
 
-Jobs can be shared via **share tokens** — ephemeral, read-only authorization strings. A share token grants access to a single job's metadata and SSE stream without requiring authentication. Tokens are stored in-memory with a 24-hour TTL and are lost on server restart.
+If the agent CLIs work on your machine, CodePlane can use them. Run `cpl doctor` to verify.
+
+## Infrastructure Details
+
+### Sharing & Public Access
+
+Jobs can be shared via **share tokens** — ephemeral, read-only authorization strings. A share token grants access to a single job’s metadata and SSE stream without requiring authentication. Tokens are stored in-memory with a 24-hour TTL and are lost on server restart.
 
 Public share endpoints serve a minimal read-only view. No mutation operations (approvals, messages, cancellation) are exposed.
 
-## Push Notifications
+### Push Notifications
 
 CodePlane uses the **Web Push** protocol (VAPID) to deliver browser notifications for approval requests, job completions, and failures. VAPID keys are generated at first startup and stored in `~/.codeplane/vapid.json`. Subscriptions are managed in-memory — the service worker re-subscribes automatically after a server restart.
 
-## Port Preview Proxy
+### Port Preview Proxy
 
 The backend includes a reverse proxy that forwards requests from `/api/preview/{port}/` to `127.0.0.1:{port}`. Combined with a tunnel, this lets you access development servers running on the workstation from a remote device. Only user ports (1024–65535) are allowed; the proxy never connects to external hosts (SSRF protection).
+
+### MCP Server
+
+CodePlane exposes itself as an **MCP server** — 7 tools for job orchestration, approval handling, workspace browsing, and repo management. External agents can delegate coding tasks to CodePlane and monitor them programmatically. See [MCP Server](mcp-server.md) for details.
+
+## FAQ
+
+??? question "What CodePlane Is Not"
+    - Not an AI model or agent. It orchestrates and observes agents built by others.
+    - Not a task decomposer — by design. One prompt, one agent, full transparency into every action it takes.
+    - Not a cloud service. It runs locally with optional remote access via tunnels.
+    - Not a replacement for your existing tools. It uses your Git, your CLI credentials, and your repos as-is.

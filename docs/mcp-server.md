@@ -5,7 +5,9 @@ hide:
 
 # MCP Server
 
-CodePlane exposes an [MCP](https://modelcontextprotocol.io/) server that lets external agents orchestrate coding jobs, handle approvals, browse workspaces, and manage repositories programmatically. This enables **agent-to-agent orchestration** — your outer planning agent can delegate coding tasks to CodePlane and monitor them without human intervention.
+Most AI coding tools *consume* MCP tools. CodePlane is different — it **exposes itself as** an MCP server. This means external agents can delegate coding tasks to CodePlane and monitor them programmatically, turning CodePlane into a composable building block for agent-to-agent orchestration.
+
+CodePlane exposes an [MCP](https://modelcontextprotocol.io/) server that lets external agents orchestrate coding jobs, handle approvals, browse workspaces, and manage repositories — 7 tools in total.
 
 **Endpoint:** `http://localhost:8080/mcp` (Streamable HTTP transport)
 

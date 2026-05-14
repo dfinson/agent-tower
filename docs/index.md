@@ -12,26 +12,28 @@ hide:
 
 # CodePlane
 
-<span class="eyebrow">Orchestration and observability for coding agents. Bring your own CLI.</span>
+<span class="eyebrow">The control plane for AI coding agents.</span>
 
-**Keep using Claude Code or Copilot in your terminal. CodePlane watches, analyzes, and adds the layers they don't have.**
+**Run any agent. Own the data. Review with intelligence.**
 
-A local server that launches agent jobs headless or mirrors the native CLI sessions you already run. You get supervision, cost intelligence, structural review, decision trails, and workspace memory. The agents do the work; CodePlane makes it reviewable.
+CodePlane is a local server that wraps the agent CLIs you already use — Claude Code and GitHub Copilot. Launch jobs headless, or mirror native CLI sessions with zero workflow change. Either way you get a normalized provenance database, real-time supervision, cost attribution, structural risk scoring, and a narrative review that explains *why* each change was made.
 
 <div class="hero-actions" markdown>
 [Quick Start](quick-start.md){ .md-button .md-button--primary }
 [Usage Guide](guide.md){ .md-button }
-[How It Works](architecture.md){ .md-button }
+[Architecture](architecture.md){ .md-button }
 </div>
 
 <p class="works-with">Works with <strong>Claude Code CLI</strong> and <strong>GitHub Copilot CLI</strong> &nbsp;·&nbsp; Open source, MIT license</p>
 
 </div>
 
+<!-- TODO: capture hero-dashboard screenshot -->
 <div class="screenshot-desktop" markdown>
 ![CodePlane Dashboard](images/screenshots/desktop/hero-dashboard.png)
 </div>
 
+<!-- TODO: capture hero-dashboard-mobile screenshot -->
 <div class="screenshot-mobile" markdown>
 ![CodePlane Dashboard — Mobile](images/screenshots/mobile/hero-dashboard.png)
 </div>
@@ -54,49 +56,7 @@ Run `claude` or `copilot` in your terminal as usual. CodePlane auto-discovers th
 
 </div>
 
-Either way, you get the same intelligence: trail enrichment, cost attribution, structural review, and workspace memory.
-
-## What You Get
-
-<div class="feature-grid" markdown>
-
-<div class="feature-card" markdown>
-### :material-play-circle: Orchestration & Supervision
-Launch headless jobs, gate risky actions for approval, supervise from any device. Push notifications for approvals and completions.
-</div>
-
-<div class="feature-card" markdown>
-### :material-graph: Decision Trail
-What the agent did, why it did it, where it backtracked. Full reasoning history — not just a transcript.
-</div>
-
-<div class="feature-card" markdown>
-### :material-shield-check: Structural Risk Scoring
-Breaking vs. additive changes, coupling risks, merge confidence verdict — before you read a single line of diff.
-</div>
-
-<div class="feature-card" markdown>
-### :material-chart-line: Cost Intelligence
-Every turn classified by activity. Waste patterns surfaced across jobs — rework, rereads, cost escalation.
-</div>
-
-<div class="feature-card" markdown>
-### :material-brain: Workspace Memory
-Per-repo knowledge that carries forward. Each new job starts smarter than the last.
-</div>
-
-<div class="feature-card" markdown>
-### :material-book-open-variant: Narrative Review
-Answers "why was this change made?" with verified file references. No hallucinated summaries.
-</div>
-
-</div>
-
-## Bring Your Own CLI
-
-CodePlane doesn't contain an AI model. It wraps the agent CLIs you already have installed and authenticated — Claude Code and GitHub Copilot. Install, authenticate, and CodePlane handles the rest.
-
-## Supported Agents
+Either way, you get the same intelligence pipeline: trail enrichment, cost attribution, structural review, narrative story, and workspace memory.
 
 | Agent | Managed (headless) | Mirrored (native CLI) |
 |-------|-------------------|-----------------------|
@@ -105,39 +65,104 @@ CodePlane doesn't contain an AI model. It wraps the agent CLIs you already have 
 
 External agents can also orchestrate CodePlane programmatically through its built-in [MCP server](mcp-server.md).
 
-## The Core Loop
+## The Experience
 
-<div class="workflow-grid" markdown>
+<div class="feature-grid" markdown>
 
-<div class="workflow-step" markdown>
-<span class="step-index">1</span>
-### Launch or discover
-Create a job from the UI, or just start a native CLI session in a registered repo. Either way it appears on your dashboard.
+<div class="feature-card" markdown>
+### :material-play-circle: Supervise
+
+Launch headless jobs from a dashboard or discover native CLI sessions automatically. Watch live transcripts, plan progress, and cost as the agent works. Gate risky actions for approval — from your phone, tablet, or desktop. Push notifications when the agent needs you.
+
+<!-- TODO: capture supervise GIF -->
+<div class="screenshot-desktop" markdown>
+![Live supervision](images/screenshots/desktop/hero-supervise.gif)
 </div>
 
-<div class="workflow-step" markdown>
-<span class="step-index">2</span>
-### Supervise
-Watch the transcript, plan progress, and live cost while the agent works. Send messages to steer if needed.
-</div>
-
-<div class="workflow-step" markdown>
-<span class="step-index">3</span>
-### Gate risky actions
-File writes, shell commands, and destructive operations can require your approval before they execute.
-</div>
-
-<div class="workflow-step" markdown>
-<span class="step-index">4</span>
-### Review with intelligence
-Structural risk scoring, narrative review, and motivation provenance — not just a diff.
-</div>
-
-<div class="workflow-step" markdown>
-<span class="step-index">5</span>
-### Land or discard
-Merge, create a PR, or discard — based on what the agent produced and what the review tells you.
+<!-- TODO: capture supervise-mobile GIF -->
+<div class="screenshot-mobile" markdown>
+![Live supervision — Mobile](images/screenshots/mobile/hero-supervise.gif)
 </div>
 
 </div>
 
+<div class="feature-card" markdown>
+### :material-book-open-variant: Review as a Story
+
+When the agent finishes, you don't get a raw diff. You get a narrative that explains what changed and why — with verified file references traced back through the decision trail. Structural risk scoring tells you which changes are breaking, which are additive, and whether callers were verified. A merge confidence verdict before you read a single line of code.
+
+<!-- TODO: capture review-story GIF -->
+<div class="screenshot-desktop" markdown>
+![Narrative review](images/screenshots/desktop/hero-review-story.gif)
+</div>
+
+<!-- TODO: capture review-story-mobile GIF -->
+<div class="screenshot-mobile" markdown>
+![Narrative review — Mobile](images/screenshots/mobile/hero-review-story.gif)
+</div>
+
+</div>
+
+<div class="feature-card" markdown>
+### :material-chart-line: Analyze
+
+Every token, tool call, and dollar — attributed by activity, model, file, and phase. Waste patterns surface across jobs: rework, rereads, retry storms, cost escalation. The analysis compounds — your 50th job is more valuable than your first because the system has learned what your codebase costs.
+
+<!-- TODO: capture analytics GIF -->
+<div class="screenshot-desktop" markdown>
+![Analytics dashboard](images/screenshots/desktop/hero-analytics.gif)
+</div>
+
+<!-- TODO: capture analytics-mobile GIF -->
+<div class="screenshot-mobile" markdown>
+![Analytics dashboard — Mobile](images/screenshots/mobile/hero-analytics.gif)
+</div>
+
+</div>
+
+</div>
+
+## What's Underneath
+
+Behind the dashboard, CodePlane builds a normalized intelligence layer that no agent CLI provides on its own.
+
+<div class="feature-grid" markdown>
+
+<div class="feature-card" markdown>
+### :material-database: Provenance Data Layer
+Every agent session — managed or mirrored — is normalized into a local SQLite database with precomputed cost per span, per file, per phase. Token counts, retry tracking, approval audit trails, intent graphs, and cross-job observations, all in relational tables. Query it with `sqlite3`, point a notebook at it, or let another agent analyze your agent history. The database is a standalone asset even if you never open the UI.
+</div>
+
+<div class="feature-card" markdown>
+### :material-brain: Sidecar Intelligence
+CodePlane runs parallel LLM sessions alongside the agent — not hooks that fire after the fact, but persistent reasoning that observes and intervenes in real time. A stall detector that autonomously recovers stuck agents. A planner that infers the agent's strategy. An enricher that annotates what's happening as it happens. Custom sidecars you define in plain English.
+</div>
+
+<div class="feature-card" markdown>
+### :material-shield-check: Structural Code Analysis
+Graph-based risk scoring, not LLM vibes. CodeRecon traces callers of every modified symbol, detects dependency cycles introduced by the change, measures coupling drift across module communities, and produces a merge confidence verdict grounded in code structure. A fundamentally different signal from LLM-based code review.
+</div>
+
+<div class="feature-card" markdown>
+### :material-graph: Decision Trail
+Not a transcript — a structured intent graph. Each action is recorded as a trail node capturing what the agent did, why, and where it changed course. Nodes are enriched with rationale, purpose, and edit motivations by parallel LLM analysis. The trail feeds the narrative review and powers post-hoc debugging of agent behavior.
+</div>
+
+<div class="feature-card" markdown>
+### :material-lock-check: Action Policy Engine
+The agent SDKs give binary allow/deny. CodePlane adds cost-aware tier escalation, batch approval (consecutive gate-tier actions become one prompt), session trust grants with TTL, protected path rules, and cost ceiling rules. The SDK is the valve; CodePlane is the control system.
+</div>
+
+<div class="feature-card" markdown>
+### :material-swap-horizontal: MCP Server
+Agents use MCP tools. CodePlane *exposes itself as* an MCP server — 7 tools for job orchestration, approval handling, workspace browsing, and repo management. External agents can delegate coding tasks to CodePlane and monitor them programmatically. Agent-to-agent orchestration through a control plane.
+</div>
+
+</div>
+
+## Who This Is For
+
+- **Solo devs using Claude Code or Copilot CLI** who want cost visibility and review tools without changing their workflow
+- **Teams running many agent sessions** who need cost forensics and behavioral pattern analysis across jobs, not just a billing page
+- **Reviewers of agent output** who need structural risk triage and a narrative explanation, not just a raw diff
+- **Regulated environments** where AI-generated code changes require decision provenance and an audit trail

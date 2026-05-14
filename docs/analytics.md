@@ -5,8 +5,9 @@ hide:
 
 # Analytics & Cost Tracking
 
-CodePlane tracks every token, tool call, and dollar across all jobs — giving you fleet-wide visibility into what your coding agents cost and how they perform. Open the analytics dashboard with **Alt+A**.
+CodePlane tracks every token, tool call, and dollar across all jobs — giving you fleet-wide visibility into what your coding agents cost and how they perform. All analytics are computed from the normalized [provenance data layer](architecture.md#data-architecture) — the same SQLite database you can query directly. Open the analytics dashboard with **Alt+A**.
 
+<!-- TODO: capture updated screenshot -->
 <div class="screenshot-desktop" markdown>
 ![Analytics Dashboard](images/screenshots/desktop/analytics-dashboard.png)
 </div>
@@ -21,6 +22,7 @@ CodePlane tracks every token, tool call, and dollar across all jobs — giving y
 
 The scorecard is the top-level summary. It shows per-SDK budget totals, job activity breakdown, and daily cost trends over a configurable period (7–365 days).
 
+<!-- TODO: capture updated screenshot -->
 <div class="screenshot-desktop" markdown>
 ![Scorecard](images/screenshots/desktop/analytics-scorecard.png)
 </div>
@@ -43,6 +45,7 @@ The scorecard is the top-level summary. It shows per-SDK budget totals, job acti
 
 Compare models head-to-head on cost, speed, and outcomes.
 
+<!-- TODO: capture updated screenshot -->
 <div class="screenshot-desktop" markdown>
 ![Model Comparison](images/screenshots/desktop/analytics-model-comparison.png)
 </div>
@@ -67,6 +70,7 @@ Filter by repository to compare model performance on specific codebases.
 
 See which repos drive the most spend and activity.
 
+<!-- TODO: capture updated screenshot -->
 <div class="screenshot-desktop" markdown>
 ![Repository Breakdown](images/screenshots/desktop/analytics-repo-breakdown.png)
 </div>
@@ -85,6 +89,7 @@ See which repos drive the most spend and activity.
 
 Monitor the reliability and latency of every tool your agents use.
 
+<!-- TODO: capture updated screenshot -->
 <div class="screenshot-desktop" markdown>
 ![Tool Health](images/screenshots/desktop/analytics-tool-health.png)
 </div>
@@ -104,6 +109,7 @@ Monitor the reliability and latency of every tool your agents use.
 
 Identify which jobs, models, and repos contribute the most to your spend.
 
+<!-- TODO: capture updated screenshot -->
 <div class="screenshot-desktop" markdown>
 ![Cost Drivers](images/screenshots/desktop/analytics-cost-drivers.png)
 </div>
@@ -136,6 +142,10 @@ Parallel to the cost breakdown, the latency view shows wall-clock time attributi
 ### Tool Mix
 
 A percentage breakdown showing which tools the agent uses most (by call count and cost contribution), grouped by activity category.
+
+### Per-File Cost Attribution
+
+Cost is also attributed at the file level — see which files drove the most agent spend. This helps identify files that are expensive to modify (complex logic, many callers, poor test coverage) and files the agent rereads excessively.
 
 ---
 
@@ -186,13 +196,12 @@ Tables in the analytics dashboard (Jobs, Model Comparison) include a **CSV** but
 
 ---
 
-## Hub Architecture (Future)
+??? info "Hub Architecture (Future)"
+    CodePlane is a **personal-first** tool. Each instance runs locally with its own SQLite database. For teams that want aggregate visibility, a future **CodePlane Hub** will accept telemetry pushes from personal instances:
 
-CodePlane is designed as a **personal-first** tool. Each instance runs locally with its own SQLite database. For teams that want aggregate visibility, a future **CodePlane Hub** will accept telemetry pushes from personal instances:
+    - Each instance has an auto-generated `instance_id` (in `telemetry` config)
+    - The `JobTelemetryReport` schema defines the per-job payload
+    - Instances push completed-job summaries to the Hub endpoint
+    - The Hub aggregates fleet-wide analytics without accessing source code
 
-- Each instance has an auto-generated `instance_id` (in `telemetry` config)
-- The `JobTelemetryReport` schema defines the per-job payload
-- Instances push completed-job summaries to the Hub endpoint
-- The Hub aggregates fleet-wide analytics without accessing source code
-
-This is not yet implemented — the schema and instance ID are in place as foundations.
+    This is not yet implemented — the schema and instance ID are in place as foundations.
