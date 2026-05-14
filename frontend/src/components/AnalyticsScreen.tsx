@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   BarChart3, DollarSign, Clock, Wrench, GitBranch, Zap, Loader2, Download,
 } from "lucide-react";
@@ -53,6 +53,8 @@ import { HierarchicalBreakdown } from "./analytics/HierarchicalBreakdown";
 import { ActionPurposeMatrix } from "./analytics/ActionPurposeMatrix";
 import { ExecutiveSummary } from "./analytics/ExecutiveSummary";
 import { type CostDriversData } from "./MetricsPanelTypes";
+import { MetricsChatPanel } from "./metrics/MetricsChatPanel";
+import { PinnedMetricsGrid } from "./metrics/PinnedMetricsGrid";
 
 function ExportDropdown({ period }: { period: number }) {
   const [open, setOpen] = useState(false);
@@ -103,6 +105,8 @@ function ExportDropdown({ period }: { period: number }) {
 export function AnalyticsScreen() {
   const [period, setPeriod] = useState(7);
   const [selectedRepo, setSelectedRepo] = useState("");
+  const [pinnedRefreshKey, setPinnedRefreshKey] = useState(0);
+  const handleMetricPinned = useCallback(() => setPinnedRefreshKey((k) => k + 1), []);
   const [scorecard, setScorecard] = useState<ScorecardResponse | null>(null);
   const [modelComparison, setModelComparison] = useState<ModelComparisonResponse | null>(null);
   const [tools, setTools] = useState<AnalyticsTools | null>(null);
@@ -278,6 +282,12 @@ export function AnalyticsScreen() {
       {!obsLoading && observations.length > 0 && (
         <ObservationsPanel observations={observations} onDismiss={handleDismissObservation} />
       )}
+
+      {/* Pinned custom metrics */}
+      <PinnedMetricsGrid refreshKey={pinnedRefreshKey} />
+
+      {/* Metrics chat composer */}
+      <MetricsChatPanel period={period} onMetricPinned={handleMetricPinned} />
 
       {/* Executive Summary — 3-bucket overview */}
       <ExecutiveSummary data={executiveSummary} />

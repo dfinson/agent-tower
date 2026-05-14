@@ -36,6 +36,7 @@ from backend.api import (
     job_telemetry,
     jobs,
     memory,
+    metrics,
     notifications,
     policy_settings,
     preview,
@@ -221,6 +222,7 @@ def _register_routes(app: FastAPI) -> None:
     app.include_router(policy_settings.router, prefix="/api")
     # Workspace memory
     app.include_router(memory.router, prefix="/api")
+    app.include_router(metrics.router, prefix="/api")
     app.include_router(sidecar_templates.router, prefix="/api")
 
 
