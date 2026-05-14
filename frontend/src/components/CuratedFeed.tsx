@@ -26,8 +26,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useStore, selectJobTranscript, selectApprovals, selectBatchApprovals } from "../store";
-import type { TranscriptEntry, ApprovalRequest, BatchApproval } from "../store";
+import { useStore, selectJobTranscript, selectApprovals, selectBatchApprovals, selectJobPlan } from "../store";
+import type { TranscriptEntry, ApprovalRequest, BatchApproval, PlanStep } from "../store";
 import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval, resolveBatch, trustJob, ApiError } from "../api/client";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { SdkIcon } from "./SdkBadge";
@@ -285,6 +285,8 @@ function ReasoningHint({ content, streamingText }: { content: string; streamingT
 
 function InlineApprovalCard({ approval }: { approval: ApprovalRequest }) {
   const [resolving, setResolving] = useState<"approved" | "rejected" | null>(null);
+  const isPlanApproval = approval.proposedAction === "execute_plan";
+  const planSteps = useStore(selectJobPlan(approval.jobId));
 
   const handleResolve = async (resolution: "approved" | "rejected") => {
     setResolving(resolution);
@@ -306,14 +308,22 @@ function InlineApprovalCard({ approval }: { approval: ApprovalRequest }) {
       isResolved ? "border-border/40 bg-card/30" : "border-amber-600/30 bg-amber-950/10",
     )}>
       <div className="flex items-start gap-2.5">
-        <ShieldQuestion size={15} className={cn("shrink-0 mt-0.5", isResolved ? "text-muted-foreground/40" : "text-amber-400")} />
+        <ShieldQuestion size={15} className={cn("shrink-0 mt-0.5", isResolved ? "text-muted-foreground/40" : isPlanApproval ? "text-blue-400" : "text-amber-400")} />
         <div className="flex-1 min-w-0 space-y-2">
           <p className="text-sm text-foreground/80">{approval.description}</p>
-          {approval.proposedAction && (
+          {isPlanApproval && planSteps.length > 0 ? (
+            <ol className="text-[12px] text-muted-foreground/80 bg-black/20 rounded px-3 py-2 space-y-1 list-decimal list-inside max-h-48 overflow-auto">
+              {planSteps.map((step: PlanStep, i: number) => (
+                <li key={step.planStepId ?? i} className="leading-relaxed">
+                  {step.label}
+                </li>
+              ))}
+            </ol>
+          ) : approval.proposedAction && !isPlanApproval ? (
             <pre className="text-[11px] text-muted-foreground/60 bg-black/20 rounded px-2 py-1 whitespace-pre-wrap max-h-24 overflow-auto">
               {approval.proposedAction}
             </pre>
-          )}
+          ) : null}
           {isResolved ? (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground/50">
               {approval.resolution === "approved"
@@ -330,7 +340,7 @@ function InlineApprovalCard({ approval }: { approval: ApprovalRequest }) {
                 disabled={!!resolving}
                 className="text-xs h-7 sm:h-7 min-h-[44px] sm:min-h-0 border-emerald-700/40 text-emerald-400 hover:bg-emerald-950/30"
               >
-                {resolving === "approved" ? <Spinner className="w-3 h-3" /> : "Approve"}
+                {resolving === "approved" ? <Spinner className="w-3 h-3" /> : isPlanApproval ? "Approve Plan" : "Approve"}
               </Button>
               <Button
                 size="sm"
@@ -339,7 +349,7 @@ function InlineApprovalCard({ approval }: { approval: ApprovalRequest }) {
                 disabled={!!resolving}
                 className="text-xs h-7 sm:h-7 min-h-[44px] sm:min-h-0 border-red-700/40 text-red-400 hover:bg-red-950/30"
               >
-                {resolving === "rejected" ? <Spinner className="w-3 h-3" /> : "Reject"}
+                {resolving === "rejected" ? <Spinner className="w-3 h-3" /> : isPlanApproval ? "Revise Plan" : "Reject"}
               </Button>
             </div>
           )}

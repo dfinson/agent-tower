@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
     from backend.models.domain import Job
 
-from backend.models.domain import JobSpec, JobState, Preset
+from backend.models.domain import JobMode, JobSpec, JobState, Preset
 
 log = structlog.get_logger()
 
@@ -174,6 +174,7 @@ async def create_job(
             self_review_prompt=body.self_review_prompt,
             enable_stall_detection=body.enable_stall_detection,
             enable_plan_tracking=body.enable_plan_tracking,
+            mode=body.mode or JobMode.standard,
         )
     )
 

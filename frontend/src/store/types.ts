@@ -51,6 +51,7 @@ export interface JobSummary {
   totalTokens?: number | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  mode?: string;
 }
 
 export interface ApprovalRequest {

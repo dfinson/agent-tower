@@ -389,6 +389,7 @@ class JobService:
             enable_stall_detection=spec.enable_stall_detection,
             enable_plan_tracking=spec.enable_plan_tracking,
             parent_job_id=spec.parent_job_id,
+            mode=spec.mode,
         )
         await self._job_repo.create(job)
         log.info("job_created", job_id=job_id, title=title, repo=resolved_repo, state=initial_state)

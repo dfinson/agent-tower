@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, or_, select
 
 from backend.models.db import DiffSnapshotRow, JobRow
-from backend.models.domain import GitMergeOutcome, Job, JobNotFoundError, JobState, Preset, Resolution
+from backend.models.domain import GitMergeOutcome, Job, JobMode, JobNotFoundError, JobState, Preset, Resolution
 from backend.persistence.repository import BaseRepository
 
 if TYPE_CHECKING:
@@ -88,6 +88,7 @@ class JobRepository(BaseRepository):
             source=row.source or "managed",
             external_session_id=row.external_session_id,
             tail_offset=row.tail_offset or 0,
+            mode=JobMode(row.mode) if row.mode else JobMode.standard,
         )
 
     async def create(self, job: Job) -> Job:
@@ -128,6 +129,7 @@ class JobRepository(BaseRepository):
             source=job.source,
             external_session_id=job.external_session_id,
             tail_offset=job.tail_offset,
+            mode=job.mode,
         )
         self._session.add(row)
         await self._session.flush()

@@ -32,6 +32,7 @@ from backend.models.domain import (
     CodePlaneError,
     GitMergeOutcome,
     Job,
+    JobMode,
     JobNotFoundError,
     JobSource,
     JobState,
@@ -475,6 +476,12 @@ class RuntimeService:
             if resume_sdk_session_id is not None:
                 session_config = dataclass_replace(session_config, resume_sdk_session_id=resume_sdk_session_id)
 
+            # Plan mode: wrap the prompt for the planning session
+            if job.mode == JobMode.plan and override_prompt is None and resume_sdk_session_id is None:
+                from backend.services.runtime.plan_mode import build_planning_prompt
+
+                session_config = dataclass_replace(session_config, prompt=build_planning_prompt(job))
+
             # Workspace memory — curate relevant entries via sidecar session
             session_config = await self._curate_workspace_memory(job, session_config)
 
@@ -677,6 +684,15 @@ class RuntimeService:
                 await self._finalize_diff_safe(job_id, worktree_path, base_ref)
                 await self._fail_job(job_id, error_reason)
                 return
+
+            # --- Plan mode: planning session completed → approval gate ---
+            if job is not None and job.mode == JobMode.plan and not config.plan_phase_done:
+                plan_result = await self._handle_plan_session_completed(
+                    job_id, job, agent_session, config, worktree_path, base_ref, session_number,
+                )
+                if plan_result is not None:
+                    final_state = plan_result
+                    return  # plan mode handled the rest (implementation or re-plan)
 
             final_state = await self._handle_successful_completion(
                 job_id,
@@ -2346,6 +2362,200 @@ class RuntimeService:
             await asyncio.gather(*snapshot_tasks, return_exceptions=True)
 
     # -- Preflight context curation ------------------------------------------
+
+    # -- Plan mode ------------------------------------------------------------
+
+    async def _handle_plan_session_completed(
+        self,
+        job_id: str,
+        job: Job,
+        agent_session: AgentSession,
+        config: SessionConfig,
+        worktree_path: str | None,
+        base_ref: str | None,
+        session_number: int,
+    ) -> JobState | None:
+        """Handle completion of a plan-mode planning session.
+
+        Captures plan steps produced by manage_todo_list, raises a synthetic
+        approval gate, and either starts the implementation session (approved)
+        or re-plans (rejected).  Returns the final job state, or None if the
+        job should fall through to normal completion handling (no plan produced).
+        """
+        from backend.services.runtime.plan_mode import (
+            build_implementation_handoff,
+            build_planning_prompt,
+            build_replan_prompt,
+            format_plan_text,
+        )
+
+        # Retrieve plan steps captured by TrailService during the planning session
+        plan_steps: list[dict[str, str]] = []
+        if self._trail_service is not None:
+            plan_steps = self._trail_service.get_plan_steps(job_id)
+
+        if not plan_steps:
+            log.warning("plan_mode.no_plan_produced", job_id=job_id)
+            await self._fail_job(job_id, "Planning session ended without producing a plan")
+            return JobState.failed
+
+        plan_text = format_plan_text(plan_steps)
+        log.info("plan_mode.plan_captured", job_id=job_id, step_count=len(plan_steps))
+
+        # Capture the curated context from the planning session so it can be
+        # injected into the implementation session without re-running preflight.
+        curated_context = config.memory_context or ""
+
+        # Raise synthetic approval gate for operator review
+        if self._approval_service is None:
+            raise ServiceInitError("approval_service required for plan mode")
+
+        approval = await self._approval_service.create_request(
+            job_id=job_id,
+            description=f"Agent proposed a {len(plan_steps)}-step plan. Review and approve to proceed with implementation.",
+            proposed_action="execute_plan",
+            requires_explicit_approval=True,
+        )
+
+        # Transition to waiting_for_approval and publish event
+        async with self._session_factory() as sess:
+            svc = self._make_job_service(sess)
+            await svc.transition_state(job_id, JobState.waiting_for_approval)
+            await sess.commit()
+        self._waiting_for_approval.add(job_id)
+
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.approval_requested,
+                payload={
+                    "approval_id": approval.id,
+                    "description": approval.description,
+                    "proposed_action": "execute_plan",
+                    "requires_explicit_approval": True,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+        )
+
+        # Await operator decision
+        resolution = await self._approval_service.wait_for_resolution(approval.id)
+
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.approval_resolved,
+                payload={
+                    "approval_id": approval.id,
+                    "resolution": resolution,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+        )
+
+        self._waiting_for_approval.discard(job_id)
+
+        if resolution == ApprovalResolution.rejected:
+            # Re-plan: start a new planning session with operator feedback
+            log.info("plan_mode.plan_rejected", job_id=job_id)
+
+            # Transition back to running for the re-plan session
+            async with self._session_factory() as sess:
+                svc = self._make_job_service(sess)
+                await svc.transition_state(job_id, JobState.running)
+                await sess.commit()
+            await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
+
+            # Retrieve the rejection reason from the resolved approval
+            resolved_approval = None
+            try:
+                approvals = await self._approval_service.list_for_job(job_id)
+                resolved_approval = next(
+                    (a for a in approvals if a.id == approval.id),
+                    None,
+                )
+            except Exception:
+                pass
+
+            feedback = "The operator rejected the plan. Please revise it."
+            replan_prompt = build_replan_prompt(job, plan_text, feedback)
+
+            replan_config = dataclass_replace(config, prompt=replan_prompt)
+            # Re-run the planning session (recursive, but bounded by operator patience)
+            new_agent_session = AgentSession()
+            self._agent_sessions[job_id] = new_agent_session
+            result = await self._execute_session_attempt(
+                job_id, new_agent_session, replan_config,
+                worktree_path, base_ref, session_number=session_number,
+            )
+            if result.error_reason:
+                await self._finalize_diff_safe(job_id, worktree_path, base_ref)
+                await self._fail_job(job_id, result.error_reason)
+                return JobState.failed
+
+            # Recurse: check for plan again after re-plan session
+            return await self._handle_plan_session_completed(
+                job_id, job, new_agent_session, replan_config,
+                worktree_path, base_ref, session_number,
+            )
+
+        # Approved — start the implementation session
+        log.info("plan_mode.plan_approved", job_id=job_id, step_count=len(plan_steps))
+
+        # Transition back to running
+        async with self._session_factory() as sess:
+            svc = self._make_job_service(sess)
+            await svc.transition_state(job_id, JobState.running)
+            await sess.commit()
+        await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
+
+        # Build implementation handoff prompt
+        impl_prompt = build_implementation_handoff(
+            job,
+            plan_text,
+            curated_context=curated_context,
+        )
+
+        # Fresh session config — planning tokens are gone
+        impl_config = dataclass_replace(
+            config,
+            prompt=impl_prompt,
+            plan_phase_done=True,
+            resume_sdk_session_id=None,  # fresh session, no reuse
+            memory_context=curated_context or None,
+        )
+
+        # Reset plan step statuses to pending for tracking during implementation
+        if self._trail_service is not None:
+            # Reset plan steps so implementation progress is tracked fresh
+            pass  # The trail service will update steps as the agent calls manage_todo_list
+
+        new_agent_session = AgentSession()
+        self._agent_sessions[job_id] = new_agent_session
+        result = await self._execute_session_attempt(
+            job_id, new_agent_session, impl_config,
+            worktree_path, base_ref, session_number=session_number + 1,
+        )
+
+        if result.error_reason:
+            await self._finalize_diff_safe(job_id, worktree_path, base_ref)
+            await self._fail_job(job_id, result.error_reason)
+            return JobState.failed
+
+        # Implementation session completed — normal completion flow
+        final_state = await self._handle_successful_completion(
+            job_id, impl_config, result.session_id,
+            worktree_path, base_ref,
+            post_conflict_merge_requested=False,
+            session_number=session_number + 1,
+        )
+        return final_state
+
+    # -- Preflight context curation (continued) -------------------------------
 
     async def _curate_workspace_memory(
         self,

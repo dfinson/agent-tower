@@ -15,6 +15,7 @@ from pydantic import ConfigDict, Field, field_validator, model_validator
 from backend.models.domain import (  # noqa: TC001 — Pydantic resolves annotations at runtime
     ApprovalResolution,
     GitMergeOutcome,
+    JobMode,
     JobState,
     Preset,
     Resolution,
@@ -51,6 +52,7 @@ class CreateJobRequest(CamelModel):
     enable_stall_detection: bool | None = None
     enable_plan_tracking: bool | None = None
     session_token: str | None = Field(None, max_length=64)
+    mode: JobMode | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -210,6 +212,7 @@ class JobResponse(CamelModel):
     parent_job_id: str | None = None
     source: str = "managed"
     external_session_id: str | None = None
+    mode: JobMode = JobMode.standard
     total_cost_usd: float | None = None
     total_tokens: int | None = None
     input_tokens: int | None = None
@@ -250,6 +253,7 @@ class JobResponse(CamelModel):
             parent_job_id=job.parent_job_id,
             source=job.source,
             external_session_id=job.external_session_id,
+            mode=JobMode(job.mode) if isinstance(job.mode, str) else JobMode.standard,
             **overrides,
         )
 

@@ -162,6 +162,19 @@ class AgentSDK(StrEnum):
     claude = "claude"
 
 
+class JobMode(StrEnum):
+    """Execution mode for a job.
+
+    standard — Normal execution: agent receives task and runs freely.
+    plan     — Plan-first: a planning session produces a structured plan,
+               the operator reviews it, then a fresh implementation session
+               executes the approved plan.
+    """
+
+    standard = "standard"
+    plan = "plan"
+
+
 class JobSource(StrEnum):
     """How the job was created."""
 
@@ -681,6 +694,10 @@ class SessionConfig:
     # "job" for main agent sessions, or "preflight", "memory_extraction",
     # "memory_compaction", "narrator", "sidecar" for sidecar sessions.
     session_kind: SessionKind = "job"
+    # Plan mode: set to True after the planning session completes and the
+    # implementation session starts, so the runtime doesn't re-enter the
+    # plan-approval gate on the second session.
+    plan_phase_done: bool = False
 
 
 @dataclass
@@ -706,6 +723,7 @@ class JobSpec:
     enable_plan_tracking: bool | None = None
     parent_job_id: str | None = None
     parent_job_context: str | None = None
+    mode: JobMode = JobMode.standard
 
 
 @dataclass
@@ -771,6 +789,7 @@ class Job:
     source: str = "managed"
     external_session_id: str | None = None
     tail_offset: int = 0
+    mode: JobMode = JobMode.standard
 
 
 @dataclass
