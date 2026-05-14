@@ -41,9 +41,11 @@ class LightweightCompleter:
         adapter: AgentAdapterInterface,
         *,
         model: str = "claude-haiku-4-20250414",
+        max_tokens: int = 256,
     ) -> None:
         self._adapter = adapter
         self._model = model
+        self._max_tokens = max_tokens
         self._client: httpx.AsyncClient | None = None
         self._client_created_at: float = 0.0
         self._provider: str | None = None  # "anthropic" | "openai" | None
@@ -161,7 +163,7 @@ class LightweightCompleter:
             },
             json={
                 "model": self._model,
-                "max_tokens": 256,
+                "max_tokens": self._max_tokens,
                 "messages": [{"role": "user", "content": prompt}],
             },
         )
@@ -194,7 +196,7 @@ class LightweightCompleter:
             },
             json={
                 "model": self._model,
-                "max_tokens": 256,
+                "max_tokens": self._max_tokens,
                 "messages": [{"role": "user", "content": prompt}],
             },
         )

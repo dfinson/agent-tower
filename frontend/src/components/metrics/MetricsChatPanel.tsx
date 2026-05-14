@@ -6,7 +6,7 @@
  * Users can pin results as permanent dashboard tiles.
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   MessageSquare, Send, Pin, Loader2, ChevronDown, ChevronUp,
   AlertCircle, Sparkles,
@@ -45,16 +45,13 @@ export function MetricsChatPanel({ period, onMetricPinned }: MetricsChatPanelPro
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(true);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
-
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
+    const el = chatContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
 
   const handleSend = async () => {
     const question = input.trim();
@@ -154,7 +151,7 @@ export function MetricsChatPanel({ period, onMetricPinned }: MetricsChatPanelPro
       {expanded && (
         <div className="border-t border-border">
           {/* Messages */}
-          <div className="max-h-[500px] overflow-y-auto px-4 py-3 space-y-4">
+          <div ref={chatContainerRef} className="max-h-[500px] overflow-y-auto px-4 py-3 space-y-4">
             {messages.length === 0 && (
               <div className="text-center py-8">
                 <MessageSquare size={24} className="mx-auto text-muted-foreground/50 mb-2" />
@@ -192,8 +189,6 @@ export function MetricsChatPanel({ period, onMetricPinned }: MetricsChatPanelPro
                 <span className="text-sm">Analyzing your data...</span>
               </div>
             )}
-
-            <div ref={messagesEndRef} />
           </div>
 
           {/* Input */}

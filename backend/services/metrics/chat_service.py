@@ -1,7 +1,9 @@
 """Chat-driven metrics composer — LLM orchestration.
 
-Two-step flow:
+Agentic two-step flow:
 1. User question → LLM generates SQL queries + viz recommendation
+   → execute → if errors, feed them back and let the LLM self-correct
+   → loop until success, LLM gives up, or overall timeout
 2. Execute queries → LLM verifies results + writes narrative
 
 The system prompt contains the full telemetry schema so the LLM can
@@ -10,13 +12,16 @@ write correct SQLite queries without guessing.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import time
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
+from backend.services.completers.lightweight_completer import LightweightCompleter
 from backend.services.metrics.query_executor import (
     QueryValidationError,
     execute_query,
@@ -24,6 +29,32 @@ from backend.services.metrics.query_executor import (
 from backend.services.sidecar.session import SidecarSessionManager
 
 log = structlog.get_logger()
+
+# Preferred models for the metrics chat — stronger than the utility default.
+# Checked in order; the first whose API key is present wins.
+_PREFERRED_MODELS: list[tuple[str, str]] = [
+    ("OPENAI_API_KEY", "gpt-4.1"),
+    ("ANTHROPIC_API_KEY", "claude-haiku-4-5-20250414"),
+]
+
+# Max output tokens — must be enough for the step-2 viz_data JSON.
+# Bounded by the 50-row query cap and the viz template data shapes.
+_METRICS_MAX_TOKENS = 4096
+
+# Overall wall-clock budget for one ask() call (seconds).
+_ASK_DEADLINE_S = 30.0
+
+# Minimum remaining time (seconds) to attempt another LLM round-trip.
+_MIN_REMAINING_S = 3.0
+
+
+def _select_model() -> str:
+    """Pick the strongest available model for the metrics chat flow."""
+    for env_key, model in _PREFERRED_MODELS:
+        if os.environ.get(env_key):
+            return model
+    # No direct API key — completer will fall back to adapter.complete()
+    return "gpt-4.1"
 
 # ---------------------------------------------------------------------------
 # System prompt — full schema for the LLM
@@ -101,6 +132,7 @@ When recommending a visualization, choose one of:
 4. For date filtering: WHERE created_at >= datetime('now', '-N days')
 5. Keep queries efficient — use appropriate GROUP BY and LIMIT
 6. Return JSON in the EXACT format specified in each prompt
+7. Use ASCII operators only (>=, <=, !=). Never use Unicode symbols.
 """
 
 _STEP1_TEMPLATE = """\
@@ -143,17 +175,52 @@ If the results don't adequately answer the question, return:
 {{"error": "explanation", "suggestion": "try asking about..."}}
 """
 
+_CORRECTION_TEMPLATE = """\
+Your previous SQL queries failed. Fix them and try again.
+
+Original question: {question}
+
+{context}
+
+Previous attempt errors:
+{error_block}
+
+Fix the SQL and return ONLY valid JSON:
+{{
+  "queries": [
+    {{"sql": "SELECT ...", "purpose": "brief description"}}
+  ],
+  "viz": "template_name",
+  "viz_config": {{"title": "Chart Title", "x_key": "col_name", "y_key": "col_name"}}
+}}
+
+If this question cannot be answered with the available tables, return:
+{{"error": "explanation of why"}}
+"""
+
 
 class MetricsChatService:
-    """Orchestrates the two-step LLM flow for metrics questions."""
+    """Orchestrates the agentic two-step LLM flow for metrics questions."""
 
     def __init__(
         self,
         sidecar: SidecarSessionManager,
         session_factory: Any,
     ) -> None:
-        self._sidecar = sidecar
         self._session_factory = session_factory
+        model = _select_model()
+        self._completer: LightweightCompleter = sidecar.create_completer(
+            model=model, max_tokens=_METRICS_MAX_TOKENS,
+        )
+        log.debug("metrics_chat_model", model=model)
+
+    async def _llm_complete(self, prompt: str, remaining: float) -> str:
+        """Call the completer with a wall-clock cap."""
+        result = await asyncio.wait_for(
+            self._completer.complete(prompt),
+            timeout=max(remaining, _MIN_REMAINING_S),
+        )
+        return result.text or ""
 
     async def ask(
         self,
@@ -164,9 +231,13 @@ class MetricsChatService:
     ) -> ChatResponse:
         """Process a user question end-to-end.
 
-        Returns a ``ChatResponse`` with the narrative, viz data, and
-        SQL queries used.
+        Runs an agentic loop: generate SQL → execute → if errors, feed
+        them back to the LLM and retry until success, the LLM gives up,
+        or the overall timeout is reached.
         """
+        t0 = time.monotonic()
+        deadline = t0 + _ASK_DEADLINE_S
+
         context_parts: list[str] = []
         if period_days:
             context_parts.append(
@@ -175,83 +246,130 @@ class MetricsChatService:
             )
         if conversation_summary:
             context_parts.append(f"Previous context:\n{conversation_summary}")
-
         context = "\n".join(context_parts)
 
-        # Step 1: Generate SQL
-        step1_prompt = (
+        # --- Step 1: Generate + execute SQL with agentic self-correction ---
+        prompt = (
             _SYSTEM_PROMPT
             + "\n\n"
             + _STEP1_TEMPLATE.format(question=question, context=context)
         )
 
-        try:
-            step1_raw = await self._sidecar.complete(step1_prompt, timeout=30.0)
-        except Exception as exc:
-            log.error("metrics_chat_step1_failed", error=str(exc))
-            return ChatResponse(
-                narrative=f"Failed to generate queries: {exc}",
-                error=True,
-            )
-
-        step1 = _parse_json(step1_raw)
-        if step1 is None:
-            return ChatResponse(
-                narrative="The model returned an unparseable response. Please try rephrasing.",
-                error=True,
-                raw_response=step1_raw,
-            )
-
-        if "error" in step1:
-            return ChatResponse(
-                narrative=step1["error"],
-                error=True,
-            )
-
-        queries = step1.get("queries", [])
-        viz = step1.get("viz", "table")
-        viz_config = step1.get("viz_config", {})
-
-        if not queries:
-            return ChatResponse(
-                narrative="No queries generated. Try being more specific.",
-                error=True,
-            )
-
-        # Execute queries
-        results_block_parts: list[str] = []
-        all_results: list[dict[str, Any]] = []
+        all_attempted_sql: list[str] = []
         executed_sql: list[str] = []
+        all_results: list[dict[str, Any]] = []
+        results_block_parts: list[str] = []
+        viz = "table"
+        viz_config: dict[str, Any] = {}
+        attempt = 0
 
-        for i, q in enumerate(queries):
-            sql = q.get("sql", "")
-            purpose = q.get("purpose", "")
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining < _MIN_REMAINING_S:
+                break
+
+            attempt += 1
             try:
-                rows = await execute_query(
-                    self._session_factory, sql, timeout_seconds=30.0
+                raw = await self._llm_complete(prompt, remaining)
+            except (TimeoutError, Exception) as exc:
+                log.warning("metrics_chat_step1_failed", attempt=attempt, error=str(exc))
+                break
+
+            step1 = _parse_json(raw)
+            if step1 is None:
+                log.debug("metrics_chat_bad_json", attempt=attempt)
+                prompt = (
+                    _SYSTEM_PROMPT
+                    + "\n\n"
+                    + _CORRECTION_TEMPLATE.format(
+                        question=question,
+                        context=context,
+                        error_block="Your response was not valid JSON. Return ONLY the JSON object.",
+                    )
                 )
-                results_block_parts.append(
-                    f"Query {i + 1} ({purpose}):\n"
-                    f"SQL: {sql}\n"
-                    f"Results ({len(rows)} rows): {json.dumps(rows[:50])}\n"
+                continue
+
+            # LLM explicitly says it can't answer
+            if "error" in step1:
+                return ChatResponse(
+                    narrative=step1["error"],
+                    error=True,
                 )
-                all_results.extend(rows)
-                executed_sql.append(sql)
-            except QueryValidationError as exc:
-                results_block_parts.append(
-                    f"Query {i + 1} ({purpose}):\n"
-                    f"SQL: {sql}\n"
-                    f"ERROR: {exc}\n"
+
+            queries = step1.get("queries", [])
+            if not queries:
+                prompt = (
+                    _SYSTEM_PROMPT
+                    + "\n\n"
+                    + _CORRECTION_TEMPLATE.format(
+                        question=question,
+                        context=context,
+                        error_block="No queries were returned. Generate at least one SQL query.",
+                    )
                 )
+                continue
+
+            viz = step1.get("viz", "table")
+            viz_config = step1.get("viz_config", {})
+
+            # Execute each generated query
+            errors: list[str] = []
+            executed_sql = []
+            all_results = []
+            results_block_parts = []
+
+            for i, q in enumerate(queries):
+                sql = q.get("sql", "")
+                purpose = q.get("purpose", "")
+                all_attempted_sql.append(sql)
+                try:
+                    rows = await execute_query(
+                        self._session_factory,
+                        sql,
+                        timeout_seconds=min(remaining, 10.0),
+                    )
+                    results_block_parts.append(
+                        f"Query {i + 1} ({purpose}):\n"
+                        f"SQL: {sql}\n"
+                        f"Results ({len(rows)} rows): {json.dumps(rows[:50])}\n"
+                    )
+                    all_results.extend(rows)
+                    executed_sql.append(sql)
+                except (QueryValidationError, Exception) as exc:
+                    errors.append(f"SQL: {sql}\nError: {exc}")
+                    results_block_parts.append(
+                        f"Query {i + 1} ({purpose}):\n"
+                        f"SQL: {sql}\n"
+                        f"ERROR: {exc}\n"
+                    )
+
+            if executed_sql:
+                # At least one query succeeded — move to step 2
+                log.info("metrics_chat_step1_ok", attempt=attempt, queries=len(executed_sql))
+                break
+
+            # All queries failed — feed errors back and retry
+            log.debug("metrics_chat_retry", attempt=attempt, errors=errors)
+            error_block = "\n\n".join(errors)
+            prompt = (
+                _SYSTEM_PROMPT
+                + "\n\n"
+                + _CORRECTION_TEMPLATE.format(
+                    question=question,
+                    context=context,
+                    error_block=error_block,
+                )
+            )
 
         if not executed_sql:
             return ChatResponse(
-                narrative="All queries failed validation or execution.",
+                narrative="Could not produce a valid query within the time budget.",
                 error=True,
-                sql_queries=[q.get("sql", "") for q in queries],
+                sql_queries=all_attempted_sql,
             )
 
-        # Step 2: Verify + format results
+        # --- Step 2: Verify + format results ---
+        remaining = deadline - time.monotonic()
         step2_prompt = (
             _SYSTEM_PROMPT
             + "\n\n"
@@ -263,10 +381,9 @@ class MetricsChatService:
         )
 
         try:
-            step2_raw = await self._sidecar.complete(step2_prompt, timeout=30.0)
-        except Exception as exc:
+            step2_raw = await self._llm_complete(step2_prompt, remaining)
+        except (TimeoutError, Exception) as exc:
             log.error("metrics_chat_step2_failed", error=str(exc))
-            # Fall back to raw results
             return ChatResponse(
                 narrative="Got results but couldn't format them. Showing raw data.",
                 viz="table",

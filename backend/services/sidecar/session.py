@@ -544,6 +544,14 @@ class SidecarSessionManager:
         self._global_output_tokens += session.total_output_tokens
         self._global_cost_usd += session.total_cost_usd
 
+    def create_completer(
+        self, *, model: str, max_tokens: int = 4096,
+    ) -> LightweightCompleter:
+        """Create a standalone completer with custom model/token settings."""
+        return LightweightCompleter(
+            self._adapter, model=model, max_tokens=max_tokens,
+        )
+
     # -- Non-job one-shot (Completable protocol) -----------------------------
 
     async def complete(self, prompt: str, timeout: float = 30.0) -> str:

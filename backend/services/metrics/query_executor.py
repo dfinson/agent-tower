@@ -94,6 +94,28 @@ class QueryValidationError(Exception):
     """Raised when a query fails validation."""
 
 
+# Unicode characters that LLMs sometimes emit instead of ASCII SQL operators.
+_UNICODE_REPLACEMENTS: dict[str, str] = {
+    "\u2265": ">=",   # ≥
+    "\u2264": "<=",   # ≤
+    "\u2260": "!=",   # ≠
+    "\u00d7": "*",    # ×
+    "\u00f7": "/",    # ÷
+    "\u2212": "-",    # − (minus sign)
+    "\u2018": "'",    # '
+    "\u2019": "'",    # '
+    "\u201c": '"',    # “
+    "\u201d": '"',    # ”
+}
+
+
+def _normalize_unicode(sql: str) -> str:
+    """Replace common Unicode operators with their ASCII equivalents."""
+    for uc, ascii_eq in _UNICODE_REPLACEMENTS.items():
+        sql = sql.replace(uc, ascii_eq)
+    return sql
+
+
 def _extract_table_names(match: re.Match[str]) -> str:
     """Return the table name from a regex match with multiple groups."""
     return next((g for g in match.groups() if g is not None), "")
@@ -104,7 +126,7 @@ def validate_query(sql: str) -> str:
 
     Raises ``QueryValidationError`` for disallowed operations.
     """
-    cleaned = sql.strip().rstrip(";")
+    cleaned = _normalize_unicode(sql.strip().rstrip(";"))
     if not cleaned:
         raise QueryValidationError("Empty query")
 
