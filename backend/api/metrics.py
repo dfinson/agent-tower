@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from typing import Any
@@ -30,6 +31,7 @@ from backend.services.metrics.chat_service import MetricsChatService
 from backend.services.metrics.query_executor import (
     QueryValidationError,
     execute_query,
+    validate_query,
 )
 from backend.services.sidecar.session import SidecarSessionManager
 
@@ -103,8 +105,7 @@ async def list_custom_metrics(
     repo = CustomMetricsRepository(sf)
     metrics = await repo.list_all()
 
-    results: list[CustomMetricWithDataResponse] = []
-    for m in metrics:
+    async def _eval(m: dict[str, Any]) -> CustomMetricWithDataResponse:
         data: list[Any] = []
         error: str | None = None
         try:
@@ -113,13 +114,12 @@ async def list_custom_metrics(
             error = str(exc)
         except Exception as exc:
             error = f"Unexpected error: {exc}"
-
-        metric_resp = _row_to_metric_response(m)
-        results.append(
-            CustomMetricWithDataResponse(metric=metric_resp, data=data, error=error)
+        return CustomMetricWithDataResponse(
+            metric=_row_to_metric_response(m), data=data, error=error,
         )
 
-    return CustomMetricsListResponse(metrics=results)
+    results = await asyncio.gather(*[_eval(m) for m in metrics])
+    return CustomMetricsListResponse(metrics=list(results))
 
 
 @router.post("", response_model=CustomMetricResponse, status_code=201)
@@ -128,6 +128,12 @@ async def pin_metric(
     sf: FromDishka[async_sessionmaker[AsyncSession]],
 ) -> CustomMetricResponse:
     """Pin a metric as a dashboard tile."""
+    # Validate SQL before persisting — reject bad queries early
+    try:
+        validate_query(body.sql)
+    except QueryValidationError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid SQL: {exc}") from exc
+
     metric_id = uuid.uuid4().hex[:16]
 
     repo = CustomMetricsRepository(sf)

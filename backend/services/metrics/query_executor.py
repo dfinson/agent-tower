@@ -23,6 +23,23 @@ ALLOWED_TABLES = frozenset({
     "jobs",
 })
 
+# Defense-in-depth: table names that must never appear anywhere in a query.
+# Catches bypass techniques (comma joins, quoted identifiers, subqueries)
+# that the structural regex might miss.
+_DENIED_TABLES = frozenset({
+    "sqlite_master",
+    "sqlite_schema",
+    "sqlite_temp_master",
+    "sqlite_temp_schema",
+    "sqlite_sequence",
+    "custom_metrics",
+    "metrics_chat_messages",
+    "cost_observations",
+    "approvals",
+    "alembic_version",
+    "sidecar_templates",
+})
+
 # SQL keywords that must not appear in user queries.  Checked against the
 # normalised (upper-cased, single-spaced) query text.
 _FORBIDDEN_PATTERNS: list[re.Pattern[str]] = [
@@ -39,7 +56,6 @@ _FORBIDDEN_PATTERNS: list[re.Pattern[str]] = [
         r"\bPRAGMA\b",
         r"\bREINDEX\b",
         r"\bVACUUM\b",
-        r"\bREPLACE\b",
         r"\bGRANT\b",
         r"\bREVOKE\b",
         r"\bBEGIN\b",
@@ -50,14 +66,36 @@ _FORBIDDEN_PATTERNS: list[re.Pattern[str]] = [
     ]
 ]
 
-# Match table references: FROM <table>, JOIN <table>
+# Match table references after FROM/JOIN — handles unquoted, double-quoted,
+# backtick-quoted, and bracket-quoted identifiers.
 _TABLE_REF_RE = re.compile(
-    r"(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)", re.IGNORECASE
+    r'(?:FROM|JOIN)\s+'
+    r'(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([a-zA-Z_]\w*))',
+    re.IGNORECASE,
+)
+
+# Match additional comma-separated table references in FROM clauses.
+# Applied to the substring following each FROM match.
+_COMMA_TABLE_RE = re.compile(
+    r',\s*(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([a-zA-Z_]\w*))',
+    re.IGNORECASE,
+)
+
+# Extract CTE alias names from WITH clauses so they don't trigger
+# the allowed-table check.
+_CTE_ALIAS_RE = re.compile(
+    r'(?:\bWITH\b(?:\s+RECURSIVE)?\s+|,\s*)([a-zA-Z_]\w*)\s+AS\s*\(',
+    re.IGNORECASE,
 )
 
 
 class QueryValidationError(Exception):
     """Raised when a query fails validation."""
+
+
+def _extract_table_names(match: re.Match[str]) -> str:
+    """Return the table name from a regex match with multiple groups."""
+    return next((g for g in match.groups() if g is not None), "")
 
 
 def validate_query(sql: str) -> str:
@@ -81,14 +119,43 @@ def validate_query(sql: str) -> str:
                 f"Forbidden SQL keyword detected: {pattern.pattern}"
             )
 
-    # Check table references
+    # Defense in depth: denied table names as substring check.
+    # Catches comma-join bypasses, quoted identifiers, and any other
+    # creative table reference technique.
+    lower_sql = cleaned.lower()
+    for denied in _DENIED_TABLES:
+        if denied in lower_sql:
+            raise QueryValidationError(
+                f"Reference to '{denied}' is not allowed"
+            )
+
+    # Extract CTE aliases so they pass the allowed-table check
+    cte_aliases = {m.group(1).lower() for m in _CTE_ALIAS_RE.finditer(cleaned)}
+    allowed_with_ctes = ALLOWED_TABLES | cte_aliases
+
+    # Check structural table references (FROM/JOIN and comma-separated)
     for match in _TABLE_REF_RE.finditer(cleaned):
-        table = match.group(1).lower()
-        if table not in ALLOWED_TABLES:
+        table = _extract_table_names(match).lower()
+        if table and table not in allowed_with_ctes:
             raise QueryValidationError(
                 f"Table '{table}' is not allowed. "
                 f"Allowed: {', '.join(sorted(ALLOWED_TABLES))}"
             )
+        # Check for comma-separated tables following this FROM/JOIN
+        rest = cleaned[match.end():]
+        for cmatch in _COMMA_TABLE_RE.finditer(rest):
+            ctable = _extract_table_names(cmatch).lower()
+            if ctable and ctable not in allowed_with_ctes:
+                raise QueryValidationError(
+                    f"Table '{ctable}' is not allowed. "
+                    f"Allowed: {', '.join(sorted(ALLOWED_TABLES))}"
+                )
+            # Stop at the first non-comma token (avoid matching commas in
+            # SELECT lists further down)
+            if cmatch.start() > 0:
+                between = rest[:cmatch.start()].strip()
+                if between and not between.endswith(","):
+                    break
 
     return cleaned
 
@@ -102,8 +169,7 @@ async def execute_query(
     """Execute a validated read-only query and return rows as dicts.
 
     Uses a fresh session (not the request session) so the read-only query
-    doesn't interfere with the request lifecycle.  Applies a SQLite
-    ``LIMIT`` safety net if one isn't present.
+    doesn't interfere with the request lifecycle.
     """
     import asyncio
 
