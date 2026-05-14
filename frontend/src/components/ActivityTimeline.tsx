@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ChevronDown, ChevronRight, CheckCircle2, Loader2, Circle, ListTree, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
-import { useStore, selectActivityTimeline, selectJobPlan, selectHoveredPlanItemId } from "../store";
+import { useStore, selectActivityTimeline, selectJobPlan, selectHoveredPlanItemId, selectPreflightReport } from "../store";
 import type { ActivityTimelineActivity } from "../store";
 import { PlanPanel } from "./PlanPanel";
+import { ScoutReportCard } from "./ScoutReportCard";
 import { Tooltip } from "./ui/tooltip";
 import { cn } from "../lib/utils";
 
@@ -214,6 +215,7 @@ export function ActivityTimeline({
   const timeline = useStore(selectActivityTimeline(jobId));
   const planSteps = useStore(selectJobPlan(jobId));
   const hoveredPlanItemId = useStore(selectHoveredPlanItemId);
+  const preflightReport = useStore(selectPreflightReport(jobId));
 
   // Expand-all / collapse-all toggle
   const [allExpanded, setAllExpanded] = useState(false);
@@ -231,7 +233,11 @@ export function ActivityTimeline({
     ? timeline.activities.map((a) => a.status === "active" ? { ...a, status: "done" as const } : a)
     : timeline.activities;
 
-  if (activities.length === 0 && planSteps.length === 0) {
+  // Show scout card only when we actually received a report
+  const showScout = !!preflightReport;
+  const scoutStatus = "done" as const;
+
+  if (activities.length === 0 && planSteps.length === 0 && !showScout) {
     return (
       <div className="flex flex-col items-center gap-3 px-4 py-6">
         <ListTree size={20} className="text-muted-foreground" />
@@ -276,6 +282,9 @@ export function ActivityTimeline({
         </div>
       )}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
+        {showScout && (
+          <ScoutReportCard report={preflightReport} status={scoutStatus} />
+        )}
         {activities.map((activity, i) => (
           <ActivitySection
             key={activity.activityId}

@@ -31,6 +31,8 @@ from backend.models.api_schemas import (
     MergeConflictPayload,
     ModelDowngradedPayload,
     PlanStepPayload,
+    PreflightReportPayload,
+    PreflightToolCallPayload,
     RepoIndexCompletePayload,
     RepoIndexProgressPayload,
     SessionHeartbeatPayload,
@@ -106,6 +108,7 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.sidecar_agent_message: None,  # internal — handled by dispatcher
     DomainEventKind.sidecar_gate_verdict: None,  # internal — handled by dispatcher
     DomainEventKind.sidecar_metadata_update: None,  # internal — handled by dispatcher
+    DomainEventKind.preflight_report: "preflight_report",
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)
@@ -134,6 +137,7 @@ _JOB_SCOPED_ONLY: frozenset[str] = frozenset(
     {
         "telemetry_updated",
         "sidecar_transcript",
+        "preflight_report",
     }
 )
 
@@ -288,6 +292,27 @@ def _build_batch_approval_resolved(event: DomainEvent) -> str:
     )
 
 
+def _build_preflight_report(event: DomainEvent) -> str:
+    p = event.payload
+    tool_calls_raw = p.get("tool_calls", [])
+    tool_calls = [
+        PreflightToolCallPayload(
+            tool_name=tc.get("tool_name", ""),
+            tool_args=tc.get("tool_args"),
+            result_preview=tc.get("result_preview", ""),
+            duration_ms=tc.get("duration_ms"),
+        )
+        for tc in tool_calls_raw
+    ]
+    return PreflightReportPayload(
+        job_id=event.job_id,
+        timestamp=event.timestamp,
+        elapsed_ms=p.get("elapsed_ms", 0.0),
+        tool_calls=tool_calls,
+        brief_length=p.get("brief_length", 0),
+    ).model_dump_json(by_alias=True)
+
+
 # ---------------------------------------------------------------------------
 # Unified SSE payload registry
 # ---------------------------------------------------------------------------
@@ -302,6 +327,7 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
     "plan_step_updated": _build_plan_step_updated,
     "batch_approval_requested": _build_batch_approval_requested,
     "batch_approval_resolved": _build_batch_approval_resolved,
+    "preflight_report": _build_preflight_report,
     # --- Field-map builders (declarative) ---
     "log_line": (
         LogLinePayload,

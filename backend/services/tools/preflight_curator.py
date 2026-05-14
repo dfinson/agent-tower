@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import structlog
@@ -28,6 +29,30 @@ if TYPE_CHECKING:
     from backend.services.coderecon.coderecon_service import CodeReconService
 
 log = structlog.get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Structured result returned to callers
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PreflightToolCall:
+    """A single CodeRecon tool invocation captured during the preflight session."""
+
+    tool_name: str
+    tool_args: str | None = None
+    result_preview: str = ""
+    duration_ms: float | None = None
+
+
+@dataclass
+class PreflightReport:
+    """Structured output from a preflight curator session."""
+
+    brief: str = ""
+    tool_calls: list[PreflightToolCall] = field(default_factory=list)
+    elapsed_ms: float = 0.0
+
 
 # Preflight sessions are short — cap turns and wall-clock time.
 _MAX_TURNS = 15
@@ -125,14 +150,15 @@ class PreflightCurator:
         repo: str,
         worktree: str,
         job_id: str = "",
-    ) -> str:
-        """Run the preflight curator agent and return its curated brief.
+    ) -> PreflightReport:
+        """Run the preflight curator agent and return its structured report.
 
         The agent is given the task description, optional workspace memory,
         and CodeRecon tools.  It explores the repo structure and produces
         a brief for the main agent's system prompt.
 
-        Returns the curated brief (may be empty if nothing is relevant).
+        Returns a :class:`PreflightReport` with the curated brief, captured
+        tool calls, and timing information.
         Raises on failure (caller handles).
         """
         from backend.services.coderecon.coderecon_tools import build_coderecon_tools
@@ -167,12 +193,13 @@ class PreflightCurator:
         # Run the agent session and collect its output
         return await self._run_session(config)
 
-    async def _run_session(self, config: SessionConfig) -> str:
-        """Execute the curator session and extract the final brief."""
+    async def _run_session(self, config: SessionConfig) -> PreflightReport:
+        """Execute the curator session and extract the final brief with tool call data."""
         t0 = time.monotonic()
 
         session_id = await self._adapter.create_session(config)
         agent_chunks: list[str] = []
+        tool_calls: list[PreflightToolCall] = []
         result_text = ""
 
         try:
@@ -180,10 +207,21 @@ class PreflightCurator:
                 async for event in self._adapter.stream_events(session_id):
                     if event.kind == SessionEventKind.transcript:
                         payload = event.payload
-                        if isinstance(payload, dict) and payload.get("role") == "agent":
-                            content = str(payload.get("content", ""))
-                            if content and content.strip():
-                                agent_chunks.append(content)
+                        if isinstance(payload, dict):
+                            role = payload.get("role", "")
+                            if role == "agent":
+                                content = str(payload.get("content", ""))
+                                if content and content.strip():
+                                    agent_chunks.append(content)
+                            elif role == "tool_call":
+                                raw_args = payload.get("tool_args")
+                                raw_content = payload.get("content", "")
+                                tool_calls.append(PreflightToolCall(
+                                    tool_name=str(payload.get("tool_name", "")),
+                                    tool_args=str(raw_args) if raw_args else None,
+                                    result_preview=str(raw_content)[:500] if raw_content else "",
+                                    duration_ms=payload.get("duration_ms"),
+                                ))
 
                     elif event.kind == SessionEventKind.done:
                         # ResultMessage carries the complete final text
@@ -221,6 +259,11 @@ class PreflightCurator:
             "preflight_curator.session_completed",
             elapsed_ms=round(elapsed_ms, 1),
             result_len=len(brief),
+            tool_call_count=len(tool_calls),
         )
 
-        return brief.strip()
+        return PreflightReport(
+            brief=brief.strip(),
+            tool_calls=tool_calls,
+            elapsed_ms=round(elapsed_ms, 1),
+        )

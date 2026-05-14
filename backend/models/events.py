@@ -68,6 +68,7 @@ class DomainEventKind(StrEnum):
     sidecar_agent_message = "SidecarAgentMessage"
     sidecar_gate_verdict = "SidecarGateVerdict"
     sidecar_metadata_update = "SidecarMetadataUpdate"
+    preflight_report = "PreflightReport"
 
 
 # ---------------------------------------------------------------------------

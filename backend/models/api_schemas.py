@@ -522,6 +522,25 @@ class SidecarTranscriptPayload(CamelModel):
     content: str = ""
 
 
+class PreflightToolCallPayload(CamelModel):
+    """A single tool invocation captured during the preflight session."""
+
+    tool_name: str
+    tool_args: str | None = None
+    result_preview: str = ""
+    duration_ms: float | None = None
+
+
+class PreflightReportPayload(CamelModel):
+    """Structured report from the preflight scout session."""
+
+    job_id: str
+    timestamp: datetime
+    elapsed_ms: float = 0.0
+    tool_calls: list[PreflightToolCallPayload] = []
+    brief_length: int = 0
+
+
 class DiffLineModel(CamelModel):
     type: DiffLineType
     content: str

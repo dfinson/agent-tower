@@ -168,6 +168,21 @@ export interface ActivityTimelineState {
   activities: ActivityTimelineActivity[];
 }
 
+/** A single tool call captured during the preflight scout session. */
+export interface PreflightToolCall {
+  toolName: string;
+  toolArgs?: string | null;
+  resultPreview: string;
+  durationMs?: number | null;
+}
+
+/** Structured report from the preflight scout session. */
+export interface PreflightReport {
+  elapsedMs: number;
+  toolCalls: PreflightToolCall[];
+  briefLength: number;
+}
+
 /** Terminal session metadata tracked in the store. */
 export interface TerminalSession {
   id: string;
@@ -204,6 +219,8 @@ export interface AppState {
   plans: Record<string, PlanStep[]>; // keyed by jobId
   timelines: Record<string, TimelineEntry[]>; // keyed by jobId
   activityTimelines: Record<string, ActivityTimelineState>; // keyed by jobId
+  /** Preflight scout report — keyed by jobId. */
+  preflightReports: Record<string, PreflightReport>;
   /** Accumulated streaming text for in-progress agent messages, keyed by
    * "${jobId}:${turnId}" (or "${jobId}:__default__" when turnId is absent).
    * Cleared when the complete agent message arrives for that turn. */

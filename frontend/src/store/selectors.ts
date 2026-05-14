@@ -143,3 +143,6 @@ const EMPTY_ACTIVITY_TIMELINE: ActivityTimelineState = { activities: [] };
 export const selectActivityTimeline = (jobId: string) => (state: AppState) =>
   state.activityTimelines[jobId] ?? EMPTY_ACTIVITY_TIMELINE;
 export const selectHoveredPlanItemId = (state: AppState) => state.hoveredPlanItemId;
+
+export const selectPreflightReport = (jobId: string) => (state: AppState) =>
+  state.preflightReports[jobId] ?? null;

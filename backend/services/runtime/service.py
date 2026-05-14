@@ -2800,21 +2800,44 @@ class RuntimeService:
             return session_config
 
         try:
-            curated = await self._preflight_curator.curate(
+            report = await self._preflight_curator.curate(
                 task=session_config.prompt,
                 memory=raw_memory or None,
                 repo=str(job.repo),
                 worktree=worktree_path,
                 job_id=job.id,
             )
-            if curated and curated.strip():
+            # Emit structured preflight report event for the frontend
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job.id,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.preflight_report,
+                    payload={
+                        "elapsed_ms": report.elapsed_ms,
+                        "tool_calls": [
+                            {
+                                "tool_name": tc.tool_name,
+                                "tool_args": tc.tool_args,
+                                "result_preview": tc.result_preview,
+                                "duration_ms": tc.duration_ms,
+                            }
+                            for tc in report.tool_calls
+                        ],
+                        "brief_length": len(report.brief),
+                    },
+                )
+            )
+            if report.brief:
                 log.info(
                     "preflight_curator.curated",
                     job_id=job.id,
                     had_memory=bool(raw_memory),
-                    curated_len=len(curated),
+                    curated_len=len(report.brief),
+                    tool_call_count=len(report.tool_calls),
                 )
-                return dataclass_replace(session_config, memory_context=curated.strip())
+                return dataclass_replace(session_config, memory_context=report.brief)
             log.debug("preflight_curator.nothing_relevant", job_id=job.id)
         except Exception:
             log.warning("preflight_curator.curation_failed", job_id=job.id, exc_info=True)

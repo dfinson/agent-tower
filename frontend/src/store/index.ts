@@ -24,6 +24,7 @@ export type {
   LogLine,
   TranscriptEntry,
   PlanStep,
+  PreflightReport,
   TimelineEntry,
   ActivityTimelineStep,
   ActivityTimelineActivity,
@@ -54,6 +55,7 @@ export {
   selectJobPlan,
   selectActivityTimeline,
   selectHoveredPlanItemId,
+  selectPreflightReport,
   selectStructuralDiff,
   selectMultiSession,
   selectCommunities,
@@ -105,7 +107,7 @@ function touchJob(jobId: string): string[] {
 
 /** Evict per-job data for stale jobs from a state snapshot. */
 function evictStaleJobs(
-  state: Pick<AppState, "logs" | "transcript" | "diffs" | "stories" | "plans" | "timelines" | "activityTimelines" | "streamingMessages" | "streamingToolOutput" | "structuralDiffs" | "multiSessions" | "communities" | "reviewStories">,
+  state: Pick<AppState, "logs" | "transcript" | "diffs" | "stories" | "plans" | "timelines" | "activityTimelines" | "preflightReports" | "streamingMessages" | "streamingToolOutput" | "structuralDiffs" | "multiSessions" | "communities" | "reviewStories">,
   evictIds: string[],
 ): Partial<AppState> | null {
   if (evictIds.length === 0) return null;
@@ -116,6 +118,7 @@ function evictStaleJobs(
   const plans = { ...state.plans };
   const timelines = { ...state.timelines };
   const activityTimelines = { ...state.activityTimelines };
+  const preflightReports = { ...state.preflightReports };
   const structuralDiffs = { ...state.structuralDiffs };
   const multiSessions = { ...state.multiSessions };
   const communities = { ...state.communities };
@@ -132,6 +135,7 @@ function evictStaleJobs(
     delete plans[id];
     delete timelines[id];
     delete activityTimelines[id];
+    delete preflightReports[id];
     delete structuralDiffs[id];
     delete multiSessions[id];
     delete communities[id];
@@ -150,7 +154,7 @@ function evictStaleJobs(
       }
     }
   }
-  return { logs, transcript, diffs, stories, plans, timelines, activityTimelines, streamingMessages, streamingToolOutput, structuralDiffs, multiSessions, communities, reviewStories };
+  return { logs, transcript, diffs, stories, plans, timelines, activityTimelines, preflightReports, streamingMessages, streamingToolOutput, structuralDiffs, multiSessions, communities, reviewStories };
 }
 
 /** Rebuild activity timeline state from a flat list of turn summary payloads (hydration). */
@@ -237,6 +241,7 @@ export const useStore = create<AppState>((set, get) => ({
   plans: {},
   timelines: {},
   activityTimelines: {},
+  preflightReports: {},
   streamingMessages: {},
   streamingToolOutput: {},
   streamingReasoning: {},

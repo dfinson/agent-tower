@@ -201,9 +201,31 @@ export function handleToolGroupSummary(state: AppState, payload: Record<string, 
   return { transcript: { ...state.transcript, [jobId]: patched } };
 }
 
+export function handlePreflightReport(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const jobId = payload.jobId as string;
+  if (!jobId) return null;
+  const toolCalls = (payload.toolCalls as Array<Record<string, unknown>> | undefined) ?? [];
+  return {
+    preflightReports: {
+      ...state.preflightReports,
+      [jobId]: {
+        elapsedMs: (payload.elapsedMs as number) ?? 0,
+        toolCalls: toolCalls.map((tc) => ({
+          toolName: (tc.toolName as string) ?? "",
+          toolArgs: (tc.toolArgs as string | null) ?? null,
+          resultPreview: (tc.resultPreview as string) ?? "",
+          durationMs: (tc.durationMs as number | null) ?? null,
+        })),
+        briefLength: (payload.briefLength as number) ?? 0,
+      },
+    },
+  };
+}
+
 export const transcriptHandlers: Record<string, SSEHandler> = {
   log_line: handleLogLine,
   transcript_update: handleTranscriptUpdate,
   tool_group_summary: handleToolGroupSummary,
   sidecar_transcript: handleSidecarTranscript,
+  preflight_report: handlePreflightReport,
 };

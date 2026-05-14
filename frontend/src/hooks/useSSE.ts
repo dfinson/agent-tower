@@ -128,6 +128,8 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "structural_warning",
         // Sidecar transcript entries
         "sidecar_transcript",
+        // Preflight scout report
+        "preflight_report",
       ];
 
       for (const eventType of eventTypes) {
