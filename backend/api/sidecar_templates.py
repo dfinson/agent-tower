@@ -8,6 +8,7 @@ import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.api_schemas import (
     CreateSidecarTemplateRequest,
@@ -60,6 +61,7 @@ async def get_sidecar_template(
 async def create_sidecar_template(
     body: CreateSidecarTemplateRequest,
     service: FromDishka[SidecarTemplateService],
+    session: FromDishka[AsyncSession],
 ) -> SidecarTemplateResponse:
     """Create a new sidecar template."""
     try:
@@ -73,6 +75,7 @@ async def create_sidecar_template(
         raise HTTPException(status_code=status, detail=str(exc)) from exc
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="A template with this name already exists") from exc
+    await session.commit()
     return _to_response(template)
 
 
@@ -81,6 +84,7 @@ async def update_sidecar_template(
     template_id: str,
     body: UpdateSidecarTemplateRequest,
     service: FromDishka[SidecarTemplateService],
+    session: FromDishka[AsyncSession],
 ) -> SidecarTemplateResponse:
     """Update an existing sidecar template."""
     try:
@@ -97,6 +101,7 @@ async def update_sidecar_template(
         raise HTTPException(status_code=409, detail="A template with this name already exists") from exc
     if template is None:
         raise HTTPException(status_code=404, detail="Sidecar template not found")
+    await session.commit()
     return _to_response(template)
 
 
@@ -104,11 +109,13 @@ async def update_sidecar_template(
 async def delete_sidecar_template(
     template_id: str,
     service: FromDishka[SidecarTemplateService],
+    session: FromDishka[AsyncSession],
 ) -> None:
     """Delete a sidecar template."""
     removed = await service.delete_template(template_id)
     if not removed:
         raise HTTPException(status_code=404, detail="Sidecar template not found")
+    await session.commit()
 
 
 @router.post("/sidecar-templates/generate", response_model=GenerateSidecarResponse)
