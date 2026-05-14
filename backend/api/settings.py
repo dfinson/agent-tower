@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 from pathlib import Path
 
 import structlog
@@ -488,17 +489,26 @@ def browse_directories(
 
     entries: list[BrowseEntry] = []
     try:
-        for item in sorted(base.iterdir(), key=lambda p: p.name.lower()):
-            if item.name.startswith(".") or not item.is_dir():
-                continue
-            is_git = (item / ".git").is_dir()
-            entries.append(
-                BrowseEntry(
-                    name=item.name,
-                    path=str(item),
-                    is_git_repo=is_git,
+        # Use os.scandir for performance: DirEntry.is_dir() uses cached
+        # d_type from readdir instead of issuing a separate stat() per entry.
+        with os.scandir(base) as it:
+            for entry in it:
+                if entry.name.startswith("."):
+                    continue
+                try:
+                    if not entry.is_dir(follow_symlinks=True):
+                        continue
+                except OSError:
+                    continue
+                is_git = os.path.isdir(os.path.join(entry.path, ".git"))
+                entries.append(
+                    BrowseEntry(
+                        name=entry.name,
+                        path=entry.path,
+                        is_git_repo=is_git,
+                    )
                 )
-            )
+        entries.sort(key=lambda e: e.name.lower())
     except PermissionError:
         structlog.get_logger(__name__).warning(
             "browse_directory_permission_denied",
