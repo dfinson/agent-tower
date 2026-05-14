@@ -1138,6 +1138,7 @@ class RuntimeService:
         self._policy_batchers.pop(job_id, None)
         self._echo_suppress.pop(job_id, None)
         self._turn_ids.pop(job_id, None)
+        self._active_gates.pop(job_id, None)
         self._pending_starts.pop(job_id, None)
         self._queued_override_prompts.pop(job_id, None)
         self._queued_resume_session_ids.pop(job_id, None)
@@ -2118,7 +2119,8 @@ class RuntimeService:
         """Operator resolution of a sidecar gate.
 
         ``action='approve'`` resumes tools (and optionally sends a message).
-        ``action='reject'`` keeps tools paused (message is still delivered).
+        ``action='reject'`` keeps tools paused (message is still delivered
+        without resuming tools).
         """
         gates = self._active_gates.get(job_id)
         if not gates:
@@ -2127,12 +2129,21 @@ class RuntimeService:
 
         if action == "approve":
             self._active_gates.pop(job_id, None)
-            agent_session = self._agent_sessions.get(job_id)
-            if agent_session is not None:
-                agent_session.resume_tools()
+            # send_message resumes tools internally — correct for approve.
+            if message:
+                await self.send_message(job_id, message)
+            else:
+                agent_session = self._agent_sessions.get(job_id)
+                if agent_session is not None:
+                    agent_session.resume_tools()
             log.info("sidecar_gate_resolved_approve", job_id=job_id)
-        if message:
-            await self.send_message(job_id, message)
+        else:
+            # Reject — deliver message WITHOUT resuming tools.
+            if message:
+                agent_session = self._agent_sessions.get(job_id)
+                if agent_session is not None:
+                    await agent_session.send_message(message)
+            log.info("sidecar_gate_resolved_reject", job_id=job_id)
 
     async def _dequeue_next(self) -> None:
         """Start the next queued job if capacity allows."""

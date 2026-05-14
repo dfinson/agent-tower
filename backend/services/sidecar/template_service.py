@@ -30,6 +30,11 @@ _ALLOWED_CONDITIONS = ["event", "threshold", "manual", "regex", "file_pattern", 
 _ALLOWED_PHASES = ["preflight", "midflight", "postflight"]
 _ALLOWED_LIFETIMES = ["ephemeral", "windowed", "persistent"]
 _ALLOWED_SCOPES = ["global", "repo", "job"]
+
+# Tool access levels and category names.
+_ALLOWED_TOOL_ACCESS = ["none", "read_only", "shell_restricted", "agentic"]
+_ALLOWED_TOOL_CATEGORIES = ["read", "search", "shell_readonly", "shell_write", "write", "mcp"]
+_ALLOWED_PRESETS = ["autonomous", "supervised", "locked"]
 _ALLOWED_ICONS = {
     "shield",
     "eye",
@@ -91,6 +96,18 @@ Available fields:
   - Complex reasoning/review: "claude-sonnet-4-20250514"
   If omitted, defaults to the system utility model. Optional.
 - "systemPrompt": The system prompt for the sidecar LLM session. Required.
+- "preset": Permission preset override for this sidecar. One of: "autonomous", "supervised", "locked". Optional — omit to inherit from the parent job.
+- "toolAccess": Level of tool access for the sidecar. One of: "none", "read_only", "shell_restricted", "agentic". Default "none".
+  - "none": Text-only — the sidecar can only analyze context and generate text. Use for classification, summarization, metadata generation.
+  - "read_only": Can read files, search code, list directories. Cannot write files or run commands. Use for code review, security scanning, documentation analysis.
+  - "shell_restricted": Can read files AND run specific shell commands from an allowlist. Use for test runners, linters, auditors.
+  - "agentic": Full tool policy with category allowlists. Use when the sidecar needs flexible tool access.
+- "toolPolicy": Required when toolAccess is "shell_restricted" or "agentic". Object with:
+  - "allowedCategories": Array of tool categories. Available: "read", "search", "shell_readonly", "shell_write", "write", "mcp".
+  - "shellAllowlist": Array of command prefixes allowed for shell execution (e.g. ["pytest", "npm test", "ruff check"]). Required when categories include "shell_readonly" or "shell_write".
+  - "blockedTools": Array of specific tool names to block (overrides categories). Optional.
+  - "mcpServers": Array of MCP server names the sidecar can access. Optional, only relevant when "mcp" category is included.
+  - "pathScope": "worktree" (default) or "repo". Restricts file access scope.
 - "triggers": Array of trigger pipeline objects. Required, at least one.
 
 Each trigger object has:
@@ -120,6 +137,10 @@ Guidelines:
 - When the sidecar must approve/block agent actions, use "gate" with a json_object output parser that returns {"verdict": "approve"|"reject", "reason": "..."}.
 - Keep system prompts focused and actionable.
 - Generate a descriptive but concise name in kebab-case.
+- If the sidecar only needs to analyze context and produce text (summaries, classifications, metadata), use "toolAccess": "none".
+- If the sidecar needs to read source files to make informed judgments (security review, code review), use "toolAccess": "read_only".
+- If the sidecar needs to run tests, linters, or auditors, use "toolAccess": "shell_restricted" with a "toolPolicy" that lists the specific commands in "shellAllowlist".
+- Only use "toolAccess": "agentic" when the sidecar requires flexible multi-category tool access. Prefer the narrowest access level that covers the use case.
 
 Respond with ONLY a valid JSON object, no markdown fences, no explanation.
 """
@@ -312,3 +333,54 @@ def _validate_definition(definition_json: str) -> None:
             raise ValueError(
                 f"Trigger condition {cond_kind!r} is not allowed for custom sidecars. Allowed: {_ALLOWED_CONDITIONS}"
             )
+
+    # -- Tool access validation --
+
+    tool_access = defn.get("toolAccess", defn.get("tool_access", "none"))
+    if tool_access not in _ALLOWED_TOOL_ACCESS:
+        raise ValueError(f"Invalid toolAccess {tool_access!r}. Allowed: {_ALLOWED_TOOL_ACCESS}")
+
+    tool_policy = defn.get("toolPolicy") or defn.get("tool_policy")
+
+    if tool_access == "none" and tool_policy:
+        raise ValueError("toolPolicy must not be set when toolAccess is 'none'")
+
+    # Validate list-typed fields in toolPolicy.
+    if tool_policy and isinstance(tool_policy, dict):
+        for list_field in ("allowedCategories", "blockedTools", "mcpServers", "shellAllowlist"):
+            val = tool_policy.get(list_field)
+            if val is not None and not isinstance(val, list):
+                raise ValueError(f"toolPolicy.{list_field} must be an array, got {type(val).__name__}")
+            if isinstance(val, list):
+                for entry in val:
+                    if not isinstance(entry, str) or not entry.strip():
+                        raise ValueError(f"toolPolicy.{list_field} entries must be non-empty strings")
+
+    if tool_access == "read_only":
+        if tool_policy:
+            cats = set(tool_policy.get("allowedCategories", []))
+            if cats - {"read", "search"}:
+                raise ValueError(
+                    f"toolAccess 'read_only' only allows categories 'read' and 'search', got {cats}"
+                )
+
+    if tool_access == "shell_restricted":
+        if not tool_policy:
+            raise ValueError("toolPolicy is required when toolAccess is 'shell_restricted'")
+        allowlist = tool_policy.get("shellAllowlist", [])
+        if not allowlist:
+            raise ValueError("shellAllowlist is required and must be non-empty for 'shell_restricted' access")
+
+    if tool_access == "agentic":
+        if not tool_policy:
+            raise ValueError("toolPolicy is required when toolAccess is 'agentic'")
+        cats = set(tool_policy.get("allowedCategories", []))
+        invalid_cats = cats - set(_ALLOWED_TOOL_CATEGORIES)
+        if invalid_cats:
+            raise ValueError(f"Invalid tool categories: {invalid_cats}. Allowed: {_ALLOWED_TOOL_CATEGORIES}")
+
+    # -- Preset validation --
+
+    preset = defn.get("preset")
+    if preset is not None and preset not in _ALLOWED_PRESETS:
+        raise ValueError(f"Invalid preset {preset!r}. Allowed: {_ALLOWED_PRESETS}")

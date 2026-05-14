@@ -18,6 +18,7 @@ from backend.models.api_schemas import (
     JobResponse,
     ModelInfoResponse,
     ModelListResponse,
+    ResolveGateRequest,
     ResumeJobRequest,
     SuggestNamesRequest,
     SuggestNamesResponse,
@@ -330,6 +331,16 @@ async def pause_job(
     sent = await runtime_service.pause_job(job_id)
     if not sent:
         raise HTTPException(status_code=409, detail="Job is not currently running")
+
+
+@router.post("/jobs/{job_id}/gate/resolve", status_code=204)
+async def resolve_gate(
+    job_id: str,
+    body: ResolveGateRequest,
+    runtime_service: FromDishka[RuntimeService],
+) -> None:
+    """Resolve a sidecar gate — approve (resume) or keep blocked."""
+    await runtime_service.resolve_sidecar_gate(job_id, body.action, body.message)
 
 
 @router.post("/jobs/{job_id}/continue", response_model=CreateJobResponse, status_code=201)

@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from backend.services.events.event_bus import EventBus
     from backend.services.sidecar.session import SidecarSessionManager
 
-from backend.models.domain import SidecarConfig
+from backend.models.domain import SessionConfig, SidecarConfig
 
 log = structlog.get_logger()
 
@@ -207,10 +207,55 @@ class AgentMessageRoute:
 class GateRoute:
     verdict_field: str = "verdict"
     reason_field: str = "reason"
-    timeout_s: float = 30.0
 
 
 OutputRoute = EventBusRoute | JobMetadataRoute | CallbackRoute | ConditionalRoute | AgentMessageRoute | GateRoute
+
+
+# ---------------------------------------------------------------------------
+# Tool access policy (for agentic sidecars)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SidecarToolPolicy:
+    """Declares what tools a sidecar can use.
+
+    ``allowed_categories`` is the primary control — coarse-grained tool
+    groups rather than individual tool names.  The shell allowlist further
+    restricts which commands are permitted when shell access is granted.
+    """
+
+    allowed_categories: frozenset[str]  # {"read", "search", "shell_readonly", "shell_write", "write", "mcp"}
+    blocked_tools: frozenset[str] = frozenset()
+    mcp_servers: frozenset[str] = frozenset()
+    path_scope: str = "worktree"  # "worktree" (default) or "repo"
+    shell_readonly: bool = True
+    shell_allowlist: tuple[str, ...] = ()
+
+
+# Canonical tool category names.
+TOOL_CATEGORY_READ = "read"
+TOOL_CATEGORY_SEARCH = "search"
+TOOL_CATEGORY_SHELL_READONLY = "shell_readonly"
+TOOL_CATEGORY_SHELL_WRITE = "shell_write"
+TOOL_CATEGORY_WRITE = "write"
+TOOL_CATEGORY_MCP = "mcp"
+
+ALL_TOOL_CATEGORIES = frozenset(
+    {TOOL_CATEGORY_READ, TOOL_CATEGORY_SEARCH, TOOL_CATEGORY_SHELL_READONLY,
+     TOOL_CATEGORY_SHELL_WRITE, TOOL_CATEGORY_WRITE, TOOL_CATEGORY_MCP}
+)
+
+# Named access tiers (convenience labels for common combinations).
+TOOL_ACCESS_NONE = "none"
+TOOL_ACCESS_READ_ONLY = "read_only"
+TOOL_ACCESS_SHELL_RESTRICTED = "shell_restricted"
+TOOL_ACCESS_AGENTIC = "agentic"
+
+_TOOL_ACCESS_LEVELS = frozenset(
+    {TOOL_ACCESS_NONE, TOOL_ACCESS_READ_ONLY, TOOL_ACCESS_SHELL_RESTRICTED, TOOL_ACCESS_AGENTIC}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +289,11 @@ class SidecarDefinition:
     icon: str | None = None
     description: str = ""
     template_id: str | None = None
+    # Tool access — None or "none" means text-only (current default).
+    tool_access: str = TOOL_ACCESS_NONE
+    tool_policy: SidecarToolPolicy | None = None
+    # Per-sidecar preset override — None inherits from the parent job.
+    preset: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -361,9 +411,33 @@ def _hydrate_route(raw: dict[str, Any]) -> OutputRoute:
         return GateRoute(
             verdict_field=raw.get("verdictField", "verdict"),
             reason_field=raw.get("reasonField", "reason"),
-            timeout_s=float(raw.get("timeoutS", raw.get("timeout_s", 30))),
         )
     return EventBusRoute(event_kind="sidecar_result")
+
+
+def _hydrate_tool_policy(raw: dict[str, Any] | None) -> SidecarToolPolicy | None:
+    """Convert a JSON toolPolicy dict to a frozen dataclass."""
+    if not raw:
+        return None
+
+    def _as_list(key: str) -> list[str]:
+        val = raw.get(key, [])
+        if not isinstance(val, list):
+            raise ValueError(f"toolPolicy.{key} must be a list, got {type(val).__name__}")
+        return val
+
+    path_scope = raw.get("pathScope", "worktree")
+    if path_scope not in ("worktree", "repo"):
+        raise ValueError(f"Invalid pathScope {path_scope!r}; must be 'worktree' or 'repo'")
+
+    return SidecarToolPolicy(
+        allowed_categories=frozenset(_as_list("allowedCategories")),
+        blocked_tools=frozenset(_as_list("blockedTools")),
+        mcp_servers=frozenset(_as_list("mcpServers")),
+        path_scope=path_scope,
+        shell_readonly=raw.get("shellReadonly", True),
+        shell_allowlist=tuple(_as_list("shellAllowlist")),
+    )
 
 
 def hydrate_definition(raw: dict[str, Any]) -> SidecarDefinition:
@@ -395,6 +469,9 @@ def hydrate_definition(raw: dict[str, Any]) -> SidecarDefinition:
         icon=raw.get("icon"),
         description=raw.get("description", ""),
         template_id=raw.get("templateId") or raw.get("template_id"),
+        tool_access=raw.get("toolAccess", raw.get("tool_access", TOOL_ACCESS_NONE)),
+        tool_policy=_hydrate_tool_policy(raw.get("toolPolicy") or raw.get("tool_policy")),
+        preset=raw.get("preset"),
     )
 
 
@@ -414,9 +491,12 @@ class SidecarDispatcher:
         self,
         session_manager: SidecarSessionManager,
         event_bus: EventBus,
+        *,
+        gate_handler: Callable[[str, str, str, str], Awaitable[None]] | None = None,
     ) -> None:
         self._session_manager = session_manager
         self._event_bus = event_bus
+        self._gate_handler = gate_handler
         self._jobs: dict[str, _JobState] = {}
 
         # Extensible registries (populated at startup by service owners)
@@ -438,6 +518,16 @@ class SidecarDispatcher:
         """Register a named output callback (called at startup)."""
         self._callbacks[name] = fn
         log.debug("dispatcher_callback_registered", name=name)
+
+    def set_gate_handler(
+        self,
+        handler: Callable[[str, str, str, str], Awaitable[None]],
+    ) -> None:
+        """Set the gate verdict handler (called after dispatcher construction).
+
+        Signature: ``async handler(job_id, sidecar_name, verdict, reason)``.
+        """
+        self._gate_handler = handler
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -834,11 +924,18 @@ class SidecarDispatcher:
             session = session_or_none
 
         # 4. Call LLM
-        try:
-            raw = await session.complete(prompt, timeout=30.0)
-        except (TimeoutError, OSError, RuntimeError):
-            log.warning("dispatcher_llm_error", job_id=job_id, sidecar=defn.name, exc_info=True)
-            return
+        if defn.tool_access != TOOL_ACCESS_NONE and defn.tool_access != "none":
+            # Agentic sidecar — create a full SDK session with tool access.
+            raw = await self._call_agentic(job_id, defn, prompt)
+            if raw is None:
+                return
+        else:
+            # Text-only sidecar — single completion call.
+            try:
+                raw = await session.complete(prompt, timeout=30.0)
+            except (TimeoutError, OSError, RuntimeError):
+                log.warning("dispatcher_llm_error", job_id=job_id, sidecar=defn.name, exc_info=True)
+                return
 
         # 5. Parse output
         parsed = self._parse(raw, pipeline.output_parser)
@@ -862,6 +959,83 @@ class SidecarDispatcher:
                 )
 
     # -- Parsing ------------------------------------------------------------
+
+    async def _call_agentic(
+        self,
+        job_id: str,
+        defn: SidecarDefinition,
+        prompt: str,
+    ) -> str | None:
+        """Execute a sidecar with agentic tool access.
+
+        Builds a ``SessionConfig`` from the session's adapter, injects a
+        ``blocking_permission_handler`` backed by ``SidecarPolicyRouter``,
+        and runs an ``AgenticSidecarSession``.
+        """
+        from backend.services.sidecar.policy_router import SidecarPolicyRouter
+        from backend.services.sidecar.session import AgenticSidecarSession
+
+        # We need the adapter from the session manager.
+        adapter = self._session_manager._adapter  # noqa: SLF001
+
+        # Build a minimal SessionConfig with policy enforcement.
+        worktree: str | None = None
+        provider = self._context_providers.get("worktree_path")
+        if provider is not None:
+            result = await provider(job_id)
+            if isinstance(result, dict):
+                worktree = result.get("worktree_path") or result.get("worktreePath")
+
+        async def _permission_handler(tool_name: str, tool_input_json: str) -> str:
+            """Policy enforcement callback injected into the SDK session."""
+            if defn.tool_policy is None:
+                return "allow"
+            import json as _json
+
+            try:
+                tool_input = _json.loads(tool_input_json) if tool_input_json else {}
+            except (ValueError, TypeError):
+                tool_input = {}
+            decision = SidecarPolicyRouter.evaluate(
+                tool_name=tool_name,
+                tool_input=tool_input,
+                policy=defn.tool_policy,
+                worktree_path=worktree or "",
+            )
+            if decision.proceed:
+                return "allow"
+            log.info(
+                "sidecar_tool_denied",
+                job_id=job_id,
+                sidecar=defn.name,
+                tool=tool_name,
+                reason=decision.reason,
+            )
+            return decision.reason or "denied by sidecar policy"
+
+        config = SessionConfig(
+            workspace_path=worktree or "",
+            prompt=prompt,
+            job_id=job_id,
+            sdk="copilot",
+            model=defn.model or self._session_manager.model,
+            blocking_permission_handler=_permission_handler,
+            max_turns=defn.max_turns,
+            session_kind="sidecar",
+        )
+
+        agentic = AgenticSidecarSession(
+            adapter=adapter,
+            session_config=config,
+            max_turns=defn.max_turns,
+            timeout_s=defn.timeout_s,
+        )
+        try:
+            result = await agentic.run(prompt, timeout=defn.timeout_s or 120.0)
+        except Exception:
+            log.warning("dispatcher_agentic_error", job_id=job_id, sidecar=defn.name, exc_info=True)
+            return None
+        return result
 
     def _parse(self, raw: str, parser: OutputParser) -> dict[str, Any] | str | list[Any] | None:
         """Parse raw LLM response according to the output parser spec."""
@@ -987,7 +1161,16 @@ class SidecarDispatcher:
             if not isinstance(parsed, dict):
                 log.warning("dispatcher_gate_not_dict", sidecar=defn.name)
                 return
-            verdict = str(parsed.get(route.verdict_field, "")).lower()
+            raw_verdict = parsed.get(route.verdict_field)
+            if raw_verdict is None or str(raw_verdict).strip() == "":
+                log.warning(
+                    "dispatcher_gate_missing_verdict",
+                    sidecar=defn.name,
+                    job_id=job_id,
+                    field=route.verdict_field,
+                )
+                return
+            verdict = str(raw_verdict).lower().strip()
             reason = str(parsed.get(route.reason_field, ""))
             await self._event_bus.publish(
                 DomainEvent(
@@ -1002,6 +1185,9 @@ class SidecarDispatcher:
                     },
                 )
             )
+            # Actually enforce the gate: pause or resume the agent.
+            if self._gate_handler is not None:
+                await self._gate_handler(job_id, defn.name, verdict, reason)
 
     # -- Transcript event ---------------------------------------------------
 

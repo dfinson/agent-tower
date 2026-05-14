@@ -66,6 +66,7 @@ def _config_to_response(config: CPLConfig) -> SettingsResponse:
         max_turns=config.verification.max_turns,
         verify_prompt=config.verification.verify_prompt or DEFAULT_VERIFY_PROMPT,
         self_review_prompt=config.verification.self_review_prompt or DEFAULT_SELF_REVIEW_PROMPT,
+        cli_sidecars=config.runtime.cli_sidecars,
     )
 
 
@@ -99,6 +100,7 @@ def update_settings(
         "max_turns": ("verification", "max_turns"),
         "verify_prompt": ("verification", "verify_prompt"),
         "self_review_prompt": ("verification", "self_review_prompt"),
+        "cli_sidecars": ("runtime", "cli_sidecars"),
     }
 
     for field, (section, attr) in _FIELD_MAP.items():

@@ -448,6 +448,7 @@ async def _wire_core_services(
     await sidecar_sessions.start()
 
     # --- Sidecar dispatcher (trigger evaluation + pipeline execution) ---
+    # The gate handler is wired after RuntimeService is created (below).
     sidecar_dispatcher = SidecarDispatcher(
         session_manager=sidecar_sessions,
         event_bus=event_bus,
@@ -505,6 +506,15 @@ async def _wire_core_services(
     runtime_service.set_memory_compacter(memory_compacter)
     runtime_service.set_preflight_curator(preflight_curator)
     runtime_service.set_memory_extractor(memory_extractor)
+
+    # Wire the sidecar gate handler — pauses agent tools on reject/hold verdicts.
+    async def _gate_handler(job_id: str, sidecar_name: str, verdict: str, reason: str) -> None:
+        try:
+            await runtime_service.handle_sidecar_gate(job_id, sidecar_name, verdict, reason)
+        except Exception:
+            log.error("gate_handler_failed", job_id=job_id, sidecar=sidecar_name, exc_info=True)
+
+    sidecar_dispatcher.set_gate_handler(_gate_handler)
 
     # Recover orphaned jobs from a previous crash (background — don't block startup)
     asyncio.create_task(
@@ -1117,6 +1127,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         claude_watcher=claude_session_watcher,
         session_state_watcher=session_state_watcher,
     )
+    services.runtime_service.set_ingest_service(ingest_service)
 
     # --- Share service ---
     share_service = ShareService()

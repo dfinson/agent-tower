@@ -117,6 +117,7 @@ class RuntimeConfig:
     utility_model: str = "gpt-4o-mini"  # cheap/fast model for naming, summaries, etc.
     default_sdk: str = "copilot"  # copilot | claude
     suppressed_preflight_agent_prompts: list[str] = field(default_factory=list)
+    cli_sidecars: list[str] | None = None  # sidecar names for CLI sessions; None = built-in defaults
 
 
 @dataclass

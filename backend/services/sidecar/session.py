@@ -35,7 +35,7 @@ import structlog
 from backend.services.completers.lightweight_completer import LightweightCompleter
 
 if TYPE_CHECKING:
-    from backend.models.domain import SidecarConfig
+    from backend.models.domain import SidecarConfig, SessionConfig
     from backend.services.adapters.agent_adapter import AgentAdapterInterface
 
 log = structlog.get_logger()
@@ -156,6 +156,114 @@ class SidecarSession:
             self.last_call_at = time.monotonic()
             return result.text or ""
         return ""
+
+
+class AgenticSidecarSession:
+    """Agentic sidecar — runs a real SDK session with tool access.
+
+    Unlike :class:`SidecarSession` which only calls ``adapter.complete()``,
+    this creates a full SDK session via ``adapter.create_session()`` and
+    collects the streamed response.  Tool policy enforcement is handled
+    externally by the dispatcher pipeline — this class is the execution
+    layer only.
+    """
+
+    def __init__(
+        self,
+        adapter: AgentAdapterInterface,
+        session_config: SessionConfig,
+        *,
+        max_turns: int | None = None,
+        timeout_s: float | None = None,
+    ) -> None:
+        self._adapter = adapter
+        self._session_config = session_config
+        self._session_id: str | None = None
+        self.created_at: float = time.monotonic()
+        self._max_turns = max_turns
+        self._timeout_s = timeout_s
+        # Metrics
+        self.call_count: int = 0
+        self.total_latency_ms: float = 0.0
+        self.total_input_tokens: int = 0
+        self.total_output_tokens: int = 0
+        self.total_cost_usd: float = 0.0
+        self.last_call_at: float | None = None
+
+    @property
+    def expired(self) -> bool:
+        if self._max_turns is not None and self.call_count >= self._max_turns:
+            return True
+        return self._timeout_s is not None and (time.monotonic() - self.created_at) >= self._timeout_s
+
+    async def run(self, prompt: str, timeout: float = 120.0) -> str:
+        """Create an SDK session, run it to completion, return final text.
+
+        The session is created fresh for each call.  Events are consumed
+        until the stream ends or timeout is hit.  The final assistant
+        message is returned.
+        """
+        from backend.models.domain import SessionEvent, SessionEventKind
+
+        t0 = time.monotonic()
+        config = self._session_config
+        # Override prompt for this invocation
+        config = type(config)(
+            workspace_path=config.workspace_path,
+            prompt=prompt,
+            job_id=config.job_id,
+            sdk=config.sdk,
+            model=config.model,
+            mcp_servers=config.mcp_servers,
+            protected_paths=config.protected_paths,
+            blocking_permission_handler=config.blocking_permission_handler,
+            coderecon_tools=config.coderecon_tools,
+            max_turns=self._max_turns,
+            disallowed_tools=config.disallowed_tools,
+            session_kind=config.session_kind,
+        )
+
+        try:
+            session_id = await self._adapter.create_session(config)
+        except Exception:
+            log.warning("agentic_sidecar_session_create_failed", exc_info=True)
+            self.call_count += 1
+            return ""
+        self._session_id = session_id
+
+        final_text = ""
+        try:
+            async for event in self._adapter.stream_events(session_id):
+                if event.kind == SessionEventKind.message:
+                    role = (event.payload or {}).get("role", "")
+                    if role in ("agent", "assistant"):
+                        content = (event.payload or {}).get("content", "")
+                        if content:
+                            final_text = content
+                elif event.kind == SessionEventKind.metrics:
+                    payload = event.payload or {}
+                    self.total_input_tokens += int(payload.get("input_tokens", 0))
+                    self.total_output_tokens += int(payload.get("output_tokens", 0))
+                    self.total_cost_usd += float(payload.get("cost_usd", 0.0))
+        except (TimeoutError, OSError, RuntimeError):
+            log.warning("agentic_sidecar_session_error", session_id=session_id, exc_info=True)
+        finally:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            self.call_count += 1
+            self.total_latency_ms += elapsed_ms
+            self.last_call_at = time.monotonic()
+            self._session_id = None
+
+        if not final_text:
+            log.warning("agentic_sidecar_no_output", session_id=session_id)
+
+        return final_text
+
+    async def abort(self) -> None:
+        """Abort the running session if any."""
+        if self._session_id:
+            with contextlib.suppress(Exception):
+                await self._adapter.abort_session(self._session_id)
 
 
 class SidecarSessionManager:
