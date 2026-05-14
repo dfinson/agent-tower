@@ -1,4 +1,4 @@
-import { AlertTriangle, X, MessageSquare, TrendingUp, DollarSign, Activity, Search, GitFork, type LucideIcon } from "lucide-react";
+import { AlertTriangle, X, TrendingUp, DollarSign, Activity, type LucideIcon } from "lucide-react";
 import { Tooltip } from "../ui/tooltip";
 import { type Observation } from "../../api/client";
 import { Badge } from "../ui/badge";
@@ -9,12 +9,9 @@ import { formatUsd } from "./helpers";
 // ---------------------------------------------------------------------------
 
 const CATEGORY_ICONS: Record<string, LucideIcon> = {
-  communication_waste: MessageSquare,
   cost_spike: TrendingUp,
   budget: DollarSign,
   performance: Activity,
-  unproductive_exploration: Search,
-  delegation_overhead: GitFork,
 };
 
 // ---------------------------------------------------------------------------

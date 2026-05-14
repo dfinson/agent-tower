@@ -1,11 +1,8 @@
 """Cross-job statistical analysis service.
 
 Analyses accumulated telemetry to surface actionable cost observations:
-- File reread hotspots (same file read many times across jobs)
 - Tool failure patterns (high failure rates for specific tools)
-- Turn cost escalation (cost/turn increases significantly late in jobs)
 - Retry waste (retries that cost more than the original attempt)
-- Compaction storms (excessive context compactions signaling context pressure)
 - Cache efficiency regression (cache hit rate drops between periods)
 
 Run periodically or after each job completion.
@@ -20,8 +17,6 @@ import structlog
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from backend.persistence.cost_attribution_repo import CostAttributionRepository
-    from backend.persistence.file_access_repo import FileAccessRepository
     from backend.persistence.observations_repo import ObservationsRepository
     from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
@@ -31,53 +26,18 @@ log = structlog.get_logger()
 
 async def run_analysis(session: AsyncSession) -> int:
     """Run all analysis passes. Returns the number of observations written."""
-    from backend.persistence.cost_attribution_repo import CostAttributionRepository
-    from backend.persistence.file_access_repo import FileAccessRepository
     from backend.persistence.observations_repo import ObservationsRepository
     from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
     obs_repo = ObservationsRepository(session)
-    file_repo = FileAccessRepository(session)
     spans_repo = TelemetrySpansRepository(session)
     summary_repo = TelemetryAnalyticsRepository(session)
-    cost_repo = CostAttributionRepository(session)
     count = 0
-    count += await _analyse_file_rereads(file_repo, obs_repo)
     count += await _analyse_tool_failures(spans_repo, obs_repo)
-    count += await _analyse_turn_escalation(summary_repo, obs_repo)
     count += await _analyse_retry_waste(spans_repo, obs_repo)
-    count += await _analyse_compaction_storms(summary_repo, obs_repo)
     count += await _analyse_cache_efficiency_regression(summary_repo, obs_repo)
-    count += await _analyse_communication_waste(cost_repo, obs_repo)
-    count += await _analyse_unproductive_exploration(cost_repo, obs_repo)
-    count += await _analyse_delegation_overhead(summary_repo, obs_repo)
     log.info("statistical_analysis_complete", observations=count)
-    return count
-
-
-async def _analyse_file_rereads(file_repo: FileAccessRepository, obs_repo: ObservationsRepository) -> int:
-    """Find files read excessively across jobs."""
-    rows = await file_repo.reread_hotspots()
-    count = 0
-    for r in rows:
-        await obs_repo.upsert(
-            category="file_reread",
-            severity="warning" if r["total_reads"] >= 50 else "info",
-            title=f"Excessive rereads: {r['file_path']}",
-            detail=(
-                f"File '{r['file_path']}' was read {r['total_reads']} times "
-                f"across {r['job_count']} jobs in the last 30 days."
-            ),
-            evidence={
-                "file_path": r["file_path"],
-                "total_reads": r["total_reads"],
-                "job_count": r["job_count"],
-                "total_bytes": r["total_bytes"],
-            },
-            job_count=r["job_count"],
-        )
-        count += 1
     return count
 
 
@@ -108,28 +68,6 @@ async def _analyse_tool_failures(spans_repo: TelemetrySpansRepository, obs_repo:
     return count
 
 
-async def _analyse_turn_escalation(summary_repo: TelemetryAnalyticsRepository, obs_repo: ObservationsRepository) -> int:
-    """Find jobs where cost/turn escalates significantly in the second half."""
-    rows = await summary_repo.turn_escalation_jobs()
-    if len(rows) < 3:
-        return 0
-
-    total_waste = sum(max(0, r["cost_second_half_usd"] - r["cost_first_half_usd"]) for r in rows)
-    await obs_repo.upsert(
-        category="turn_escalation",
-        severity="warning" if total_waste >= 1.0 else "info",
-        title=f"Cost escalation in {len(rows)} jobs",
-        detail=(f"{len(rows)} jobs had 2nd-half costs ≥2x 1st-half costs. Estimated waste: ${total_waste:.2f}."),
-        evidence={
-            "affected_jobs": [dict(r) for r in rows[:5]],
-            "total_jobs": len(rows),
-        },
-        job_count=len(rows),
-        total_waste_usd=total_waste,
-    )
-    return 1
-
-
 async def _analyse_retry_waste(spans_repo: TelemetrySpansRepository, obs_repo: ObservationsRepository) -> int:
     """Find tools where retries are common and costly."""
     rows = await spans_repo.retry_hotspots()
@@ -157,43 +95,6 @@ async def _analyse_retry_waste(spans_repo: TelemetrySpansRepository, obs_repo: O
         )
         count += 1
     return count
-
-
-async def _analyse_compaction_storms(
-    summary_repo: TelemetryAnalyticsRepository,
-    obs_repo: ObservationsRepository,
-) -> int:
-    """Detect jobs with excessive context compactions."""
-    rows = await summary_repo.compaction_storm_jobs()
-    if len(rows) < 2:
-        return 0
-
-    total_tokens_wasted = sum(int(r["tokens_compacted"] or 0) for r in rows)
-    max_compactions = max(int(r["compactions"] or 0) for r in rows)
-    await obs_repo.upsert(
-        category="compaction_storm",
-        severity="warning" if max_compactions >= 10 else "info",
-        title=f"Excessive compactions in {len(rows)} jobs",
-        detail=(
-            f"{len(rows)} jobs required ≥5 context compactions. "
-            f"Total tokens compacted: {total_tokens_wasted:,}. "
-            f"Peak: {max_compactions} compactions in a single job."
-        ),
-        evidence={
-            "affected_jobs": [
-                {
-                    "job_id": r["job_id"],
-                    "compactions": int(r["compactions"]),
-                    "tokens_compacted": int(r["tokens_compacted"] or 0),
-                }
-                for r in rows[:5]
-            ],
-            "total_jobs": len(rows),
-            "total_tokens_compacted": total_tokens_wasted,
-        },
-        job_count=len(rows),
-    )
-    return 1
 
 
 async def _analyse_cache_efficiency_regression(
@@ -238,149 +139,5 @@ async def _analyse_cache_efficiency_regression(
             "recent_input_tokens": recent_input,
             "prior_input_tokens": prior_input,
         },
-    )
-    return 1
-
-
-# ---------------------------------------------------------------------------
-# 7. Communication waste (Item 12)
-# ---------------------------------------------------------------------------
-
-
-async def _analyse_communication_waste(
-    cost_repo: CostAttributionRepository,
-    obs_repo: ObservationsRepository,
-) -> int:
-    """Flag jobs where communication + reasoning dominate cost."""
-
-    rows = await cost_repo.communication_heavy_jobs(period_days=14)
-    if not rows:
-        return 0
-
-    # Design doc: flag when comm_pct > 0.40 AND total_cost > $0.50
-    flagged = [r for r in rows if r["comm_pct"] > 0.40 and r["total_cost"] > 0.50]
-    if not flagged:
-        return 0
-
-    total_waste = sum(r["comm_cost"] for r in flagged)
-    await obs_repo.upsert(
-        category="communication_waste",
-        severity="warning" if len(flagged) >= 3 else "info",
-        title=f"{len(flagged)} jobs spent >40% of cost on communication/reasoning",
-        detail=(
-            f"These jobs spent {total_waste:.4f} USD on communication and "
-            f"reasoning turns with no file edits or verification. This may "
-            f"indicate unclear prompts, excessive back-and-forth, or tasks "
-            f"that didn't need an agent."
-        ),
-        evidence={
-            "flagged_jobs": [
-                {
-                    "job_id": r["job_id"],
-                    "comm_cost_usd": round(r["comm_cost"], 4),
-                    "total_cost_usd": round(r["total_cost"], 4),
-                    "comm_pct": round(r["comm_pct"], 2),
-                }
-                for r in flagged[:10]
-            ],
-            "total_waste_usd": round(total_waste, 4),
-        },
-        job_count=len(flagged),
-        total_waste_usd=total_waste,
-    )
-    return 1
-
-
-# ---------------------------------------------------------------------------
-# 8. Unproductive exploration (Item 1)
-# ---------------------------------------------------------------------------
-
-
-async def _analyse_unproductive_exploration(
-    cost_repo: CostAttributionRepository,
-    obs_repo: ObservationsRepository,
-) -> int:
-    """Flag jobs where investigation dominated cost and no code landed."""
-    rows = await cost_repo.unproductive_exploration_jobs(period_days=14)
-    if not rows:
-        return 0
-
-    total_waste = sum(r["investigation_cost"] for r in rows)
-    await obs_repo.upsert(
-        category="unproductive_exploration",
-        severity="warning" if total_waste >= 5.0 else "info",
-        title=(f"{len(rows)} jobs spent majority of cost investigating but produced no merged output"),
-        detail=(
-            f"These jobs spent {total_waste:.2f} USD on investigation/exploration "
-            f"turns and ended as discarded or failed. Consider more targeted "
-            f"prompts or breaking large exploration tasks into cheaper scoping "
-            f"jobs before committing to full implementation."
-        ),
-        evidence={
-            "flagged_jobs": [
-                {
-                    "job_id": r["job_id"],
-                    "investigation_cost_usd": round(float(r["investigation_cost"]), 4),
-                    "total_cost_usd": round(float(r["total_cost"]), 4),
-                    "investigation_pct": round(float(r["investigation_pct"]), 2),
-                    "resolution": r["resolution"],
-                    "diff_lines": int(r["diff_lines"]),
-                }
-                for r in rows[:10]
-            ],
-            "total_waste_usd": round(total_waste, 4),
-        },
-        job_count=len(rows),
-        total_waste_usd=total_waste,
-    )
-    return 1
-
-
-# ---------------------------------------------------------------------------
-# 9. Delegation overhead (Item 1)
-# ---------------------------------------------------------------------------
-
-
-async def _analyse_delegation_overhead(
-    summary_repo: TelemetryAnalyticsRepository,
-    obs_repo: ObservationsRepository,
-) -> int:
-    """Flag jobs where sub-agent cost exceeds parent direct cost."""
-    rows = await summary_repo.high_delegation_jobs(period_days=14)
-    if not rows:
-        return 0
-
-    total_delegation_excess = sum(float(r["subagent_cost_usd"]) - float(r["direct_cost_usd"]) for r in rows)
-    await obs_repo.upsert(
-        category="delegation_overhead",
-        severity="warning" if total_delegation_excess >= 5.0 else "info",
-        title=(f"{len(rows)} jobs spent more on sub-agents than on direct work"),
-        detail=(
-            f"These jobs delegated work to sub-agents that cost more than "
-            f"the parent job's own LLM calls. Excess delegation cost: "
-            f"${total_delegation_excess:.2f}. Consider whether the parent "
-            f"could have done the work directly, or whether sub-agent prompts "
-            f"need tightening."
-        ),
-        evidence={
-            "flagged_jobs": [
-                {
-                    "job_id": r["job_id"],
-                    "subagent_cost_usd": round(float(r["subagent_cost_usd"]), 4),
-                    "direct_cost_usd": round(float(r["direct_cost_usd"]), 4),
-                    "total_cost_usd": round(float(r["total_cost_usd"]), 4),
-                    "delegation_pct": round(
-                        float(r["subagent_cost_usd"]) / float(r["total_cost_usd"]),
-                        2,
-                    )
-                    if float(r["total_cost_usd"]) > 0
-                    else 0.0,
-                }
-                for r in rows[:10]
-            ],
-            "total_excess_usd": round(total_delegation_excess, 4),
-        },
-        job_count=len(rows),
-        total_waste_usd=total_delegation_excess,
     )
     return 1
