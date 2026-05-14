@@ -54,6 +54,7 @@ export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown, onS
     });
 
     record.on("record-end", async (blob: Blob) => {
+      ws.empty();
       if (blob.size > 10 * 1024 * 1024) {
         toast.error("Audio too large (max 10 MB)");
         setState("idle");
@@ -70,6 +71,7 @@ export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown, onS
       } catch {
         toast.error("Transcription failed");
       } finally {
+        ws.empty();
         setState("idle");
       }
     });
@@ -231,6 +233,7 @@ export function MicButton({ onTranscript, onStateChange, waveformContainerRef }:
     });
 
     record.on("record-end", async (blob: Blob) => {
+      ws.empty();
       if (blob.size > 10 * 1024 * 1024) {
         toast.error("Audio too large (max 10 MB)");
         updateState("idle");
@@ -243,6 +246,7 @@ export function MicButton({ onTranscript, onStateChange, waveformContainerRef }:
       } catch {
         toast.error("Transcription failed");
       } finally {
+        ws.empty();
         updateState("idle");
       }
     });
