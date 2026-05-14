@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
-
 from backend.services.action_policy.classifier import (
     Action,
     ActionKind,
-    Classification,
     CostContext,
     Preset,
     RepoPolicy,
@@ -22,7 +19,6 @@ from backend.services.action_policy.classifier import (
     classify_properties,
     resolve_tier,
 )
-
 
 # ---------------------------------------------------------------------------
 # _safe_regex_search

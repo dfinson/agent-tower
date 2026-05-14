@@ -18,8 +18,8 @@ from backend.services.sidecar.template_service import (
     _validate_definition,
 )
 
-
 # ── Minimal valid definition for testing ──
+
 
 def _valid_definition(**overrides) -> dict:
     base = {

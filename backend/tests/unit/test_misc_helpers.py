@@ -8,8 +8,11 @@ from unittest.mock import patch
 
 import pytest
 
+from backend.models.schemas.base import ArtifactType
+from backend.services.artifact_service import _classify_artifact, _guess_mime
+from backend.services.platform_adapter import _validate_refs, detect_platform
 from backend.services.trail.node_builder import _extract_snippet, classify_step
-
+from backend.services.tunnel_service import RemoteProvider, validate_remote_provider
 
 # ---------------------------------------------------------------------------
 # _extract_snippet
@@ -32,7 +35,7 @@ class TestExtractSnippet:
         assert "- foo" in result
         assert "+ bar" in result
 
-    def test_oldString_variant(self):
+    def test_old_string_variant(self):
         args = json.dumps({"oldString": "a\nb", "newString": "c\nd"})
         result = _extract_snippet(args, "Edit")
         assert "- a" in result
@@ -92,9 +95,6 @@ class TestClassifyStep:
 # ---------------------------------------------------------------------------
 
 
-from backend.services.artifact_service import _classify_artifact, _guess_mime
-
-
 class TestGuessMime:
     @pytest.mark.parametrize(
         "filename,expected",
@@ -121,14 +121,10 @@ class TestGuessMime:
 
 class TestClassifyArtifact:
     def test_document(self):
-        from backend.models.schemas.base import ArtifactType
-
         assert _classify_artifact("readme.md") == ArtifactType.document
         assert _classify_artifact("notes.txt") == ArtifactType.document
 
     def test_custom(self):
-        from backend.models.schemas.base import ArtifactType
-
         assert _classify_artifact("image.png") == ArtifactType.custom
         assert _classify_artifact("data.json") == ArtifactType.custom
 
@@ -136,9 +132,6 @@ class TestClassifyArtifact:
 # ---------------------------------------------------------------------------
 # platform_adapter helpers
 # ---------------------------------------------------------------------------
-
-
-from backend.services.platform_adapter import _validate_refs, detect_platform
 
 
 class TestValidateRefs:
@@ -172,9 +165,6 @@ class TestDetectPlatform:
 # ---------------------------------------------------------------------------
 # tunnel_service validation
 # ---------------------------------------------------------------------------
-
-
-from backend.services.tunnel_service import RemoteProvider, validate_remote_provider
 
 
 class TestValidateRemoteProvider:

@@ -8,8 +8,8 @@ from backend.services.sidecar.dispatcher import (
     AgentMessageRoute,
     CallbackRoute,
     Concurrency,
-    ContentMatchCondition,
     ConditionalRoute,
+    ContentMatchCondition,
     EventBusRoute,
     EventCondition,
     FilePatternCondition,
@@ -23,14 +23,12 @@ from backend.services.sidecar.dispatcher import (
     SidecarDefinition,
     ThresholdCondition,
     TimerCondition,
-    TriggerPipeline,
-    _SafeFormatter,
     _hydrate_condition,
     _hydrate_parser,
     _hydrate_route,
+    _SafeFormatter,
     hydrate_definition,
 )
-
 
 # ── _SafeFormatter ──
 
@@ -187,12 +185,14 @@ class TestHydrateRoute:
         assert route.timeout_s == 60.0
 
     def test_conditional(self):
-        route = _hydrate_route({
-            "kind": "conditional",
-            "field": "status",
-            "value": "ok",
-            "inner": {"kind": "event_bus", "eventKind": "result"},
-        })
+        route = _hydrate_route(
+            {
+                "kind": "conditional",
+                "field": "status",
+                "value": "ok",
+                "inner": {"kind": "event_bus", "eventKind": "result"},
+            }
+        )
         assert isinstance(route, ConditionalRoute)
         assert route.field_name == "status"
         assert isinstance(route.inner, EventBusRoute)

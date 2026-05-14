@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock
+from pathlib import Path  # noqa: TC003
 
 import pytest
 

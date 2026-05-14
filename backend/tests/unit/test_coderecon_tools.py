@@ -5,18 +5,15 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-import pytest
-
 from backend.services.coderecon_tools import (
-    CodeReconToolKit,
     _TOOL_DEFS,
     _TOOL_GUIDANCE_FULL,
     _TOOL_GUIDANCE_STANDARD,
+    CodeReconToolKit,
     _item_to_dict,
     _resolve_tier,
     _serialize_result,
 )
-
 
 # ── _serialize_result ──
 

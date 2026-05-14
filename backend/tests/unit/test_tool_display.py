@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from backend.services.tool_formatters._display import (
     _count_lines,
     _extract_description_from_args,
@@ -39,7 +37,6 @@ from backend.services.tool_formatters._display import (
     format_tool_display_full,
     truncate,
 )
-
 
 # ---------------------------------------------------------------------------
 # truncate

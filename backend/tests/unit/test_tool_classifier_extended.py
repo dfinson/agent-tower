@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from backend.services.tool_classifier import (
     _classify_segment,
     _is_verification_segment,
@@ -20,7 +18,6 @@ from backend.services.tool_classifier import (
     refine_shell_category,
     shell_action,
 )
-
 
 # ---------------------------------------------------------------------------
 # _split_shell

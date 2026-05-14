@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 import pytest
 
@@ -15,7 +14,6 @@ from backend.api.job_artifacts import (
     _translate_ref_tiers,
 )
 from backend.models.api_schemas import StructuralChange
-
 
 # ---------------------------------------------------------------------------
 # Fake coderecon objects for _classify_category / _translate_ref_tiers
@@ -163,7 +161,13 @@ class TestComputeTriage:
 class TestComputeMergeConfidence:
     def test_all_verified_high(self):
         changes = [
-            StructuralChange(file="a.py", kind="modified", category="body", ref_tiers={"verified": 3}, test_files=["test.py"]),
+            StructuralChange(
+                file="a.py",
+                kind="modified",
+                category="body",
+                ref_tiers={"verified": 3},
+                test_files=["test.py"],
+            ),
         ]
         assert _compute_merge_confidence(changes) == "HIGH"
 

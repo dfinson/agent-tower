@@ -4,11 +4,8 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime  # noqa: TC003
 from typing import Any
-from unittest.mock import MagicMock
-
-import pytest
 
 from backend.services.summarization_service import (
     _clean_transcript,
@@ -19,7 +16,6 @@ from backend.services.summarization_service import (
     build_resume_prompt,
     extract_changed_files,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

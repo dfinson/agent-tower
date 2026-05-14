@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
+from pathlib import Path  # noqa: TC003
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -13,7 +13,6 @@ from backend.services.narrator_completer import (
     NarratorCompleter,
     _lookup_max_output_tokens,
 )
-
 
 # ── _lookup_max_output_tokens ──
 
@@ -96,11 +95,9 @@ class TestDetectProvider:
     def test_openai_provider(self):
         adapter = AsyncMock()
         env = {"OPENAI_API_KEY": "sk-openai"}
-        with patch.dict(os.environ, env, clear=False):
-            # Remove ANTHROPIC_API_KEY if present
-            with patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("ANTHROPIC_API_KEY", None)
-                completer = NarratorCompleter(adapter, model="gpt-4o")
+        with patch.dict(os.environ, env, clear=False), patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+            completer = NarratorCompleter(adapter, model="gpt-4o")
         assert completer._provider == "openai"
 
     def test_no_provider(self):

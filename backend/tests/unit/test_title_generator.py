@@ -9,11 +9,10 @@ import pytest
 
 from backend.services.trail.models import (
     Activity,
-    ActivityStep,
     PlanStep,
     TrailJobState,
 )
-from backend.services.trail.title_generator import TitleGenerator, TitleResult
+from backend.services.trail.title_generator import TitleGenerator
 
 
 def _state(**overrides: object) -> TrailJobState:
@@ -80,27 +79,39 @@ class TestGenerate:
     async def test_returns_none_without_sidecar(self, gen: TitleGenerator) -> None:
         state = _state()
         result = await gen.generate(
-            "j1", state, None,
-            agent_msg="hello", files_read=[], files_written=["a.py"],
-            duration_ms=100, assigned_plan_step_id="ps-2",
+            "j1",
+            state,
+            None,
+            agent_msg="hello",
+            files_read=[],
+            files_written=["a.py"],
+            duration_ms=100,
+            assigned_plan_step_id="ps-2",
         )
         assert result is None
 
     @pytest.mark.asyncio
     async def test_successful_generation(self, gen: TitleGenerator) -> None:
         sidecar = AsyncMock()
-        sidecar.complete.return_value = json.dumps({
-            "title": "Fixed auth bug",
-            "merge_with_previous": False,
-            "boundary": "same",
-            "label": None,
-        })
+        sidecar.complete.return_value = json.dumps(
+            {
+                "title": "Fixed auth bug",
+                "merge_with_previous": False,
+                "boundary": "same",
+                "label": None,
+            }
+        )
 
         state = _state()
         result = await gen.generate(
-            "j1", state, sidecar,
-            agent_msg="I fixed the auth bug", files_read=[], files_written=["auth.py"],
-            duration_ms=500, assigned_plan_step_id="ps-2",
+            "j1",
+            state,
+            sidecar,
+            agent_msg="I fixed the auth bug",
+            files_read=[],
+            files_written=["auth.py"],
+            duration_ms=500,
+            assigned_plan_step_id="ps-2",
         )
         assert result is not None
         assert result.title == "Fixed auth bug"
@@ -111,18 +122,25 @@ class TestGenerate:
     @pytest.mark.asyncio
     async def test_boundary_shift(self, gen: TitleGenerator) -> None:
         sidecar = AsyncMock()
-        sidecar.complete.return_value = json.dumps({
-            "title": "Starting tests",
-            "merge_with_previous": False,
-            "boundary": "shift",
-            "label": "Running tests",
-        })
+        sidecar.complete.return_value = json.dumps(
+            {
+                "title": "Starting tests",
+                "merge_with_previous": False,
+                "boundary": "shift",
+                "label": "Running tests",
+            }
+        )
 
         state = _state()
         result = await gen.generate(
-            "j1", state, sidecar,
-            agent_msg="Now running tests", files_read=[], files_written=[],
-            duration_ms=100, assigned_plan_step_id="ps-2",
+            "j1",
+            state,
+            sidecar,
+            agent_msg="Now running tests",
+            files_read=[],
+            files_written=[],
+            duration_ms=100,
+            assigned_plan_step_id="ps-2",
         )
         assert result is not None
         assert result.new_activity is True
@@ -131,18 +149,25 @@ class TestGenerate:
     @pytest.mark.asyncio
     async def test_merge_with_previous(self, gen: TitleGenerator) -> None:
         sidecar = AsyncMock()
-        sidecar.complete.return_value = json.dumps({
-            "title": "Retry build",
-            "merge_with_previous": True,
-            "boundary": "same",
-            "label": None,
-        })
+        sidecar.complete.return_value = json.dumps(
+            {
+                "title": "Retry build",
+                "merge_with_previous": True,
+                "boundary": "same",
+                "label": None,
+            }
+        )
 
         state = _state()
         result = await gen.generate(
-            "j1", state, sidecar,
-            agent_msg="Retrying", files_read=[], files_written=[],
-            duration_ms=50, assigned_plan_step_id="ps-2",
+            "j1",
+            state,
+            sidecar,
+            agent_msg="Retrying",
+            files_read=[],
+            files_written=[],
+            duration_ms=50,
+            assigned_plan_step_id="ps-2",
         )
         assert result is not None
         assert result.merge_with_previous is True
@@ -150,17 +175,24 @@ class TestGenerate:
     @pytest.mark.asyncio
     async def test_empty_title_returns_none(self, gen: TitleGenerator) -> None:
         sidecar = AsyncMock()
-        sidecar.complete.return_value = json.dumps({
-            "title": "",
-            "merge_with_previous": False,
-            "boundary": "same",
-        })
+        sidecar.complete.return_value = json.dumps(
+            {
+                "title": "",
+                "merge_with_previous": False,
+                "boundary": "same",
+            }
+        )
 
         state = _state()
         result = await gen.generate(
-            "j1", state, sidecar,
-            agent_msg="hi", files_read=[], files_written=[],
-            duration_ms=100, assigned_plan_step_id=None,
+            "j1",
+            state,
+            sidecar,
+            agent_msg="hi",
+            files_read=[],
+            files_written=[],
+            duration_ms=100,
+            assigned_plan_step_id=None,
         )
         assert result is None
 
@@ -171,9 +203,14 @@ class TestGenerate:
 
         state = _state()
         result = await gen.generate(
-            "j1", state, sidecar,
-            agent_msg="hi", files_read=[], files_written=[],
-            duration_ms=100, assigned_plan_step_id=None,
+            "j1",
+            state,
+            sidecar,
+            agent_msg="hi",
+            files_read=[],
+            files_written=[],
+            duration_ms=100,
+            assigned_plan_step_id=None,
         )
         assert result is None
         assert state.sidecar_consecutive_failures == 1
@@ -185,9 +222,14 @@ class TestGenerate:
 
         state = _state()
         result = await gen.generate(
-            "j1", state, sidecar,
-            agent_msg="hi", files_read=[], files_written=[],
-            duration_ms=100, assigned_plan_step_id=None,
+            "j1",
+            state,
+            sidecar,
+            agent_msg="hi",
+            files_read=[],
+            files_written=[],
+            duration_ms=100,
+            assigned_plan_step_id=None,
         )
         assert result is None
         assert state.sidecar_consecutive_failures == 1
@@ -195,13 +237,20 @@ class TestGenerate:
     @pytest.mark.asyncio
     async def test_code_fence_stripped(self, gen: TitleGenerator) -> None:
         sidecar = AsyncMock()
-        sidecar.complete.return_value = '```json\n{"title": "Stripped", "merge_with_previous": false, "boundary": "same"}\n```'
+        sidecar.complete.return_value = (
+            '```json\n{"title": "Stripped", "merge_with_previous": false, "boundary": "same"}\n```'
+        )
 
         state = _state()
         result = await gen.generate(
-            "j1", state, sidecar,
-            agent_msg="hi", files_read=[], files_written=[],
-            duration_ms=100, assigned_plan_step_id=None,
+            "j1",
+            state,
+            sidecar,
+            agent_msg="hi",
+            files_read=[],
+            files_written=[],
+            duration_ms=100,
+            assigned_plan_step_id=None,
         )
         assert result is not None
         assert result.title == "Stripped"
@@ -209,18 +258,25 @@ class TestGenerate:
     @pytest.mark.asyncio
     async def test_first_turn_no_activities(self, gen: TitleGenerator) -> None:
         sidecar = AsyncMock()
-        sidecar.complete.return_value = json.dumps({
-            "title": "Initial setup",
-            "merge_with_previous": False,
-            "boundary": "same",
-            "label": None,
-        })
+        sidecar.complete.return_value = json.dumps(
+            {
+                "title": "Initial setup",
+                "merge_with_previous": False,
+                "boundary": "same",
+                "label": None,
+            }
+        )
 
         state = _state(activities=[], activity_steps=[])
         result = await gen.generate(
-            "j1", state, sidecar,
-            agent_msg="Starting work", files_read=[], files_written=[],
-            duration_ms=100, assigned_plan_step_id=None,
+            "j1",
+            state,
+            sidecar,
+            agent_msg="Starting work",
+            files_read=[],
+            files_written=[],
+            duration_ms=100,
+            assigned_plan_step_id=None,
         )
         assert result is not None
         assert result.title == "Initial setup"

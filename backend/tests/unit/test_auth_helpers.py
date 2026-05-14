@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-import pytest
-
 from backend.services.auth import (
+    _check_password,
+    _create_session_token,
     _header_indicates_https,
     _origin_uses_https,
     generate_password,
-    is_valid_token,
-    set_password,
-    _check_password,
-    _create_session_token,
     invalidate_session,
     is_password_auth_enabled,
+    is_valid_token,
+    set_password,
 )
-
 
 # ---------------------------------------------------------------------------
 # _header_indicates_https

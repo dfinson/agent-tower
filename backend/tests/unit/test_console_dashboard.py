@@ -3,20 +3,19 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from backend.console_dashboard import (
-    ConsoleLog,
-    ConsoleLogHandler,
-    _JobInfo,
     _STATE_ICON,
     _STATE_STYLE,
     _TERMINAL_STATES,
+    ConsoleLog,
+    ConsoleLogHandler,
+    _JobInfo,
 )
 from backend.models.events import DomainEvent, DomainEventKind
-
 
 # ── _JobInfo ──
 
@@ -60,7 +59,7 @@ class TestConstants:
         assert "red" in _STATE_STYLE["failed"]
 
     def test_terminal_states(self):
-        assert _TERMINAL_STATES == frozenset({"completed", "failed", "canceled"})
+        assert frozenset({"completed", "failed", "canceled"}) == _TERMINAL_STATES
 
 
 # ── ConsoleLog ──

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from backend.services.preflight_curator import (
     _DISALLOWED_BUILTIN_TOOLS,
     _MAX_TURNS,

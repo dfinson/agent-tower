@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
-
 from backend.models.api_schemas import StructuralChange
 from backend.services.story.review import (
-    CommunityRollup,
     DensityLevel,
     EdgeCaseKind,
-    PatternGroup,
     _community_summary,
     _detect_bulk_rename,
     _find_production_mirror,
@@ -22,7 +18,6 @@ from backend.services.story.review import (
     detect_pattern_groups,
     is_small_job,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers — build StructuralChange objects with minimal args
@@ -277,9 +272,7 @@ class TestDetectPatternGroups:
 
     def test_patterns_detected(self):
         # 3+ changes with the same normalized summary pattern
-        changes = [
-            _sc(summary="Added new method `doStuff`", file=f"f{i}.py") for i in range(4)
-        ]
+        changes = [_sc(summary="Added new method `doStuff`", file=f"f{i}.py") for i in range(4)]
         groups = detect_pattern_groups(changes)
         assert len(groups) >= 1
         assert groups[0]["count"] >= 3

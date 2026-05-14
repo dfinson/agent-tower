@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-import json
-
-import pytest
-
 from backend.services.story.motivation import (
     _build_user_prompt,
     _compute_edit_key,
     _format_mini_diff,
 )
-
 
 # ---------------------------------------------------------------------------
 # _build_user_prompt

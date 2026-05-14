@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.event_bus import EventBus
+
+# Import after models to avoid circular
+from backend.services.trail.activity_tracker import ActivityTracker
 from backend.services.trail.models import (
     Activity,
     ActivityStep,
@@ -17,10 +18,6 @@ from backend.services.trail.models import (
     TrailJobState,
 )
 from backend.services.trail.title_generator import TitleGenerator, TitleResult
-
-
-# Import after models to avoid circular
-from backend.services.trail.activity_tracker import ActivityTracker
 
 
 def _state(**overrides: object) -> TrailJobState:
@@ -69,19 +66,29 @@ class TestEmitActivityStepGuards:
     @pytest.mark.asyncio
     async def test_ignores_unknown_job(self, tracker: ActivityTracker) -> None:
         await tracker.emit_activity_step(
-            "unknown", node_id="n1", sidecar=AsyncMock(), turn_id="t1",
-            agent_msg="hi", files_read=[], files_written=[], duration_ms=100,
+            "unknown",
+            node_id="n1",
+            sidecar=AsyncMock(),
+            turn_id="t1",
+            agent_msg="hi",
+            files_read=[],
+            files_written=[],
+            duration_ms=100,
             assigned_plan_step_id=None,
         )
 
     @pytest.mark.asyncio
-    async def test_returns_without_sidecar(
-        self, tracker: ActivityTracker, job_state: dict[str, TrailJobState]
-    ) -> None:
+    async def test_returns_without_sidecar(self, tracker: ActivityTracker, job_state: dict[str, TrailJobState]) -> None:
         job_state["j1"] = _state()
         await tracker.emit_activity_step(
-            "j1", node_id="n1", sidecar=None, turn_id="t1",
-            agent_msg="hi", files_read=[], files_written=[], duration_ms=100,
+            "j1",
+            node_id="n1",
+            sidecar=None,
+            turn_id="t1",
+            agent_msg="hi",
+            files_read=[],
+            files_written=[],
+            duration_ms=100,
             assigned_plan_step_id=None,
         )
         # No events, no errors — just returns
@@ -94,9 +101,7 @@ class TestEmitActivityStepGuards:
 
 class TestEmitActivityStepTitleFailure:
     @pytest.mark.asyncio
-    async def test_returns_on_title_gen_failure(
-        self, event_bus: EventBus, job_state: dict[str, TrailJobState]
-    ) -> None:
+    async def test_returns_on_title_gen_failure(self, event_bus: EventBus, job_state: dict[str, TrailJobState]) -> None:
         title_gen = TitleGenerator()
         sidecar = AsyncMock()
         sidecar.complete.side_effect = OSError("fail")
@@ -117,8 +122,14 @@ class TestEmitActivityStepTitleFailure:
         event_bus.subscribe(_handler)
 
         await tracker.emit_activity_step(
-            "j1", node_id="n1", sidecar=sidecar, turn_id="t1",
-            agent_msg="hi", files_read=[], files_written=[], duration_ms=100,
+            "j1",
+            node_id="n1",
+            sidecar=sidecar,
+            turn_id="t1",
+            agent_msg="hi",
+            files_read=[],
+            files_written=[],
+            duration_ms=100,
             assigned_plan_step_id=None,
         )
         # No turn_summary events should be emitted on failure
@@ -136,12 +147,14 @@ class TestEmitActivityStepSameActivity:
         self, event_bus: EventBus, job_state: dict[str, TrailJobState]
     ) -> None:
         title_gen = MagicMock(spec=TitleGenerator)
-        title_gen.generate = AsyncMock(return_value=TitleResult(
-            title="Fixed auth",
-            merge_with_previous=False,
-            new_activity=False,
-            activity_label=None,
-        ))
+        title_gen.generate = AsyncMock(
+            return_value=TitleResult(
+                title="Fixed auth",
+                merge_with_previous=False,
+                new_activity=False,
+                activity_label=None,
+            )
+        )
 
         tracker = ActivityTracker(
             event_bus=event_bus,
@@ -160,9 +173,15 @@ class TestEmitActivityStepSameActivity:
         event_bus.subscribe(_handler)
 
         await tracker.emit_activity_step(
-            "j1", node_id="n1", sidecar=AsyncMock(), turn_id="t1",
-            agent_msg="Fixed the auth bug", files_read=[], files_written=["auth.py"],
-            duration_ms=500, assigned_plan_step_id="ps-1",
+            "j1",
+            node_id="n1",
+            sidecar=AsyncMock(),
+            turn_id="t1",
+            agent_msg="Fixed the auth bug",
+            files_read=[],
+            files_written=["auth.py"],
+            duration_ms=500,
+            assigned_plan_step_id="ps-1",
         )
 
         assert len(state.activity_steps) == 1
@@ -179,16 +198,16 @@ class TestEmitActivityStepSameActivity:
 
 class TestEmitActivityStepNewActivity:
     @pytest.mark.asyncio
-    async def test_creates_new_activity(
-        self, event_bus: EventBus, job_state: dict[str, TrailJobState]
-    ) -> None:
+    async def test_creates_new_activity(self, event_bus: EventBus, job_state: dict[str, TrailJobState]) -> None:
         title_gen = MagicMock(spec=TitleGenerator)
-        title_gen.generate = AsyncMock(return_value=TitleResult(
-            title="Start testing",
-            merge_with_previous=False,
-            new_activity=True,
-            activity_label="Running tests",
-        ))
+        title_gen.generate = AsyncMock(
+            return_value=TitleResult(
+                title="Start testing",
+                merge_with_previous=False,
+                new_activity=True,
+                activity_label="Running tests",
+            )
+        )
 
         tracker = ActivityTracker(
             event_bus=event_bus,
@@ -207,9 +226,15 @@ class TestEmitActivityStepNewActivity:
         event_bus.subscribe(_handler)
 
         await tracker.emit_activity_step(
-            "j1", node_id="n1", sidecar=AsyncMock(), turn_id="t1",
-            agent_msg="Now testing", files_read=[], files_written=[],
-            duration_ms=100, assigned_plan_step_id="ps-1",
+            "j1",
+            node_id="n1",
+            sidecar=AsyncMock(),
+            turn_id="t1",
+            agent_msg="Now testing",
+            files_read=[],
+            files_written=[],
+            duration_ms=100,
+            assigned_plan_step_id="ps-1",
         )
 
         assert len(state.activities) == 2
@@ -224,12 +249,14 @@ class TestEmitActivityStepNewActivity:
     ) -> None:
         """When LLM says shift but gives no label and no plan step, suppress."""
         title_gen = MagicMock(spec=TitleGenerator)
-        title_gen.generate = AsyncMock(return_value=TitleResult(
-            title="Doing something",
-            merge_with_previous=False,
-            new_activity=True,
-            activity_label=None,
-        ))
+        title_gen.generate = AsyncMock(
+            return_value=TitleResult(
+                title="Doing something",
+                merge_with_previous=False,
+                new_activity=True,
+                activity_label=None,
+            )
+        )
 
         tracker = ActivityTracker(
             event_bus=event_bus,
@@ -240,9 +267,15 @@ class TestEmitActivityStepNewActivity:
         job_state["j1"] = state
 
         await tracker.emit_activity_step(
-            "j1", node_id="n1", sidecar=AsyncMock(), turn_id="t1",
-            agent_msg="hi", files_read=[], files_written=[],
-            duration_ms=100, assigned_plan_step_id=None,
+            "j1",
+            node_id="n1",
+            sidecar=AsyncMock(),
+            turn_id="t1",
+            agent_msg="hi",
+            files_read=[],
+            files_written=[],
+            duration_ms=100,
+            assigned_plan_step_id=None,
         )
         # Should NOT create a new activity (suppressed)
         assert len(state.activities) == 1
@@ -255,16 +288,16 @@ class TestEmitActivityStepNewActivity:
 
 class TestEmitActivityStepMerge:
     @pytest.mark.asyncio
-    async def test_merge_replaces_previous_step(
-        self, event_bus: EventBus, job_state: dict[str, TrailJobState]
-    ) -> None:
+    async def test_merge_replaces_previous_step(self, event_bus: EventBus, job_state: dict[str, TrailJobState]) -> None:
         title_gen = MagicMock(spec=TitleGenerator)
-        title_gen.generate = AsyncMock(return_value=TitleResult(
-            title="Retry build (merged)",
-            merge_with_previous=True,
-            new_activity=False,
-            activity_label=None,
-        ))
+        title_gen.generate = AsyncMock(
+            return_value=TitleResult(
+                title="Retry build (merged)",
+                merge_with_previous=True,
+                new_activity=False,
+                activity_label=None,
+            )
+        )
 
         tracker = ActivityTracker(
             event_bus=event_bus,
@@ -287,9 +320,15 @@ class TestEmitActivityStepMerge:
         event_bus.subscribe(_handler)
 
         await tracker.emit_activity_step(
-            "j1", node_id="n1", sidecar=AsyncMock(), turn_id="t1",
-            agent_msg="Retrying build", files_read=[], files_written=[],
-            duration_ms=50, assigned_plan_step_id=None,
+            "j1",
+            node_id="n1",
+            sidecar=AsyncMock(),
+            turn_id="t1",
+            agent_msg="Retrying build",
+            files_read=[],
+            files_written=[],
+            duration_ms=50,
+            assigned_plan_step_id=None,
         )
 
         # Previous step's title is updated, no new step added
@@ -306,16 +345,16 @@ class TestEmitActivityStepMerge:
 
 class TestFirstTurnBootstrap:
     @pytest.mark.asyncio
-    async def test_first_turn_creates_activity(
-        self, event_bus: EventBus, job_state: dict[str, TrailJobState]
-    ) -> None:
+    async def test_first_turn_creates_activity(self, event_bus: EventBus, job_state: dict[str, TrailJobState]) -> None:
         title_gen = MagicMock(spec=TitleGenerator)
-        title_gen.generate = AsyncMock(return_value=TitleResult(
-            title="Initial setup",
-            merge_with_previous=False,
-            new_activity=False,
-            activity_label=None,
-        ))
+        title_gen.generate = AsyncMock(
+            return_value=TitleResult(
+                title="Initial setup",
+                merge_with_previous=False,
+                new_activity=False,
+                activity_label=None,
+            )
+        )
 
         tracker = ActivityTracker(
             event_bus=event_bus,
@@ -326,9 +365,15 @@ class TestFirstTurnBootstrap:
         job_state["j1"] = state
 
         await tracker.emit_activity_step(
-            "j1", node_id="n1", sidecar=AsyncMock(), turn_id="t1",
-            agent_msg="Starting", files_read=[], files_written=[],
-            duration_ms=100, assigned_plan_step_id=None,
+            "j1",
+            node_id="n1",
+            sidecar=AsyncMock(),
+            turn_id="t1",
+            agent_msg="Starting",
+            files_read=[],
+            files_written=[],
+            duration_ms=100,
+            assigned_plan_step_id=None,
         )
 
         # Should create the first activity automatically

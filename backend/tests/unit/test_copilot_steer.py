@@ -44,9 +44,7 @@ class TestSendMessage:
 
     @pytest.mark.asyncio()
     async def test_send_message_network_error(self, client: CopilotSteerClient):
-        with patch.object(
-            client._client, "post", new_callable=AsyncMock, side_effect=httpx.ConnectError("refused")
-        ):
+        with patch.object(client._client, "post", new_callable=AsyncMock, side_effect=httpx.ConnectError("refused")):
             await client.send_message("task-3", "hello")
 
 
@@ -67,9 +65,7 @@ class TestAbort:
 
     @pytest.mark.asyncio()
     async def test_abort_network_error(self, client: CopilotSteerClient):
-        with patch.object(
-            client._client, "post", new_callable=AsyncMock, side_effect=httpx.ConnectError("refused")
-        ):
+        with patch.object(client._client, "post", new_callable=AsyncMock, side_effect=httpx.ConnectError("refused")):
             await client.abort("task-3")
 
 
@@ -88,9 +84,7 @@ class TestCheckAlive:
 
     @pytest.mark.asyncio()
     async def test_alive_returns_true_on_network_error(self, client: CopilotSteerClient):
-        with patch.object(
-            client._client, "get", new_callable=AsyncMock, side_effect=httpx.ConnectError("refused")
-        ):
+        with patch.object(client._client, "get", new_callable=AsyncMock, side_effect=httpx.ConnectError("refused")):
             assert await client.check_alive("task-3") is True
 
 

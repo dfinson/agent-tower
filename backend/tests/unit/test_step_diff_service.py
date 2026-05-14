@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from unittest.mock import AsyncMock
-
-import pytest
 
 from backend.models.api_schemas import FileMotivation, HunkMotivation
 from backend.services.steps.diff_service import StepDiffService
 
-
 # ── Fake span / file / hunk objects ──
+
 
 @dataclass
 class FakeHunkLine:
@@ -81,9 +78,7 @@ class TestExtractHunkMotivations:
         file_mots: dict[str, FileMotivation] = {}
         hunk_mots: dict[str, HunkMotivation] = {}
 
-        StepDiffService._extract_hunk_motivations(
-            span, "a.py", [changed_file], file_mots, hunk_mots, "j1"
-        )
+        StepDiffService._extract_hunk_motivations(span, "a.py", [changed_file], file_mots, hunk_mots, "j1")
         assert "a.py:0" in hunk_mots
         assert hunk_mots["a.py:0"].title == "Fixed bug"
         assert hunk_mots["a.py:0"].why == "Details here"
@@ -99,9 +94,7 @@ class TestExtractHunkMotivations:
         file_mots: dict[str, FileMotivation] = {}
         hunk_mots: dict[str, HunkMotivation] = {}
 
-        StepDiffService._extract_hunk_motivations(
-            span, "a.py", [changed_file], file_mots, hunk_mots, "j1"
-        )
+        StepDiffService._extract_hunk_motivations(span, "a.py", [changed_file], file_mots, hunk_mots, "j1")
         # No match — should go to unmatched_edits IF file_motivations has entry
         assert "a.py:0" not in hunk_mots
 
@@ -113,21 +106,23 @@ class TestExtractHunkMotivations:
             "edit_motivations": json.dumps(edit_mots),
             "tool_args_json": json.dumps(tool_args),
         }
-        hunk0 = FakeHunk(lines=[
-            FakeHunkLine("class Bar:", "context"),
-            FakeHunkLine("pass", "deletion"),
-        ])
-        hunk1 = FakeHunk(lines=[
-            FakeHunkLine("def foo():", "deletion"),
-            FakeHunkLine("    return 1", "deletion"),
-        ])
+        hunk0 = FakeHunk(
+            lines=[
+                FakeHunkLine("class Bar:", "context"),
+                FakeHunkLine("pass", "deletion"),
+            ]
+        )
+        hunk1 = FakeHunk(
+            lines=[
+                FakeHunkLine("def foo():", "deletion"),
+                FakeHunkLine("    return 1", "deletion"),
+            ]
+        )
         changed_file = FakeChangedFile(path="a.py", hunks=[hunk0, hunk1])
         file_mots: dict[str, FileMotivation] = {}
         hunk_mots: dict[str, HunkMotivation] = {}
 
-        StepDiffService._extract_hunk_motivations(
-            span, "a.py", [changed_file], file_mots, hunk_mots, "j1"
-        )
+        StepDiffService._extract_hunk_motivations(span, "a.py", [changed_file], file_mots, hunk_mots, "j1")
         assert "a.py:1" in hunk_mots
         assert hunk_mots["a.py:1"].title == "Refactored method"
 
@@ -145,13 +140,11 @@ class TestExtractHunkMotivations:
         file_mots: dict[str, FileMotivation] = {"a.py": FileMotivation(title="File change", why="")}
         hunk_mots: dict[str, HunkMotivation] = {}
 
-        StepDiffService._extract_hunk_motivations(
-            span, "a.py", [changed_file], file_mots, hunk_mots, "j1"
-        )
+        StepDiffService._extract_hunk_motivations(span, "a.py", [changed_file], file_mots, hunk_mots, "j1")
         assert len(hunk_mots) == 0
         assert len(file_mots["a.py"].unmatched_edits) == 1
 
-    def test_oldString_alias(self):
+    def test_old_string_alias(self):
         """old_str aliased as oldString in tool args."""
         edit_mots = [{"summary": "Fix", "edit_key": "k4"}]
         tool_args = {"oldString": "def foo():"}
@@ -164,7 +157,5 @@ class TestExtractHunkMotivations:
         file_mots: dict[str, FileMotivation] = {}
         hunk_mots: dict[str, HunkMotivation] = {}
 
-        StepDiffService._extract_hunk_motivations(
-            span, "a.py", [changed_file], file_mots, hunk_mots, "j1"
-        )
+        StepDiffService._extract_hunk_motivations(span, "a.py", [changed_file], file_mots, hunk_mots, "j1")
         assert "a.py:0" in hunk_mots

@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from unittest.mock import AsyncMock
 
 import pytest
 
 from backend.services.action_policy.monitor import (
-    MonitorSession,
-    MonitorVerdict,
     _HOST_FROM_URL_RE,
     _INSTALL_PACKAGE_RE,
+    MonitorSession,
+    MonitorVerdict,
 )
 
 

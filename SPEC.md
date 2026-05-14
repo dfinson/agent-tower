@@ -99,7 +99,7 @@ CodePlane is a two-tier application.
 | Agent runtime | Pluggable SDK adapters behind `AgentAdapterInterface`; ships with Copilot SDK and Claude Agent SDK |
 | Workspace isolation | Git worktrees |
 | Voice transcription | faster-whisper |
-| Remote access | Dev Tunnels (HTTPS) |
+| Remote access | Dev Tunnels or Cloudflare Tunnels (HTTPS) |
 | State management | Zustand |
 | UI primitives | Radix UI (headless) |
 | Diff / code viewer | Monaco Editor (`@monaco-editor/react`) |
@@ -111,6 +111,7 @@ CodePlane is a two-tier application.
 | Toasts | Sonner |
 | Icons | Lucide React |
 | API type generation | openapi-typescript (from FastAPI OpenAPI spec) |
+| Structural analysis | CodeRecon (semantic diff, dependency graphs, merge confidence) |
 | Package management | uv (Python), npm (Frontend) |
 
 ### 2.1 Frontend Serving Model
@@ -159,11 +160,33 @@ State slices:
 
 | Slice | Contents |
 |---|---|
-| `jobs` | All job summaries (id, repo, state, created_at, updated_at) |
-| `activeJob` | Full detail of currently viewed job |
-| `approvals` | Pending approval requests |
-| `settings` | Application settings |
-| `ui` | Transient UI state (selected panel, filters, etc.) |
+| `jobs` | All job summaries keyed by job ID |
+| `approvals` | Pending approval requests keyed by approval ID |
+| `batchApprovals` | Pending action policy batch approvals |
+| `logs` | Per-job log lines keyed by job ID |
+| `transcript` | Per-job transcript entries keyed by job ID |
+| `diffs` | Per-job diff file models keyed by job ID |
+| `plans` | Per-job plan steps keyed by job ID |
+| `timelines` | Per-job timeline entries keyed by job ID |
+| `activityTimelines` | Per-job activity timeline (structured trail) |
+| `stories` | Per-job narrative stories |
+| `streamingMessages` | In-flight streaming message content |
+| `streamingToolOutput` | In-flight streaming tool output |
+| `streamingReasoning` | In-flight streaming reasoning content |
+| `telemetryVersions` | Hydration version tracking for telemetry |
+| `repoIndexState` | Per-repo structural indexing progress |
+| `structuralDiffs` | Per-job structural coupling diff |
+| `multiSessions` | Per-job multi-session analysis |
+| `communities` | Per-job community detection results |
+| `reviewStories` | Per-job structural review story |
+| `structuralWarnings` | Per-job structural warnings |
+| `sdks` | Available SDK catalogue with models |
+| `terminalSessions` | Active terminal sessions and drawer state |
+| `connectionStatus` | SSE connection state (`connected`, `reconnecting`, `disconnected`) |
+| `policySettingsVersion` | Policy config version for cache invalidation |
+| `jobHeartbeats` | Last heartbeat timestamp per job |
+
+An LRU eviction policy keeps at most 30 jobs' per-job data (logs, transcript, diffs, etc.) in memory. Stale entries are evicted when new jobs are hydrated.
 
 ### 3.4 Component Hierarchy
 
@@ -309,49 +332,107 @@ All component code imports from `src/api/types.ts`, never from `schema.d.ts` dir
 
 ```
 backend/
-├── main.py                    # FastAPI app factory
-├── config.py                  # Configuration loading
+├── main.py                    # CLI entry point (Click)
+├── app_factory.py             # FastAPI app creation and middleware
+├── config.py                  # Configuration loading and dataclasses
+├── cli.py                     # CLI command definitions (up, down, restart, setup, doctor, info, version)
+├── di.py                      # Dependency injection container
+├── lifespan.py                # Startup/shutdown lifecycle hooks
+├── logging_config.py          # structlog configuration
+├── validators.py              # Shared validation helpers
 ├── api/
 │   ├── jobs.py                # Job CRUD and control endpoints
 │   ├── events.py              # SSE streaming endpoint
 │   ├── artifacts.py           # Artifact retrieval endpoints
+│   ├── job_artifacts.py       # Job-scoped data: logs, diff, transcript, steps, timeline, story
+│   ├── job_telemetry.py       # Per-job telemetry endpoint
 │   ├── workspace.py           # File browsing endpoints
-│   ├── approvals.py           # Approval resolution endpoints
+│   ├── approvals.py           # Approval resolution, messaging, trust, batch resolution
 │   ├── voice.py               # Voice transcription endpoint
-│   ├── health.py              # Health check endpoint
-│   └── settings.py            # Settings management endpoints
+│   ├── health.py              # Health check and sidecar metrics
+│   ├── settings.py            # Settings, repos, SDKs, platforms
+│   ├── analytics.py           # Fleet-level cost and telemetry analytics (30+ endpoints)
+│   ├── share.py               # Job sharing with read-only tokens
+│   ├── preview.py             # Port preview reverse proxy
+│   ├── memory.py              # Workspace memory CRUD
+│   ├── terminal.py            # Terminal sessions and AI ask
+│   ├── trail.py               # Agent audit trail endpoints
+│   ├── notifications.py       # Web Push subscription endpoints
+│   ├── hooks.py               # External integration webhooks
+│   ├── utility_sessions.py    # Warm utility session management
+│   ├── sidecar_templates.py   # Sidecar template CRUD
+│   └── policy_settings.py     # Action policy preset, path/action/cost rules
 ├── services/
 │   ├── job_service.py         # Job lifecycle orchestration
-│   ├── runtime_service.py     # Long-running job execution manager
+│   ├── runtime/               # Long-running job execution (RuntimeService)
 │   ├── git_service.py         # Git worktree and branch operations
-│   ├── agent_adapter.py       # Agent adapter (interface + Copilot impl)
-│   ├── event_bus.py           # Internal event bus
-│   ├── sse_manager.py         # SSE connection management
+│   ├── agent_adapter.py       # Agent adapter interface + shared utilities
+│   ├── adapter_registry.py    # Lazy-caching adapter factory
+│   ├── base_adapter.py        # Shared adapter base class
+│   ├── copilot_adapter/       # Copilot SDK adapter
+│   ├── claude_adapter/        # Claude Agent SDK adapter
+│   ├── event_bus.py           # Internal async event bus
+│   ├── sse_manager.py         # SSE connection management and broadcast
 │   ├── approval_service.py    # Approval request persistence and routing
 │   ├── artifact_service.py    # Artifact storage and retrieval
 │   ├── diff_service.py        # Diff generation and parsing
-│   ├── merge_service.py       # Merge-back, PR creation, and conflict handling
-│   ├── permission_policy.py   # Permission mode evaluation for SDK requests
+│   ├── merge_service/         # Merge-back, PR creation, conflict handling
+│   ├── action_policy/         # Action policy engine (tiers, rules, presets)
+│   ├── permission_policy.py   # Legacy permission mode evaluation
 │   ├── platform_adapter.py    # Per-platform integration (GitHub, etc.)
 │   ├── retention_service.py   # Artifact and worktree retention cleanup
-│   ├── setup_service.py       # Interactive dependency setup
+│   ├── setup/                 # Interactive dependency setup
 │   ├── summarization_service.py # Post-session LLM summarization
-│   ├── telemetry.py           # Observability and telemetry
-│   ├── utility_session.py     # Utility LLM sessions (naming, summaries)
-│   ├── auth.py                # Authentication helpers
-│   └── voice_service.py       # faster-whisper transcription
+│   ├── naming_service.py      # LLM-generated job/branch naming
+│   ├── telemetry.py           # OpenTelemetry instrumentation
+│   ├── telemetry_query_service.py # Analytics query engine
+│   ├── cost_attribution.py    # Per-file and per-dimension cost attribution
+│   ├── latency_attribution.py # Latency breakdown analysis
+│   ├── analytics_service.py   # Fleet analytics and observations
+│   ├── statistical_analysis.py # Statistical anomaly detection
+│   ├── ingest_service.py      # Event ingestion and telemetry recording
+│   ├── event_processor.py     # Domain event processing pipeline
+│   ├── event_enricher.py      # Event enrichment (tool classification, etc.)
+│   ├── conversation_ledger.py # Transcript deduplication and ordering
+│   ├── steps/                 # Plan step tracking and inference
+│   ├── trail/                 # Agent audit trail (intent graph)
+│   ├── story/                 # Narrative story generation
+│   ├── watcher/               # Filesystem watcher for live diffs
+│   ├── sidecar/               # Sidecar session management (arbiter, planner, enricher)
+│   ├── memory/                # Workspace memory extraction and compaction
+│   ├── tool_classifier.py     # Tool action classification (activity dimensions)
+│   ├── tool_formatters/       # Human-readable tool output formatting
+│   ├── coderecon_service.py   # CodeRecon structural analysis integration
+│   ├── coderecon_tools.py     # CodeRecon MCP tool bridge
+│   ├── auth.py                # Authentication helpers (password, session cookies)
+│   ├── cf_access.py           # Cloudflare Access JWT verification
+│   ├── share_service.py       # Share token management
+│   ├── push_service.py        # Web Push notification delivery
+│   ├── vapid_keys.py          # VAPID key generation and persistence
+│   ├── voice_service.py       # faster-whisper transcription
+│   ├── terminal_service.py    # PTY session management
+│   ├── tunnel_service.py      # Dev Tunnels / Cloudflare Tunnels lifecycle
+│   ├── retry_tracker.py       # Agent retry detection and tracking
+│   ├── snapshot_helpers.py    # Job state snapshot construction
+│   ├── copilot_steer.py       # Copilot session steering prompts
+│   ├── preflight_curator.py   # Preflight prompt curation
+│   ├── lightweight_completer.py # Single-turn LLM completions
+│   ├── narrator_completer.py  # Narrative generation LLM calls
+│   ├── sdk_event_mapping.py   # SDK event → domain event translation
+│   └── parsing_utils.py       # Shared parsing helpers
 ├── models/
-│   ├── db.py                  # SQLAlchemy models
-│   ├── domain.py              # Domain dataclasses/Pydantic models
-│   ├── events.py              # Canonical event types
-│   └── api_schemas.py         # Pydantic request/response schemas
+│   ├── db.py                  # SQLAlchemy ORM models
+│   ├── domain.py              # Domain dataclasses, enums, state machine
+│   ├── events.py              # Canonical event types and typed payloads
+│   ├── api_schemas.py         # Pydantic request/response schemas
+│   └── schemas/               # Additional schema definitions
 ├── persistence/
 │   ├── database.py            # Database engine and session management
 │   ├── repository.py          # Base repository pattern
-│   ├── job_repo.py            # Job persistence
-│   ├── event_repo.py          # Event persistence
-│   ├── artifact_repo.py       # Artifact metadata persistence
-│   └── approval_repo.py       # Approval request persistence
+│   └── ...                    # Domain-specific repositories
+├── mcp/                       # MCP orchestration server
+├── web/                       # Static file serving and HTML templates
+├── templates/                 # HTML templates (login page, etc.)
 └── tests/
     ├── unit/
     └── integration/
@@ -388,7 +469,7 @@ class SessionConfig:
     prompt: str
     mcp_servers: dict[str, MCPServerConfig]  # discovered from repo config files
     protected_paths: list[str]               # from per-repo config; used by permission policy
-    permission_mode: PermissionMode = "full_auto" # full_auto | observe_only | review_and_approve
+    preset: Preset = "autonomous"            # autonomous | supervised | locked
     sdk: str = "copilot"                     # which SDK adapter to use
 
 @dataclass
@@ -427,6 +508,21 @@ class AgentAdapterInterface(ABC):
     @abstractmethod
     async def abort_session(self, session_id: str) -> None:
         """Abort the current message processing. Session remains valid."""
+
+    async def interrupt_session(self, session_id: str) -> None:
+        """Interrupt the session (optional, default no-op)."""
+
+    async def pause_tools(self, session_id: str) -> None:
+        """Block tool execution temporarily."""
+
+    async def resume_tools(self, session_id: str) -> None:
+        """Resume tool execution after a pause."""
+
+    async def complete(self, prompt: str) -> CompletionResult:
+        """Non-agentic single-turn completion for utility tasks."""
+
+    def set_execution_phase(self, job_id: str, phase: ExecutionPhase) -> None:
+        """Set the current execution phase for cost analytics tracking."""
 ```
 
 #### Adapter Registry
@@ -479,13 +575,13 @@ The `ClaudeAdapter` wraps the Claude Agent SDK (`pip install claude-code-sdk`, i
 | `send_message()` | `client.query(prompt)` | Starts a new conversational turn |
 | `abort_session()` | `client.interrupt()` + `client.disconnect()` | Interrupts current turn, then disconnects |
 
-##### Permission Mode Mapping
+##### Preset to SDK Mode Mapping
 
-| CodePlane mode | Claude SDK mode | Behavior |
+| CodePlane preset | Claude SDK mode | Behavior |
 |---|---|---|
-| `full_auto` | `bypassPermissions` | All tools auto-approved |
-| `observe_only` | `plan` | Only read-only tools allowed; `can_use_tool` callback denies writes |
-| `review_and_approve` | `default` | `can_use_tool` callback routes to `ApprovalService` |
+| `autonomous` | `bypassPermissions` | All tools auto-approved |
+| `supervised` | `default` | `can_use_tool` callback routes to action policy engine |
+| `locked` | `default` | `can_use_tool` callback routes to action policy engine (stricter tier assignments) |
 
 ##### Message Iterator Pattern
 
@@ -538,20 +634,33 @@ class CamelModel(BaseModel):
 
 # --- Jobs ---
 
-class CreateJobRequest(BaseModel):    # Request models use snake_case (Python convention)
+class CreateJobRequest(CamelModel):
     repo: str
     prompt: str
     base_ref: str | None = None
-    branch: str | None = None            # default: agent decides based on prompt
-    permission_mode: PermissionMode | None = None  # full_auto | observe_only | review_and_approve
-    model: str | None = None              # LLM model override
+    branch: str | None = None
+    title: str | None = None
+    description: str | None = None
+    worktree_name: str | None = None
+    preset: Preset | None = None              # autonomous | supervised | locked
+    model: str | None = None                  # LLM model override
+    sdk: str | None = None                    # copilot | claude
+    verify: bool | None = None                # run verification pass after completion
+    self_review: bool | None = None           # run self-review pass after completion
+    max_turns: int | None = None              # max verification/review turns (1-10)
+    verify_prompt: str | None = None          # custom verification prompt
+    self_review_prompt: str | None = None     # custom self-review prompt
+    enable_stall_detection: bool | None = None # enable stall detection sidecar
+    enable_plan_tracking: bool | None = None  # enable plan step tracking
+    session_token: str | None = None          # external session token for CLI mirroring
 
 class CreateJobResponse(CamelModel):
     id: str
-    state: str
+    state: JobState
     title: str | None = None
     branch: str | None = None
     worktree_path: str | None = None
+    sdk: str = "copilot"
     created_at: datetime
 
 class JobResponse(CamelModel):
@@ -559,21 +668,39 @@ class JobResponse(CamelModel):
     repo: str
     prompt: str
     title: str | None = None
-    state: str
+    description: str | None = None
+    state: JobState
     base_ref: str
     worktree_path: str | None
     branch: str | None
-    permission_mode: PermissionMode | None = None
+    preset: Preset | None = None
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
     pr_url: str | None = None
-    merge_status: str | None = None
-    resolution: str | None = None
+    merge_status: GitMergeOutcome | None = None
+    resolution: Resolution | None = None
     archived_at: datetime | None = None
     failure_reason: str | None = None
+    progress_headline: str | None = None
+    progress_summary: str | None = None
     model: str | None = None
+    sdk: str = "copilot"
     worktree_name: str | None = None
+    verify: bool | None = None
+    self_review: bool | None = None
+    max_turns: int | None = None
+    verify_prompt: str | None = None
+    self_review_prompt: str | None = None
+    enable_stall_detection: bool | None = None
+    enable_plan_tracking: bool | None = None
+    parent_job_id: str | None = None
+    source: str = "managed"                   # managed | copilot_cli | claude_cli
+    external_session_id: str | None = None
+    total_cost_usd: float | None = None
+    total_tokens: int | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 class JobListResponse(CamelModel):
     items: list[JobResponse]
@@ -608,6 +735,11 @@ class ApprovalResponse(CamelModel):
     requested_at: datetime
     resolved_at: datetime | None
     resolution: ApprovalResolution | None
+    requires_explicit_approval: bool | None = None
+    batch_id: str | None = None
+    tier: str | None = None                  # observe | checkpoint | gate
+    reversible: bool | None = None
+    contained: bool | None = None
 
 
 # --- Artifacts ---
@@ -659,30 +791,34 @@ class WorkspaceListResponse(CamelModel):
 
 # --- Settings ---
 
-class UpdateSettingsRequest(BaseModel):
+class UpdateSettingsRequest(CamelModel):
     \"\"\"Structured settings update — only include fields to change.\"\"\"
     max_concurrent_jobs: int | None = Field(None, ge=1, le=10)
-    permission_mode: PermissionMode | None = None
     auto_push: bool | None = None
     cleanup_worktree: bool | None = None
     delete_branch_after_merge: bool | None = None
     artifact_retention_days: int | None = Field(None, ge=1, le=365)
     max_artifact_size_mb: int | None = Field(None, ge=1, le=10_000)
     auto_archive_days: int | None = Field(None, ge=1, le=365)
-    terminal_assist_sdk: str | None = None           # copilot | claude
-    terminal_assist_model: str | None = None         # model override; null = SDK default
+    verify: bool | None = None
+    self_review: bool | None = None
+    max_turns: int | None = Field(None, ge=1, le=10)
+    verify_prompt: str | None = Field(None, max_length=5000)
+    self_review_prompt: str | None = Field(None, max_length=5000)
 
 class SettingsResponse(CamelModel):
     max_concurrent_jobs: int
-    permission_mode: str
     auto_push: bool
     cleanup_worktree: bool
     delete_branch_after_merge: bool
     artifact_retention_days: int
     max_artifact_size_mb: int
     auto_archive_days: int
-    terminal_assist_sdk: str
-    terminal_assist_model: str | None
+    verify: bool
+    self_review: bool
+    max_turns: int
+    verify_prompt: str
+    self_review_prompt: str
 
 
 # --- Voice ---
@@ -712,6 +848,7 @@ class HealthResponse(CamelModel):
 class ExecutionPhase(str, Enum):
     environment_setup = "environment_setup"
     agent_reasoning = "agent_reasoning"
+    verification = "verification"
     finalization = "finalization"
     post_completion = "post_completion"
 
@@ -731,9 +868,13 @@ class LogLinePayload(CamelModel):
 
 class TranscriptRole(str, Enum):
     agent = "agent"
+    agent_delta = "agent_delta"
     operator = "operator"
     tool_call = "tool_call"
+    tool_running = "tool_running"
+    tool_output_delta = "tool_output_delta"
     reasoning = "reasoning"
+    reasoning_delta = "reasoning_delta"
     divider = "divider"
 
 class TranscriptPayload(CamelModel):
@@ -838,21 +979,47 @@ data: {json_payload}
 | `log_line` | `{ job_id, seq, timestamp, level, message, context }` |
 | `transcript_update` | `{ job_id, seq, timestamp, role, content }` |
 | `diff_update` | `{ job_id, changed_files: DiffFile[] }` |
-| `approval_requested` | `{ job_id, approval_id, description, proposed_action }` |
+| `approval_requested` | `{ job_id, approval_id, description, proposed_action, tier, reversible, contained }` |
 | `approval_resolved` | `{ job_id, approval_id, resolution, timestamp }` |
+| `batch_approval_requested` | `{ job_id, batch_id, actions[] }` |
+| `batch_approval_resolved` | `{ job_id, batch_id, resolution }` |
 | `session_heartbeat` | `{ job_id, session_id, timestamp }` |
 | `snapshot` | `{ jobs: JobResponse[], pending_approvals: ApprovalResponse[] }` |
 | `job_resolved` | `{ jobId, resolution, prUrl?, conflictFiles? }` |
 | `job_archived` | `{ jobId }` |
+| `job_review` | `{ jobId, prUrl?, mergeStatus?, resolution? }` |
+| `job_completed` | `{ jobId }` |
+| `job_failed` | `{ jobId, reason }` |
 | `merge_completed` | `{ jobId, branch, baseRef, strategy }` |
 | `merge_conflict` | `{ jobId, branch, baseRef, conflictFiles, fallback }` |
 | `session_resumed` | `{ jobId, sessionNumber }` |
-| `job_title_updated` | `{ jobId, title?, branch? }` |
+| `job_title_updated` | `{ jobId, title?, branch?, description? }` |
 | `progress_headline` | `{ jobId, headline }` |
 | `model_downgraded` | `{ jobId, requestedModel, actualModel }` |
 | `tool_group_summary` | `{ jobId, turnId, summary }` |
-| `job_review` | `{ jobId, prUrl?, mergeStatus?, resolution? }` |
-| `job_failed` | `{ jobId, reason }` |
+| `agent_plan_updated` | `{ jobId, steps[] }` |
+| `execution_phase_changed` | `{ jobId, phase }` |
+| `telemetry_updated` | `{ jobId, ... }` |
+| `step_started` | `{ jobId, stepId, stepNumber }` |
+| `step_completed` | `{ jobId, stepId }` |
+| `step_title_generated` | `{ jobId, stepId, title }` |
+| `step_group_updated` | `{ jobId, stepId }` |
+| `plan_step_updated` | `{ jobId, stepId }` |
+| `turn_summary` | `{ jobId, turnId, summary }` |
+| `action_classified` | `{ jobId, tier, kind, description }` |
+| `policy_settings_changed` | `{ preset, ... }` |
+| `repo_index_progress` | `{ repo, progress }` |
+| `repo_index_complete` | `{ repo }` |
+| `structural_warning` | `{ jobId, warning }` |
+| `stall_detected` | `{ jobId }` |
+| `monitor_approved` | `{ jobId, action }` |
+| `monitor_rejected` | `{ jobId, action }` |
+| `monitor_escalated` | `{ jobId, action }` |
+| `sidecar_transcript` | `{ jobId, sidecarName, content }` |
+| `sidecar_agent_message` | `{ jobId, sidecarName, message }` |
+| `sidecar_gate_verdict` | `{ jobId, sidecarName, verdict }` |
+| `sidecar_metadata_update` | `{ jobId, sidecarName, metadata }` |
+| `job_setup_progress` | `{ jobId, step }` |
 
 ### 5.3.1 Domain Event to SSE Event Mapping
 
@@ -860,7 +1027,8 @@ The `SSEManager` translates internal domain events into SSE events as follows:
 
 | Domain Event | SSE Event | Notes |
 |---|---|---|
-| `JobCreated` | `job_state_changed` | `previous_state: null, new_state: running or queued` |
+| `JobCreated` | `job_state_changed` | `previous_state: null, new_state: preparing or queued` |
+| `JobSetupProgress` | `job_setup_progress` | 1:1 mapping |
 | `WorkspacePrepared` | _(none)_ | Internal only; workspace info is in the job response |
 | `AgentSessionStarted` | _(none)_ | Internal only |
 | `LogLineEmitted` | `log_line` | 1:1 mapping |
@@ -868,7 +1036,10 @@ The `SSEManager` translates internal domain events into SSE events as follows:
 | `DiffUpdated` | `diff_update` | 1:1 mapping |
 | `ApprovalRequested` | `approval_requested` + `job_state_changed` | Two SSE events emitted |
 | `ApprovalResolved` | `approval_resolved` + `job_state_changed` | Two SSE events emitted |
+| `BatchApprovalRequested` | `batch_approval_requested` + `job_state_changed` | Two SSE events emitted |
+| `BatchApprovalResolved` | `batch_approval_resolved` + `job_state_changed` | Two SSE events emitted |
 | `JobReview` | `job_review` + `job_state_changed` | Two SSE events emitted |
+| `JobCompleted` | `job_completed` + `job_state_changed` | Two SSE events emitted |
 | `JobFailed` | `job_failed` + `job_state_changed` | Two SSE events emitted |
 | `JobCanceled` | `job_state_changed` | `new_state: canceled` |
 | `JobStateChanged` | `job_state_changed` | 1:1 mapping |
@@ -882,6 +1053,28 @@ The `SSEManager` translates internal domain events into SSE events as follows:
 | `ProgressHeadline` | `progress_headline` | 1:1 mapping |
 | `ModelDowngraded` | `model_downgraded` | 1:1 mapping |
 | `ToolGroupSummary` | `tool_group_summary` | 1:1 mapping |
+| `AgentPlanUpdated` | `agent_plan_updated` | 1:1 mapping |
+| `ExecutionPhaseChanged` | `execution_phase_changed` | 1:1 mapping |
+| `TelemetryUpdated` | `telemetry_updated` | 1:1 mapping |
+| `StepStarted` | `step_started` | 1:1 mapping |
+| `StepCompleted` | `step_completed` | 1:1 mapping |
+| `StepTitleGenerated` | `step_title_generated` | 1:1 mapping |
+| `StepGroupUpdated` | `step_group_updated` | 1:1 mapping |
+| `PlanStepUpdated` | `plan_step_updated` | 1:1 mapping |
+| `TurnSummary` | `turn_summary` | 1:1 mapping |
+| `ActionClassified` | `action_classified` | 1:1 mapping |
+| `PolicySettingsChanged` | `policy_settings_changed` | 1:1 mapping |
+| `RepoIndexProgress` | `repo_index_progress` | 1:1 mapping |
+| `RepoIndexComplete` | `repo_index_complete` | 1:1 mapping |
+| `StructuralWarning` | `structural_warning` | 1:1 mapping |
+| `StallDetected` | `stall_detected` | 1:1 mapping |
+| `MonitorApproved` | `monitor_approved` | 1:1 mapping |
+| `MonitorRejected` | `monitor_rejected` | 1:1 mapping |
+| `MonitorEscalated` | `monitor_escalated` | 1:1 mapping |
+| `SidecarTranscript` | `sidecar_transcript` | 1:1 mapping |
+| `SidecarAgentMessage` | `sidecar_agent_message` | 1:1 mapping |
+| `SidecarGateVerdict` | `sidecar_gate_verdict` | 1:1 mapping |
+| `SidecarMetadataUpdate` | `sidecar_metadata_update` | 1:1 mapping |
 
 ### 5.4 Reconnection and Replay
 
@@ -946,14 +1139,15 @@ This means:
 
 When a job is created:
 
-1. `JobService` validates the request
+1. `JobService` validates the request and persists the job in `preparing` state
 2. `GitService` creates the worktree and branch
 3. `JobService` persists a `JobCreated` event and a `WorkspacePrepared` event
 4. `RuntimeService` is asked to run the job
-5. `RuntimeService` is asked to run the job and creates an asyncio task
-6. The task starts the agent session and consumes yielded events
-7. Each event is translated into a domain event and published to the event bus
-8. When the session completes, the job transitions to `review`, `failed`, or `canceled`
+5. If at capacity, job transitions to `queued`; otherwise proceeds immediately
+6. `RuntimeService` creates an asyncio task and job transitions to `running`
+7. The task starts the agent session and consumes yielded events
+8. Each event is translated into a domain event and published to the event bus
+9. When the session completes, the job transitions to `review`, `failed`, or `canceled`
 
 ### 6.2 Runtime Service
 
@@ -1095,9 +1289,15 @@ cpl = "backend.main:cli"
 |---|---|
 | `cpl up` | Start the server |
 | `cpl up --port 9090` | Start on a custom port |
-| `cpl up --remote` | Start with Dev Tunnels for remote access |
+| `cpl up --remote` | Start with tunnel for remote access |
+| `cpl up --phone` | Shortcut for `--remote` with QR code display |
 | `cpl up --dev` | Start in development mode (CORS allows localhost:5173) |
-| `cpl init` | Create `~/.codeplane/config.yaml` with defaults |
+| `cpl up --provider cloudflare` | Use Cloudflare Tunnels instead of Dev Tunnels |
+| `cpl down` | Stop a running server |
+| `cpl restart` | Restart the server |
+| `cpl setup` | Run the interactive setup wizard |
+| `cpl doctor` | Run diagnostic checks |
+| `cpl info` | Show server connection info and QR code |
 | `cpl version` | Print version |
 
 ---
@@ -1407,7 +1607,85 @@ Configuration exists at three layers:
 File: `~/.codeplane/config.yaml`
 
 ```yaml
-server:\n  host: 127.0.0.1\n  port: 8080\n\nruntime:\n  max_concurrent_jobs: 2\n  worktrees_dirname: .codeplane-worktrees\n  permission_mode: full_auto        # full_auto | observe_only | review_and_approve\n  utility_model: gpt-4o-mini        # cheap/fast model for naming, summaries\n  default_sdk: copilot              # copilot | claude — SDK used when not overridden per-job\n\nterminal:\n  assist:\n    sdk: copilot                    # copilot | claude — SDK for terminal agent assistance\n    model: null                     # model override; null = use SDK default\n\nretention:\n  artifact_retention_days: 30\n  max_artifact_size_mb: 100\n  cleanup_on_startup: false\n  auto_archive_days: 7\n\ncompletion:\n  strategy: manual               # manual | auto_merge | pr_only\n  auto_push: true                   # push branch to remote on success\n  cleanup_worktree: true            # remove worktree after resolution\n  delete_branch_after_merge: true   # delete branch after merge\n\nlogging:\n  level: info\n  file: ~/.codeplane/logs/server.log\n  max_file_size_mb: 50\n  backup_count: 3\n\nrate_limits:\n  max_sse_connections: 5\n\nplatforms:                          # per-platform auth and repo binding\n  github:\n    auth: cli                       # cli | token\n    repos:\n      - /repos/service-a\n\nrepos:\n  - /repos/service-a\n  - /repos/service-b\n\ntools:\n  mcp:\n    github:\n      command: npx\n      args: [\"-y\", \"@modelcontextprotocol/server-github\"]\n    postgres:\n      command: uvx\n      args: [\"mcp-postgres\"]\n      env:\n        DATABASE_URL: \"${DATABASE_URL}\"\n```
+server:
+  host: 127.0.0.1
+  port: 8080
+
+runtime:
+  max_concurrent_jobs: 2
+  worktrees_dirname: .codeplane-worktrees
+  utility_model: gpt-4o-mini        # cheap/fast model for naming, summaries
+  default_sdk: copilot              # copilot | claude — SDK used when not overridden per-job
+  suppressed_preflight_agent_prompts: []
+
+retention:
+  artifact_retention_days: 30
+  max_artifact_size_mb: 100
+  cleanup_on_startup: false
+  auto_archive_days: 7
+
+completion:
+  strategy: manual                  # manual | auto_merge | pr_only
+  auto_push: true                   # push branch to remote on success
+  cleanup_worktree: true            # remove worktree after resolution
+  delete_branch_after_merge: true   # delete branch after merge
+
+verification:
+  verify: false                     # run verification pass after job completion
+  self_review: false                # run self-review pass after job completion
+  max_turns: 2                      # max turns for verification/self-review
+  verify_prompt: ""                 # custom verification prompt (empty = use default)
+  self_review_prompt: ""            # custom self-review prompt (empty = use default)
+
+terminal:
+  enabled: true
+  max_sessions: 5
+  default_shell: null               # auto-detect if null
+  scrollback_size_kb: 500
+
+telemetry:
+  otel_exporter_endpoint: ""        # OTLP collector URL (empty = in-process only)
+  claude_monthly_budget_usd: 0.0    # budget cap for analytics dashboard
+  copilot_premium_entitlement: 0    # premium request quota (auto-detected from SDK)
+  daily_spend_limit_usd: 0.0       # personal daily cost limit (0 = no limit)
+  instance_id: ""                   # auto-generated UUID on first run
+
+trail:
+  enrich_batch_size: 20             # trail enrichment batch size
+  enrich_interval_seconds: 10.0     # enrichment interval
+  enrich_max_retries: 10            # max retry attempts for enrichment
+  enrich_decisions_context: 5       # number of preceding decisions for context
+
+logging:
+  level: info
+  file: ~/.codeplane/logs/server.log
+  max_file_size_mb: 50
+  backup_count: 3
+
+rate_limits:
+  max_sse_connections: 5
+
+platforms:                          # per-platform auth and repo binding
+  github:
+    auth: cli                       # cli | token
+    repos:
+      - /repos/service-a
+
+repos:
+  - /repos/service-a
+  - /repos/service-b
+
+tools:
+  mcp:
+    github:
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-github"]
+    postgres:
+      command: uvx
+      args: ["mcp-postgres"]
+      env:
+        DATABASE_URL: "${DATABASE_URL}"
+```
 
 Entries support glob patterns via Python's `glob.glob`. Each pattern is expanded at startup and re-expanded when the config is reloaded. Only directories that are valid git repositories (contain `.git`) are included after expansion.
 
@@ -1486,7 +1764,13 @@ Provided in the job creation request body:
   "prompt": "Fix the null pointer exception in UserService.java",
   "base_ref": "main",
   "sdk": "claude",
-  "model": "claude-sonnet-4-20250514"
+  "model": "claude-sonnet-4-20250514",
+  "preset": "supervised",
+  "verify": true,
+  "self_review": false,
+  "description": "NullPointer fix for user service",
+  "enable_stall_detection": true,
+  "enable_plan_tracking": true
 }
 ```
 
@@ -1497,6 +1781,12 @@ Provided in the job creation request body:
 | `base_ref` | No | Override base branch/commit |
 | `sdk` | No | Override SDK for this job (`copilot`, `claude`); defaults to `runtime.default_sdk` |
 | `model` | No | Override model for this job; must be compatible with the selected SDK (see §4.4) |
+| `preset` | No | Override action policy preset (`autonomous`, `supervised`, `locked`); defaults to global preset |
+| `verify` | No | Run verification after agent completes |
+| `self_review` | No | Run self-review after agent completes |
+| `description` | No | Short description shown in the UI job list |
+| `enable_stall_detection` | No | Enable stall detection for this job |
+| `enable_plan_tracking` | No | Enable step/plan tracking for this job |
 
 ---
 
@@ -1507,6 +1797,7 @@ All runtime activity is represented as structured domain events. Every event has
 ```python
 class DomainEventKind(str, Enum):
     job_created = "JobCreated"
+    job_setup_progress = "JobSetupProgress"
     workspace_prepared = "WorkspacePrepared"
     agent_session_started = "AgentSessionStarted"
     log_line_emitted = "LogLineEmitted"
@@ -1514,7 +1805,10 @@ class DomainEventKind(str, Enum):
     diff_updated = "DiffUpdated"
     approval_requested = "ApprovalRequested"
     approval_resolved = "ApprovalResolved"
-    job_succeeded = "JobSucceeded"
+    batch_approval_requested = "BatchApprovalRequested"
+    batch_approval_resolved = "BatchApprovalResolved"
+    job_review = "JobReview"
+    job_completed = "JobCompleted"
     job_failed = "JobFailed"
     job_canceled = "JobCanceled"
     job_state_changed = "JobStateChanged"
@@ -1528,6 +1822,29 @@ class DomainEventKind(str, Enum):
     progress_headline = "ProgressHeadline"
     model_downgraded = "ModelDowngraded"
     tool_group_summary = "ToolGroupSummary"
+    agent_plan_updated = "AgentPlanUpdated"
+    execution_phase_changed = "ExecutionPhaseChanged"
+    telemetry_updated = "TelemetryUpdated"
+    step_started = "StepStarted"
+    step_completed = "StepCompleted"
+    step_title_generated = "StepTitleGenerated"
+    step_group_updated = "StepGroupUpdated"
+    plan_step_updated = "PlanStepUpdated"
+    step_entries_reassigned = "StepEntriesReassigned"
+    turn_summary = "TurnSummary"
+    action_classified = "ActionClassified"
+    policy_settings_changed = "PolicySettingsChanged"
+    repo_index_progress = "RepoIndexProgress"
+    repo_index_complete = "RepoIndexComplete"
+    structural_warning = "StructuralWarning"
+    stall_detected = "StallDetected"
+    monitor_approved = "MonitorApproved"
+    monitor_rejected = "MonitorRejected"
+    monitor_escalated = "MonitorEscalated"
+    sidecar_transcript = "SidecarTranscript"
+    sidecar_agent_message = "SidecarAgentMessage"
+    sidecar_gate_verdict = "SidecarGateVerdict"
+    sidecar_metadata_update = "SidecarMetadataUpdate"
 
 @dataclass
 class DomainEvent:
@@ -1543,14 +1860,18 @@ class DomainEvent:
 | Event Kind | Trigger | Key Payload Fields |
 |---|---|---|
 | `JobCreated` | Job creation request accepted | `repo`, `prompt`, `base_ref` |
+| `JobSetupProgress` | Workspace setup step progress | `step` |
 | `WorkspacePrepared` | Worktree and branch created | `worktree_path`, `branch` |
 | `AgentSessionStarted` | Agent session created | `session_id` |
 | `LogLineEmitted` | Agent or system log output | `seq`, `level`, `message`, `context` |
 | `TranscriptUpdated` | Agent reasoning or operator message | `seq`, `role`, `content` |
 | `DiffUpdated` | File changes detected in worktree | `changed_files` (list of DiffFile) |
-| `ApprovalRequested` | SDK permission request intercepted | `approval_id`, `description`, `proposed_action` |
+| `ApprovalRequested` | SDK permission request intercepted | `approval_id`, `description`, `proposed_action`, `tier` |
 | `ApprovalResolved` | Operator approves or rejects | `approval_id`, `resolution` |
-| `JobSucceeded` | Session completed successfully | `pr_url`, `merge_status`, `resolution` |
+| `BatchApprovalRequested` | Action policy batch awaiting approval | `batch_id`, `actions` |
+| `BatchApprovalResolved` | Batch approved or rejected | `batch_id`, `resolution` |
+| `JobReview` | Session completed, awaiting operator review | `pr_url`, `merge_status`, `resolution` |
+| `JobCompleted` | Job resolved to terminal state | |
 | `JobFailed` | Session terminated with error | `reason` |
 | `JobCanceled` | Operator canceled the job | `reason` |
 | `JobStateChanged` | Job transitions between states | `previous_state`, `new_state` |
@@ -1558,12 +1879,35 @@ class DomainEvent:
 | `MergeCompleted` | Merge-back succeeded | `branch`, `base_ref`, `strategy` |
 | `MergeConflict` | Merge-back hit conflicts | `branch`, `conflict_files`, `fallback` |
 | `SessionResumed` | Agent session resumed after failure | `session_number` |
-| `JobResolved` | Operator resolved a succeeded job | `resolution`, `pr_url`, `conflict_files` |
+| `JobResolved` | Operator resolved a completed job | `resolution`, `pr_url`, `conflict_files` |
 | `JobArchived` | Job moved to archive | _(none)_ |
-| `JobTitleUpdated` | LLM generated or updated job title | `title`, `branch` |
+| `JobTitleUpdated` | LLM generated or updated job title | `title`, `branch`, `description` |
 | `ProgressHeadline` | Agent progress summary | `headline` |
 | `ModelDowngraded` | Requested model unavailable, fallback used | `requested_model`, `actual_model` |
 | `ToolGroupSummary` | AI-generated summary for tool group | `turn_id`, `summary` |
+| `AgentPlanUpdated` | Agent plan steps updated | `steps` |
+| `ExecutionPhaseChanged` | Execution phase transition | `phase` |
+| `TelemetryUpdated` | Cost/token metrics updated | telemetry fields |
+| `StepStarted` | Plan step started | `step_id`, `step_number` |
+| `StepCompleted` | Plan step finished | `step_id` |
+| `StepTitleGenerated` | Step title generated by LLM | `step_id`, `title` |
+| `StepGroupUpdated` | Step grouping changed | `step_id` |
+| `PlanStepUpdated` | Plan step detail updated | `step_id` |
+| `StepEntriesReassigned` | Entries moved to different step | `old_step_id`, `new_step_id` |
+| `TurnSummary` | AI-generated turn summary | `turn_id`, `summary` |
+| `ActionClassified` | Action policy classification | `tier`, `kind`, `description` |
+| `PolicySettingsChanged` | Policy configuration changed | `preset` |
+| `RepoIndexProgress` | Repo structural indexing progress | `repo`, `progress` |
+| `RepoIndexComplete` | Repo structural indexing complete | `repo` |
+| `StructuralWarning` | Code structure warning detected | `warning` |
+| `StallDetected` | Agent stall detected by arbiter sidecar | |
+| `MonitorApproved` | Monitor sidecar auto-approved action | `action` |
+| `MonitorRejected` | Monitor sidecar auto-rejected action | `action` |
+| `MonitorEscalated` | Monitor sidecar escalated to human | `action` |
+| `SidecarTranscript` | Sidecar session output | `sidecar_name`, `content` |
+| `SidecarAgentMessage` | Sidecar agent message | `sidecar_name`, `message` |
+| `SidecarGateVerdict` | Sidecar gate decision | `sidecar_name`, `verdict` |
+| `SidecarMetadataUpdate` | Sidecar metadata changed | `sidecar_name`, `metadata` |
 
 ### 11.2 Event Consumers
 
@@ -1573,8 +1917,8 @@ class DomainEvent:
 | `PersistenceSubscriber` | All events | Persists to SQLite event log |
 | `SSEManager` | All events | Pushes to connected SSE clients |
 | `ApprovalService` | `ApprovalRequested` | Persists request, awaits operator resolution |
-| `DiffService` | `WorkspacePrepared`, `JobSucceeded` | Generates and stores diff snapshots |
-| `ArtifactService` | `JobSucceeded` | Collects and stores artifacts |
+| `DiffService` | `WorkspacePrepared`, `JobReview` | Generates and stores diff snapshots |
+| `ArtifactService` | `JobReview` | Collects and stores artifacts |
 | `TimelineBuilder` | All events | Updates job timeline view |
 
 ---
@@ -1596,6 +1940,7 @@ Sequential integers are preferred over UUIDs because:
 
 | State | Description |
 |---|---|
+| `preparing` | Workspace is being created (worktree, branch setup) |
 | `queued` | Job accepted but not yet started (at capacity) |
 | `running` | Agent session is active |
 | `waiting_for_approval` | Session paused, awaiting operator decision |
@@ -1610,8 +1955,11 @@ Jobs in `review` carry a **resolution status** that tracks how the job's changes
 
 | From | Event | To |
 |---|---|---|
-| _(none)_ | `JobCreated` + capacity available | `running` |
-| _(none)_ | `JobCreated` + at capacity | `queued` |
+| _(none)_ | `JobCreated` | `preparing` |
+| _(none)_ | `JobCreated` (external CLI session) | `running` or `queued` |
+| `preparing` | `WorkspacePrepared` + capacity available | `queued` |
+| `preparing` | Workspace creation failed | `failed` |
+| `preparing` | `JobCanceled` | `canceled` |
 | `queued` | Capacity opens | `running` |
 | `queued` | `JobCanceled` | `canceled` |
 | `running` | `ApprovalRequested` | `waiting_for_approval` |
@@ -1641,6 +1989,7 @@ Rerunning a job creates a new job record. The original job is not mutated. The n
 |---|---|---|
 | `environment_setup` | Workspace creation, branch, dependency install | `WorkspacePrepared`, `LogLineEmitted` |
 | `agent_reasoning` | Agent reads code, thinks, plans, and writes changes | `TranscriptUpdated`, `DiffUpdated`, `ApprovalRequested` |
+| `verification` | Post-task verification and self-review passes | `TranscriptUpdated`, `DiffUpdated` |
 | `finalization` | Final diff snapshot, artifact collection | `DiffUpdated`, `JobReview` |
 | `post_completion` | Operator reviews, approves, or reruns | _(no agent events)_ |
 
@@ -1723,13 +2072,7 @@ Sections:
 - Global config viewer/editor (YAML text editor with validation)
 - Repository config list (per-repo `.codeplane.yml` viewer)
 - Worktree cleanup action
-- Voice model selector
-- **Terminal Assistance** — Default SDK and model for agent assistance in terminal sessions (see §14.6.2)
-
-| Field | Type | Notes |
-|---|---|---|
-| Assistance SDK | Dropdown (`copilot` / `claude`) | Which SDK powers the terminal assist agent |
-| Default Model | Dropdown + "Auto" option | Model used for assist; filtered to models compatible with selected SDK. "Auto" uses the SDK's default model |
+- **Action Policy** — Active preset selector and custom rule management (see §18.3)
 
 ### 14.5 Repository Detail View
 
@@ -1854,13 +2197,36 @@ CREATE TABLE jobs (
     resolution TEXT,
     archived_at TEXT,
     title TEXT,
+    description TEXT,
     worktree_name TEXT,
-    permission_mode TEXT NOT NULL DEFAULT 'full_auto',
+    permission_mode TEXT NOT NULL DEFAULT 'full_auto',  -- legacy, retained for migration compatibility
+    preset TEXT NOT NULL DEFAULT 'supervised',
     session_count INTEGER NOT NULL DEFAULT 1,
     sdk_session_id TEXT,
     model TEXT,
     sdk TEXT NOT NULL DEFAULT 'copilot',
     failure_reason TEXT,
+    verify BOOLEAN DEFAULT FALSE,
+    self_review BOOLEAN DEFAULT FALSE,
+    max_turns INTEGER DEFAULT 2,
+    verify_prompt TEXT,
+    self_review_prompt TEXT,
+    enable_stall_detection BOOLEAN DEFAULT TRUE,
+    enable_plan_tracking BOOLEAN DEFAULT TRUE,
+    version INTEGER NOT NULL DEFAULT 0,
+    parent_job_id TEXT,
+    source TEXT NOT NULL DEFAULT 'managed',
+    external_session_id TEXT,
+    tail_offset INTEGER NOT NULL DEFAULT 0,
+    story_text TEXT,
+    review_story_json TEXT,
+    review_story_hash TEXT,
+    structural_coupling_delta REAL,
+    structural_cycle_count INTEGER,
+    structural_changes_touch_tests BOOLEAN,
+    structural_change_count INTEGER,
+    structural_merge_confidence TEXT,
+    trail_state_snapshot TEXT,         -- JSON
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     completed_at TEXT
@@ -1894,6 +2260,12 @@ CREATE TABLE approvals (
     requested_at TEXT NOT NULL,
     resolved_at TEXT,
     resolution TEXT,
+    requires_explicit_approval BOOLEAN DEFAULT FALSE,
+    batch_id TEXT,
+    tier TEXT,                        -- observe | checkpoint | gate
+    reversible BOOLEAN,
+    contained BOOLEAN,
+    checkpoint_ref TEXT,
     FOREIGN KEY (job_id) REFERENCES jobs(id)
 );
 ```
@@ -1910,8 +2282,8 @@ CREATE TABLE artifacts (
     size_bytes INTEGER NOT NULL,
     disk_path TEXT NOT NULL,
     phase TEXT NOT NULL,
+    step_id TEXT,                     -- which plan step produced this artifact
     created_at TEXT NOT NULL,
-    session_number INTEGER,           -- which session produced this artifact (nullable for legacy rows)
     FOREIGN KEY (job_id) REFERENCES jobs(id)
 );
 ```
@@ -1968,6 +2340,199 @@ CREATE TABLE diff_snapshots (
     FOREIGN KEY (job_id) REFERENCES jobs(id)
 );
 CREATE INDEX idx_diff_snapshots_job_id ON diff_snapshots(job_id);
+```
+
+#### steps
+
+```sql
+CREATE TABLE steps (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    step_number INTEGER NOT NULL,
+    turn_id TEXT,
+    intent TEXT,
+    title TEXT,
+    status TEXT,                  -- completed | in_progress | pending
+    trigger TEXT,
+    tool_count INTEGER,
+    agent_message TEXT,
+    started_at TEXT,
+    completed_at TEXT,
+    duration_ms INTEGER,
+    start_sha TEXT,
+    end_sha TEXT,
+    files_read TEXT,              -- JSON array
+    files_written TEXT,           -- JSON array
+    preceding_context TEXT,       -- JSON
+    FOREIGN KEY (job_id) REFERENCES jobs(id)
+);
+CREATE INDEX ix_steps_job_number ON steps(job_id, step_number);
+```
+
+#### job_telemetry_summary
+
+```sql
+CREATE TABLE job_telemetry_summary (
+    job_id TEXT NOT NULL,
+    session_kind TEXT NOT NULL DEFAULT 'job',
+    -- ~45 columns tracking cost, tokens, timing, retry stats, approval metrics
+    PRIMARY KEY (job_id, session_kind)
+);
+```
+
+#### job_telemetry_spans
+
+```sql
+CREATE TABLE job_telemetry_spans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    span_type TEXT,               -- "tool" | "llm"
+    name TEXT,
+    started_at REAL,
+    duration_ms REAL,
+    attrs_json TEXT,
+    created_at TEXT,
+    tool_category TEXT,
+    tool_target TEXT,
+    turn_number INTEGER,
+    execution_phase TEXT,
+    is_retry BOOLEAN,
+    retries_span_id INTEGER,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    cache_read_tokens INTEGER,
+    cache_write_tokens INTEGER,
+    cost_usd REAL,
+    tool_args_json TEXT,
+    result_size_bytes INTEGER,
+    error_kind TEXT,
+    turn_id TEXT,
+    preceding_context TEXT,
+    motivation_summary TEXT,
+    edit_motivations TEXT,         -- JSON
+    session_kind TEXT DEFAULT 'job',
+    FOREIGN KEY (job_id) REFERENCES jobs(id)
+);
+CREATE INDEX idx_spans_job ON job_telemetry_spans(job_id);
+CREATE INDEX idx_spans_turn_id ON job_telemetry_spans(turn_id);
+```
+
+#### job_file_cost
+
+```sql
+CREATE TABLE job_file_cost (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    cost_usd REAL,
+    read_cost REAL,
+    write_cost REAL,
+    turn_count INTEGER,
+    created_at TEXT,
+    FOREIGN KEY (job_id) REFERENCES jobs(id)
+);
+CREATE INDEX idx_file_cost_job ON job_file_cost(job_id);
+```
+
+#### job_file_access_log
+
+```sql
+CREATE TABLE job_file_access_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    access_type TEXT,             -- read | write
+    turn_number INTEGER,
+    span_id INTEGER,
+    byte_count INTEGER,
+    created_at TEXT,
+    FOREIGN KEY (job_id) REFERENCES jobs(id)
+);
+```
+
+#### job_cost_attribution
+
+```sql
+CREATE TABLE job_cost_attribution (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    dimension TEXT NOT NULL,
+    bucket TEXT NOT NULL,
+    cost_usd REAL,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    call_count INTEGER,
+    cache_read_tokens INTEGER,
+    cache_write_tokens INTEGER,
+    model TEXT,
+    created_at TEXT,
+    FOREIGN KEY (job_id) REFERENCES jobs(id)
+);
+```
+
+#### job_latency_attribution
+
+```sql
+CREATE TABLE job_latency_attribution (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    dimension TEXT NOT NULL,
+    bucket TEXT NOT NULL,
+    wall_clock_ms REAL,
+    sum_duration_ms REAL,
+    span_count INTEGER,
+    p50_ms REAL,
+    p95_ms REAL,
+    max_ms REAL,
+    pct_of_total REAL,
+    created_at TEXT,
+    FOREIGN KEY (job_id) REFERENCES jobs(id)
+);
+```
+
+#### cost_observations
+
+```sql
+CREATE TABLE cost_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT,
+    severity TEXT,
+    title TEXT,
+    detail TEXT,
+    evidence_json TEXT,
+    job_count INTEGER,
+    total_waste_usd REAL,
+    first_seen_at TEXT,
+    last_seen_at TEXT,
+    dismissed BOOLEAN DEFAULT FALSE
+);
+```
+
+#### trail_nodes
+
+```sql
+CREATE TABLE trail_nodes (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    seq INTEGER,
+    anchor_seq INTEGER,
+    parent_id TEXT,
+    kind TEXT,                    -- goal | turn | reasoning | decision | modify | write | verify | investigate | backtrack
+    deterministic_kind TEXT,
+    phase TEXT,
+    timestamp TEXT,
+    enrichment TEXT,
+    intent TEXT,
+    rationale TEXT,
+    outcome TEXT,
+    step_id TEXT,
+    span_ids TEXT,                -- JSON array
+    turn_id TEXT,
+    files TEXT,                   -- JSON array
+    start_sha TEXT,
+    end_sha TEXT,
+    FOREIGN KEY (job_id) REFERENCES jobs(id)
+);
 ```
 
 ---
@@ -2064,6 +2629,36 @@ The health endpoint does **not** require authentication. It returns:
 | `POST` | `/api/jobs/{job_id}/cancel` | Cancel a running or queued job |
 | `POST` | `/api/jobs/{job_id}/rerun` | Create a new job from this job's config |
 | `POST` | `/api/jobs/{job_id}/messages` | Send an operator message to a running job |
+| `POST` | `/api/jobs/{job_id}/continue` | Continue a job with an instruction |
+| `POST` | `/api/jobs/{job_id}/resume` | Resume a job from review state |
+| `PUT` | `/api/jobs/{job_id}` | Update job metadata (title, description) |
+| `POST` | `/api/jobs/{job_id}/resolve` | Resolve a review job (merge/PR/discard) |
+| `POST` | `/api/jobs/{job_id}/archive` | Archive a terminal job |
+| `POST` | `/api/jobs/{job_id}/unarchive` | Unarchive a job |
+| `POST` | `/api/jobs/{job_id}/restore` | Restore an archived job |
+| `POST` | `/api/jobs/suggest-names` | Suggest title/branch/worktree names from prompt |
+
+#### Job Data Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/jobs/{job_id}/logs` | Get job log lines |
+| `GET` | `/api/jobs/{job_id}/diff` | Get current diff files |
+| `GET` | `/api/jobs/{job_id}/transcript` | Get agent transcript |
+| `GET` | `/api/jobs/{job_id}/transcript/search` | Full-text search transcript |
+| `GET` | `/api/jobs/{job_id}/steps` | Get plan steps |
+| `GET` | `/api/jobs/{job_id}/steps/{step_id}/diff` | Get diff for a single step |
+| `GET` | `/api/jobs/{job_id}/timeline` | Get progress headline timeline |
+| `GET` | `/api/jobs/{job_id}/snapshot` | Full state hydration (for reconnect/refresh) |
+| `GET` | `/api/jobs/{job_id}/telemetry` | Get job telemetry data |
+| `GET` | `/api/jobs/{job_id}/story` | Get narrative story of job execution |
+| `GET` | `/api/jobs/{job_id}/structural-diff` | Get structural coupling diff |
+| `GET` | `/api/jobs/{job_id}/multi-session` | Get multi-session analysis |
+| `GET` | `/api/jobs/{job_id}/impact-graph/{symbol}` | Get code impact graph |
+| `GET` | `/api/jobs/{job_id}/communities` | Get community detection results |
+| `GET` | `/api/jobs/{job_id}/review-story` | Get structural review story |
+| `GET` | `/api/jobs/{job_id}/trail` | Get structured intent graph (audit trail) |
+| `GET` | `/api/jobs/{job_id}/trail/summary` | Get lightweight trail summary |
 
 #### Pagination
 
@@ -2148,6 +2743,8 @@ The endpoint returns `409 Conflict` if the job is not in `running` state.
 |---|---|---|
 | `GET` | `/api/jobs/{job_id}/approvals` | List approvals for a job |
 | `POST` | `/api/approvals/{approval_id}/resolve` | Approve or reject |
+| `POST` | `/api/jobs/{job_id}/approvals/trust` | Auto-approve all current and future requests for this session |
+| `POST` | `/api/jobs/{job_id}/batches/resolve` | Resolve an action policy batch |
 
 #### Resolve Approval — Request
 
@@ -2186,9 +2783,16 @@ POST /api/approvals/{approval_id}/resolve
 | `PUT` | `/api/settings` | Update settings (structured, partial) |
 | `GET` | `/api/settings/repos` | List registered repos |
 | `GET` | `/api/settings/repos/{repo_path}` | Get detailed repo config with resolved MCP servers |
-| `POST` | `/api/settings/repos` | Register a repository (local path or remote URL) |
-| `DELETE` | `/api/settings/repos/{repo_path}` | Remove a repository from the allowlist |
+| `GET` | `/api/settings/repos/{repo_path}/health` | Get structural health status |
+| `GET` | `/api/settings/repos/{repo_path}/summary` | Get aggregated repo overview |
+| `GET` | `/api/settings/repos/{repo_path}/jobs` | List jobs for a repo |
+| `GET` | `/api/settings/repos/{repo_path}/memory` | Get repo workspace memory |
+| `POST` | `/api/settings/repos/{repo_path}/register` | Register a repository (local path or remote URL) |
+| `POST` | `/api/settings/repos/{repo_path}/create` | Create a new repository |
+| `POST` | `/api/settings/repos/{repo_path}/browse` | Browse directory structure |
 | `POST` | `/api/settings/cleanup-worktrees` | Clean up completed job worktrees |
+| `GET` | `/api/settings/sdks` | List available agent SDKs and their status |
+| `GET` | `/api/settings/platforms` | List platform auth status |
 
 #### `POST /api/settings/repos` — Register Repository
 
@@ -2253,7 +2857,7 @@ Response (`200 OK`):
     }
   ],
   "active_job_count": 1,
-  "recent_jobs": [{"id": "job-42", "state": "succeeded", "prompt": "..."}]
+  "recent_jobs": [{"id": "job-42", "state": "completed", "prompt": "..."}]
 }
 ```
 
@@ -2261,11 +2865,9 @@ Response (`200 OK`):
 
 ### 17.9 SDKs
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/sdks` | List available agent SDKs and their status |
+The SDK listing endpoint moved to `GET /api/settings/sdks` (see §17.8).
 
-Returns all registered SDKs, their installation/configuration status, and which is the default:
+Returns all registered SDKs, their installation/configuration status, and which is the default.
 
 ```json
 {
@@ -2294,10 +2896,10 @@ Returns all registered SDKs, their installation/configuration status, and which 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/api/terminal/sessions` | Create a new PTY session |
+| `GET` | `/api/terminal/sessions` | List active sessions |
 | `DELETE` | `/api/terminal/sessions/{id}` | Kill a PTY session and clean up |
-| `GET` | `/api/terminal/sessions/{id}/ws` | WebSocket connection for terminal I/O |
-| `POST` | `/api/terminal/sessions/{id}/assist` | Send a message to the session's assist agent |
-| `GET` | `/api/terminal/sessions/{id}/assist/stream` | SSE stream of assist agent responses |
+| `WebSocket` | `/api/terminal/ws` | WebSocket connection for terminal I/O |
+| `POST` | `/api/terminal/ask` | Translate natural language to a shell command |
 
 #### `POST /api/terminal/sessions` — Create Session
 
@@ -2322,44 +2924,26 @@ Response (`201 Created`):
 }
 ```
 
-#### `POST /api/terminal/sessions/{id}/assist` — Assist Message
+#### `POST /api/terminal/ask` — Natural Language to Shell Command
 
 Request body:
 
 ```json
 {
-  "message": "How do I fix the failing test in auth_test.py?",
-  "includeScrollback": true
+  "message": "How do I find all Python files modified in the last week?",
+  "cwd": "/repos/service-a"
 }
 ```
-
-When `includeScrollback` is `true`, the backend reads the last N lines (default 200) from the PTY scrollback buffer and includes them as context for the assist agent.
 
 Response (`200 OK`):
 
 ```json
 {
-  "assistMessageId": "assist-msg-42"
+  "command": "find . -name '*.py' -mtime -7"
 }
 ```
 
-The actual response content streams via the SSE endpoint.
-
-#### `GET /api/terminal/sessions/{id}/assist/stream` — Assist Response Stream
-
-SSE endpoint that streams assist agent responses. Each event contains a chunk of the agent's markdown response:
-
-```
-event: assist_chunk
-data: {"assistMessageId": "assist-msg-42", "content": "The test is failing because...", "done": false}
-
-event: assist_chunk
-data: {"assistMessageId": "assist-msg-42", "content": "", "done": true}
-```
-
-The assist agent uses the SDK and model configured in `terminal.assist` from global settings (§10.2). If no configuration is set, it falls back to `runtime.default_sdk` with that SDK's default model.
-
-### 17.12 Connection Limits
+### 17.11 Connection Limits
 
 SSE connections are limited to `max_sse_connections` concurrent connections (default: 5).
 
@@ -2446,6 +3030,88 @@ Push notification delivery is triggered automatically by the event bus when `app
 
 Ports are restricted to 1024–65535. The proxy only forwards to `127.0.0.1` (no SSRF). Returns `502` if the target port is not listening.
 
+### 17.15 Analytics
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/analytics/overview` | High-level fleet metrics |
+| `GET` | `/api/analytics/models` | Model usage and cost |
+| `GET` | `/api/analytics/tools` | Tool execution stats |
+| `GET` | `/api/analytics/repos` | Per-repo analytics |
+| `GET` | `/api/analytics/jobs` | Job-level analytics |
+| `GET` | `/api/analytics/pricing` | Model pricing data |
+| `GET` | `/api/analytics/cost-drivers/{job_id}` | Job cost breakdown |
+| `GET` | `/api/analytics/cost-drivers` | Fleet cost drivers |
+| `GET` | `/api/analytics/latency-drivers` | Latency analysis |
+| `GET` | `/api/analytics/file-access/{job_id}` | File access patterns |
+| `GET` | `/api/analytics/turn-economics/{job_id}` | Per-turn cost |
+| `GET` | `/api/analytics/scorecard` | Executive scorecard |
+| `GET` | `/api/analytics/model-comparison` | Model performance comparison |
+| `GET` | `/api/analytics/observations` | Cost observations and anomalies |
+| `POST` | `/api/analytics/observations/{id}/dismiss` | Dismiss an observation |
+| `POST` | `/api/analytics/analyse` | Trigger analysis |
+| `GET` | `/api/analytics/shell-commands` | Shell command analysis |
+| `GET` | `/api/analytics/retry-cost` | Retry cost analysis |
+| `GET` | `/api/analytics/edit-efficiency` | Edit efficiency metrics |
+| `GET` | `/api/analytics/yield` | Yield analysis |
+| `GET` | `/api/analytics/model-efficiency` | Model efficiency metrics |
+| `GET` | `/api/analytics/cache-efficiency` | Prompt cache efficiency |
+| `GET` | `/api/analytics/file-cost` | Per-file cost attribution |
+| `GET` | `/api/analytics/outcome-matrix` | Outcome matrix |
+| `GET` | `/api/analytics/executive-summary` | High-level summary |
+| `GET` | `/api/analytics/export` | Export analytics data |
+| `GET` | `/api/analytics/sidecar-costs` | Sidecar cost breakdown |
+
+### 17.16 Action Policy
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/policy` | Full policy config (preset, rules) |
+| `PUT` | `/api/policy/preset` | Update active preset |
+| `PUT` | `/api/policy/config` | Update policy config |
+| `GET` | `/api/policy/path-rules` | List path rules |
+| `POST` | `/api/policy/path-rules` | Create a path rule |
+| `PUT` | `/api/policy/path-rules/{rule_id}` | Update a path rule |
+| `DELETE` | `/api/policy/path-rules/{rule_id}` | Delete a path rule |
+| `GET` | `/api/policy/action-rules` | List action rules |
+| `POST` | `/api/policy/action-rules` | Create an action rule |
+| `PUT` | `/api/policy/action-rules/{rule_id}` | Update an action rule |
+| `DELETE` | `/api/policy/action-rules/{rule_id}` | Delete an action rule |
+| `GET` | `/api/policy/cost-rules` | List cost rules |
+
+### 17.17 Workspace Memory
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/repos/{repo_path}/memory` | Read workspace memory |
+| `GET` | `/api/repos/{repo_path}/memory/detail` | Read memory with sections |
+| `PUT` | `/api/repos/{repo_path}/memory` | Update memory |
+| `POST` | `/api/repos/{repo_path}/memory/compact` | Compact memory using LLM |
+
+### 17.18 Sidecar Templates
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/sidecar-templates` | List templates |
+| `GET` | `/api/sidecar-templates/{template_id}` | Get template |
+| `POST` | `/api/sidecar-templates` | Create template |
+| `PUT` | `/api/sidecar-templates/{template_id}` | Update template |
+| `DELETE` | `/api/sidecar-templates/{template_id}` | Delete template |
+| `POST` | `/api/sidecar-templates/generate` | Generate sidecar definition |
+
+### 17.19 Utility Sessions
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/utility-sessions/warm` | Create warm utility session |
+| `DELETE` | `/api/utility-sessions/{token}` | Delete session |
+
+### 17.20 Hooks
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/hooks/claude` | Claude integration webhook |
+
 ---
 
 ## 18. Approval System
@@ -2456,7 +3122,7 @@ Approval gates intercept risky operations before they execute. This ensures the 
 
 ### 18.2 Hard-Gated Commands
 
-Certain shell commands are **always** routed to the operator for approval, regardless of the active permission mode — even in `auto` mode. These commands are irreversible or bypass CodePlane's managed workflows:
+Certain shell commands are **always** routed to the operator for approval, regardless of the active preset — even in `autonomous` mode. These commands are irreversible or bypass CodePlane's managed workflows:
 
 | Pattern | Reason |
 |---------|--------|
@@ -2468,98 +3134,99 @@ Certain shell commands are **always** routed to the operator for approval, regar
 
 Hard-gated commands return `ask` from the permission policy. The agent system prompt also instructs the agent not to run these commands; the hard gate is a defence-in-depth backstop.
 
-### 18.3 Permission Modes
+### 18.3 Action Policy Presets
 
-CodePlane supports three permission modes that control how the SDK's permission requests are handled.
+CodePlane uses an **action policy engine** with three presets that control how the SDK's permission requests are handled. Each preset assigns a **tier** (observe, checkpoint, or gate) to each action based on its kind, reversibility, and containment.
 
-| Mode | Behavior |
+| Preset | Behavior |
 |------|----------|
-| `full_auto` (default) | Full trust: auto-approve **all** operations including reads, writes, shells, MCP tools, and URL fetches. The agent operates without any approval interruptions. **Exception:** hard-gated commands (§18.2) still require approval. |
-| `observe_only` | Allow reads within the worktree and read-only shell commands (grep, find, ls, cat, etc.). Deny all writes, URL fetches, and mutating operations. |
-| `review_and_approve` | Auto-approve reads and read-only shell commands. Require operator approval for all writes, non-read-only shells, URL fetches, mutating MCP tools, and custom tools. |
+| `autonomous` (default) | Contained actions auto-approved. Non-contained actions gated. Monitor sidecar handles gate-tier decisions. |
+| `supervised` | Reversible + contained actions auto-approved. Irreversible or non-contained actions gated. Monitor handles gate-tier decisions. |
+| `locked` | Reversible + contained get checkpointed. Everything else gated. Monitor disabled — all gates go directly to human. |
 
-#### Full Auto Mode Rules
+#### Tiers
+
+| Tier | Symbol | Behavior |
+|------|--------|----------|
+| `observe` | ○ | Auto-approved, logged silently |
+| `checkpoint` | ◐ | Auto-approved with brief notification; operator can intervene |
+| `gate` | ● | Blocked until operator approves or rejects |
+
+#### Hard-Gated Commands
+
+Hard-gated commands (§18.2) always receive the `gate` tier regardless of preset.
+
+#### Autonomous Preset Rules
+
+| Request Kind | Contained | Decision |
+|-------------|-----------|----------|
+| `read` | — | ○ observe |
+| `write` (within workspace) | yes | ○ observe |
+| `write` (outside workspace) | no | ● gate |
+| `shell` (read-only) | — | ○ observe |
+| `shell` (mutating, contained) | yes | ○ observe |
+| `shell` (mutating, non-contained) | no | ● gate |
+| `mcp` (read-only) | — | ○ observe |
+| `mcp` (mutating) | — | ◐ checkpoint |
+
+#### Supervised Preset Rules
+
+| Request Kind | Reversible + Contained | Decision |
+|-------------|------------------------|----------|
+| `read` | — | ○ observe |
+| `write` (reversible, contained) | yes | ○ observe |
+| `write` (irreversible or non-contained) | no | ● gate |
+| `shell` (read-only) | — | ○ observe |
+| `shell` (reversible, contained) | yes | ◐ checkpoint |
+| `shell` (irreversible or non-contained) | no | ● gate |
+| `mcp` (read-only) | — | ○ observe |
+| `mcp` (mutating) | — | ● gate |
+
+#### Locked Preset Rules
 
 | Request Kind | Decision |
 |-------------|----------|
-| `read` | ✅ approve |
-| `write` (within workspace) | ✅ approve |
-| `write` (outside workspace) | ✅ approve |
-| `shell` | ✅ approve |
-| `url` | ✅ approve |
-| `mcp` | ✅ approve |
-| `memory` | ✅ approve |
+| `read` | ○ observe |
+| `write` | ● gate |
+| `shell` (read-only) | ◐ checkpoint |
+| `shell` (other) | ● gate |
+| `mcp` | ● gate |
 
-#### Observe Only Mode Rules
+#### Custom Rules
 
-| Request Kind | Within Workspace | Outside Workspace |
-|-------------|------------------|-------------------|
-| `read` | ✅ approve | ❌ deny |
-| `write` | ❌ deny | ❌ deny |
-| `shell` (grep/find/ls/cat…) | ✅ approve | ✅ approve |
-| `shell` (other) | ❌ deny | ❌ deny |
-| `url` | ❌ deny | ❌ deny |
-| `mcp` (read-only) | ✅ approve | ✅ approve |
-| `mcp` (mutating) | ❌ deny | ❌ deny |
-| `memory` | ✅ approve | ✅ approve |
+In addition to presets, operators can define:
 
-#### Review & Approve Mode Rules
+- **Path rules** — Override the tier for writes to specific file paths (e.g., always gate `infra/` regardless of preset)
+- **Action rules** — Override the tier for specific action kinds or tool names
+- **Cost rules** — Escalate tier when cumulative spend exceeds a threshold
 
-| Request Kind | Decision |
-|-------------|----------|
-| `read` | ✅ approve |
-| `write` | ❓ ask |
-| `shell` (grep/find/ls/cat…) | ✅ approve |
-| `shell` (other) | ❓ ask |
-| `url` | ❓ ask |
-| `mcp` (read-only) | ✅ approve |
-| `mcp` (mutating) | ❓ ask |
-| `custom-tool` | ❓ ask |
-| `memory` | ✅ approve |
+Rules are managed via `POST /api/policy/path-rules`, `POST /api/policy/action-rules`, and `GET /api/policy/cost-rules`.
 
 #### Configuration
 
-Permission mode is resolved with this priority chain (first match wins):
+Preset is resolved with this priority chain (first match wins):
 
-1. **Per-job** — `permission_mode` field in `POST /api/jobs` request body
-2. **Per-repo** — `permission_mode` key in `.codeplane.yml`
-3. **Global** — `runtime.permission_mode` in CodePlane's `config.yaml`
+1. **Per-job** — `preset` field in `POST /api/jobs` request body
+2. **Global** — via `PUT /api/policy/preset`
 
-Default: `full_auto`
-
-Example `.codeplane.yml`:
-```yaml
-permission_mode: full_auto
-
-protected_paths:
-  - infra/
-  - .github/workflows/
-```
-
-Example global config:
-```yaml
-runtime:
-  max_concurrent_jobs: 2
-  permission_mode: full_auto
-```
+Default: `autonomous`
 
 ### 18.4 Delegation to the Agent Runtime
 
-The underlying agent SDK (Copilot SDK, Claude Code, etc.) decides **which** actions surface a permission request. CodePlane's permission policy then evaluates the request against the active mode to decide whether to auto-approve, deny, or route to the operator.
+The underlying agent SDK (Copilot SDK, Claude Code, etc.) decides **which** actions surface a permission request. CodePlane's action policy engine then evaluates the request against the active preset and custom rules to assign a tier (observe, checkpoint, or gate).
 
 CodePlane's role is to:
 
-1. **Evaluate** the SDK's permission request against the active permission mode
-2. **Auto-approve** requests that the policy allows (the SDK proceeds immediately)
-3. **Deny** requests that the policy blocks (in `observe_only` mode)
-4. **Route** remaining requests to the operator via the UI (in `review_and_approve` mode; the SDK blocks until resolved)
-5. **Relay** the operator's decision back to the SDK
-6. **Persist** approval requests and resolutions for auditability
-7. **Feed repo-level config** (like `protected_paths`) into the policy at session creation time
+1. **Evaluate** the SDK's permission request against the active preset and custom rules
+2. **Auto-approve** observe-tier and checkpoint-tier requests (the SDK proceeds immediately)
+3. **Route** gate-tier requests to the monitor sidecar (if enabled) or directly to the operator
+4. **Relay** the operator's decision back to the SDK
+5. **Persist** approval requests and resolutions for auditability
+6. **Feed repo-level config** (like path rules and action rules) into the policy engine at session creation time
 
-#### How `protected_paths` Maps to Policy
+#### How Path Rules Map to Policy
 
-The per-repo `protected_paths` list (Section 10.3) is evaluated by the permission policy at the CodePlane level. In `full_auto` mode, any write targeting a protected path prefix is escalated to the operator regardless of whether it's inside the workspace.
+Path rules (managed via `POST /api/policy/path-rules`) override the tier for writes to specific file paths. For example, a path rule can always gate writes to `infra/` regardless of the active preset.
 
 ### 18.5 Approval Request Object
 
@@ -2578,14 +3245,17 @@ The adapter normalizes whichever fields the SDK provides into this common shape.
 ### 18.6 Approval Flow
 
 1. SDK raises a permission request (e.g., Copilot SDK calls `on_permission_request`)
-2. Adapter evaluates the permission policy:
-   - **Hard-gated commands (§18.2):** always returns `ask` — routes to operator regardless of mode
-   - **`full_auto` mode:** returns `approved` immediately for all non-hard-gated operations — SDK proceeds, no event emitted
-   - **`observe_only` mode:** evaluates request kind; denies writes, non-read-only shells, URL fetches, and mutating MCP calls
-   - **`review_and_approve` mode:** evaluates request kind; auto-approves reads and read-only shells, routes everything else to operator
-3. If auto-approved: SDK proceeds immediately, no operator interaction
-4. If denied (observe_only mode): SDK is told the action is denied, no operator interaction
-5. If operator approval required (review_and_approve mode):
+2. Action policy engine evaluates the request:
+   - **Hard-gated commands (§18.2):** always assigns `gate` tier — routes to operator regardless of preset
+   - **Tier assignment:** the preset + custom rules assign a tier (`observe`, `checkpoint`, `gate`) based on action kind, reversibility, and containment
+3. Based on assigned tier:
+   - **`observe`:** action proceeds immediately, logged silently
+   - **`checkpoint`:** action proceeds immediately with a brief notification to the operator
+   - **`gate`:** action is blocked pending operator approval
+4. If gate tier and monitor sidecar is enabled (autonomous/supervised presets):
+   a. Monitor sidecar evaluates the action
+   b. Monitor may auto-approve, auto-reject, or escalate to human
+5. If human approval required:
    a. `ApprovalService` persists the request
    b. `approval_request` event emitted
    c. Job transitions to `waiting_for_approval`
@@ -2599,6 +3269,10 @@ The adapter normalizes whichever fields the SDK provides into this common shape.
    k. Job transitions back to `running`
 
 The SDK's `on_permission_request` callback is **async** — it blocks the SDK at the callback level while waiting for the operator's response. This ensures the action does not proceed until approved.
+
+#### Trust Grant
+
+Operators can issue a **trust grant** via `POST /api/jobs/{job_id}/approvals/trust`, which auto-approves all current and future permission requests for the remainder of the session. This is useful when the operator is confident the agent is on the right track and wants to unblock it without individual approvals.
 
 ### 18.7 Approval Timeout
 
@@ -2720,7 +3394,7 @@ Stdout does not show raw log lines. Instead, `cpl up` renders a live status disp
 
 - Server URL and tunnel URL (if active)
 - Active jobs table: job ID, repo, state, elapsed time
-- Aggregate metrics: jobs running, queued, succeeded, failed
+- Aggregate metrics: jobs running, queued, completed, failed
 - Last few significant events (job created, completed, failed, approval requested)
 
 This provides an at-a-glance operational view without overwhelming the terminal. Full logs remain in `~/.codeplane/logs/server.log`.
@@ -3095,6 +3769,7 @@ All diagrams use participants:
 Operator -> React UI: Fill job form, click Create
 React UI -> FastAPI: POST /api/jobs
 FastAPI -> FastAPI: Validate repo in allowlist
+FastAPI -> Persistence: persist job (state=preparing)
 FastAPI -> GitWorkspace: create_worktree(repo, base_ref, job_id)
 GitWorkspace --> FastAPI: worktree_path, branch
 FastAPI -> Persistence: persist JobCreated event
@@ -3142,10 +3817,10 @@ end
 AgentSDK --> JobRuntime: SessionEvent(kind="done")
 JobRuntime -> GitWorkspace: final_diff(worktree, base_ref)
 JobRuntime -> Persistence: persist DiffUpdated (final)
-JobRuntime -> Persistence: persist JobSucceeded
-JobRuntime -> SSEStream: job_state_changed (running->succeeded)
+JobRuntime -> Persistence: persist JobReview
+JobRuntime -> SSEStream: job_state_changed (running->review)
 SSEStream --> React UI: job_state_changed
-React UI -> React UI: Show succeeded badge, enable rerun
+React UI -> React UI: Show review badge, enable rerun
 ```
 
 ---
@@ -3283,7 +3958,7 @@ Each job runs as a single agent session:
 2. Calls `adapter.create_session(config)` to start the agent
 3. Consumes `adapter.stream_events(session_id)` and translates each `SessionEvent` into a domain event
 4. Publishes domain events to the event bus
-5. When the session completes, the job transitions to `succeeded`, `failed`, or `canceled`
+5. When the session completes, the job transitions to `review`, `failed`, or `canceled`
 
 Operator messages are forwarded via `adapter.send_message()`. Cancellation calls `adapter.abort_session()`.
 
@@ -3430,7 +4105,7 @@ The MCP server pushes **notifications** to connected clients for key domain even
 |---|---|
 | `cpl/job_state_changed` | Job transitions to a new state |
 | `cpl/approval_requested` | A running job requests operator approval |
-| `cpl/job_completed` | Job reaches `succeeded` or `failed` terminal state |
+| `cpl/job_completed` | Job reaches `completed` or `failed` terminal state |
 | `cpl/agent_message` | Agent produces a transcript message |
 
 Notifications are sourced from the internal event bus — the same events that drive the SSE stream and the frontend. The orchestrating agent can subscribe to these to react without polling.

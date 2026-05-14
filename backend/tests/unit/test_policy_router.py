@@ -9,8 +9,6 @@ import pytest
 from backend.services.action_policy.classifier import (
     Action,
     ActionKind,
-    Classification,
-    CostContext,
     RepoPolicy,
     Tier,
 )

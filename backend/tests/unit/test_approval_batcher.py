@@ -5,13 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from unittest.mock import AsyncMock
 
-import pytest
-
 from backend.services.action_policy.batcher import (
     ApprovalBatcher,
     Batch,
     BatchResolution,
-    BatchResult,
     GateAction,
     _action_description,
 )
@@ -125,8 +122,18 @@ class TestBatchSummarize:
         assert result == "npm install lodash"
 
     def test_multiple_actions(self):
-        a1 = GateAction(id="1", action=FakeAction(kind="shell"), classification=FakeClassification(), checkpoint_ref="")
-        a2 = GateAction(id="2", action=FakeAction(kind="file_write"), classification=FakeClassification(), checkpoint_ref="")
+        a1 = GateAction(
+            id="1",
+            action=FakeAction(kind="shell"),
+            classification=FakeClassification(),
+            checkpoint_ref="",
+        )
+        a2 = GateAction(
+            id="2",
+            action=FakeAction(kind="file_write"),
+            classification=FakeClassification(),
+            checkpoint_ref="",
+        )
         batch = Batch(id="b1", job_id="j1", actions=[a1, a2])
         result = ApprovalBatcher._summarize(batch)
         assert "2 actions" in result

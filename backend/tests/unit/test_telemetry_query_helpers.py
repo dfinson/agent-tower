@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from backend.services.telemetry_query_service import (
     _SHELL_TOOL_NAMES,
     _refine_tool_category,
     _shell_display_name,
 )
-
 
 # ── _shell_display_name ──
 

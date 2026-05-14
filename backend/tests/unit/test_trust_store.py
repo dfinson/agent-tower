@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 from backend.services.action_policy.trust_store import (
     TrustGrant,

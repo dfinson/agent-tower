@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from backend.services.trail.prompts import (
     normalize_path,
     parse_enrichment_response,
@@ -20,7 +18,7 @@ class TestStripCodeFences:
         assert strip_code_fences(text) == '{"key": "val"}'
 
     def test_plain_fence(self) -> None:
-        text = '```\nsome content\n```'
+        text = "```\nsome content\n```"
         assert strip_code_fences(text) == "some content"
 
     def test_whitespace(self) -> None:

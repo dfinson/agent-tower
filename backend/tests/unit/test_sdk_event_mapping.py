@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
 
 from backend.models.domain import SessionEventKind
 from backend.services.sdk_event_mapping import (
@@ -11,7 +10,6 @@ from backend.services.sdk_event_mapping import (
     extract_copilot_telemetry,
     extract_result_text,
 )
-
 
 # ---------------------------------------------------------------------------
 # SDK_KIND_MAP

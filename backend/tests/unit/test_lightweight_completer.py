@@ -47,7 +47,11 @@ class TestDetectProvider:
 
     def test_anthropic_base_url(self):
         adapter = AsyncMock()
-        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_BASE_URL": "http://proxy:8000"}, clear=False):
+        with patch.dict(
+            os.environ,
+            {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_BASE_URL": "http://proxy:8000"},
+            clear=False,
+        ):
             c = LightweightCompleter(adapter, model="claude-haiku-4-20250414")
         assert c._base_url == "http://proxy:8000"
 
@@ -75,7 +79,7 @@ class TestCompleteFallback:
             c = LightweightCompleter(adapter, model="test-model")
         # Force create a client
         c._client = None
-        client = await c._get_client()
+        await c._get_client()
         assert c._client is not None
 
         # Set created_at to the past to trigger recycling
