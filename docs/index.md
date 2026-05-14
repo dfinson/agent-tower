@@ -14,7 +14,7 @@ hide:
 
 <span class="eyebrow">The control plane for AI coding agents.</span>
 
-**Run any agent. Own the data. Review with intelligence.**
+**Run any agent from anywhere. Own the data. Review with intelligence.**
 
 CodePlane is a local server that wraps the agent CLIs you already use — Claude Code and GitHub Copilot. Launch jobs headless, or mirror native CLI sessions with zero workflow change. Either way you get a normalized provenance database, real-time supervision, cost attribution, structural risk scoring, and a narrative review that explains *why* each change was made.
 
