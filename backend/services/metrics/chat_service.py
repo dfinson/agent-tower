@@ -1,13 +1,15 @@
-"""Chat-driven metrics composer — LLM orchestration.
+"""Chat-driven metrics composer — stateful conversational agent.
 
-Agentic two-step flow:
-1. User question → LLM generates SQL queries + viz recommendation
-   → execute → if errors, feed them back and let the LLM self-correct
-   → loop until success, LLM gives up, or overall timeout
-2. Execute queries → LLM verifies results + writes narrative
+Each conversation is a persistent multi-turn session kept in memory until
+the user starts a new conversation or the server restarts.  The LLM
+maintains full awareness of the conversation history and decides what to
+do: ask for clarification, explain feasibility, run SQL queries, or
+respond with a visualization.
 
-The system prompt contains the full telemetry schema so the LLM can
-write correct SQLite queries without guessing.
+The system prompt describes available tables, visualization templates,
+and the JSON action protocol.  The LLM replies with a structured JSON
+action on every turn; the service executes queries and feeds results
+back into the conversation for the LLM to format.
 """
 
 from __future__ import annotations
@@ -30,41 +32,57 @@ from backend.services.sidecar.session import SidecarSessionManager
 
 log = structlog.get_logger()
 
-# Preferred models for the metrics chat — stronger than the utility default.
-# Checked in order; the first whose API key is present wins.
+# ---------------------------------------------------------------------------
+# Model selection
+# ---------------------------------------------------------------------------
+
 _PREFERRED_MODELS: list[tuple[str, str]] = [
     ("OPENAI_API_KEY", "gpt-4.1"),
     ("ANTHROPIC_API_KEY", "claude-haiku-4-5-20250414"),
 ]
-
-# Max output tokens — must be enough for the step-2 viz_data JSON.
-# Bounded by the 50-row query cap and the viz template data shapes.
 _METRICS_MAX_TOKENS = 4096
 
-# Overall wall-clock budget for one ask() call (seconds).
-_ASK_DEADLINE_S = 30.0
-
-# Minimum remaining time (seconds) to attempt another LLM round-trip.
+# Wall-clock budget per turn (seconds).
+_TURN_DEADLINE_S = 30.0
 _MIN_REMAINING_S = 3.0
 
 
 def _select_model() -> str:
-    """Pick the strongest available model for the metrics chat flow."""
     for env_key, model in _PREFERRED_MODELS:
         if os.environ.get(env_key):
             return model
-    # No direct API key — completer will fall back to adapter.complete()
     return "gpt-4.1"
 
+
 # ---------------------------------------------------------------------------
-# System prompt — full schema for the LLM
+# In-memory conversation store — lives until server restart
+# ---------------------------------------------------------------------------
+
+# conversation_id -> list of {"role": "user"|"assistant", "content": str}
+_conversations: dict[str, list[dict[str, str]]] = {}
+
+
+def clear_conversation(conversation_id: str) -> None:
+    """Drop an in-memory conversation session."""
+    _conversations.pop(conversation_id, None)
+
+
+# ---------------------------------------------------------------------------
+# System prompt
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = """\
-You are a data analyst for CodePlane, an AI coding agent control plane.
-You answer questions about agent telemetry by writing SQLite queries.
+You are a data analyst assistant for CodePlane, an AI coding agent control \
+plane.  You help users understand their agent telemetry through conversation.
 
-## Available Tables
+## Your capabilities
+- Run SQLite SELECT queries against the telemetry database
+- Visualize results using dashboard templates
+- Explain what the data means
+- Ask clarifying questions when the request is ambiguous
+- Explain what is and isn't feasible with the available data
+
+## Available tables
 
 ### job_telemetry_spans
 Columns: id, job_id, session_kind, span_type, name, started_at, \
@@ -78,8 +96,8 @@ Notes:
 - session_kind is 'job' for main sessions, 'sidecar' for utility sessions
 - span_type: 'llm_call', 'tool_call', 'turn'
 - tool_category: 'file_read', 'file_write', 'shell', 'search', 'browser', etc.
-- execution_phase: 'investigation', 'implementation', 'debugging', 'verification', etc.
-- cost_usd may be NULL — use COALESCE(cost_usd, 0)
+- execution_phase: 'investigation', 'implementation', 'debugging', 'verification'
+- cost_usd may be NULL -- use COALESCE(cost_usd, 0)
 - Timestamps are ISO 8601 strings
 
 ### job_telemetry_summary
@@ -96,7 +114,7 @@ tool_error_count, description, job_mode, total_cost_with_sidecar_usd
 Notes:
 - Composite PK: (job_id, session_kind)
 - Filter session_kind = 'job' for main session metrics
-- repo contains full path — use LIKE '%/repo_name' for matching
+- repo contains full path -- use LIKE '%/repo_name' for matching
 - status: 'completed', 'failed', 'cancelled', 'running', 'review', 'pending'
 
 ### job_cost_attribution
@@ -115,92 +133,45 @@ Columns: id, status, error, error_kind, repo_path, branch, sdk, \
 created_at, started_at, completed_at, parent_job_id, name, \
 description, mode
 
-## Visualization Templates
-When recommending a visualization, choose one of:
-- stat_card: Single number with label. Data: [{value: N, label: "text"}]
-- bar_chart: Categorical bars. Data: [{name: "X", value: N}, ...]
-- line_chart: Time series. Data: [{date: "YYYY-MM-DD", value: N}, ...]
-- stacked_bar: Multi-series bars. Data: [{name: "X", series1: N, series2: N}, ...]
-- donut: Proportional. Data: [{name: "X", value: N}, ...]
-- table: Tabular. Data: [{col1: val, col2: val, ...}, ...]
-- heatmap: 2D grid. Data: [{x: "X", y: "Y", value: N}, ...]
+## Visualization templates
+- stat_card: single number. Data: [{"value": N, "label": "text"}]
+- bar_chart: categorical bars. Data: [{"name": "X", "value": N}, ...]
+- line_chart: time series. Data: [{"date": "YYYY-MM-DD", "value": N}, ...]
+- stacked_bar: multi-series bars. Data: [{"name": "X", "s1": N, "s2": N}, ...]
+- donut: proportional. Data: [{"name": "X", "value": N}, ...]
+- table: tabular. Data: [{"col1": val, "col2": val}, ...]
+- heatmap: 2D grid. Data: [{"x": "X", "y": "Y", "value": N}, ...]
 
-## Rules
-1. Write ONLY SELECT/WITH queries
-2. Always filter session_kind = 'job' unless asked about sidecars
+## Response protocol
+You MUST reply with a single JSON object -- no markdown fences, no \
+commentary outside the JSON.  Choose ONE of these action types:
+
+### 1. Run SQL queries
+Use when you need data to answer the question.
+{"action": "query", "queries": [{"sql": "SELECT ...", "purpose": "..."}], \
+"viz": "template_name", "viz_config": {"title": "...", "x_key": "...", "y_key": "..."}}
+
+### 2. Respond with a message (explanation, clarification, greeting)
+Use for conversation, clarification, feasibility explanations, or when \
+no data query is needed.
+{"action": "message", "content": "your message to the user"}
+
+### 3. Present formatted results (only after you receive query results)
+Use after the system shows you query results.
+{"action": "result", "narrative": "1-2 sentence summary", "title": "short title", \
+"viz": "template_name", "viz_data": [...], "viz_config": {...}}
+
+## SQL rules
+1. ONLY SELECT/WITH queries  2. Filter session_kind = 'job' unless asked about sidecars
 3. Use COALESCE(cost_usd, 0) for nullable cost columns
-4. For date filtering: WHERE created_at >= datetime('now', '-N days')
-5. Keep queries efficient — use appropriate GROUP BY and LIMIT
-6. Return JSON in the EXACT format specified in each prompt
-7. Use ASCII operators only (>=, <=, !=). Never use Unicode symbols.
-"""
-
-_STEP1_TEMPLATE = """\
-User question: {question}
-
-{context}
-
-Write SQLite queries to answer this question. Return ONLY valid JSON:
-{{
-  "queries": [
-    {{"sql": "SELECT ...", "purpose": "brief description"}}
-  ],
-  "viz": "template_name",
-  "viz_config": {{"title": "Chart Title", "x_key": "col_name", "y_key": "col_name"}}
-}}
-
-If the question cannot be answered with the available tables, return:
-{{"error": "explanation of why"}}
-"""
-
-_STEP2_TEMPLATE = """\
-Original question: {question}
-
-Queries executed and results:
-{results_block}
-
-Based on these results:
-1. Verify the data answers the question correctly
-2. Transform the raw query results into the visualization format for "{viz}" template
-3. Write a brief narrative summary (1-2 sentences)
-
-Return ONLY valid JSON:
-{{
-  "viz_data": [the data array for the visualization template],
-  "narrative": "brief summary of the findings",
-  "title": "short metric title for dashboard"
-}}
-
-If the results don't adequately answer the question, return:
-{{"error": "explanation", "suggestion": "try asking about..."}}
-"""
-
-_CORRECTION_TEMPLATE = """\
-Your previous SQL queries failed. Fix them and try again.
-
-Original question: {question}
-
-{context}
-
-Previous attempt errors:
-{error_block}
-
-Fix the SQL and return ONLY valid JSON:
-{{
-  "queries": [
-    {{"sql": "SELECT ...", "purpose": "brief description"}}
-  ],
-  "viz": "template_name",
-  "viz_config": {{"title": "Chart Title", "x_key": "col_name", "y_key": "col_name"}}
-}}
-
-If this question cannot be answered with the available tables, return:
-{{"error": "explanation of why"}}
+4. Date filtering: WHERE created_at >= datetime('now', '-N days')
+5. Use ASCII operators only (>=, <=, !=) -- never Unicode
+6. Keep queries efficient with GROUP BY and LIMIT
 """
 
 
 class MetricsChatService:
-    """Orchestrates the agentic two-step LLM flow for metrics questions."""
+    """Stateful conversational metrics agent."""
 
     def __init__(
         self,
@@ -214,211 +185,153 @@ class MetricsChatService:
         )
         log.debug("metrics_chat_model", model=model)
 
-    async def _llm_complete(self, prompt: str, remaining: float) -> str:
-        """Call the completer with a wall-clock cap."""
-        result = await asyncio.wait_for(
-            self._completer.complete(prompt),
-            timeout=max(remaining, _MIN_REMAINING_S),
-        )
-        return result.text or ""
-
     async def ask(
         self,
         question: str,
+        conversation_id: str,
         *,
         period_days: int | None = None,
-        conversation_summary: str = "",
     ) -> ChatResponse:
-        """Process a user question end-to-end.
+        """Process a user question within a persistent conversation.
 
-        Runs an agentic loop: generate SQL → execute → if errors, feed
-        them back to the LLM and retry until success, the LLM gives up,
-        or the overall timeout is reached.
+        The full message history is sent to the LLM on every turn.
+        If the LLM issues SQL queries, results are fed back and the
+        LLM is called again to format the response.
         """
         t0 = time.monotonic()
-        deadline = t0 + _ASK_DEADLINE_S
+        deadline = t0 + _TURN_DEADLINE_S
 
-        context_parts: list[str] = []
+        messages = _conversations.setdefault(conversation_id, [])
+
+        # Build the user message with optional period hint
+        user_content = question
         if period_days:
-            context_parts.append(
-                f"Default period filter: last {period_days} days "
-                f"(WHERE created_at >= datetime('now', '-{period_days} days'))"
+            user_content += (
+                f"\n\n(Default time filter: last {period_days} days"
+                f" -- WHERE created_at >= datetime('now', '-{period_days} days'))"
             )
-        if conversation_summary:
-            context_parts.append(f"Previous context:\n{conversation_summary}")
-        context = "\n".join(context_parts)
+        messages.append({"role": "user", "content": user_content})
 
-        # --- Step 1: Generate + execute SQL with agentic self-correction ---
-        prompt = (
-            _SYSTEM_PROMPT
-            + "\n\n"
-            + _STEP1_TEMPLATE.format(question=question, context=context)
-        )
-
-        all_attempted_sql: list[str] = []
-        executed_sql: list[str] = []
-        all_results: list[dict[str, Any]] = []
-        results_block_parts: list[str] = []
-        viz = "table"
-        viz_config: dict[str, Any] = {}
+        # --- Agent loop: call LLM, handle actions, repeat if needed ---
         attempt = 0
-
         while True:
             remaining = deadline - time.monotonic()
             if remaining < _MIN_REMAINING_S:
-                break
+                msg = "I ran out of time processing that. Could you try rephrasing?"
+                messages.append({"role": "assistant", "content": json.dumps({"action": "message", "content": msg})})
+                return ChatResponse(narrative=msg)
 
             attempt += 1
             try:
-                raw = await self._llm_complete(prompt, remaining)
+                result = await asyncio.wait_for(
+                    self._completer.complete_messages(
+                        system=_SYSTEM_PROMPT,
+                        messages=messages,
+                    ),
+                    timeout=remaining,
+                )
+                raw = result.text or ""
             except (TimeoutError, Exception) as exc:
-                log.warning("metrics_chat_step1_failed", attempt=attempt, error=str(exc))
-                break
+                log.warning("metrics_chat_llm_error", attempt=attempt, error=str(exc))
+                msg = "I'm having trouble reaching the model right now. Please try again in a moment."
+                messages.append({"role": "assistant", "content": json.dumps({"action": "message", "content": msg})})
+                return ChatResponse(narrative=msg)
 
-            step1 = _parse_json(raw)
-            if step1 is None:
-                log.debug("metrics_chat_bad_json", attempt=attempt)
-                prompt = (
-                    _SYSTEM_PROMPT
-                    + "\n\n"
-                    + _CORRECTION_TEMPLATE.format(
-                        question=question,
-                        context=context,
-                        error_block="Your response was not valid JSON. Return ONLY the JSON object.",
-                    )
-                )
+            parsed = _parse_json(raw)
+
+            # If the LLM didn't return valid JSON, nudge it
+            if parsed is None:
+                log.debug("metrics_chat_bad_json", attempt=attempt, raw=raw[:200])
+                messages.append({"role": "assistant", "content": raw})
+                messages.append({
+                    "role": "user",
+                    "content": "Your response wasn't valid JSON. Please reply with a single JSON object using the action protocol.",
+                })
                 continue
 
-            # LLM explicitly says it can't answer
-            if "error" in step1:
+            action = parsed.get("action", "message")
+
+            # --- Action: message (conversation, clarification, explanation) ---
+            if action == "message":
+                content = parsed.get("content", "")
+                messages.append({"role": "assistant", "content": raw})
+                return ChatResponse(narrative=content)
+
+            # --- Action: result (formatted viz + narrative) ---
+            if action == "result":
+                messages.append({"role": "assistant", "content": raw})
                 return ChatResponse(
-                    narrative=step1["error"],
-                    error=True,
+                    narrative=parsed.get("narrative", ""),
+                    title=parsed.get("title", ""),
+                    viz=parsed.get("viz", "table"),
+                    viz_config=parsed.get("viz_config", {}),
+                    viz_data=parsed.get("viz_data", []),
+                    sql_queries=parsed.get("sql_queries", []),
                 )
 
-            queries = step1.get("queries", [])
-            if not queries:
-                prompt = (
-                    _SYSTEM_PROMPT
-                    + "\n\n"
-                    + _CORRECTION_TEMPLATE.format(
-                        question=question,
-                        context=context,
-                        error_block="No queries were returned. Generate at least one SQL query.",
+            # --- Action: query (run SQL then loop back for formatting) ---
+            if action == "query":
+                queries = parsed.get("queries", [])
+                viz = parsed.get("viz", "table")
+
+                messages.append({"role": "assistant", "content": raw})
+
+                if not queries:
+                    messages.append({
+                        "role": "user",
+                        "content": "No queries were provided. Either generate SQL queries or respond with a message.",
+                    })
+                    continue
+
+                # Execute queries and build a results report
+                results_parts: list[str] = []
+                executed_sql: list[str] = []
+                exec_remaining = deadline - time.monotonic()
+
+                for i, q in enumerate(queries):
+                    sql = q.get("sql", "")
+                    purpose = q.get("purpose", "")
+                    try:
+                        rows = await execute_query(
+                            self._session_factory,
+                            sql,
+                            timeout_seconds=min(exec_remaining, 10.0),
+                        )
+                        results_parts.append(
+                            f"Query {i+1} ({purpose}): {len(rows)} rows\n"
+                            f"SQL: {sql}\n"
+                            f"Results: {json.dumps(rows[:50])}"
+                        )
+                        executed_sql.append(sql)
+                    except (QueryValidationError, Exception) as exc:
+                        results_parts.append(
+                            f"Query {i+1} ({purpose}): FAILED\n"
+                            f"SQL: {sql}\n"
+                            f"Error: {exc}"
+                        )
+
+                # Inject results back into conversation for the LLM
+                results_msg = "\n\n".join(results_parts)
+                if executed_sql:
+                    results_msg += (
+                        f'\n\nFormat these results as a "{viz}" visualization. '
+                        "Respond with an action=result JSON."
                     )
-                )
-                continue
-
-            viz = step1.get("viz", "table")
-            viz_config = step1.get("viz_config", {})
-
-            # Execute each generated query
-            errors: list[str] = []
-            executed_sql = []
-            all_results = []
-            results_block_parts = []
-
-            for i, q in enumerate(queries):
-                sql = q.get("sql", "")
-                purpose = q.get("purpose", "")
-                all_attempted_sql.append(sql)
-                try:
-                    rows = await execute_query(
-                        self._session_factory,
-                        sql,
-                        timeout_seconds=min(remaining, 10.0),
+                else:
+                    results_msg += (
+                        "\n\nAll queries failed. You can fix the SQL and try again "
+                        "(action=query), explain the issue to the user (action=message), "
+                        "or ask for clarification (action=message)."
                     )
-                    results_block_parts.append(
-                        f"Query {i + 1} ({purpose}):\n"
-                        f"SQL: {sql}\n"
-                        f"Results ({len(rows)} rows): {json.dumps(rows[:50])}\n"
-                    )
-                    all_results.extend(rows)
-                    executed_sql.append(sql)
-                except (QueryValidationError, Exception) as exc:
-                    errors.append(f"SQL: {sql}\nError: {exc}")
-                    results_block_parts.append(
-                        f"Query {i + 1} ({purpose}):\n"
-                        f"SQL: {sql}\n"
-                        f"ERROR: {exc}\n"
-                    )
+                messages.append({"role": "user", "content": results_msg})
+                continue  # Loop back for the LLM to format or retry
 
-            if executed_sql:
-                # At least one query succeeded — move to step 2
-                log.info("metrics_chat_step1_ok", attempt=attempt, queries=len(executed_sql))
-                break
-
-            # All queries failed — feed errors back and retry
-            log.debug("metrics_chat_retry", attempt=attempt, errors=errors)
-            error_block = "\n\n".join(errors)
-            prompt = (
-                _SYSTEM_PROMPT
-                + "\n\n"
-                + _CORRECTION_TEMPLATE.format(
-                    question=question,
-                    context=context,
-                    error_block=error_block,
-                )
-            )
-
-        if not executed_sql:
-            return ChatResponse(
-                narrative="Could not produce a valid query within the time budget.",
-                error=True,
-                sql_queries=all_attempted_sql,
-            )
-
-        # --- Step 2: Verify + format results ---
-        remaining = deadline - time.monotonic()
-        step2_prompt = (
-            _SYSTEM_PROMPT
-            + "\n\n"
-            + _STEP2_TEMPLATE.format(
-                question=question,
-                results_block="\n".join(results_block_parts),
-                viz=viz,
-            )
-        )
-
-        try:
-            step2_raw = await self._llm_complete(step2_prompt, remaining)
-        except (TimeoutError, Exception) as exc:
-            log.error("metrics_chat_step2_failed", error=str(exc))
-            return ChatResponse(
-                narrative="Got results but couldn't format them. Showing raw data.",
-                viz="table",
-                viz_config={"title": "Raw Results"},
-                viz_data=all_results[:100],
-                sql_queries=executed_sql,
-            )
-
-        step2 = _parse_json(step2_raw)
-        if step2 is None:
-            return ChatResponse(
-                narrative="Results obtained but formatting failed. Showing raw data.",
-                viz="table",
-                viz_config={"title": "Raw Results"},
-                viz_data=all_results[:100],
-                sql_queries=executed_sql,
-                raw_response=step2_raw,
-            )
-
-        if "error" in step2:
-            return ChatResponse(
-                narrative=step2["error"],
-                suggestion=step2.get("suggestion"),
-                error=True,
-                sql_queries=executed_sql,
-            )
-
-        return ChatResponse(
-            narrative=step2.get("narrative", ""),
-            title=step2.get("title", "Custom Metric"),
-            viz=viz,
-            viz_config=viz_config,
-            viz_data=step2.get("viz_data", all_results),
-            sql_queries=executed_sql,
-        )
+            # Unknown action -- ask for correction
+            messages.append({"role": "assistant", "content": raw})
+            messages.append({
+                "role": "user",
+                "content": f"Unknown action '{action}'. Use 'query', 'message', or 'result'.",
+            })
 
 
 class ChatResponse:
@@ -492,13 +405,11 @@ def _parse_json(raw: str) -> dict[str, Any] | None:
     # Strip markdown code fences
     if text.startswith("```"):
         lines = text.split("\n")
-        # Remove first line (```json) and last line (```)
         lines = [l for l in lines[1:] if not l.strip().startswith("```")]
         text = "\n".join(lines)
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # Try to find JSON object in the text
         start = text.find("{")
         end = text.rfind("}")
         if start >= 0 and end > start:

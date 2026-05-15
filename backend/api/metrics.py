@@ -27,7 +27,7 @@ from backend.persistence.custom_metrics_repo import (
     CustomMetricsRepository,
     MetricsChatRepository,
 )
-from backend.services.metrics.chat_service import MetricsChatService
+from backend.services.metrics.chat_service import MetricsChatService, clear_conversation
 from backend.services.metrics.query_executor import (
     QueryValidationError,
     execute_query,
@@ -56,15 +56,10 @@ async def chat_ask(
     chat_repo = MetricsChatRepository(sf)
     chat_service = MetricsChatService(sidecar=sidecar, session_factory=sf)
 
-    # Get prior context if continuing a conversation
-    summary = ""
-    if body.conversation_id:
-        summary = await chat_repo.get_conversation_summary(body.conversation_id)
-
     result = await chat_service.ask(
         body.question,
+        conversation_id,
         period_days=body.period_days,
-        conversation_summary=summary,
     )
 
     # Persist condensed exchange
@@ -90,6 +85,12 @@ async def list_conversations(
     repo = MetricsChatRepository(sf)
     convs = await repo.list_conversations()
     return ConversationListResponse(conversations=convs)
+
+
+@router.delete("/chat/conversations/{conversation_id}", status_code=204)
+async def delete_conversation(conversation_id: str) -> None:
+    """Clear an in-memory conversation session."""
+    clear_conversation(conversation_id)
 
 
 # ---------------------------------------------------------------------------

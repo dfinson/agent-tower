@@ -149,6 +149,47 @@ class LightweightCompleter:
         # Fallback to full adapter
         return await self._adapter.complete(prompt)
 
+    async def complete_messages(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, str]],
+    ) -> CompletionResult:
+        """Multi-turn completion with a system prompt and message history.
+
+        Uses the same provider detection and fallback logic as ``complete()``.
+        If no direct API path is available, concatenates the conversation
+        into a single prompt and falls back to ``adapter.complete()``.
+        """
+        if self._provider == "anthropic":
+            try:
+                return await self._anthropic_messages(system, messages)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in (401, 403):
+                    self._provider = None
+                else:
+                    log.warning("lightweight_anthropic_messages_failed", status=exc.response.status_code, exc_info=True)
+            except (httpx.HTTPError, OSError, ValueError, KeyError):
+                log.warning("lightweight_anthropic_messages_failed", exc_info=True)
+
+        if self._provider == "openai":
+            try:
+                return await self._openai_messages(system, messages)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in (401, 403):
+                    self._provider = None
+                else:
+                    log.warning("lightweight_openai_messages_failed", status=exc.response.status_code, exc_info=True)
+            except (httpx.HTTPError, OSError, ValueError, KeyError):
+                log.warning("lightweight_openai_messages_failed", exc_info=True)
+
+        # Fallback: flatten conversation into a single prompt
+        flat = system + "\n\n" + "\n".join(
+            f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+            for m in messages
+        )
+        return await self._adapter.complete(flat)
+
     async def _anthropic_complete(self, prompt: str) -> CompletionResult:
         """Call Anthropic Messages API directly."""
         from backend.services.adapters.agent_adapter import CompletionResult
@@ -208,6 +249,75 @@ class LightweightCompleter:
         if choices:
             text = choices[0].get("message", {}).get("content", "")
 
+        usage = data.get("usage", {})
+        return CompletionResult(
+            text=text or "",
+            input_tokens=usage.get("prompt_tokens", 0),
+            output_tokens=usage.get("completion_tokens", 0),
+            model=data.get("model", self._model),
+        )
+
+    async def _anthropic_messages(
+        self, system: str, messages: list[dict[str, str]],
+    ) -> CompletionResult:
+        """Multi-turn Anthropic Messages API call."""
+        from backend.services.adapters.agent_adapter import CompletionResult
+
+        client = await self._get_client()
+        resp = await client.post(
+            f"{self._base_url}/v1/messages",
+            headers={
+                "x-api-key": self._api_key,  # type: ignore[arg-type]
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": self._model,
+                "max_tokens": self._max_tokens,
+                "system": system,
+                "messages": messages,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text_parts = []
+        for block in data.get("content", []):
+            if block.get("type") == "text":
+                text_parts.append(block["text"])
+        usage = data.get("usage", {})
+        return CompletionResult(
+            text="\n".join(text_parts),
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            model=data.get("model", self._model),
+        )
+
+    async def _openai_messages(
+        self, system: str, messages: list[dict[str, str]],
+    ) -> CompletionResult:
+        """Multi-turn OpenAI Chat Completions API call."""
+        from backend.services.adapters.agent_adapter import CompletionResult
+
+        client = await self._get_client()
+        api_messages = [{"role": "system", "content": system}, *messages]
+        resp = await client.post(
+            f"{self._base_url}/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self._model,
+                "max_tokens": self._max_tokens,
+                "messages": api_messages,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text = ""
+        choices = data.get("choices", [])
+        if choices:
+            text = choices[0].get("message", {}).get("content", "")
         usage = data.get("usage", {})
         return CompletionResult(
             text=text or "",

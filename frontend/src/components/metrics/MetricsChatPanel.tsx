@@ -14,9 +14,11 @@ import {
 import {
   sendMetricsChatMessage,
   pinMetric,
+  clearMetricsChatConversation,
   type MetricsChatMessage,
 } from "../../api/client-metrics";
 import { MetricViz } from "./VizTemplates";
+import { MicButton } from "../VoiceButton";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,6 +49,7 @@ export function MetricsChatPanel({ period, onMetricPinned }: MetricsChatPanelPro
   const [expanded, setExpanded] = useState(true);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const waveformRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = chatContainerRef.current;
@@ -117,6 +120,9 @@ export function MetricsChatPanel({ period, onMetricPinned }: MetricsChatPanelPro
   };
 
   const handleNewConversation = () => {
+    if (conversationId) {
+      clearMetricsChatConversation(conversationId).catch(() => {});
+    }
     setMessages([]);
     setConversationId(null);
     setInput("");
@@ -194,14 +200,22 @@ export function MetricsChatPanel({ period, onMetricPinned }: MetricsChatPanelPro
           {/* Input */}
           <div className="border-t border-border px-4 py-3">
             <div className="flex items-end gap-2">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask about your telemetry data..."
-                rows={1}
-                className="flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+              <div className="flex-1">
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask about your telemetry data..."
+                  rows={1}
+                  className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+                />
+                <div ref={waveformRef} />
+              </div>
+              <MicButton
+                onTranscript={(text) => setInput((prev) => prev ? prev + " " + text : text)}
+                onStateChange={() => {}}
+                waveformContainerRef={waveformRef}
               />
               <button
                 onClick={handleSend}

@@ -87,6 +87,10 @@ export async function listMetricsChatConversations(): Promise<{ conversations: C
   return request("/metrics/chat/conversations");
 }
 
+export async function clearMetricsChatConversation(conversationId: string): Promise<void> {
+  return request(`/metrics/chat/conversations/${conversationId}`, { method: "DELETE" });
+}
+
 // ---------------------------------------------------------------------------
 // Custom Metrics CRUD
 // ---------------------------------------------------------------------------
