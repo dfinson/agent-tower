@@ -177,17 +177,17 @@ export function AnalyticsScreen() {
       .catch(() => {})
       .finally(() => setReposLoading(false));
 
-    fetchFleetCostDrivers(Math.max(period, 30))
+    fetchFleetCostDrivers(period)
       .then(setFleetDrivers)
       .catch(() => setFleetDrivers(null))
       .finally(() => setDriversLoading(false));
 
-    fetchFleetCostDrivers(Math.max(period, 30), "action_purpose")
+    fetchFleetCostDrivers(period, "action_purpose")
       .then(setActivityDrivers)
       .catch(() => setActivityDrivers(null))
       .finally(() => setPurposeLoading(false));
 
-    fetchActionPurposeMatrix(Math.max(period, 30))
+    fetchActionPurposeMatrix(period)
       .then(setActionPurposeMatrix)
       .catch(() => setActionPurposeMatrix(null));
 
@@ -298,6 +298,7 @@ export function AnalyticsScreen() {
           <HierarchicalBreakdown
             data={activityDrivers?.buckets ? { actionPurpose: activityDrivers.buckets } as CostDriversData : null}
             compactionCostUsd={scorecard?.compactionCostUsd}
+            wasteBreakdown={executiveSummary?.wasteBreakdown}
           />
         )}
         <ActionPurposeMatrix data={actionPurposeMatrix} />
@@ -337,7 +338,7 @@ export function AnalyticsScreen() {
             Cost Breakdown
           </h2>
           <p className="text-xs text-muted-foreground mb-3">Aggregate spend by activity across all jobs in this period</p>
-          <FleetCostDriverInsights fleetDrivers={fleetDrivers} period={Math.max(period, 30)} />
+          <FleetCostDriverInsights fleetDrivers={fleetDrivers} period={period} />
         </div>
       )}
 

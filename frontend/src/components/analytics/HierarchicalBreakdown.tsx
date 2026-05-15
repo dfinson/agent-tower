@@ -1,5 +1,6 @@
 import { Layers } from "lucide-react";
 import { type CostDriversData } from "../MetricsPanelTypes";
+import { type WasteBreakdown } from "../../api/client-analytics";
 import { formatUsd } from "./helpers";
 import { Tooltip } from "../ui/tooltip";
 
@@ -29,9 +30,10 @@ const ACTION_LABELS: Record<string, string> = {
 interface Props {
   data: CostDriversData | null;
   compactionCostUsd?: number;
+  wasteBreakdown?: WasteBreakdown | null;
 }
 
-export function HierarchicalBreakdown({ data, compactionCostUsd = 0 }: Props) {
+export function HierarchicalBreakdown({ data, compactionCostUsd = 0, wasteBreakdown }: Props) {
   // Prefer actionPurpose cross-tab, fall back to purpose-only or action-only
   const apBuckets = data?.actionPurpose ?? [];
   const purposeBuckets = data?.purpose ?? [];
@@ -81,8 +83,26 @@ export function HierarchicalBreakdown({ data, compactionCostUsd = 0 }: Props) {
     }
   }
 
-  // Add compaction to housekeeping
-  if (compactionCostUsd > 0) {
+  // Add waste metrics so total matches Executive Summary
+  if (wasteBreakdown) {
+    if (wasteBreakdown.failedJobsUsd > 0) {
+      purposes.recovering!.cost += wasteBreakdown.failedJobsUsd;
+      purposes.recovering!.actions.push({ name: "failed/discarded jobs", cost: wasteBreakdown.failedJobsUsd });
+    }
+    if (wasteBreakdown.retryUsd > 0) {
+      purposes.recovering!.cost += wasteBreakdown.retryUsd;
+      purposes.recovering!.actions.push({ name: "retries", cost: wasteBreakdown.retryUsd });
+    }
+    if (wasteBreakdown.compactionUsd > 0) {
+      purposes.housekeeping!.cost += wasteBreakdown.compactionUsd;
+      purposes.housekeeping!.actions.push({ name: "compaction", cost: wasteBreakdown.compactionUsd });
+    }
+    if (wasteBreakdown.rereadsUsd > 0) {
+      purposes.housekeeping!.cost += wasteBreakdown.rereadsUsd;
+      purposes.housekeeping!.actions.push({ name: "redundant re-reads", cost: wasteBreakdown.rereadsUsd });
+    }
+  } else if (compactionCostUsd > 0) {
+    // Fallback: use separate compaction prop when no waste breakdown available
     purposes.housekeeping!.cost += compactionCostUsd;
     purposes.housekeeping!.actions.push({ name: "compaction", cost: compactionCostUsd });
   }
