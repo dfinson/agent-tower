@@ -175,6 +175,7 @@ export interface StoryBlock {
   why?: string | null;
   turnId?: string | null;
   editCount?: number | null;
+  snippet?: string | null;
 }
 
 export interface StoryResponse {

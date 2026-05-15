@@ -52,6 +52,7 @@ class StoryReference(TypedDict, total=False):
     phase: str
     stepIntent: str
     activityLabel: str
+    isFileChange: bool
 
 
 class _JobContext(TypedDict, total=False):
@@ -139,7 +140,18 @@ _STORY_SYSTEM = (
     "STRUCTURE: Open with a hook — the most surprising outcome, the hardest "
     "problem encountered, or what was at stake. Do NOT open with 'I was "
     "asked to...' or 'The task was...'. Pull the reader in with the most "
-    "interesting thing that happened, then rewind to set context. Frame the "
+    "interesting thing that happened, then rewind to set context.\n\n"
+    "GROUNDING THE HOOK: The reader arrives knowing only the job title. "
+    "Your opening sentence must be self-contained — it should name the "
+    "system, the codebase, or the domain concretely enough that a reader "
+    "can orient themselves without external context. Never reference 'the "
+    "run', 'the task', 'the session', or 'the job' as if the reader already "
+    "knows what happened. BAD: 'Two verification failures killed the run.' "
+    "(What run? What system? The reader has no idea.) GOOD: 'The Pydantic "
+    "model had two fields that meant the same thing, and neither knew about "
+    "the other.' The hook can be dramatic, but it must plant the reader in "
+    "a specific technical place.\n\n"
+    "Frame the "
     "session as a transformation: what was the state of the codebase before, "
     "what complications arose during the work, and what state it reached "
     "after. Walk through the body chronologically, but the opening should "
@@ -358,12 +370,15 @@ async def _build_references(
 
     from backend.models.db import TrailNodeRow
 
-    # Try write nodes first — they're the strongest story anchors
+    _WRITE_KINDS = ("write", "modify")
+
+    # Try write/modify nodes first — they're the strongest story anchors.
+    # For write/modify nodes, accept any enrichment status: the file path
+    # is already present and _ensure_diffs will attach the git diff.
     stmt = (
         select(TrailNodeRow)
         .where(TrailNodeRow.job_id == job_id)
-        .where(TrailNodeRow.kind == "write")
-        .where(TrailNodeRow.enrichment == "complete")
+        .where(TrailNodeRow.kind.in_(_WRITE_KINDS))
         .order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
     )
     result = await session.execute(stmt)
@@ -412,7 +427,7 @@ async def _build_references(
         step_info = step_map.get(node.turn_id or "")
         step_number = step_info["step_number"] if step_info else None
 
-        is_write = node.kind == "write"
+        is_write = node.kind in _WRITE_KINDS
 
         if is_write:
             key = f"__node_{node.id}" if not file_val or step_number is None else f"{file_val}|{step_number}"
@@ -423,10 +438,11 @@ async def _build_references(
         ref: StoryReference = {
             "spanId": node.id,
             "file": file_val,
-            "why": node.write_summary or node.intent or node.rationale or "",
+            "why": node.write_summary or node.intent or node.rationale or node.activity_label or "",
             "stepNumber": step_number,
             "stepTitle": _truncate(step_info.get("title") if step_info else None, 60),
             "turnId": node.turn_id or "",
+            "isFileChange": is_write,
         }
         if node.snippet:
             ref["snippet"] = node.snippet
@@ -968,11 +984,13 @@ class StoryService:
         coderecon: CodeReconService | None = None,
         session_factory: Any | None = None,
         model_pricing: Any | None = None,
+        git_service: Any | None = None,
     ) -> None:
         self._completer = completer
         self._coderecon = coderecon
         self._session_factory = session_factory
         self._model_pricing = model_pricing
+        self._git_service = git_service
         self._gen_locks: dict[str, asyncio.Lock] = {}
 
     async def get_or_generate(
@@ -997,6 +1015,8 @@ class StoryService:
             try:
                 result = cast("dict[str, Any]", json.loads(cached))
                 result["_from_cache"] = True
+                # Enrich cached stories with diffs if missing
+                await self._ensure_diffs(session, job_id, result, col)
                 return result
             except (json.JSONDecodeError, TypeError):
                 log.debug("story_cache_decode_failed", job_id=job_id)  # stale plain-text → regenerate
@@ -1015,6 +1035,7 @@ class StoryService:
                 try:
                     result = cast("dict[str, Any]", json.loads(cached))
                     result["_from_cache"] = True
+                    await self._ensure_diffs(session, job_id, result, col)
                     return result
                 except (json.JSONDecodeError, TypeError):
                     log.debug("story_cache_parse_failed", job_id=job_id)
@@ -1078,6 +1099,7 @@ class StoryService:
 
         try:
             repo_name = await self._coderecon.ensure_repo_indexed(job_row["repo"])
+            await self._coderecon.register_worktree(repo_name, job_row["worktree_path"])
             diff_result = await self._coderecon.semantic_diff(
                 repo_name,
                 base=job_row["base_ref"] or "HEAD",
@@ -1124,6 +1146,90 @@ class StoryService:
                 entry += f" — {preview}"
             lines.append(entry)
         return "\n".join(lines)
+
+    async def _ensure_diffs(
+        self,
+        session: AsyncSession,
+        job_id: str,
+        payload: dict[str, Any],
+        col: str,
+    ) -> None:
+        """Enrich a cached story payload with git diffs if any refs are missing snippets."""
+        from sqlalchemy import text
+
+        blocks = payload.get("blocks", [])
+        refs = [b for b in blocks if b.get("type") == "reference"]
+        if not refs or all(r.get("snippet") for r in refs):
+            return  # all refs already have snippets (or no refs)
+
+        job_result = await session.execute(
+            text("SELECT worktree_path, base_ref FROM jobs WHERE id = :jid"),
+            {"jid": job_id},
+        )
+        job_row = job_result.mappings().first()
+        if not job_row:
+            return
+
+        before = sum(1 for r in refs if r.get("snippet"))
+        await self._enrich_refs_with_diffs(refs, dict(job_row))
+        after = sum(1 for r in refs if r.get("snippet"))
+        if after > before:
+            log.info("story_diffs_enriched", job_id=job_id, added=after - before)
+
+        # If any snippets were added, persist the updated cache
+        if after > before:
+            # Remove transient keys before caching
+            cache_payload = {k: v for k, v in payload.items() if not k.startswith("_")}
+            await session.execute(
+                text(f"UPDATE jobs SET {col} = :story WHERE id = :jid"),  # noqa: S608
+                {"jid": job_id, "story": json.dumps(cache_payload)},
+            )
+            await session.commit()
+
+    async def _enrich_refs_with_diffs(
+        self,
+        refs: list[dict[str, Any]],
+        job_row: dict[str, Any],
+    ) -> None:
+        """Populate ``snippet`` on refs that have a file but no snippet.
+
+        Uses ``git diff base_ref -- <file>`` in the worktree to fetch
+        the actual code diff for each referenced file.
+        """
+        if not self._git_service:
+            return
+        wt = job_row.get("worktree_path")
+        base = job_row.get("base_ref")
+        if not wt or not base:
+            return
+
+        # Collect unique files that need diffs — only from file-change refs,
+        # not explores/verifies that merely touched or read the file.
+        files_needing_diff: set[str] = set()
+        for ref in refs:
+            if ref.get("file") and not ref.get("snippet") and ref.get("isFileChange"):
+                files_needing_diff.add(ref["file"])
+
+        if not files_needing_diff:
+            return
+
+        # Fetch per-file diffs
+        file_diffs: dict[str, str] = {}
+        for filepath in files_needing_diff:
+            try:
+                raw = await self._git_service.run_git(
+                    "diff", f"{base}...HEAD", "--", filepath, cwd=wt,
+                )
+                if raw and raw.strip():
+                    file_diffs[filepath] = raw.strip()
+            except Exception:
+                log.debug("story_file_diff_failed", file=filepath, exc_info=True)
+
+        # Apply diffs only to file-change refs
+        for ref in refs:
+            f = ref.get("file", "")
+            if f and not ref.get("snippet") and ref.get("isFileChange") and f in file_diffs:
+                ref["snippet"] = file_diffs[f]
 
     async def _generate(
         self,
@@ -1206,7 +1312,15 @@ class StoryService:
         )
 
         if not blocks:
+            log.warning("story_generate_empty_blocks", job_id=job_id, verbosity=verbosity, ref_count=len(refs), beat_count=len(beats))
             return None
+
+        # Enrich reference blocks with actual git diffs for rendering.
+        # Done AFTER generation so diffs don't bloat the LLM prompt.
+        await self._enrich_refs_with_diffs(
+            [b for b in blocks if b.get("type") == "reference"],
+            job_row,
+        )
 
         has_decisions = any(b.get("kind") == "decide" for b in beats)
         has_backtracks = any(b.get("kind") == "backtrack" for b in beats)
@@ -1349,8 +1463,15 @@ class StoryService:
         except (httpx.HTTPError, OSError, ValueError):
             log.warning("story_generation_llm_failed", job_id=job_id, exc_info=True)
             return []
-
-        if not raw:
+        except Exception:
+            log.warning("story_generation_llm_unexpected", job_id=job_id, exc_info=True)
             return []
 
-        return _parse_blocks(raw, refs)
+        if not raw:
+            log.warning("story_generation_empty_raw", job_id=job_id, prompt_len=len(full_prompt))
+            return []
+
+        blocks = _parse_blocks(raw, refs)
+        if not blocks:
+            log.warning("story_generation_parse_empty", job_id=job_id, raw_len=len(raw), raw_preview=raw[:200])
+        return blocks

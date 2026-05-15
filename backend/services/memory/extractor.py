@@ -27,6 +27,9 @@ Rules:
 - Skip routine/obvious decisions (e.g. "ran tests", "committed code").
 - Focus on: architectural choices, naming conventions, gotchas, environment quirks,
   integration patterns, tool configurations.
+- ONLY facts and verified patterns. NO LLM opinion, speculation, recommendations,
+  commentary on code quality, or "consider doing X" suggestions.
+- If an entry restates what is obvious from reading the code, omit it.
 - Format each entry as:
   ### YYYY-MM-DD: Short Title
   Brief explanation.

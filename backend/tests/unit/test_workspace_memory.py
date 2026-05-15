@@ -48,6 +48,8 @@ def mock_compacter() -> AsyncMock:
     """Create a mock MemoryCompacter that returns condensed text."""
     compacter = AsyncMock()
     compacter.compact.return_value = "### 2026-05-12: Condensed\nSummarized content."
+    # normalize returns its new_entries input unchanged by default
+    compacter.normalize.side_effect = lambda existing, new_entries: new_entries
     return compacter
 
 
@@ -168,26 +170,35 @@ class TestInbox:
         assert "New" in decisions
 
     @pytest.mark.asyncio
-    async def test_merge_appends_all_without_dedup(
+    async def test_merge_calls_normalize_after_append(
         self,
         repo_path: str,
         memory_root: Path,
         mock_compacter: AsyncMock,
     ) -> None:
-        """Merge appends unconditionally — LLM handles dedup during compaction."""
+        """Merge appends raw entries then calls normalize for dedup/summarization."""
         slug = _repo_slug(repo_path)
         mem_dir = memory_root / ".codeplane" / "memory" / slug
         mem_dir.mkdir(parents=True)
         (mem_dir / "inbox").mkdir()
-        existing_text = "### 2026-05-10: Existing\nOld entry."
+        # Content must exceed 500 bytes to trigger normalize
+        existing_text = "### 2026-05-10: Existing\n" + "x" * 400
         (mem_dir / "decisions.md").write_text(existing_text + "\n")
-        # Inbox contains same text — it still gets appended (dedup is LLM's job)
         (mem_dir / "inbox" / "dup-job.md").write_text(existing_text)
 
+        # Make normalize return deduped content
+        mock_compacter.normalize.side_effect = lambda existing, new_entries: (
+            "### 2026-05-10: Existing\n" + "x" * 400
+        )
+
         await merge_inbox(repo_path, mock_compacter)
+
+        # normalize should have been called
+        assert mock_compacter.normalize.called
+
+        # After normalization, decisions should have deduplicated content
         decisions = (mem_dir / "decisions.md").read_text()
-        # Both instances present — LLM will deduplicate during compaction
-        assert decisions.count("Existing") == 2
+        assert decisions.count("Existing") == 1
 
 
 class TestCompaction:
@@ -275,6 +286,84 @@ class TestCompaction:
         assert result is False
 
         # The concurrent modification should remain
+        assert (mem_dir / "decisions.md").read_text() == "MODIFIED BY ANOTHER JOB"
+
+
+class TestNormalization:
+    @pytest.mark.asyncio
+    async def test_normalize_failure_is_safe(
+        self,
+        repo_path: str,
+        memory_root: Path,
+    ) -> None:
+        """When normalize fails, raw merged content remains in decisions.md."""
+        slug = _repo_slug(repo_path)
+        mem_dir = memory_root / ".codeplane" / "memory" / slug
+        mem_dir.mkdir(parents=True)
+        (mem_dir / "inbox").mkdir()
+        (mem_dir / "inbox" / "job-a.md").write_text("### 2026-05-12: Entry A\nBody A.")
+        # Content large enough to trigger normalize (>500 bytes)
+        existing = "### 2026-05-10: Existing\n" + "x" * 500
+        (mem_dir / "decisions.md").write_text(existing + "\n")
+
+        compacter = AsyncMock()
+        compacter.normalize.side_effect = TimeoutError("LLM timeout")
+        compacter.compact.return_value = "### Condensed\nContent."
+
+        count = await merge_inbox(repo_path, compacter)
+        assert count == 1
+
+        # Raw merge should have appended — normalize failed but didn't lose data
+        decisions = (mem_dir / "decisions.md").read_text()
+        assert "Entry A" in decisions
+        assert "Existing" in decisions
+
+    @pytest.mark.asyncio
+    async def test_normalize_skips_small_content(
+        self,
+        repo_path: str,
+        memory_root: Path,
+        mock_compacter: AsyncMock,
+    ) -> None:
+        """Normalize is skipped when decisions.md < 500 bytes."""
+        slug = _repo_slug(repo_path)
+        mem_dir = memory_root / ".codeplane" / "memory" / slug
+        mem_dir.mkdir(parents=True)
+        (mem_dir / "inbox").mkdir()
+        (mem_dir / "inbox" / "job-a.md").write_text("### 2026-05-12: Tiny\nSmall.")
+
+        await merge_inbox(repo_path, mock_compacter)
+
+        # normalize should NOT have been called (content too small)
+        mock_compacter.normalize.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_normalize_cas_fails_on_concurrent_modify(
+        self,
+        repo_path: str,
+        memory_root: Path,
+    ) -> None:
+        """If decisions.md changes during LLM normalize call, write is aborted."""
+        slug = _repo_slug(repo_path)
+        mem_dir = memory_root / ".codeplane" / "memory" / slug
+        mem_dir.mkdir(parents=True)
+        (mem_dir / "inbox").mkdir()
+        # Content large enough to trigger normalize
+        existing = "### 2026-05-10: Existing\n" + "x" * 500
+        (mem_dir / "decisions.md").write_text(existing + "\n")
+        (mem_dir / "inbox" / "job-a.md").write_text("### 2026-05-12: New\nBody.")
+
+        async def modify_during_normalize(existing: str, new_entries: str) -> str:
+            (mem_dir / "decisions.md").write_text("MODIFIED BY ANOTHER JOB")
+            return "### Normalized\nContent."
+
+        compacter = AsyncMock()
+        compacter.normalize.side_effect = modify_during_normalize
+        compacter.compact.return_value = "### Condensed\nContent."
+
+        await merge_inbox(repo_path, compacter)
+
+        # The concurrent modification should remain (CAS failed)
         assert (mem_dir / "decisions.md").read_text() == "MODIFIED BY ANOTHER JOB"
 
 

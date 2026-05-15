@@ -931,12 +931,37 @@ class CopilotAdapter(BaseAgentAdapter):
             def _on_event(sdk_event: SdkSessionEvent) -> None:
                 kind_str = sdk_event.type.value if sdk_event.type else ""
                 payload = sdk_event.data.to_dict() if sdk_event.data else {}
+                log.debug(
+                    "complete_sdk_event",
+                    session_id=tmp_session_id,
+                    event_kind=kind_str,
+                    payload_keys=list(payload.keys()) if payload else [],
+                    content_len=len(payload.get("content", "")) if isinstance(payload.get("content"), str) else 0,
+                    tool_name=payload.get("toolName", ""),
+                    abort_reason=str(payload.get("reason", "")),
+                    tool_requests=bool(payload.get("toolRequests")),
+                    usage_tokens=payload.get("currentTokens"),
+                    usage_limit=payload.get("tokenLimit"),
+                )
                 if kind_str == "assistant.message":
                     content = payload.get("content") or ""
                     if content:
                         collected.append(content)
-                    done_event.set()
+                        done_event.set()
+                    elif not payload.get("toolRequests"):
+                        # Empty message with no tool requests — agent is done
+                        done_event.set()
+                    # else: empty content with tool requests — agent is mid-turn,
+                    # let it continue executing tools before we return.
+                elif kind_str == "abort":
+                    log.warning(
+                        "complete_sdk_abort",
+                        session_id=tmp_session_id,
+                        reason=str(payload.get("reason", "")),
+                    )
                 elif kind_str in ("session.task_complete", "session.idle", "session.error", "session.shutdown"):
+                    if kind_str == "session.error":
+                        log.warning("complete_sdk_session_error", session_id=tmp_session_id, payload=payload)
                     done_event.set()
 
             session.on(_on_event)
@@ -944,7 +969,14 @@ class CopilotAdapter(BaseAgentAdapter):
             try:
                 await asyncio.wait_for(done_event.wait(), timeout=COMPLETION_TIMEOUT_S)
             except TimeoutError:
-                log.warning("complete_timeout")
+                log.warning("complete_timeout", session_id=tmp_session_id, collected_chunks=len(collected))
+            log.debug(
+                "complete_result",
+                session_id=tmp_session_id,
+                collected_chunks=len(collected),
+                total_chars=sum(len(c) for c in collected),
+                prompt_len=len(prompt),
+            )
             return CompletionResult(text="\n".join(collected))
         except (JsonRpcError, ProcessExitedError, ConnectionError, OSError):
             log.error("complete_failed", prompt_len=len(prompt), exc_info=True)

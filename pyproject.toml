@@ -166,4 +166,4 @@ dev = [
 ]
 
 [tool.uv.sources]
-coderecon = { path = "vendor/coderecon-1.0.1.dev67+g979ffb7aa-py3-none-any.whl" }
+coderecon = { path = "vendor/coderecon-1.0.1.dev161+ge32844acf-py3-none-any.whl" }

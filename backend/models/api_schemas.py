@@ -1022,6 +1022,7 @@ class StoryBlock(CamelModel):
     why: str | None = None
     turn_id: str | None = None
     edit_count: int | None = None
+    snippet: str | None = None
 
 
 class StoryResponse(CamelModel):

@@ -103,6 +103,15 @@ def _cache_put(job_id: str, endpoint: str, sha: str | None, value: Any) -> None:
         _STRUCTURAL_CACHE.popitem(last=False)
 
 
+async def _ensure_repo_and_worktree(
+    coderecon: CodeReconService, repo: str, worktree_path: str,
+) -> str:
+    """Index the repo and register the worktree so semantic_diff sees changes."""
+    repo_name = await coderecon.ensure_repo_indexed(repo)
+    await coderecon.register_worktree(repo_name, worktree_path)
+    return repo_name
+
+
 async def _latest_end_sha(step_repo: StepRepository, job_id: str) -> str | None:
     """Get the latest end_sha from the job's steps — serves as cache version key."""
     all_steps = await step_repo.get_by_job(job_id)
@@ -617,7 +626,7 @@ async def get_job_structural_diff(
         return cached
 
     try:
-        repo_name = await coderecon.ensure_repo_indexed(job.repo)
+        repo_name = await _ensure_repo_and_worktree(coderecon, job.repo, job.worktree_path)
         diff_result = await coderecon.semantic_diff(
             repo_name,
             base=job.base_ref or "HEAD",
@@ -823,7 +832,7 @@ async def get_job_multi_session(
         return MultiSessionResponse(job_id=job_id, sessions=[])
 
     try:
-        repo_name = await coderecon.ensure_repo_indexed(job.repo)
+        repo_name = await _ensure_repo_and_worktree(coderecon, job.repo, job.worktree_path or job.repo)
     except Exception:
         return MultiSessionResponse(job_id=job_id, available=False)
 
@@ -983,7 +992,7 @@ async def get_impact_graph(
         return cached
 
     try:
-        repo_name = await coderecon.ensure_repo_indexed(job.repo)
+        repo_name = await _ensure_repo_and_worktree(coderecon, job.repo, job.worktree_path or job.repo)
         result = await coderecon.impact(repo_name, target=symbol, worktree=job.worktree_path or job.repo)
     except Exception:
         return ImpactGraphResponse(job_id=job_id, target=symbol, available=False)
@@ -1067,7 +1076,7 @@ async def get_job_communities(
         return cached
 
     try:
-        repo_name = await coderecon.ensure_repo_indexed(job.repo)
+        repo_name = await _ensure_repo_and_worktree(coderecon, job.repo, job.worktree_path)
         diff_result = await coderecon.semantic_diff(
             repo_name,
             base=job.base_ref or "HEAD",
@@ -1163,7 +1172,7 @@ async def _generate_review_story(
         return ReviewStoryResponse(job_id=job_id, available=False)
 
     try:
-        repo_name = await coderecon.ensure_repo_indexed(job.repo)
+        repo_name = await _ensure_repo_and_worktree(coderecon, job.repo, job.worktree_path)
         diff_result = await coderecon.semantic_diff(
             repo_name,
             base=job.base_ref or "HEAD",

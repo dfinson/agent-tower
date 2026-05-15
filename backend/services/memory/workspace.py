@@ -127,15 +127,15 @@ def append_to_inbox(repo_path: str, job_id: str, entries: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# File locking helper
+# File locking helpers
 # ---------------------------------------------------------------------------
 
 
 def _locked_merge(repo_path: str) -> tuple[int, int]:
     """Synchronous file-locked merge of inbox → decisions.md.
 
-    Appends all inbox entries unconditionally — deduplication is handled
-    by the LLM during compaction (the compaction prompt removes duplicates).
+    Appends all inbox entries unconditionally — the LLM normalize step
+    (run after this, outside the lock) handles dedup and summarization.
 
     Returns (files_merged, new_entries_count). Runs in a thread via to_thread.
     """
@@ -160,7 +160,7 @@ def _locked_merge(repo_path: str) -> tuple[int, int]:
             if decisions_path.is_file():
                 existing = decisions_path.read_text(encoding="utf-8")
 
-            # Append all inbox entries (LLM handles dedup during compaction)
+            # Append all inbox entries (LLM normalize runs after)
             new_entries: list[str] = []
             for f in inbox_files:
                 text = f.read_text(encoding="utf-8").strip()
@@ -258,11 +258,14 @@ def _cap_archive(archive_path: Path, content: str, max_bytes: int) -> None:
 
 
 async def merge_inbox(repo_path: str, compacter: MemoryCompacter) -> int:
-    """Move inbox entries into ``decisions.md`` and delete inbox files.
+    """Move inbox entries into ``decisions.md``, normalize, then compact.
+
+    Steps:
+    1. Locked merge: append inbox entries to decisions.md, delete inbox files.
+    2. LLM normalize: deduplicate, summarize, strip opinion, flag stale.
+    3. Auto-compact if decisions.md exceeds the threshold.
 
     File I/O with locking runs in a thread to avoid blocking the event loop.
-    After merge, triggers compaction if needed.
-
     Returns the number of inbox files merged.
     """
     merged_count, new_count = await asyncio.to_thread(_locked_merge, repo_path)
@@ -277,10 +280,77 @@ async def merge_inbox(repo_path: str, compacter: MemoryCompacter) -> int:
         new_entries=new_count,
     )
 
-    # Auto-compact after merge
+    # LLM normalize: dedup, summarize, strip opinion on every write
+    await _normalize_decisions(repo_path, compacter)
+
+    # Auto-compact after normalize (if over threshold)
     await compact_decisions(repo_path, compacter)
 
     return merged_count
+
+
+async def _normalize_decisions(repo_path: str, compacter: MemoryCompacter) -> bool:
+    """Run LLM normalization on decisions.md.
+
+    Reads current content, calls ``compacter.normalize()`` to dedup/summarize,
+    then CAS-writes the result. Skips if decisions.md is empty or small enough
+    that normalization would be wasteful (< 500 bytes).
+
+    Returns True if normalization occurred.
+    """
+    d = _memory_dir(repo_path)
+    decisions_path = d / "decisions.md"
+    if not decisions_path.is_file():
+        return False
+
+    content = decisions_path.read_text(encoding="utf-8").strip()
+    if not content or len(content.encode("utf-8")) < 500:
+        return False
+
+    try:
+        normalized = await compacter.normalize(existing="", new_entries=content)
+    except Exception:
+        log.warning("workspace_memory.normalize_failed", repo=_repo_slug(repo_path), exc_info=True)
+        return False
+
+    if not normalized or not normalized.strip():
+        return False
+
+    # CAS write: only update if content hasn't changed during LLM call
+    written = await asyncio.to_thread(
+        _locked_write_normalized, repo_path, content, normalized.strip(),
+    )
+
+    if written:
+        log.info(
+            "workspace_memory.normalized",
+            repo=_repo_slug(repo_path),
+            original_bytes=len(content.encode("utf-8")),
+            normalized_bytes=len(normalized.encode("utf-8")),
+        )
+    return written
+
+
+def _locked_write_normalized(repo_path: str, original_content: str, normalized: str) -> bool:
+    """CAS write for normalization — only writes if decisions.md unchanged."""
+    d = _memory_dir(repo_path)
+    decisions_path = d / "decisions.md"
+    lock_path = d / ".merge.lock"
+    lock_path.touch(exist_ok=True)
+
+    with lock_path.open("w") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            if not decisions_path.is_file():
+                return False
+            current = decisions_path.read_text(encoding="utf-8").strip()
+            if current != original_content:
+                log.info("workspace_memory.normalize_cas_failed", repo=_repo_slug(repo_path))
+                return False
+            decisions_path.write_text(normalized + "\n", encoding="utf-8")
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+    return True
 
 
 # ---------------------------------------------------------------------------

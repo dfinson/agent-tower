@@ -9,8 +9,8 @@
  * - Pattern groups for repeated structural patterns
  * - Collapsed single-paragraph mode for small jobs
  */
-import { useState, useEffect, useCallback } from "react";
-import { AlertTriangle, ShieldAlert, ShieldCheck, Shield, CheckCircle, XCircle, ChevronDown, ChevronRight, BookOpen, Lightbulb, RotateCcw, GitBranch, CheckCircle2, RefreshCw } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { AlertTriangle, ShieldAlert, ShieldCheck, Shield, ChevronDown, ChevronRight, BookOpen, RefreshCw } from "lucide-react";
 import { fetchReviewStory, fetchJobStory, type ReviewStoryResponse, type EdgeCaseBlock, type PatternGroup } from "../../api/client";
 import { useStore } from "../../store";
 import { selectReviewStory, selectJobStory } from "../../store/selectors";
@@ -166,24 +166,70 @@ function renderInlineCode(text: string): React.ReactNode[] {
   });
 }
 
-const BEAT_STYLE: Record<string, { icon: typeof Lightbulb; color: string; border: string; label: string }> = {
-  decide: { icon: GitBranch, color: "text-blue-400", border: "border-blue-400/40", label: "Decision" },
-  backtrack: { icon: RotateCcw, color: "text-amber-400", border: "border-amber-400/40", label: "Course Correction" },
-  insight: { icon: Lightbulb, color: "text-emerald-400", border: "border-emerald-400/40", label: "Discovery" },
-  verify: { icon: CheckCircle2, color: "text-purple-400", border: "border-purple-400/40", label: "Verification" },
-};
+/** Split block text on double-newlines into separate <p> elements. */
+function renderParagraphs(text: string, keyPrefix: string): React.ReactNode[] {
+  const paragraphs = text.split(/\n\n+/).filter(Boolean);
+  return paragraphs.map((p, i) => (
+    <p key={`${keyPrefix}-p${i}`} className="m-0">{renderInlineCode(p.trim())}</p>
+  ));
+}
 
-/** Render a trail beat as a colored aside block. */
-function BeatBlock({ kind, text }: { kind: string; text: string }) {
-  const cfg = (BEAT_STYLE[kind] ?? BEAT_STYLE.insight)!;
-  const Icon = cfg.icon;
+/** Render a unified diff snippet with add/remove line highlighting. */
+function DiffCard({ file, snippet }: { file: string; snippet: string }) {
+  // Strip the "diff --git" header and "---/+++" lines, keep only hunks
+  const lines = snippet.split("\n");
+  const hunkLines: string[] = [];
+  let inHunk = false;
+  for (const line of lines) {
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      hunkLines.push(line);
+    } else if (inHunk) {
+      hunkLines.push(line);
+    }
+  }
+  const displayLines = hunkLines.length > 0 ? hunkLines : lines;
+
   return (
-    <div className={`my-2 pl-3 border-l-2 ${cfg.border} py-1.5`}>
-      <div className={`flex items-center gap-1.5 mb-0.5 ${cfg.color}`}>
-        <Icon size={11} />
-        <span className="text-[10px] font-semibold uppercase tracking-wider">{cfg.label}</span>
+    <div className="rounded border border-border/50 bg-muted/20 overflow-hidden my-2">
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/30 border-b border-border/30">
+        <span className="font-mono text-[11px] text-primary/80">{file}</span>
       </div>
-      <span className="text-sm text-foreground/80 leading-relaxed">{renderInlineCode(text)}</span>
+      <pre className="px-0 py-1 font-mono text-[11px] overflow-x-auto whitespace-pre m-0">
+        {displayLines.map((line, i) => {
+          let cls = "text-foreground/60 px-3";
+          if (line.startsWith("+") && !line.startsWith("+++")) {
+            cls = "text-green-400/90 bg-green-400/10 px-3";
+          } else if (line.startsWith("-") && !line.startsWith("---")) {
+            cls = "text-red-400/90 bg-red-400/10 px-3";
+          } else if (line.startsWith("@@")) {
+            cls = "text-blue-400/60 px-3";
+          }
+          return <div key={i} className={cls}>{line || " "}</div>;
+        })}
+      </pre>
+    </div>
+  );
+}
+
+/** Build a TOC from file references in story blocks. */
+function StoryTOC({ blocks }: { blocks: StoryBlock[] }) {
+  const files = blocks
+    .filter((b): b is StoryBlock & { file: string } => b.type === "reference" && !!b.file)
+    .reduce<string[]>((acc, b) => {
+      if (!acc.includes(b.file!)) acc.push(b.file!);
+      return acc;
+    }, []);
+  if (files.length === 0) return null;
+  return (
+    <div className="text-xs text-muted-foreground border-b border-border/30 pb-3 mb-1">
+      <span className="font-medium text-foreground/60">Files touched: </span>
+      {files.map((f, i) => (
+        <span key={f}>
+          {i > 0 && <span className="text-border mx-1">·</span>}
+          <span className="font-mono text-primary/70">{f}</span>
+        </span>
+      ))}
     </div>
   );
 }
@@ -196,7 +242,9 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
 
   const [verbosity, setVerbosity] = useState<Verbosity>("standard");
   const [regenerating, setRegenerating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<Verbosity, string | null>>({
+    summary: null, standard: null, detailed: null,
+  });
 
   // Per-verbosity cache from store
   const cachedSummary = useStore(selectJobStory(jobId, "summary"));
@@ -221,18 +269,19 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
       setFetching((prev) => ({ ...prev, [v]: true }));
       try {
         const res = await fetchJobStory(jobId, regen, v);
-        setStory(jobId, res);
-      } catch (err: unknown) {
-        // Only set error for the active verbosity
-        if (v === verbosity) {
-          const msg = err instanceof Error ? err.message : "Failed to load story";
-          setError(msg);
+        // Don't cache empty responses — they poison the store and
+        // block future attempts to generate the story.
+        if (res.blocks && res.blocks.length > 0) {
+          setStory(jobId, res);
         }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to load story";
+        setErrors((prev) => ({ ...prev, [v]: msg }));
       } finally {
         setFetching((prev) => ({ ...prev, [v]: false }));
       }
     },
-    [jobId, verbosity, setStory],
+    [jobId, setStory],
   );
 
   // Eagerly fetch all verbosity levels on mount
@@ -248,287 +297,303 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
   const handleVerbosityChange = useCallback(
     (v: Verbosity) => {
       setVerbosity(v);
-      setError(null);
+      setErrors((prev) => ({ ...prev, [v]: null }));
+      // If this verbosity level isn't cached, trigger a fetch
+      const cached = v === "summary" ? cachedSummary : v === "detailed" ? cachedDetailed : cachedStandard;
+      if (!cached) {
+        fetchLevel(v);
+      }
     },
-    [],
+    [fetchLevel, cachedSummary, cachedStandard, cachedDetailed],
   );
 
   const handleRegenerate = useCallback(() => {
     setRegenerating(true);
-    setError(null);
+    setErrors((prev) => ({ ...prev, [verbosity]: null }));
     fetchLevel(verbosity, true).finally(() => setRegenerating(false));
   }, [fetchLevel, verbosity]);
 
   // Show loading only if the currently selected verbosity is being fetched
   const loading = fetching[verbosity] && !story;
+  const hasStory = story && story.blocks.length > 0;
+  const error = errors[verbosity];
+
+  // Wrap the verbosity toggle + regenerate so they're always visible,
+  // even when the story content area shows loading/error/empty.
+  const controls = (
+    <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/30">
+      <div className="flex items-center gap-0.5 bg-muted/30 rounded p-0.5">
+        {(["summary", "standard", "detailed"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => handleVerbosityChange(v)}
+            className={cn(
+              "px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors",
+              verbosity === v
+                ? "bg-primary/20 text-primary"
+                : "text-muted-foreground/50 hover:text-muted-foreground",
+            )}
+          >
+            {v === "summary" ? "Brief" : v === "standard" ? "Standard" : "Detailed"}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        disabled={regenerating}
+        onClick={handleRegenerate}
+        className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+      >
+        <RefreshCw size={10} className={cn(regenerating && "animate-spin")} />
+        {regenerating ? "Regenerating\u2026" : "Regenerate"}
+      </button>
+    </div>
+  );
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-48">
-        <Spinner size="md" />
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center justify-center h-48">
+          <Spinner size="md" />
+        </div>
+        {controls}
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex items-center gap-2 justify-center h-48 text-sm text-muted-foreground">
-        <AlertTriangle size={16} className="text-yellow-400" />
-        <span>{error}</span>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center gap-2 justify-center h-48 text-sm text-muted-foreground">
+          <AlertTriangle size={16} className="text-yellow-400" />
+          <span>{error}</span>
+        </div>
+        {controls}
       </div>
     );
   }
 
-  if (!story || story.blocks.length === 0) {
+  if (!hasStory) {
     return (
-      <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
-        Not enough data to generate a story yet.
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="flex flex-col items-center justify-center h-48 gap-3 text-sm text-muted-foreground">
+          <p>Story generation returned no content for this level.</p>
+          <button
+            type="button"
+            disabled={regenerating}
+            onClick={handleRegenerate}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+          >
+            <RefreshCw size={12} className={cn(regenerating && "animate-spin")} />
+            {regenerating ? "Generating\u2026" : "Try generating"}
+          </button>
+        </div>
+        {controls}
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-4 p-4 h-full overflow-y-auto">
-      <div className="max-w-3xl mx-auto w-full rounded-lg border border-border bg-card p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <BookOpen size={14} className="text-muted-foreground" />
-          <h3 className="text-sm font-semibold">Code Review Story</h3>
-        </div>
-        <div className="text-sm text-muted-foreground leading-relaxed">
-          {story.blocks.map((block: StoryBlock, i: number) => {
-            if (block.type === "narrative" && block.text) {
-              return <span key={`n-${i}`}>{renderInlineCode(block.text)}</span>;
+    <div className="rounded-lg border border-border bg-card p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <BookOpen size={14} className="text-muted-foreground" />
+        <h3 className="text-sm font-semibold">Code Review Story</h3>
+      </div>
+        <StoryTOC blocks={story.blocks} />
+        <div className="text-sm text-foreground/80 leading-relaxed flex flex-col gap-3">
+          {(() => {
+            // Detect trailing orphaned references — refs appended by the
+            // backend when the LLM didn't weave them into the narrative.
+            // Walk backwards from the end to find where trailing refs start.
+            let trailingRefStart = story.blocks.length;
+            for (let j = story.blocks.length - 1; j >= 0; j--) {
+              const b = story.blocks[j]!;
+              if (b.type === "reference") {
+                trailingRefStart = j;
+              } else {
+                break;
+              }
             }
-            if (block.type === "beat" && block.text) {
-              return <BeatBlock key={`b-${i}`} kind={block.beatKind ?? "insight"} text={block.text} />;
-            }
-            if (block.type === "reference" && block.file) {
-              const fileName = block.file.split("/").pop() ?? "file";
-              return (
-                <span
-                  key={`r-${i}`}
-                  className="inline-flex items-center gap-1 mx-0.5 font-mono text-[11px] text-primary/80 bg-muted/30 px-1.5 py-0.5 rounded"
-                  title={block.file}
-                >
-                  {fileName}
-                  {block.why && (
-                    <span className="text-muted-foreground font-sans"> — {block.why}</span>
-                  )}
-                </span>
-              );
-            }
-            return null;
-          })}
-        </div>
-        <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/30">
-          {/* Verbosity toggle */}
-          <div className="flex items-center gap-0.5 bg-muted/30 rounded p-0.5">
-            {(["summary", "standard", "detailed"] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => handleVerbosityChange(v)}
-                className={cn(
-                  "px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors",
-                  verbosity === v
-                    ? "bg-primary/20 text-primary"
-                    : "text-muted-foreground/50 hover:text-muted-foreground",
+            const mainBlocks = story.blocks.slice(0, trailingRefStart);
+            // Only keep trailing refs that have a file path (drop trail metadata noise)
+            const trailingRefs = story.blocks.slice(trailingRefStart).filter((b) => b.file);
+
+            return (
+              <>
+                {mainBlocks.map((block: StoryBlock, i: number) => {
+                  if ((block.type === "narrative" || block.type === "beat") && block.text) {
+                    return <React.Fragment key={`t-${i}`}>{renderParagraphs(block.text, `t-${i}`)}</React.Fragment>;
+                  }
+                  if (block.type === "reference") {
+                    if (!block.file) return null;
+                    if (block.snippet) {
+                      return <DiffCard key={`r-${i}`} file={block.file} snippet={block.snippet} />;
+                    }
+                    return null;
+                  }
+                  return null;
+                })}
+                {trailingRefs.length > 0 && (
+                  <div className="mt-1 pt-3 border-t border-border/30 flex flex-col gap-2">
+                    <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wide">Also changed</span>
+                    {trailingRefs.map((block: StoryBlock, i: number) => {
+                      // Full diff card for refs that carry a snippet
+                      if (block.snippet && block.file) {
+                        return (
+                          <div key={`tr-${i}`}>
+                            {block.why && (
+                              <p className="text-xs text-muted-foreground mb-1">{block.why}</p>
+                            )}
+                            <DiffCard file={block.file} snippet={block.snippet} />
+                          </div>
+                        );
+                      }
+                      // File + motivation for refs without a snippet
+                      return (
+                        <div
+                          key={`tr-${i}`}
+                          className="flex items-baseline gap-2 text-xs"
+                        >
+                          <span
+                            className="font-mono text-[11px] text-primary/80 bg-muted/30 px-1.5 py-0.5 rounded shrink-0"
+                            title={block.file ?? undefined}
+                          >
+                            {(block.file ?? "").split("/").pop() ?? "file"}
+                          </span>
+                          {block.why && (
+                            <span className="text-muted-foreground">{block.why}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
-              >
-                {v === "summary" ? "Brief" : v === "standard" ? "Standard" : "Detailed"}
-              </button>
-            ))}
+              </>
+            );
+          })()}
+        </div>
+        {controls}
+      </div>
+  );
+}
+
+/** Compact structural review card — shown above the narrative when CodeRecon data is available.
+ *  Only surfaces content that warrants attention: breaking changes, structural concerns,
+ *  blockers. For clean jobs, shows a single-line verdict. */
+function StructuralReviewCard({ data }: { data: ReviewStoryResponse }) {
+  const [expanded, setExpanded] = useState(false);
+  const confidenceCfg = data.header?.mergeConfidence
+    ? CONFIDENCE_CONFIG[data.header.mergeConfidence]
+    : null;
+
+  const hasAttention = data.attentionRequired.length > 0;
+  const hasConcerns = data.structuralConcerns.length > 0;
+  const hasBlockers = (data.verdict?.blockers.length ?? 0) > 0;
+  const hasDetail = hasAttention || hasConcerns || hasBlockers
+    || data.whatChanged.length > 0 || (data.edgeCases ?? []).length > 0;
+
+  const borderColor = data.verdict?.confidence === "HIGH" ? "border-green-400/30" :
+    data.verdict?.confidence === "LOW" ? "border-red-400/30" : "border-yellow-400/30";
+  const bgColor = data.verdict?.confidence === "HIGH" ? "bg-green-400/5" :
+    data.verdict?.confidence === "LOW" ? "bg-red-400/5" : "bg-yellow-400/5";
+
+  return (
+    <div className={`rounded-lg border ${borderColor} ${bgColor} p-3`}>
+      {/* Header line: confidence + file count + verdict */}
+      <div className="flex items-center gap-3">
+        {confidenceCfg && (
+          <div className={`flex items-center gap-1 text-xs font-medium ${confidenceCfg.color}`}>
+            <confidenceCfg.icon size={13} />
+            <span>{confidenceCfg.label}</span>
           </div>
+        )}
+        {data.header && (
+          <span className="text-[10px] text-muted-foreground">
+            {data.header.fileCount} file{data.header.fileCount !== 1 ? "s" : ""}
+            {data.header.breakingCount > 0 && (
+              <span className="text-red-400 ml-1">{data.header.breakingCount} breaking</span>
+            )}
+          </span>
+        )}
+        <span className="flex-1" />
+        {hasDetail && (
           <button
             type="button"
-            disabled={regenerating}
-            onClick={handleRegenerate}
-            className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            onClick={() => setExpanded(!expanded)}
+            className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
           >
-            <RefreshCw size={10} className={cn(regenerating && "animate-spin")} />
-            {regenerating ? "Regenerating…" : "Regenerate"}
+            {expanded ? "Hide details" : "Show details"}
           </button>
-        </div>
+        )}
       </div>
+
+      {/* Verdict summary */}
+      {data.verdict?.summary && (
+        <p className="text-xs text-foreground/80 mt-1">{data.verdict.summary}</p>
+      )}
+
+      {/* Blockers — always visible if present */}
+      {hasBlockers && data.verdict && (
+        <div className="flex flex-col gap-1 mt-2">
+          {data.verdict.blockers.map((b, i) => (
+            <div key={i} className="text-xs text-red-400 pl-2 border-l-2 border-red-400/30">
+              {b}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Expanded detail sections */}
+      {expanded && (
+        <div className="mt-3 pt-2 border-t border-border/30 flex flex-col gap-3">
+          <StorySection title="Needs Attention" items={data.attentionRequired} />
+          <StorySection title="Structural Concerns" items={data.structuralConcerns} />
+          <StorySection title="What Changed" items={data.whatChanged} />
+          <PatternGroupSection groups={data.patternGroups ?? []} />
+          <StorySection title="What Was Added" items={data.whatAdded} />
+          <EdgeCaseSection blocks={data.edgeCases ?? []} />
+          {data.nonStructuralCount > 0 && (
+            <div className="text-xs text-muted-foreground">
+              +{data.nonStructuralCount} non-structural change{data.nonStructuralCount !== 1 ? "s" : ""}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 export function StorySubView({ jobId }: StorySubViewProps) {
-  const cached = useStore(selectReviewStory(jobId));
+  // Fetch structural review data in parallel (for the summary card)
+  const cachedReview = useStore(selectReviewStory(jobId));
   const setReviewStory = useStore((s) => s.setReviewStory);
-
-  const [data, setData] = useState<ReviewStoryResponse | null>(cached);
-  const [loading, setLoading] = useState(cached == null);
-  const [error, setError] = useState<string | null>(null);
+  const [reviewData, setReviewData] = useState<ReviewStoryResponse | null>(cachedReview);
 
   useEffect(() => {
-    if (cached != null) {
-      setData(cached);
-      setLoading(false);
+    if (cachedReview != null) {
+      setReviewData(cachedReview);
       return;
     }
-
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-
     fetchReviewStory(jobId)
-      .then((res) => {
-        if (!cancelled) {
-          setData(res);
-          setReviewStory(jobId, res);
-        }
-      })
-      .catch((err) => { if (!cancelled) setError(err?.message ?? "Failed to load review story"); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-
+      .then((res) => { if (!cancelled) { setReviewData(res); setReviewStory(jobId, res); } })
+      .catch(() => { /* structural data is optional */ })
     return () => { cancelled = true; };
-  }, [jobId, cached, setReviewStory]);
+  }, [jobId, cachedReview, setReviewStory]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-48">
-        <Spinner size="md" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center gap-2 justify-center h-48 text-sm text-muted-foreground">
-        <AlertTriangle size={16} className="text-yellow-400" />
-        <span>{error}</span>
-      </div>
-    );
-  }
-
-  // Fallback to trail-based story when CodeRecon review-story is unavailable
-  if (!data || !data.available) {
-    return <TrailStoryFallback jobId={jobId} />;
-  }
-
-  const confidenceCfg = data.header?.mergeConfidence
-    ? CONFIDENCE_CONFIG[data.header.mergeConfidence]
-    : null;
-
-  // §11.5.6 — Collapsed single-paragraph for small jobs
-  if (data.collapsed && data.verdict) {
-    return (
-      <div className="flex flex-col gap-4 p-4 h-full overflow-y-auto">
-        <div className="max-w-3xl mx-auto w-full flex flex-col gap-4">
-        {data.header && (
-          <div className="rounded-lg border border-border bg-card p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold">{data.header.title || "Review Story"}</h3>
-              {confidenceCfg && (
-                <div className={`flex items-center gap-1.5 text-xs font-medium ${confidenceCfg.color}`}>
-                  <confidenceCfg.icon size={14} />
-                  <span>{confidenceCfg.label}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-        <div className={`rounded-lg border p-4 ${
-          data.verdict.confidence === "HIGH" ? "border-green-400/30 bg-green-400/5" :
-          data.verdict.confidence === "LOW" ? "border-red-400/30 bg-red-400/5" :
-          "border-yellow-400/30 bg-yellow-400/5"
-        }`}>
-          <p className="text-xs text-foreground/90">{data.verdict.summary}</p>
-        </div>
-        {/* Show edge cases even in collapsed mode */}
-        <EdgeCaseSection blocks={data.edgeCases ?? []} />
-        </div>
-      </div>
-    );
-  }
+  const showStructural = reviewData?.available && (
+    reviewData.header != null || reviewData.verdict != null
+  );
 
   return (
-    <div className="flex flex-col gap-5 p-4 h-full overflow-y-auto">
-      <div className="max-w-3xl mx-auto w-full flex flex-col gap-5">
-      {/* Header card */}
-      {data.header && (
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold">
-              {data.header.title || "Review Story"}
-            </h3>
-            {confidenceCfg && (
-              <div className={`flex items-center gap-1.5 text-xs font-medium ${confidenceCfg.color}`}>
-                <confidenceCfg.icon size={14} />
-                <span>{confidenceCfg.label}</span>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
-            <span>{data.header.fileCount} file{data.header.fileCount !== 1 ? "s" : ""} changed</span>
-            {data.header.breakingCount > 0 && (
-              <span className="text-red-400">{data.header.breakingCount} breaking</span>
-            )}
-          </div>
-        </div>
-      )}
+    <div className="flex flex-col gap-4 p-4 h-full overflow-y-auto">
+      <div className="max-w-3xl mx-auto w-full flex flex-col gap-4">
+        {/* Structural review card — compact verdict from CodeRecon */}
+        {showStructural && <StructuralReviewCard data={reviewData!} />}
 
-      {/* Attention required */}
-      <StorySection title="Needs Attention" items={data.attentionRequired} />
-
-      {/* Structural concerns */}
-      <StorySection title="Structural Concerns" items={data.structuralConcerns} />
-
-      {/* What changed — may be community rollups */}
-      <StorySection title="What Changed" items={data.whatChanged} />
-
-      {/* Pattern groups (§11.6.2) */}
-      <PatternGroupSection groups={data.patternGroups ?? []} />
-
-      {/* What was added */}
-      <StorySection title="What Was Added" items={data.whatAdded} />
-
-      {/* Edge-case metadata blocks (§11.5) */}
-      <EdgeCaseSection blocks={data.edgeCases ?? []} />
-
-      {/* Non-structural count */}
-      {data.nonStructuralCount > 0 && (
-        <div className="text-xs text-muted-foreground">
-          +{data.nonStructuralCount} non-structural change{data.nonStructuralCount !== 1 ? "s" : ""} (formatting, comments, docs, etc.)
-        </div>
-      )}
-
-      {/* Verdict */}
-      {data.verdict && (
-        <div className={`rounded-lg border p-4 ${
-          data.verdict.confidence === "HIGH" ? "border-green-400/30 bg-green-400/5" :
-          data.verdict.confidence === "LOW" ? "border-red-400/30 bg-red-400/5" :
-          "border-yellow-400/30 bg-yellow-400/5"
-        }`}>
-          <div className="flex items-center gap-2 mb-2">
-            {data.verdict.confidence === "HIGH" ? (
-              <CheckCircle size={14} className="text-green-400" />
-            ) : data.verdict.confidence === "LOW" ? (
-              <XCircle size={14} className="text-red-400" />
-            ) : (
-              <AlertTriangle size={14} className="text-yellow-400" />
-            )}
-            <span className="text-xs font-semibold">Verdict</span>
-          </div>
-
-          {data.verdict.summary && (
-            <p className="text-xs text-foreground/90 mb-2">{data.verdict.summary}</p>
-          )}
-
-          {data.verdict.blockers.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-medium text-muted-foreground uppercase">Blockers</span>
-              {data.verdict.blockers.map((b, i) => (
-                <div key={i} className="text-xs text-red-400 pl-2 border-l-2 border-red-400/30">
-                  {b}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+        {/* Agent narrative — the actual story */}
+        <TrailStoryFallback jobId={jobId} />
       </div>
     </div>
   );

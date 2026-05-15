@@ -292,7 +292,11 @@ class BaseAgentAdapter(AgentAdapterInterface):
     def resume_tools(self, session_id: str) -> None:
         self._paused_sessions.discard(session_id)
 
-    # Per-job tracking dicts cleaned up together in _cleanup_session_state
+    # Per-job tracking dicts cleaned up together in _cleanup_session_state.
+    # NOTE: _policy_router, _repo_policies, _worktree_paths are intentionally
+    # excluded — they are per-job (not per-session) and must survive across
+    # retries / follow-up sessions.  They are cleaned up by
+    # RuntimeService._cleanup_job_state at end-of-job.
     _JOB_TRACKING_DICTS: ClassVar[tuple[str, ...]] = (
         "_job_start_times",
         "_job_main_models",
@@ -301,9 +305,6 @@ class BaseAgentAdapter(AgentAdapterInterface):
         "_current_phases",
         "_retry_trackers",
         "_transcript_buffers",
-        "_policy_router",
-        "_repo_policies",
-        "_worktree_paths",
     )
 
     def _cleanup_session_state(self, session_id: str) -> None:
@@ -358,9 +359,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
     async def _db_write_increment(self, *, job_id: str, session_kind: str = "job", **counters: Any) -> None:
         """Increment telemetry summary counters.
 
-        For sidecar sessions (session_kind != "job"), auto-initializes the
-        summary row on first write since RuntimeTelemetry.init_telemetry_row
-        is only called for main job sessions.
+        Auto-initializes the summary row on first write if it doesn't exist
+        yet (e.g. ``init_telemetry_row`` fire-and-forget task failed or
+        hasn't completed).
         """
         totals: dict[str, float | int] = {}
         try:
@@ -374,9 +375,8 @@ class BaseAgentAdapter(AgentAdapterInterface):
                     **counters,
                 )
                 # increment() returns zeroed dict when no row matched the WHERE.
-                # For sidecars this means the row doesn't exist yet — create it
-                # and retry.
-                if session_kind != "job" and not totals.get("_row_found") and counters:
+                # Auto-create the row and retry so data is never silently lost.
+                if not totals.get("_row_found") and counters:
                     await repo.init_job(job_id, sdk="unknown", session_kind=session_kind)
                     totals = await repo.increment(
                         job_id=job_id,
@@ -865,6 +865,12 @@ class BaseAgentAdapter(AgentAdapterInterface):
         """Hot-swap the RepoPolicy for a running job (mid-job policy reload)."""
         if job_id in self._repo_policies:
             self._repo_policies[job_id] = policy
+
+    def cleanup_job_policy(self, job_id: str) -> None:
+        """Remove per-job policy state.  Called at end-of-job by RuntimeService."""
+        self._policy_router.pop(job_id, None)
+        self._repo_policies.pop(job_id, None)
+        self._worktree_paths.pop(job_id, None)
 
     # ------------------------------------------------------------------
     # Permission evaluation (SDK-agnostic core)

@@ -115,7 +115,9 @@ export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
       setFetching((prev) => ({ ...prev, [v]: true }));
       try {
         const data = await fetchJobStory(jobId, regen, v);
-        setStory(jobId, data);
+        if (data.blocks && data.blocks.length > 0) {
+          setStory(jobId, data);
+        }
       } catch {
         // Silently ignore background fetch failures
       } finally {
@@ -139,8 +141,12 @@ export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
   const handleVerbosityChange = useCallback(
     (v: Verbosity) => {
       setVerbosity(v);
+      const cached = v === "summary" ? cachedSummary : v === "detailed" ? cachedDetailed : cachedStandard;
+      if (!cached) {
+        fetchLevel(v);
+      }
     },
-    [],
+    [fetchLevel, cachedSummary, cachedStandard, cachedDetailed],
   );
 
   const loading = fetching[verbosity] && !story;
@@ -185,7 +191,7 @@ export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
           )}
 
           {!hasStory && !loading && (
-            <p className="text-xs text-muted-foreground py-1">Not enough data to generate a story yet.</p>
+            <p className="text-xs text-muted-foreground py-1">Story not available for this verbosity level. Try regenerating.</p>
           )}
 
           {hasStory && (
