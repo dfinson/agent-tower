@@ -9,7 +9,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   MessageSquare, Send, Pin, Loader2, ChevronDown, ChevronUp,
-  AlertCircle, Sparkles,
+  AlertCircle, Sparkles, Check,
 } from "lucide-react";
 import {
   sendMetricsChatMessage,
@@ -100,9 +100,9 @@ export function MetricsChatPanel({ period, onMetricPinned }: MetricsChatPanelPro
     }
   };
 
-  const handlePin = async (msg: MetricsChatMessage, question: string) => {
+  const handlePin = async (msg: MetricsChatMessage, question: string): Promise<boolean> => {
     const firstSql = msg.sqlQueries?.[0];
-    if (!msg.vizData || !firstSql) return;
+    if (!msg.vizData || !firstSql) return false;
     const vizType = msg.viz ?? "table";
     try {
       await pinMetric({
@@ -114,8 +114,9 @@ export function MetricsChatPanel({ period, onMetricPinned }: MetricsChatPanelPro
         explanation: msg.narrative,
       });
       onMetricPinned?.();
+      return true;
     } catch {
-      // Swallow — pin failure is non-critical
+      return false;
     }
   };
 
@@ -249,10 +250,12 @@ function ChatBubble({
   onPin,
 }: {
   message: ChatMessage;
-  onPin?: () => void;
+  onPin?: () => Promise<boolean>;
 }) {
   const [sqlExpanded, setSqlExpanded] = useState(false);
   const [pinning, setPinning] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [pinError, setPinError] = useState(false);
 
   if (message.role === "user") {
     return (
@@ -295,20 +298,36 @@ function ChatBubble({
           {resp.title && (
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-sm font-medium text-foreground">{resp.title}</h4>
-              {onPin && (
+              {onPin && !pinned && (
                 <button
                   onClick={async () => {
                     setPinning(true);
-                    await onPin();
+                    setPinError(false);
+                    const ok = await onPin();
                     setPinning(false);
+                    if (ok) {
+                      setPinned(true);
+                    } else {
+                      setPinError(true);
+                    }
                   }}
                   disabled={pinning}
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
-                  title="Pin to dashboard"
+                  className={`flex items-center gap-1 text-xs transition-colors ${
+                    pinError
+                      ? "text-red-400 hover:text-red-300"
+                      : "text-muted-foreground hover:text-indigo-400"
+                  }`}
+                  title={pinError ? "Pin failed — click to retry" : "Pin to dashboard"}
                 >
                   {pinning ? <Loader2 size={12} className="animate-spin" /> : <Pin size={12} />}
-                  Pin
+                  {pinError ? "Retry" : "Pin"}
                 </button>
+              )}
+              {pinned && (
+                <span className="flex items-center gap-1 text-xs text-emerald-400">
+                  <Check size={12} />
+                  Pinned
+                </span>
               )}
             </div>
           )}

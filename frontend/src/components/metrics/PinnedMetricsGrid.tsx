@@ -5,7 +5,7 @@
  * the appropriate viz template.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Loader2, X, Settings2, AlertTriangle,
 } from "lucide-react";
@@ -24,12 +24,22 @@ interface PinnedMetricsGridProps {
 export function PinnedMetricsGrid({ refreshKey }: PinnedMetricsGridProps) {
   const [metrics, setMetrics] = useState<CustomMetricWithData[]>([]);
   const [loading, setLoading] = useState(true);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const prevCountRef = useRef(0);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const resp = await listCustomMetrics();
-      setMetrics(resp.metrics.filter((m) => m.metric.pinDashboard));
+      const pinned = resp.metrics.filter((m) => m.metric.pinDashboard);
+      // Scroll into view if a new metric was added
+      if (pinned.length > prevCountRef.current && prevCountRef.current > 0) {
+        requestAnimationFrame(() => {
+          containerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        });
+      }
+      prevCountRef.current = pinned.length;
+      setMetrics(pinned);
     } catch {
       // Non-critical — grid just stays empty
     } finally {
@@ -45,7 +55,7 @@ export function PinnedMetricsGrid({ refreshKey }: PinnedMetricsGridProps) {
   if (!metrics.length) return null;
 
   return (
-    <div className="space-y-3">
+    <div ref={containerRef} className="space-y-3">
       <h2 className="text-sm font-medium text-foreground">Pinned Metrics</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {metrics.map((m) => (
