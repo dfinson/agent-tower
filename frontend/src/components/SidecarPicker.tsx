@@ -123,18 +123,26 @@ export function SidecarPicker({
             />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs font-medium text-foreground truncate">{t.name}</span>
+                <Tooltip content={t.name}>
+                  <span className="text-xs font-medium text-foreground truncate">{t.name}</span>
+                </Tooltip>
                 {phase && (
                   <Badge variant="secondary" className="text-[9px] px-1 py-0">{phase}</Badge>
                 )}
                 {hasGate && (
-                  <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/50 text-amber-600">gate</Badge>
+                  <Tooltip content="This sidecar can gate (approve/reject) agent actions">
+                    <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/50 text-amber-600">gate</Badge>
+                  </Tooltip>
                 )}
                 {hasAgentMsg && (
-                  <Badge variant="outline" className="text-[9px] px-1 py-0 border-blue-500/50 text-blue-600">msg</Badge>
+                  <Tooltip content="This sidecar can inject messages into the agent's conversation">
+                    <Badge variant="outline" className="text-[9px] px-1 py-0 border-blue-500/50 text-blue-600">msg</Badge>
+                  </Tooltip>
                 )}
               </div>
-              <p className="text-[11px] text-muted-foreground truncate mt-0.5">{t.description}</p>
+              <Tooltip content={t.description}>
+                <p className="text-[11px] text-muted-foreground truncate mt-0.5">{t.description}</p>
+              </Tooltip>
             </div>
           </label>
         );
