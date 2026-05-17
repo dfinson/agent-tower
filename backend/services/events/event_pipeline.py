@@ -264,11 +264,10 @@ class EventPipeline:
         """
         buffered = self._pending_tool_metadata.pop(tool_id, {})
         start = self._tool_start_times.pop(tool_id, None)
-        # Remove from job→tool tracking
-        for tids in self._job_tool_ids.values():
-            if tool_id in tids:
-                tids.discard(tool_id)
-                break
+        # Remove from job→tool tracking (direct lookup, not scan)
+        tids = self._job_tool_ids.get(job_id)
+        if tids:
+            tids.discard(tool_id)
         tool_name = buffered.get("tool_name", "tool")
         tool_args_str = buffered.get("tool_args") or None
         turn_id = buffered.get("turn_id") or None
@@ -539,7 +538,7 @@ class EventPipeline:
         result_size = len(result_text.encode("utf-8", errors="replace")) if result_text else None
 
         # File access tracking
-        file_rw_increment: dict[str, int] = {"file_read_count": 0, "file_write_count": 0}
+        file_rw_increment: dict[str, int] = {}
         if category in ("file_read", "file_write"):
             paths = extract_file_paths(tool_name, tool_args_str)
             access_type = "write" if category == "file_write" else "read"

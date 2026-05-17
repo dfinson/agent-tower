@@ -454,7 +454,7 @@ class RuntimeService:
         try:
             async with self._session_factory() as session:
                 repo = SidecarTemplateRepository(session)
-                templates = await repo.list_all()
+                templates = await repo.list_enabled()
 
             definitions = []
             for tpl in templates:

@@ -91,6 +91,7 @@ class TranscriptRole(StrEnum):
     reasoning = "reasoning"
     reasoning_delta = "reasoning_delta"
     divider = "divider"
+    sidecar = "sidecar"
 
 
 class DiffLineType(StrEnum):

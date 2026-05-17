@@ -346,35 +346,6 @@ class TestEnqueue:
         adapter._enqueue("nonexistent", SessionEvent(kind=SessionEventKind.done, payload={}))
 
 
-class TestEnqueueLog:
-    def test_enqueue_log_increments_seq(self, adapter: ClaudeAdapter) -> None:
-        sid = "sess-1"
-        q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
-        adapter._queues[sid] = q
-        seq = [0]
-
-        adapter._enqueue_log(sid, "hello", "info", seq)
-
-        assert seq[0] == 1
-        event = q.get_nowait()
-        assert event is not None
-        assert event.kind == SessionEventKind.log
-        assert event.payload["message"] == "hello"
-        assert event.payload["level"] == "info"
-        assert event.payload["seq"] == 1
-
-    def test_enqueue_log_no_seq(self, adapter: ClaudeAdapter) -> None:
-        sid = "sess-1"
-        q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
-        adapter._queues[sid] = q
-
-        adapter._enqueue_log(sid, "msg", "warn")
-
-        event = q.get_nowait()
-        assert event is not None
-        assert event.payload["seq"] == 0
-
-
 # ---------------------------------------------------------------------------
 # Tests: permission callback
 # ---------------------------------------------------------------------------

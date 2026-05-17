@@ -280,6 +280,7 @@ class SidecarTemplate:
     definition_json: str  # serialized SidecarDefinition JSON
     created_at: datetime
     last_used_at: datetime | None = None
+    enabled: bool = True
 
 
 # -- Payload TypedDicts per SessionEventKind ----------------------------------

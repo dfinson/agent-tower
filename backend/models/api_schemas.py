@@ -498,6 +498,11 @@ class TranscriptPayload(CamelModel):
     tool_visibility: str | None = None  # "hidden" | "collapsed" | "visible"
     step_id: str | None = None
     step_number: int | None = None
+    # Sidecar fields — present when role == "sidecar"
+    sidecar_name: str | None = None
+    sidecar_icon: str | None = None
+    sidecar_description: str | None = None
+    sidecar_template_id: str | None = None
 
 
 class ToolGroupSummaryPayload(CamelModel):
@@ -1333,10 +1338,11 @@ class UpdateSidecarTemplateRequest(CamelModel):
     name: str | None = Field(None, min_length=1, max_length=200)
     description: str | None = Field(None, min_length=1, max_length=500)
     definition_json: str | None = Field(None, min_length=2, max_length=50_000)
+    enabled: bool | None = None
 
     @model_validator(mode="after")
     def _at_least_one_field(self) -> UpdateSidecarTemplateRequest:
-        if all(v is None for v in (self.name, self.description, self.definition_json)):
+        if all(v is None for v in (self.name, self.description, self.definition_json, self.enabled)):
             raise ValueError("At least one field must be provided")
         return self
 
@@ -1348,6 +1354,7 @@ class SidecarTemplateResponse(CamelModel):
     definition_json: str
     created_at: datetime
     last_used_at: datetime | None
+    enabled: bool = True
 
 
 class SidecarTemplateListResponse(CamelModel):

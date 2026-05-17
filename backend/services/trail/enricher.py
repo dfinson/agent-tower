@@ -311,8 +311,13 @@ class TrailEnricher:
         processed = 0
         for node in nodes:
             try:
-                parent = parents.get(node.parent_id) if node.parent_id else None
-                ctx = parent.preceding_context if parent else None
+                # Prefer the write node's own preceding_context (span-level,
+                # already role-compressed by the event pipeline) over the parent's
+                # step-level context.
+                ctx = node.preceding_context
+                if not ctx:
+                    parent = parents.get(node.parent_id) if node.parent_id else None
+                    ctx = parent.preceding_context if parent else None
                 if not ctx:
                     # No context available — mark with empty summary to avoid reprocessing
                     await self._repo.set_write_summary(node.id, "")
@@ -399,8 +404,11 @@ class TrailEnricher:
                     files_list = json.loads(node.files)
                     file_path = files_list[0] if files_list else ""
 
-                parent = parents.get(node.parent_id) if node.parent_id else None
-                ctx = parent.preceding_context if parent else None
+                # Prefer span-level context (already role-compressed)
+                ctx = node.preceding_context
+                if not ctx:
+                    parent = parents.get(node.parent_id) if node.parent_id else None
+                    ctx = parent.preceding_context if parent else None
 
                 prompt = _build_edit_prompt(
                     tool_name=tool_name,

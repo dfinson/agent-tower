@@ -200,6 +200,7 @@ class SidecarTemplateService:
         name: str | None = None,
         description: str | None = None,
         definition_json: str | None = None,
+        enabled: bool | None = None,
     ) -> SidecarTemplate | None:
         """Update an existing template. Returns None if not found."""
         if definition_json is not None:
@@ -213,6 +214,7 @@ class SidecarTemplateService:
             name=name,
             description=description,
             definition_json=definition_json,
+            enabled=enabled,
         )
 
     async def delete_template(self, template_id: str) -> bool:

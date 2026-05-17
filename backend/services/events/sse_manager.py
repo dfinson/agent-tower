@@ -105,7 +105,7 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.structural_warning: "structural_warning",
     DomainEventKind.stall_detected: "stall_detected",
     DomainEventKind.sidecar_transcript: "sidecar_transcript",
-    DomainEventKind.sidecar_agent_message: None,  # internal — handled by dispatcher
+    DomainEventKind.sidecar_agent_message: "sidecar_transcript",  # visible as sidecar transcript in UI
     DomainEventKind.sidecar_gate_verdict: None,  # internal — handled by dispatcher
     DomainEventKind.sidecar_metadata_update: None,  # internal — handled by dispatcher
     DomainEventKind.preflight_report: "preflight_report",

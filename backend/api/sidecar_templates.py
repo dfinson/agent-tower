@@ -35,6 +35,7 @@ def _to_response(template: Any) -> SidecarTemplateResponse:
         definition_json=template.definition_json,
         created_at=template.created_at,
         last_used_at=template.last_used_at,
+        enabled=template.enabled,
     )
 
 
@@ -95,6 +96,7 @@ async def update_sidecar_template(
             name=body.name,
             description=body.description,
             definition_json=body.definition_json,
+            enabled=body.enabled,
         )
     except ValueError as exc:
         status = 409 if "already exists" in str(exc) else 422

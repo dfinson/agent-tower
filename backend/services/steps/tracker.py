@@ -110,18 +110,30 @@ class StepTracker:
         if role == "agent_delta":
             return
 
-        # Buffer non-delta transcript entries for preceding_context
+        # Buffer non-delta transcript entries for preceding_context.
+        # Role-aware compression: tool results → metadata only (huge outputs
+        # are useless for motivation narratives), tool calls → full args
+        # (small but informative), agent/operator → full content (intent lives here).
         if role not in ("reasoning_delta", "tool_output_delta", "tool_running"):
-            entry: dict[str, str] = {
-                "role": role,
-                "content": str(content),
-            }
+            entry: dict[str, str] = {"role": role}
             t_name = payload.get("tool_name")
-            if t_name:
-                entry["tool_name"] = str(t_name)
+            if role == "tool_result":
+                # Metadata only — full output is too large and irrelevant
+                if t_name:
+                    entry["tool_name"] = str(t_name)
+                raw = str(content)
+                entry["result_lines"] = str(raw.count("\n") + 1 if raw else 0)
+                entry["result_bytes"] = str(len(raw))
+            elif role == "tool_call":
+                if t_name:
+                    entry["tool_name"] = str(t_name)
                 t_args = payload.get("tool_args")
                 if t_args:
                     entry["tool_args"] = str(t_args)
+            else:
+                entry["content"] = str(content)
+                if t_name:
+                    entry["tool_name"] = str(t_name)
             buf = self._transcript_buffers.setdefault(job_id, [])
             buf.append(entry)
             if len(buf) > self._BUFFER_SIZE:

@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
-from sqlalchemy import event as sa_event
+from sqlalchemy import event as sa_event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 if TYPE_CHECKING:
@@ -64,6 +64,30 @@ async def _seed_job(session: AsyncSession) -> None:
     """Insert a job so FK constraints are satisfied."""
     repo = JobRepository(session)
     await repo.create(make_job(id="job-1", worktree_path="/repos/test"))
+    await session.commit()
+
+
+async def _seed_telemetry(session: AsyncSession, job_id: str = "job-1") -> None:
+    """Insert a job_telemetry_summary row (needed for aggregate JOIN queries)."""
+    now = datetime.now(UTC).isoformat()
+    await session.execute(
+        text("""
+            INSERT INTO job_telemetry_summary
+                (job_id, session_kind, sdk, model, repo, branch, status, created_at, updated_at,
+                 duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+                 total_cost_usd, premium_requests, llm_call_count, total_llm_duration_ms,
+                 tool_call_count, tool_failure_count, total_tool_duration_ms, compactions,
+                 tokens_compacted, approval_count, approval_wait_ms, agent_messages,
+                 operator_messages, context_window_size, current_context_tokens,
+                 total_turns, retry_count, retry_cost_usd, file_read_count,
+                 file_write_count, unique_files_read, file_reread_count)
+            VALUES
+                (:job_id, 'job', 'copilot', '', '', '', 'running', :now, :now,
+                 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                 0, 0, 0.0, 0, 0, 0, 0)
+        """),
+        {"job_id": job_id, "now": now},
+    )
     await session.commit()
 
 
@@ -140,6 +164,7 @@ class TestCostAttributionRepository:
     @pytest.mark.asyncio
     async def test_by_dimension(self, session: AsyncSession) -> None:
         await _seed_job(session)
+        await _seed_telemetry(session)
         repo = CostAttributionRepository(session)
         await repo.insert(job_id="job-1", dimension="activity", bucket="reasoning", cost_usd=3.0, call_count=10)
         await repo.insert(job_id="job-1", dimension="activity", bucket="code_reading", cost_usd=1.0, call_count=5)
@@ -152,6 +177,7 @@ class TestCostAttributionRepository:
     @pytest.mark.asyncio
     async def test_fleet_summary(self, session: AsyncSession) -> None:
         await _seed_job(session)
+        await _seed_telemetry(session)
         repo = CostAttributionRepository(session)
         await repo.insert(job_id="job-1", dimension="activity", bucket="reasoning", cost_usd=5.0)
         await session.commit()

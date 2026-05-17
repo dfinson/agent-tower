@@ -212,26 +212,101 @@ function DiffCard({ file, snippet }: { file: string; snippet: string }) {
   );
 }
 
-/** Build a TOC from file references in story blocks. */
+/** Categorize a file as created/modified based on its diff snippet. */
+function fileCategory(snippet: string | null | undefined): "created" | "modified" {
+  if (!snippet) return "modified";
+  return snippet.includes("new file mode") ? "created" : "modified";
+}
+
+/** Build a categorized file overview from story blocks. */
 function StoryTOC({ blocks }: { blocks: StoryBlock[] }) {
-  const files = blocks
-    .filter((b): b is StoryBlock & { file: string } => b.type === "reference" && !!b.file)
-    .reduce<string[]>((acc, b) => {
-      if (!acc.includes(b.file!)) acc.push(b.file!);
-      return acc;
-    }, []);
-  if (files.length === 0) return null;
-  return (
-    <div className="text-xs text-muted-foreground border-b border-border/30 pb-3 mb-1 break-words overflow-hidden">
-      <span className="font-medium text-foreground/60">Files touched: </span>
-      {files.map((f, i) => (
-        <span key={f}>
-          {i > 0 && <span className="text-border mx-1">·</span>}
-          <span className="font-mono text-primary/70 break-all">{f}</span>
+  const refs = blocks.filter(
+    (b): b is StoryBlock & { file: string } => b.type === "reference" && !!b.file,
+  );
+  if (refs.length === 0) return null;
+
+  // Deduplicate: keep first occurrence of each file
+  const seen = new Set<string>();
+  const unique: Array<{ file: string; category: "created" | "modified" }> = [];
+  for (const r of refs) {
+    if (!seen.has(r.file)) {
+      seen.add(r.file);
+      unique.push({ file: r.file, category: fileCategory(r.snippet) });
+    }
+  }
+
+  const created = unique.filter((u) => u.category === "created");
+  const modified = unique.filter((u) => u.category === "modified");
+
+  const FileList = ({ items, label, color }: { items: typeof unique; label: string; color: string }) => {
+    if (items.length === 0) return null;
+    return (
+      <div className="flex items-start gap-2 min-w-0">
+        <span className={`text-[10px] font-semibold uppercase tracking-wider shrink-0 mt-px ${color}`}>
+          {label}
         </span>
-      ))}
+        <div className="flex flex-wrap gap-x-2 gap-y-1 min-w-0">
+          {items.map((u) => (
+            <span
+              key={u.file}
+              className="font-mono text-[11px] text-primary/70 bg-muted/30 px-1.5 py-0.5 rounded break-all"
+            >
+              {u.file}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="border border-border/30 rounded-md bg-muted/10 p-3 mb-2 flex flex-col gap-2">
+      <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+        Files &middot; {unique.length}
+      </span>
+      <FileList items={modified} label="Modified" color="text-yellow-500/80" />
+      <FileList items={created} label="Created" color="text-green-500/80" />
     </div>
   );
+}
+
+/**
+ * Group story blocks into logical sections.
+ * A section is a run of narrative/beat blocks (the explanation)
+ * followed by reference blocks (the evidence). A new section starts
+ * whenever narrative/beat text appears after a reference.
+ */
+interface StorySection {
+  prose: StoryBlock[];      // narrative + beat blocks
+  references: StoryBlock[]; // reference blocks that follow
+}
+
+function groupIntoSections(blocks: StoryBlock[]): StorySection[] {
+  const sections: StorySection[] = [];
+  let current: StorySection = { prose: [], references: [] };
+
+  for (const block of blocks) {
+    const isText = (block.type === "narrative" || block.type === "beat") && block.text;
+    const isRef = block.type === "reference";
+
+    if (isText) {
+      // If we were accumulating refs, start a new section
+      if (current.references.length > 0) {
+        sections.push(current);
+        current = { prose: [], references: [] };
+      }
+      current.prose.push(block);
+    } else if (isRef) {
+      current.references.push(block);
+    }
+  }
+
+  // Push the last section if non-empty
+  if (current.prose.length > 0 || current.references.length > 0) {
+    sections.push(current);
+  }
+
+  return sections;
 }
 
 type Verbosity = "summary" | "standard" | "detailed";
@@ -401,76 +476,42 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
         <h3 className="text-sm font-semibold">Code Review Story</h3>
       </div>
         <StoryTOC blocks={story.blocks} />
-        <div className="text-sm text-foreground/80 leading-relaxed flex flex-col gap-3 min-w-0 break-words">
+        <div className="text-sm text-foreground/80 leading-relaxed flex flex-col gap-0 min-w-0 break-words">
           {(() => {
-            // Detect trailing orphaned references — refs appended by the
-            // backend when the LLM didn't weave them into the narrative.
-            // Walk backwards from the end to find where trailing refs start.
-            let trailingRefStart = story.blocks.length;
-            for (let j = story.blocks.length - 1; j >= 0; j--) {
-              const b = story.blocks[j]!;
-              if (b.type === "reference") {
-                trailingRefStart = j;
-              } else {
-                break;
-              }
-            }
-            const mainBlocks = story.blocks.slice(0, trailingRefStart);
-            // Only keep trailing refs that have a file path (drop trail metadata noise)
-            const trailingRefs = story.blocks.slice(trailingRefStart).filter((b) => b.file);
+            const sections = groupIntoSections(story.blocks);
 
-            return (
-              <>
-                {mainBlocks.map((block: StoryBlock, i: number) => {
-                  if ((block.type === "narrative" || block.type === "beat") && block.text) {
-                    return <React.Fragment key={`t-${i}`}>{renderParagraphs(block.text, `t-${i}`)}</React.Fragment>;
-                  }
-                  if (block.type === "reference") {
-                    if (!block.file) return null;
-                    if (block.snippet) {
-                      return <DiffCard key={`r-${i}`} file={block.file} snippet={block.snippet} />;
-                    }
-                    return null;
-                  }
-                  return null;
-                })}
-                {trailingRefs.length > 0 && (
-                  <div className="mt-1 pt-3 border-t border-border/30 flex flex-col gap-2">
-                    <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wide">Also changed</span>
-                    {trailingRefs.map((block: StoryBlock, i: number) => {
-                      // Full diff card for refs that carry a snippet
-                      if (block.snippet && block.file) {
-                        return (
-                          <div key={`tr-${i}`}>
-                            {block.why && (
-                              <p className="text-xs text-muted-foreground mb-1">{block.why}</p>
-                            )}
-                            <DiffCard file={block.file} snippet={block.snippet} />
-                          </div>
-                        );
-                      }
-                      // File + motivation for refs without a snippet
-                      return (
-                        <div
-                          key={`tr-${i}`}
-                          className="flex items-baseline gap-2 text-xs"
-                        >
-                          <span
-                            className="font-mono text-[11px] text-primary/80 bg-muted/30 px-1.5 py-0.5 rounded shrink-0 truncate max-w-[60%]"
-                            title={block.file ?? undefined}
-                          >
-                            {(block.file ?? "").split("/").pop() ?? "file"}
-                          </span>
-                          {block.why && (
-                            <span className="text-muted-foreground">{block.why}</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </>
-            );
+            return sections.map((section, si) => {
+              // Skip sections with no visible content
+              const hasText = section.prose.some((b) => b.text);
+              const hasRefs = section.references.some((b) => b.file && b.snippet);
+              if (!hasText && !hasRefs) return null;
+
+              return (
+                <div
+                  key={`s-${si}`}
+                  className={cn(
+                    "flex flex-col gap-3 py-4",
+                    si > 0 && "border-t border-border/20",
+                  )}
+                >
+                  {/* Prose: narrative + beat text */}
+                  {section.prose.map((block, pi) => {
+                    if (!block.text) return null;
+                    return (
+                      <React.Fragment key={`s${si}-p${pi}`}>
+                        {renderParagraphs(block.text, `s${si}-p${pi}`)}
+                      </React.Fragment>
+                    );
+                  })}
+
+                  {/* Reference diffs */}
+                  {section.references.map((block, ri) => {
+                    if (!block.file || !block.snippet) return null;
+                    return <DiffCard key={`s${si}-r${ri}`} file={block.file} snippet={block.snippet} />;
+                  })}
+                </div>
+              );
+            });
           })()}
         </div>
         {controls}

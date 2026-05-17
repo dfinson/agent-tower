@@ -207,6 +207,7 @@ class AgentMessageRoute:
 class GateRoute:
     verdict_field: str = "verdict"
     reason_field: str = "reason"
+    timeout_s: float | None = None
 
 
 OutputRoute = EventBusRoute | JobMetadataRoute | CallbackRoute | ConditionalRoute | AgentMessageRoute | GateRoute
@@ -413,6 +414,7 @@ def _hydrate_route(raw: dict[str, Any]) -> OutputRoute:
         return GateRoute(
             verdict_field=raw.get("verdictField", "verdict"),
             reason_field=raw.get("reasonField", "reason"),
+            timeout_s=float(raw["timeoutS"]) if "timeoutS" in raw else None,
         )
     return EventBusRoute(event_kind="sidecar_result")
 
@@ -1027,8 +1029,13 @@ class SidecarDispatcher:
         if parsed is None:
             return
 
-        # 6. Emit sidecar transcript event (for UI visibility)
-        await self._emit_transcript_event(job_id, defn, parsed)
+        # 6. Emit sidecar transcript event (for UI visibility).
+        # Skip when the pipeline routes to AgentMessageRoute — that route now
+        # emits its own SSE-visible event, so a separate transcript entry would
+        # cause a duplicate bubble in the UI.
+        has_agent_route = any(isinstance(r, AgentMessageRoute) for r in pipeline.output_routes)
+        if not has_agent_route:
+            await self._emit_transcript_event(job_id, defn, parsed)
 
         # 7. Route output
         for route in pipeline.output_routes:
@@ -1240,6 +1247,8 @@ class SidecarDispatcher:
                         "content": full_message,
                         "sidecar_name": defn.name,
                         "sidecar_icon": defn.icon,
+                        "sidecar_description": defn.description,
+                        "sidecar_template_id": defn.template_id,
                     },
                 )
             )

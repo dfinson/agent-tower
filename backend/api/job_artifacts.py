@@ -226,6 +226,13 @@ async def get_job_transcript(
     """Return historical transcript entries for a job from the event store."""
     events = await svc.list_events_by_job(job_id, [DomainEventKind.transcript_updated], limit=limit)
 
+    # Include persisted sidecar events so they survive page reload.
+    sidecar_events = await svc.list_events_by_job(
+        job_id,
+        [DomainEventKind.sidecar_transcript, DomainEventKind.sidecar_agent_message],
+        limit=limit,
+    )
+
     # Build a turn_id → summary map from stored tool_group_summary events so
     # that restored transcripts include AI-generated group labels.
     summary_events = await svc.list_events_by_job(
@@ -237,31 +244,51 @@ async def get_job_transcript(
         if ev.payload.get("turn_id") and ev.payload.get("summary")
     }
 
-    return TranscriptListResponse(
-        items=[
+    items: list[TranscriptPayload] = [
+        TranscriptPayload(
+            job_id=event.job_id,
+            seq=(p := cast("dict[str, Any]", event.payload)).get("seq", 0),
+            timestamp=p.get("timestamp", event.timestamp),
+            role=p.get("role", "agent"),
+            content=p.get("content", ""),
+            title=p.get("title"),
+            turn_id=p.get("turn_id"),
+            tool_name=p.get("tool_name"),
+            tool_args=p.get("tool_args"),
+            tool_result=p.get("tool_result"),
+            tool_success=p.get("tool_success"),
+            tool_issue=p.get("tool_issue"),
+            tool_intent=p.get("tool_intent"),
+            tool_title=p.get("tool_title"),
+            tool_display=resolve_tool_display(p),
+            tool_display_full=resolve_tool_display_full(p),
+            tool_duration_ms=p.get("tool_duration_ms"),
+            tool_group_summary=group_summary_by_turn.get(p.get("turn_id") or ""),
+        )
+        for event in events
+    ]
+
+    # Append sidecar entries with role="sidecar"
+    for event in sidecar_events:
+        p = cast("dict[str, Any]", event.payload)
+        items.append(
             TranscriptPayload(
                 job_id=event.job_id,
-                seq=(p := cast("dict[str, Any]", event.payload)).get("seq", 0),
+                seq=p.get("seq", 0),
                 timestamp=p.get("timestamp", event.timestamp),
-                role=p.get("role", "agent"),
+                role="sidecar",
                 content=p.get("content", ""),
-                title=p.get("title"),
-                turn_id=p.get("turn_id"),
-                tool_name=p.get("tool_name"),
-                tool_args=p.get("tool_args"),
-                tool_result=p.get("tool_result"),
-                tool_success=p.get("tool_success"),
-                tool_issue=p.get("tool_issue"),
-                tool_intent=p.get("tool_intent"),
-                tool_title=p.get("tool_title"),
-                tool_display=resolve_tool_display(p),
-                tool_display_full=resolve_tool_display_full(p),
-                tool_duration_ms=p.get("tool_duration_ms"),
-                tool_group_summary=group_summary_by_turn.get(p.get("turn_id") or ""),
+                sidecar_name=p.get("sidecar_name"),
+                sidecar_icon=p.get("sidecar_icon"),
+                sidecar_description=p.get("sidecar_description"),
+                sidecar_template_id=p.get("sidecar_template_id"),
             )
-            for event in events
-        ]
-    )
+        )
+
+    # Sort all entries by timestamp for correct interleaving
+    items.sort(key=lambda x: x.timestamp)
+
+    return TranscriptListResponse(items=items)
 
 
 @router.get("/jobs/{job_id}/steps", response_model=StepListResponse)

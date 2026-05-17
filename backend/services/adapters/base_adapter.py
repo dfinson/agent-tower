@@ -14,7 +14,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import structlog
 from sqlalchemy.exc import DBAPIError
@@ -29,7 +29,6 @@ from backend.services.auth.permission_policy import (
     PermissionRequest,
     is_git_reset_hard,
 )
-from backend.services.tools.parsing_utils import ensure_dict
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Coroutine
@@ -40,7 +39,6 @@ if TYPE_CHECKING:
     from backend.services.action_policy.classifier import CostContext
     from backend.services.events.event_bus import EventBus
     from backend.services.job.approval_service import ApprovalService
-    from backend.services.job.retry_tracker import RetryTracker
 
 log = structlog.get_logger()
 
@@ -89,8 +87,6 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._session_to_job: dict[str, str] = {}
         self._session_kinds: dict[str, str] = {}  # session_id → session_kind for telemetry
         self._paused_sessions: set[str] = set()
-        self._tool_start_times: dict[str, float] = {}
-        self._pending_tool_metadata: dict[str, dict[str, str]] = {}
         self._approval_service = approval_service
         self._event_bus = event_bus
         self._session_factory = session_factory
@@ -100,19 +96,8 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._job_start_times: dict[str, float] = {}
         self._job_main_models: dict[str, str] = {}
         self._last_telemetry_broadcast: dict[str, float] = {}
-        self._turn_counters: dict[str, int] = {}
         self._current_phases: dict[str, str] = {}
-        self._retry_trackers: dict[str, RetryTracker] = {}
         self._write_tasks: list[asyncio.Task[None]] = []
-        # Ring buffer of recent transcript entries per job for motivation capture.
-        # Each entry is a compact dict with role, content (truncated), and optional
-        # tool_name.  Kept to _TRANSCRIPT_BUFFER_SIZE entries per job.
-        self._transcript_buffers: dict[str, list[dict[str, str]]] = {}
-
-    # Ring buffer size per job: 10 entries × ~2KB each ≈ 20KB per active job.
-    # With typical 5–20 concurrent jobs this keeps total transcript memory
-    # under 400KB while retaining enough context for motivation extraction.
-    _TRANSCRIPT_BUFFER_SIZE = 10
 
     # ------------------------------------------------------------------
     # Queue management
@@ -122,178 +107,6 @@ class BaseAgentAdapter(AgentAdapterInterface):
         q = self._queues.get(session_id)
         if q is not None:
             q.put_nowait(event)
-        # Buffer transcript events for motivation context capture
-        if event.kind == SessionEventKind.transcript:
-            self._buffer_transcript(session_id, cast("dict[str, Any]", event.payload))
-
-    # ------------------------------------------------------------------
-    # Transcript ring buffer for motivation context
-    # ------------------------------------------------------------------
-
-    def _buffer_transcript(self, session_id: str, payload: dict[str, Any]) -> None:
-        """Append a compact transcript entry to the per-job ring buffer.
-
-        Role-aware compression strategy:
-        - tool_result: metadata only (tool name, file path, result size).
-          The tool_call entry captures what was requested; the agent's
-          subsequent reasoning captures what was learned.  Raw content
-          (file dumps, search output) is never stored.
-        - tool_call: full args preserved (naturally compact — paths, queries).
-        - assistant/reasoning/operator: full content preserved (bounded by
-          the upstream model's output limits per turn).
-        """
-        job_id = self._session_to_job.get(session_id)
-        if not job_id:
-            return
-        role = payload.get("role", "")
-        # Skip deltas — only buffer complete messages and tool calls
-        if role in ("agent_delta", "reasoning_delta", "tool_output_delta", "tool_running"):
-            return
-
-        entry: dict[str, str] = {"role": role}
-        tool_name = payload.get("tool_name")
-
-        if role == "tool_result":
-            # Metadata only — raw tool output is high-volume, low-signal for
-            # motivation.  The preceding tool_call has what was requested.
-            if tool_name:
-                entry["tool_name"] = str(tool_name)
-            raw = str(payload.get("content", ""))
-            entry["result_lines"] = str(raw.count("\n") + 1 if raw else 0)
-            entry["result_bytes"] = str(len(raw))
-        elif role == "tool_call":
-            # Tool calls are high-signal and naturally compact.
-            if tool_name:
-                entry["tool_name"] = str(tool_name)
-            tool_args = payload.get("tool_args")
-            if tool_args:
-                entry["tool_args"] = str(tool_args)
-        else:
-            # assistant, reasoning, operator — the agent's own words.
-            # Bounded by upstream model output limits; no artificial truncation.
-            entry["content"] = str(payload.get("content", ""))
-            if tool_name:
-                entry["tool_name"] = str(tool_name)
-
-        buf = self._transcript_buffers.setdefault(job_id, [])
-        buf.append(entry)
-        # Trim to ring buffer size
-        if len(buf) > self._TRANSCRIPT_BUFFER_SIZE:
-            del buf[: len(buf) - self._TRANSCRIPT_BUFFER_SIZE]
-
-    def _snapshot_preceding_context(self, job_id: str, count: int | None = None) -> str | None:
-        """Return JSON array of the last *count* transcript entries, or None.
-
-        When count is None (default), returns the entire ring buffer — giving
-        downstream motivation enrichment the maximum available context window.
-        """
-        buf = self._transcript_buffers.get(job_id)
-        if not buf:
-            return None
-        entries = buf[-count:] if count is not None else list(buf)
-        return json.dumps(entries, ensure_ascii=False)
-
-    # Mutative shell command prefixes — commands that modify the filesystem,
-    # repository, or environment.  Matched against the first token(s) of a
-    # bash tool's command string.
-    _MUTATIVE_SHELL_PREFIXES: frozenset[str] = frozenset(
-        {
-            "git commit",
-            "git add",
-            "git push",
-            "git checkout",
-            "git merge",
-            "git rebase",
-            "git reset",
-            "git stash",
-            "git cherry-pick",
-            "git tag",
-            "git branch -d",
-            "git branch -D",
-            "git branch -m",
-            "mkdir",
-            "mv",
-            "rm",
-            "cp",
-            "ln",
-            "chmod",
-            "chown",
-            "touch",
-            "pip install",
-            "pip uninstall",
-            "uv add",
-            "uv remove",
-            "uv sync",
-            "uv pip install",
-            "npm install",
-            "npm uninstall",
-            "npm ci",
-            "yarn add",
-            "yarn remove",
-            "pnpm add",
-            "pnpm remove",
-            "docker build",
-            "docker run",
-            "docker compose up",
-            "make",
-            "cargo build",
-            "go build",
-        }
-    )
-
-    @classmethod
-    def _is_mutative_shell(cls, tool_args_str: str | None) -> bool:
-        """Return True if the shell command appears to modify state."""
-        if not tool_args_str:
-            return False
-        parsed = ensure_dict(tool_args_str)
-        if parsed is None:
-            return False
-        cmd = str(parsed.get("command", ""))
-        if not cmd:
-            return False
-        cmd_lower = cmd.strip().lower()
-        return any(cmd_lower.startswith(prefix) for prefix in cls._MUTATIVE_SHELL_PREFIXES)
-
-    def _maybe_capture_context(
-        self,
-        job_id: str,
-        category: str,
-        tool_args_str: str | None,
-    ) -> str | None:
-        """Capture preceding transcript context for mutative tool actions."""
-        if category in {"file_write", "git_write"}:
-            return self._snapshot_preceding_context(job_id)
-        if category == "shell" and self._is_mutative_shell(tool_args_str):
-            return self._snapshot_preceding_context(job_id)
-        return None
-
-    def _enqueue_log(
-        self,
-        session_id: str,
-        message: str,
-        level: str = "info",
-        seq: list[int] | None = None,
-    ) -> None:
-        """Enqueue a log event for the session.
-
-        When *seq* is provided it is **mutated in-place** (``seq[0]`` is
-        incremented) so the caller's counter stays in sync.
-        """
-        if seq is not None:
-            seq[0] += 1
-        self._enqueue(
-            session_id,
-            SessionEvent(
-                kind=SessionEventKind.log,
-                payload={
-                    "seq": seq[0] if seq else 0,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                    "level": level,
-                    "message": message,
-                },
-            ),
-        )
 
     # ------------------------------------------------------------------
     # Session state
@@ -331,10 +144,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         "_job_start_times",
         "_job_main_models",
         "_last_telemetry_broadcast",
-        "_turn_counters",
         "_current_phases",
-        "_retry_trackers",
-        "_transcript_buffers",
     )
 
     def _cleanup_session_state(self, session_id: str) -> None:
@@ -386,52 +196,6 @@ class BaseAgentAdapter(AgentAdapterInterface):
         async with serialized_write(self._session_factory) as session:
             yield session
 
-    async def _db_write_increment(self, *, job_id: str, session_kind: str = "job", **counters: Any) -> None:
-        """Increment telemetry summary counters.
-
-        Auto-initializes the summary row on first write if it doesn't exist
-        yet (e.g. ``init_telemetry_row`` fire-and-forget task failed or
-        hasn't completed).
-        """
-        totals: dict[str, float | int] = {}
-        try:
-            async with self._db_session() as session:
-                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-                repo = TelemetrySummaryRepository(session)
-                totals = await repo.increment(
-                    job_id=job_id,
-                    session_kind=session_kind,
-                    **counters,
-                )
-                # increment() returns zeroed dict when no row matched the WHERE.
-                # Auto-create the row and retry so data is never silently lost.
-                if not totals.get("_row_found") and counters:
-                    await repo.init_job(job_id, sdk="unknown", session_kind=session_kind)
-                    totals = await repo.increment(
-                        job_id=job_id,
-                        session_kind=session_kind,
-                        **counters,
-                    )
-        except (_NoSessionFactoryError, DBAPIError, OSError):
-            log.warning("telemetry_db_write_failed", fn="increment", exc_info=True)
-            return
-        await self._maybe_broadcast_telemetry(job_id, totals=totals)
-
-    async def _db_write_insert_span(self, *, job_id: str, session_kind: str = "job", **span_fields: Any) -> None:
-        """Insert a telemetry span row."""
-        try:
-            async with self._db_session() as session:
-                from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-
-                await TelemetrySpansRepository(session).insert(
-                    job_id=job_id,
-                    session_kind=session_kind,
-                    **span_fields,
-                )
-        except (_NoSessionFactoryError, DBAPIError, OSError):
-            log.warning("telemetry_db_write_failed", fn="insert_span", exc_info=True)
-
     async def _db_write_set_model(self, *, job_id: str, model: str) -> None:
         """Record the main model for a job."""
         try:
@@ -441,28 +205,6 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 await TelemetrySummaryRepository(session).set_model(job_id=job_id, model=model)
         except (_NoSessionFactoryError, DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn="set_model", exc_info=True)
-            return
-        await self._maybe_broadcast_telemetry(job_id)
-
-    async def _db_write_set_context(
-        self,
-        *,
-        job_id: str,
-        current_tokens: int | None = None,
-        window_size: int | None = None,
-    ) -> None:
-        """Record context window usage."""
-        try:
-            async with self._db_session() as session:
-                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-                await TelemetrySummaryRepository(session).set_context(
-                    job_id=job_id,
-                    current_tokens=current_tokens,
-                    window_size=window_size,
-                )
-        except (_NoSessionFactoryError, DBAPIError, OSError):
-            log.warning("telemetry_db_write_failed", fn="set_context", exc_info=True)
             return
         await self._maybe_broadcast_telemetry(job_id)
 
@@ -477,28 +219,6 @@ class BaseAgentAdapter(AgentAdapterInterface):
             log.warning("telemetry_db_write_failed", fn="set_quota", exc_info=True)
             return
         await self._maybe_broadcast_telemetry(job_id)
-
-    async def _db_write_record_file_access(
-        self,
-        *,
-        job_id: str,
-        file_path: str,
-        access_type: str,
-        turn_number: int,
-    ) -> None:
-        """Record a file read/write access."""
-        try:
-            async with self._db_session() as session:
-                from backend.persistence.file_access_repo import FileAccessRepository
-
-                await FileAccessRepository(session).record(
-                    job_id=job_id,
-                    file_path=file_path,
-                    access_type=access_type,
-                    turn_number=turn_number,
-                )
-        except (_NoSessionFactoryError, DBAPIError, OSError):
-            log.warning("telemetry_db_write_failed", fn="record_file_access", exc_info=True)
 
     async def _maybe_broadcast_telemetry(
         self,
@@ -577,107 +297,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         else:
             log.info("model_confirmed", model=actual_model, job_id=job_id)
 
-    # ------------------------------------------------------------------
-    # Telemetry recording
-    # ------------------------------------------------------------------
 
-    def _record_llm_telemetry(
-        self,
-        job_id: str,
-        sdk_name: str,
-        model: str,
-        *,
-        input_tokens: int,
-        output_tokens: int,
-        cache_read: int,
-        cache_write: int,
-        cost_usd: float,
-        duration_ms: float,
-        is_subagent: bool = False,
-        num_turns: int = 1,
-        session_kind: str = "job",
-    ) -> None:
-        """Record OTEL counters + DB summary increment for an LLM call."""
-        from backend.services.analytics import telemetry as tel
-
-        attrs: dict[str, Any] = {
-            "job_id": job_id,
-            "sdk": sdk_name,
-            "model": model,
-            "session_kind": session_kind,
-        }
-        tel.tokens_input.add(input_tokens, attrs)
-        tel.tokens_output.add(output_tokens, attrs)
-        tel.tokens_cache_read.add(cache_read, attrs)
-        tel.tokens_cache_write.add(cache_write, attrs)
-        tel.cost_usd.add(cost_usd, attrs)
-        tel.llm_duration.record(duration_ms, {**attrs, "is_subagent": is_subagent})
-
-        self._schedule_db_write(
-            self._db_write_increment(
-                job_id=job_id,
-                session_kind=session_kind,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cache_read_tokens=cache_read,
-                cache_write_tokens=cache_write,
-                total_cost_usd=cost_usd,
-                total_llm_duration_ms=int(duration_ms),
-                llm_call_count=num_turns,
-                total_turns=num_turns,
-                subagent_cost_usd=cost_usd if is_subagent else 0.0,
-            )
-        )
-
-    def _record_llm_span(
-        self,
-        job_id: str,
-        model: str,
-        *,
-        duration_ms: float,
-        input_tokens: int,
-        output_tokens: int,
-        cache_read: int,
-        cache_write: int,
-        cost_usd: float,
-        is_subagent: bool = False,
-        num_turns: int = 1,
-        turn_id: str | None = None,
-        session_kind: str = "job",
-    ) -> None:
-        """Insert an LLM span into the telemetry_spans table."""
-        turn_num = self._turn_counters.get(job_id, 0)
-        current_phase = self._current_phases.get(job_id, "agent_reasoning")
-        job_start = self._job_start_times.get(job_id, time.monotonic())
-        offset = time.monotonic() - job_start
-
-        self._schedule_db_write(
-            self._db_write_insert_span(
-                job_id=job_id,
-                session_kind=session_kind,
-                span_type="llm",
-                name=model or "unknown",
-                started_at=round(offset, 2),
-                duration_ms=float(duration_ms),
-                attrs={
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "cache_read_tokens": cache_read,
-                    "cache_write_tokens": cache_write,
-                    "cost": cost_usd,
-                    "is_subagent": is_subagent,
-                    "num_turns": num_turns,
-                },
-                turn_number=turn_num,
-                execution_phase=current_phase,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cache_read_tokens=cache_read,
-                cache_write_tokens=cache_write,
-                cost_usd=cost_usd,
-                turn_id=turn_id,
-            )
-        )
 
     # ------------------------------------------------------------------
     # Shared tool event helpers (used by Claude + Copilot adapters)
@@ -695,187 +315,6 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 parts.append(text if text is not None else str(item))
             return "\n".join(parts)
         return str(content) if content else ""
-
-    def _build_tool_running_payload(
-        self,
-        tool_name: str,
-        tool_args: str | None,
-        turn_id: str | None,
-        *,
-        tool_intent: str | None = None,
-        tool_title: str | None = None,
-    ) -> dict[str, Any]:
-        """Build the ``role=tool_running`` transcript event payload."""
-        from backend.services.events.event_enricher import build_tool_running_payload
-
-        return build_tool_running_payload(
-            tool_name,
-            tool_args,
-            turn_id,
-            tool_intent=tool_intent,
-            tool_title=tool_title,
-        )
-
-    def _build_tool_call_payload(
-        self,
-        tool_name: str,
-        tool_args: str | None,
-        result_text: str,
-        sdk_success: bool,
-        turn_id: str | None,
-        duration_ms: float | None,
-        *,
-        tool_intent: str | None = None,
-        tool_title: str | None = None,
-    ) -> dict[str, Any]:
-        """Build the ``role=tool_call`` transcript event payload.
-
-        Applies edit-success correction and issue extraction automatically.
-        """
-        from backend.services.events.event_enricher import build_tool_call_payload
-
-        return build_tool_call_payload(
-            tool_name,
-            tool_args,
-            result_text,
-            sdk_success,
-            turn_id=turn_id,
-            duration_ms=duration_ms,
-            tool_intent=tool_intent,
-            tool_title=tool_title,
-        )
-
-    def _record_tool_telemetry(
-        self,
-        session_id: str,
-        job_id: str,
-        sdk_name: str,
-        *,
-        tool_name: str,
-        tool_args_str: str | None,
-        success: bool,
-        duration_ms: float,
-        result_text: str,
-        turn_id: str | None = None,
-        session_kind: str = "job",
-    ) -> None:
-        """Record OTEL + DB metrics for a tool execution.
-
-        Handles: tool_duration counter, tool classification, retry detection,
-        file access tracking, file_changed events, summary increment, and
-        span insertion.
-        """
-        from backend.services.analytics import telemetry as tel
-        from backend.services.tools.tool_classifier import (
-            classify_tool,
-            extract_file_paths,
-            extract_tool_target,
-            refine_shell_category,
-        )
-
-        attrs: dict[str, Any] = {
-            "job_id": job_id,
-            "sdk": sdk_name,
-            "tool_name": tool_name,
-            "success": bool(success),
-            "session_kind": session_kind,
-        }
-        tel.tool_duration.record(duration_ms, attrs)
-
-        category = classify_tool(tool_name)
-        # Promote shell commands to git_read/git_write when the actual command is git
-        if category == "shell":
-            refined = refine_shell_category(tool_args_str)
-            if refined:
-                category = refined
-        target = extract_tool_target(tool_name, tool_args_str)
-        current_phase = self._current_phases.get(job_id, "agent_reasoning")
-        turn_num = self._turn_counters.get(job_id, 0)
-
-        # Retry detection
-        from backend.services.job.retry_tracker import RetryTracker
-
-        if job_id not in self._retry_trackers:
-            self._retry_trackers[job_id] = RetryTracker()
-        retry_result = self._retry_trackers[job_id].record(tool_name, target, 0, success)
-
-        # Result size
-        result_size = len(result_text.encode("utf-8", errors="replace")) if result_text else None
-
-        # File access tracking
-        file_rw_increment: dict[str, int] = {"file_read_count": 0, "file_write_count": 0}
-        if category in ("file_read", "file_write"):
-            paths = extract_file_paths(tool_name, tool_args_str)
-            access_type = "write" if category == "file_write" else "read"
-            if access_type == "read":
-                file_rw_increment["file_read_count"] = 1
-            else:
-                file_rw_increment["file_write_count"] = 1
-            for fpath in paths:
-                self._schedule_db_write(
-                    self._db_write_record_file_access(
-                        job_id=job_id,
-                        file_path=fpath,
-                        access_type=access_type,
-                        turn_number=turn_num,
-                    )
-                )
-
-            # Emit file_changed events for successful writes
-            if category == "file_write" and success:
-                for fpath in paths:
-                    self._enqueue(
-                        session_id,
-                        SessionEvent(
-                            kind=SessionEventKind.file_changed,
-                            payload={"path": fpath},
-                        ),
-                    )
-
-        # Summary increment
-        self._schedule_db_write(
-            self._db_write_increment(
-                job_id=job_id,
-                session_kind=session_kind,
-                tool_call_count=1,
-                tool_failure_count=0 if success else 1,
-                total_tool_duration_ms=int(duration_ms),
-                retry_count=1 if retry_result.is_retry else 0,
-                **file_rw_increment,
-            )
-        )
-
-        # Span detail
-        job_start = self._job_start_times.get(job_id, time.monotonic())
-        offset = time.monotonic() - job_start
-
-        # Capture preceding context for mutative actions
-        preceding_context = self._maybe_capture_context(job_id, category, tool_args_str)
-
-        self._schedule_db_write(
-            self._db_write_insert_span(
-                job_id=job_id,
-                session_kind=session_kind,
-                span_type="tool",
-                name=tool_name,
-                started_at=round(offset, 2),
-                duration_ms=duration_ms,
-                attrs={
-                    "success": success,
-                    **({"error_snippet": result_text} if not success and result_text else {}),
-                },
-                tool_category=category,
-                tool_target=target,
-                turn_number=turn_num,
-                execution_phase=current_phase,
-                is_retry=retry_result.is_retry,
-                retries_span_id=retry_result.prior_failure_span_id,
-                tool_args_json=tool_args_str,
-                result_size_bytes=result_size,
-                turn_id=turn_id,
-                preceding_context=preceding_context,
-            )
-        )
 
     # ------------------------------------------------------------------
     # Action policy integration

@@ -14,7 +14,7 @@ import {
   fetchYield,
   fetchCacheEfficiency,
   fetchModelEfficiency,
-  fetchActionPurposeMatrix,
+
   fetchExecutiveSummary,
   exportCostDrivers,
   type ScorecardResponse,
@@ -27,7 +27,7 @@ import {
   type YieldResponse,
   type CacheEfficiencyResponse,
   type ModelEfficiencyResponse,
-  type ActionPurposeMatrixResponse,
+
   type ExecutiveSummaryResponse,
 } from "../api/client";
 import {
@@ -48,9 +48,7 @@ import {
   ModelCostCard,
 } from "./AnalyticsWidgets";
 import { RecentJobsPreview } from "./analytics/RecentJobsPreview";
-import { HierarchicalBreakdown } from "./analytics/HierarchicalBreakdown";
 
-import { ActionPurposeMatrix } from "./analytics/ActionPurposeMatrix";
 import { ExecutiveSummary } from "./analytics/ExecutiveSummary";
 import { MetricsChatPanel } from "./metrics/MetricsChatPanel";
 import { PinnedMetricsGrid } from "./metrics/PinnedMetricsGrid";
@@ -111,8 +109,6 @@ export function AnalyticsScreen() {
   const [tools, setTools] = useState<AnalyticsTools | null>(null);
   const [repos, setRepos] = useState<AnalyticsRepos | null>(null);
   const [fleetDrivers, setFleetDrivers] = useState<FleetCostDriversResponse | null>(null);
-  const [activityDrivers, setActivityDrivers] = useState<FleetCostDriversResponse | null>(null);
-  const [actionPurposeMatrix, setActionPurposeMatrix] = useState<ActionPurposeMatrixResponse | null>(null);
   const [fleetLatency, setFleetLatency] = useState<FleetLatencyDriversResponse | null>(null);
   const [observations, setObservations] = useState<Observation[]>([]);
   const [yieldData, setYieldData] = useState<YieldResponse | null>(null);
@@ -128,7 +124,6 @@ export function AnalyticsScreen() {
   const [toolsLoading, setToolsLoading] = useState(true);
   const [reposLoading, setReposLoading] = useState(true);
   const [driversLoading, setDriversLoading] = useState(true);
-  const [purposeLoading, setPurposeLoading] = useState(true);
   const [latencyLoading, setLatencyLoading] = useState(true);
   const [obsLoading, setObsLoading] = useState(true);
   const [yieldLoading, setYieldLoading] = useState(true);
@@ -148,7 +143,6 @@ export function AnalyticsScreen() {
     setToolsLoading(true);
     setReposLoading(true);
     setDriversLoading(true);
-    setPurposeLoading(true);
     setLatencyLoading(true);
     setObsLoading(true);
     setYieldLoading(true);
@@ -180,15 +174,6 @@ export function AnalyticsScreen() {
       .then(setFleetDrivers)
       .catch(() => setFleetDrivers(null))
       .finally(() => setDriversLoading(false));
-
-    fetchFleetCostDrivers(period, "activity")
-      .then(setActivityDrivers)
-      .catch(() => setActivityDrivers(null))
-      .finally(() => setPurposeLoading(false));
-
-    fetchActionPurposeMatrix(period)
-      .then(setActionPurposeMatrix)
-      .catch(() => setActionPurposeMatrix(null));
 
     fetchFleetLatencyDrivers(Math.max(period, 30))
       .then(setFleetLatency)
@@ -291,16 +276,7 @@ export function AnalyticsScreen() {
       {/* Executive Summary — 3-bucket overview */}
       <ExecutiveSummary data={executiveSummary} />
 
-      {/* Hierarchical purpose breakdown + Action×Purpose matrix */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {purposeLoading ? <SectionSkeleton height="h-48" /> : (
-          <HierarchicalBreakdown
-            activityBuckets={activityDrivers?.buckets ?? []}
-            wasteBreakdown={executiveSummary?.wasteBreakdown}
-          />
-        )}
-        <ActionPurposeMatrix data={actionPurposeMatrix} />
-      </div>
+
 
 
 

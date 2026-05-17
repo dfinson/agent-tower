@@ -519,6 +519,7 @@ class SidecarTemplateRow(Base):
     definition_json: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
     created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
     last_used_at: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1")
 
 
 class TrustGrantRow(Base):

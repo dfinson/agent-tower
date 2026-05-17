@@ -26,6 +26,7 @@ class SidecarTemplateRepository(BaseRepository):
             definition_json=row.definition_json,
             created_at=row.created_at,
             last_used_at=row.last_used_at,
+            enabled=row.enabled,
         )
 
     async def create(self, template: SidecarTemplate) -> SidecarTemplate:
@@ -37,6 +38,7 @@ class SidecarTemplateRepository(BaseRepository):
             definition_json=template.definition_json,
             created_at=template.created_at,
             last_used_at=template.last_used_at,
+            enabled=template.enabled,
         )
         self._session.add(row)
         await self._session.flush()
@@ -62,6 +64,16 @@ class SidecarTemplateRepository(BaseRepository):
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]
 
+    async def list_enabled(self) -> list[SidecarTemplate]:
+        """List only enabled templates, ordered by creation date descending."""
+        stmt = (
+            select(SidecarTemplateRow)
+            .where(SidecarTemplateRow.enabled == True)  # noqa: E712
+            .order_by(SidecarTemplateRow.created_at.desc())
+        )
+        result = await self._session.execute(stmt)
+        return [self._to_domain(row) for row in result.scalars().all()]
+
     async def update(
         self,
         template_id: str,
@@ -69,6 +81,7 @@ class SidecarTemplateRepository(BaseRepository):
         name: str | None = None,
         description: str | None = None,
         definition_json: str | None = None,
+        enabled: bool | None = None,
     ) -> SidecarTemplate | None:
         """Update a template's fields. Returns updated template or None."""
         values: dict[str, object] = {}
@@ -78,6 +91,8 @@ class SidecarTemplateRepository(BaseRepository):
             values["description"] = description
         if definition_json is not None:
             values["definition_json"] = definition_json
+        if enabled is not None:
+            values["enabled"] = enabled
         if not values:
             return await self.get(template_id)
         stmt = update(SidecarTemplateRow).where(SidecarTemplateRow.id == template_id).values(**values)
