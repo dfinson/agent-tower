@@ -16,14 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import time
 import uuid
 from typing import Any
 
 import structlog
 
-from backend.services.completers.lightweight_completer import LightweightCompleter
 from backend.services.metrics.query_executor import (
     QueryValidationError,
     execute_query,
@@ -32,26 +30,9 @@ from backend.services.sidecar.session import SidecarSessionManager
 
 log = structlog.get_logger()
 
-# ---------------------------------------------------------------------------
-# Model selection
-# ---------------------------------------------------------------------------
-
-_PREFERRED_MODELS: list[tuple[str, str]] = [
-    ("OPENAI_API_KEY", "gpt-4.1"),
-    ("ANTHROPIC_API_KEY", "claude-haiku-4-5-20250414"),
-]
-_METRICS_MAX_TOKENS = 4096
-
 # Wall-clock budget per turn (seconds).
 _TURN_DEADLINE_S = 30.0
 _MIN_REMAINING_S = 3.0
-
-
-def _select_model() -> str:
-    for env_key, model in _PREFERRED_MODELS:
-        if os.environ.get(env_key):
-            return model
-    return "gpt-4.1"
 
 
 # ---------------------------------------------------------------------------
@@ -178,12 +159,16 @@ class MetricsChatService:
         sidecar: SidecarSessionManager,
         session_factory: Any,
     ) -> None:
+        self._sidecar = sidecar
         self._session_factory = session_factory
-        model = _select_model()
-        self._completer: LightweightCompleter = sidecar.create_completer(
-            model=model, max_tokens=_METRICS_MAX_TOKENS,
+
+    async def _complete(self, messages: list[dict[str, str]], *, timeout: float) -> str:
+        """Flatten conversation history into a single prompt and send through the sidecar."""
+        flat = _SYSTEM_PROMPT + "\n\n" + "\n".join(
+            f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+            for m in messages
         )
-        log.debug("metrics_chat_model", model=model)
+        return await self._sidecar.complete(flat, timeout=timeout)
 
     async def ask(
         self,
@@ -223,14 +208,10 @@ class MetricsChatService:
 
             attempt += 1
             try:
-                result = await asyncio.wait_for(
-                    self._completer.complete_messages(
-                        system=_SYSTEM_PROMPT,
-                        messages=messages,
-                    ),
+                raw = await asyncio.wait_for(
+                    self._complete(messages, timeout=remaining),
                     timeout=remaining,
                 )
-                raw = result.text or ""
             except (TimeoutError, Exception) as exc:
                 log.warning("metrics_chat_llm_error", attempt=attempt, error=str(exc))
                 msg = "I'm having trouble reaching the model right now. Please try again in a moment."

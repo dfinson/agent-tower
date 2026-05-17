@@ -143,9 +143,10 @@ class CostAttributionRepository(BaseRepository):
                     COALESCE(SUM(a.cache_write_tokens), 0) as cache_write_tokens,
                     COUNT(DISTINCT a.job_id) as job_count
                 FROM job_cost_attribution a
-                JOIN jobs j ON j.id = a.job_id
+                JOIN job_telemetry_summary t ON t.job_id = a.job_id
+                    AND t.session_kind = 'job'
                 WHERE a.dimension = :dimension
-                    AND j.created_at >= datetime('now', '-' || :days || ' days')
+                    AND t.created_at >= datetime('now', '-' || :days || ' days')
                 GROUP BY a.bucket
                 ORDER BY cost_usd DESC
                 LIMIT :limit
@@ -170,8 +171,9 @@ class CostAttributionRepository(BaseRepository):
                     COUNT(DISTINCT a.job_id) as job_count,
                     AVG(a.cost_usd) as avg_cost_per_job
                 FROM job_cost_attribution a
-                JOIN jobs j ON j.id = a.job_id
-                WHERE j.created_at >= datetime('now', '-' || :days || ' days')
+                JOIN job_telemetry_summary t ON t.job_id = a.job_id
+                    AND t.session_kind = 'job'
+                WHERE t.created_at >= datetime('now', '-' || :days || ' days')
                 GROUP BY a.dimension, a.bucket
                 ORDER BY cost_usd DESC
                 LIMIT 100

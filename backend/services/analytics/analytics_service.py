@@ -416,8 +416,10 @@ class AnalyticsService:
     async def executive_summary(self, *, period_days: int = 30) -> dict[str, Any]:
         """3-bucket executive summary: building / thinking / wasted.
 
-        Uses the action_purpose cross-tab when available, falling back to
-        action-only classification if purpose data is sparse.
+        Uses the activity dimension (100% per-job coverage) for the
+        building/thinking split, and fleet_waste_metrics for the wasted
+        portion.  Wasted cost is SUBTRACTED from activity totals (not added)
+        because failed/discarded job costs are already included in activity.
         """
         from backend.persistence.cost_attribution_repo import CostAttributionRepository
         from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
@@ -425,56 +427,37 @@ class AnalyticsService:
         attr_repo = CostAttributionRepository(self._session)
         summary_repo = TelemetryAnalyticsRepository(self._session)
 
-        # Try action_purpose first (most precise)
-        ap_rows = await attr_repo.by_dimension("action_purpose", period_days=period_days, limit=200)
+        # Activity dimension has 100% coverage per job
+        activity_rows = await attr_repo.by_dimension("activity", period_days=period_days, limit=50)
+        total_activity = sum(r["cost_usd"] for r in activity_rows)
 
-        building = 0.0
-        thinking = 0.0
-
-        if ap_rows:
-            # Building = building × (write|test|execute|delegate)
-            # Thinking = (building|orienting) × (read|think)
-            # Wasted = recovering × all + housekeeping × all
-            building_actions = {"write", "test", "execute", "delegate"}
-            thinking_actions = {"read", "think"}
-            wasted_purposes = {"recovering", "housekeeping"}
-
-            for row in ap_rows:
-                bucket = row["bucket"]  # format: "action:purpose"
-                parts = bucket.split(":", 1)
-                if len(parts) != 2:
-                    continue
-                action, purpose = parts
-                cost = row["cost_usd"]
-
-                if purpose in wasted_purposes:
-                    pass  # counted in waste below
-                elif purpose == "building" and action in building_actions or purpose == "verifying":
-                    building += cost
-                elif purpose in ("building", "orienting") and action in thinking_actions:
-                    thinking += cost
-                else:
-                    # Unmatched — split between building and thinking
-                    building += cost * 0.5
-                    thinking += cost * 0.5
-        else:
-            # Fallback: use action dimension only
-            action_rows = await attr_repo.by_dimension("action", period_days=period_days, limit=50)
-            building_actions_fb = {"write", "test", "execute", "delegate", "vcs"}
-            thinking_actions_fb = {"read", "think"}
-            for row in action_rows:
-                if row["bucket"] in building_actions_fb:
-                    building += row["cost_usd"]
-                elif row["bucket"] in thinking_actions_fb:
-                    thinking += row["cost_usd"]
-
+        # Waste: cost of failed/discarded jobs (already included in activity total)
         waste = await summary_repo.fleet_waste_metrics(period_days=period_days)
         wasted = (
-            waste["total_retry_cost_usd"]
-            + waste["failed_discarded_cost_usd"]
+            waste["failed_discarded_cost_usd"]
             + waste["compaction_cost_estimate_usd"]
             + waste["reread_cost_estimate_usd"]
+            + waste["total_retry_cost_usd"]
         )
+        # Clamp waste to not exceed total
+        wasted = min(wasted, total_activity)
+
+        # Classify activity buckets into building vs thinking
+        building_acts = {"implementation", "verification", "git_ops"}
+        thinking_acts = {"investigation", "communication", "setup", "overhead"}
+
+        raw_building = sum(r["cost_usd"] for r in activity_rows if r["bucket"] in building_acts)
+        raw_thinking = sum(r["cost_usd"] for r in activity_rows if r["bucket"] in thinking_acts)
+        raw_total = raw_building + raw_thinking
+
+        # Distribute the productive portion (total - waste) between building/thinking
+        productive = total_activity - wasted
+        if raw_total > 0 and productive > 0:
+            building = productive * (raw_building / raw_total)
+            thinking = productive * (raw_thinking / raw_total)
+        else:
+            building = 0.0
+            thinking = 0.0
 
         total = building + thinking + wasted
 

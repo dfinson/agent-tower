@@ -506,7 +506,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                     COALESCE(AVG(t.total_cost_usd), 0) AS avg_cost_usd
                 FROM jobs j
                 JOIN job_telemetry_summary t ON t.job_id = j.id
-                WHERE j.created_at >= datetime('now', :offset)
+                WHERE t.created_at >= datetime('now', :offset)
                     AND j.state IN ('completed', 'failed', 'canceled')
                     AND t.session_kind = 'job'
                     {repo_filter}
@@ -603,7 +603,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                     t.total_cost_usd
                 FROM job_telemetry_summary t
                 JOIN jobs j ON j.id = t.job_id
-                WHERE j.created_at >= datetime('now', '-' || :days || ' days')
+                WHERE t.created_at >= datetime('now', '-' || :days || ' days')
                     AND t.subagent_cost_usd > 0
                     AND t.subagent_cost_usd
                         > t.total_cost_usd - t.subagent_cost_usd
@@ -621,7 +621,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 SELECT COALESCE(SUM(t.tokens_compacted), 0) AS total
                 FROM job_telemetry_summary t
                 JOIN jobs j ON j.id = t.job_id
-                WHERE j.created_at >= datetime('now', :offset)
+                WHERE t.created_at >= datetime('now', :offset)
                     AND t.session_kind = 'job'
             """),
             {"offset": f"-{int(period_days)} days"},
@@ -645,7 +645,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                     ), 0) AS excess_rereads
                 FROM job_telemetry_summary t
                 JOIN jobs j ON j.id = t.job_id
-                WHERE j.created_at >= datetime('now', :offset)
+                WHERE t.created_at >= datetime('now', :offset)
                     AND t.session_kind = 'job'
             """),
             {"offset": f"-{int(period_days)} days"},

@@ -52,7 +52,6 @@ import { HierarchicalBreakdown } from "./analytics/HierarchicalBreakdown";
 
 import { ActionPurposeMatrix } from "./analytics/ActionPurposeMatrix";
 import { ExecutiveSummary } from "./analytics/ExecutiveSummary";
-import { type CostDriversData } from "./MetricsPanelTypes";
 import { MetricsChatPanel } from "./metrics/MetricsChatPanel";
 import { PinnedMetricsGrid } from "./metrics/PinnedMetricsGrid";
 
@@ -182,7 +181,7 @@ export function AnalyticsScreen() {
       .catch(() => setFleetDrivers(null))
       .finally(() => setDriversLoading(false));
 
-    fetchFleetCostDrivers(period, "action_purpose")
+    fetchFleetCostDrivers(period, "activity")
       .then(setActivityDrivers)
       .catch(() => setActivityDrivers(null))
       .finally(() => setPurposeLoading(false));
@@ -296,8 +295,7 @@ export function AnalyticsScreen() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {purposeLoading ? <SectionSkeleton height="h-48" /> : (
           <HierarchicalBreakdown
-            data={activityDrivers?.buckets ? { actionPurpose: activityDrivers.buckets } as CostDriversData : null}
-            compactionCostUsd={scorecard?.compactionCostUsd}
+            activityBuckets={activityDrivers?.buckets ?? []}
             wasteBreakdown={executiveSummary?.wasteBreakdown}
           />
         )}
