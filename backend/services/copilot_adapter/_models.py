@@ -2,13 +2,12 @@
 
 The Copilot API occasionally omits the ``multiplier`` field from billing
 objects in model list responses.  The SDK's ``ModelBilling.from_dict`` treats
-it as required and raises ``ValueError``, which would crash the whole
-``list_models`` call and leave the model cache empty.
+it as required and raises ``ValueError``, which crashes ``list_models()`` and
+leaves the model cache empty.
 
-``BillingTolerantCopilotClient`` overrides ``list_models`` to fetch the raw
-JSON-RPC response itself, defaulting missing billing fields with ``.get()``,
-and skipping individual models that still fail to parse rather than losing the
-entire list.
+``fetch_copilot_models_raw`` fetches the raw JSON-RPC response directly,
+applies ``.setdefault("multiplier", 1.0)`` before parsing, and skips
+individual malformed models rather than aborting the whole list.
 """
 
 from __future__ import annotations
