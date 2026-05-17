@@ -2209,6 +2209,8 @@ class RuntimeService:
                 agent_session = self._agent_sessions.get(job_id)
                 if agent_session is not None:
                     agent_session.resume_tools()
+            if self._sidecar_dispatcher is not None:
+                self._sidecar_dispatcher.set_gated(job_id, gated=False)
             log.info("sidecar_gate_resolved_approve", job_id=job_id)
         else:
             # Reject — deliver message WITHOUT resuming tools.

@@ -312,6 +312,7 @@ class _JobState:
     last_timer: dict[str, float] = field(default_factory=dict)  # name → monotonic time of last timer fire
     last_activity: float = field(default_factory=time.monotonic)
     gated_since: float | None = None  # monotonic time when agent was paused by a gate
+    executing_depth: int = 0  # recursion guard: >0 means pipeline is running for this job
     queued: list[tuple[SidecarDefinition, int, dict[str, Any] | None]] = field(default_factory=list)
 
 
@@ -574,6 +575,9 @@ class SidecarDispatcher:
         Called by RuntimeService at job start.  Opens sessions in the
         session manager for non-ephemeral sidecars.
         """
+        if job_id in self._jobs:
+            log.warning("dispatcher_activate_duplicate", job_id=job_id)
+            return
         state = _JobState(definitions=definitions)
         self._jobs[job_id] = state
 
@@ -627,6 +631,12 @@ class SidecarDispatcher:
             # Only update activity for events belonging to this job (or global events)
             if not event.job_id or event.job_id == job_id:
                 state.last_activity = time.monotonic()
+
+            # Recursion guard: if this job is already inside a pipeline execution,
+            # skip trigger evaluation to prevent sidecar-generated events from
+            # causing infinite loops (sidecar A fires → emits event → triggers B → emits → triggers A...).
+            if state.executing_depth > 0:
+                continue
 
             for defn in state.definitions:
                 for idx, pipeline in enumerate(defn.triggers):
@@ -876,6 +886,7 @@ class SidecarDispatcher:
             # parallel — fall through
 
         state.in_flight.add(flight_key)
+        state.executing_depth += 1
         try:
             await self._execute_pipeline(job_id, defn, pipeline, extra_context)
         except Exception:
@@ -886,6 +897,7 @@ class SidecarDispatcher:
                 exc_info=True,
             )
         finally:
+            state.executing_depth -= 1
             state.in_flight.discard(flight_key)
             # Drain queue for this sidecar
             await self._drain_queue(job_id, state, defn.name)
