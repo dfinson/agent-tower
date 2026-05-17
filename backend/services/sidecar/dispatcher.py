@@ -311,6 +311,7 @@ class _JobState:
     fired_once: set[tuple[str, int]] = field(default_factory=set)  # (name, pipeline_idx) already fired
     last_timer: dict[str, float] = field(default_factory=dict)  # name → monotonic time of last timer fire
     last_activity: float = field(default_factory=time.monotonic)
+    gated_since: float | None = None  # monotonic time when agent was paused by a gate
     queued: list[tuple[SidecarDefinition, int, dict[str, Any] | None]] = field(default_factory=list)
 
 
@@ -542,6 +543,15 @@ class SidecarDispatcher:
         """
         self._agent_message_handler = handler
 
+    def set_gated(self, job_id: str, *, gated: bool) -> None:
+        """Notify dispatcher that a job's agent is paused/resumed by a gate.
+
+        When gated, timer idle guards treat the agent as idle from this moment.
+        """
+        state = self._jobs.get(job_id)
+        if state:
+            state.gated_since = time.monotonic() if gated else None
+
     # -- Lifecycle ----------------------------------------------------------
 
     async def start(self) -> None:
@@ -614,7 +624,9 @@ class SidecarDispatcher:
     async def handle_event(self, event: DomainEvent) -> None:
         """EventBus subscriber.  Evaluate event/regex/content/file conditions."""
         for job_id, state in list(self._jobs.items()):
-            state.last_activity = time.monotonic()
+            # Only update activity for events belonging to this job (or global events)
+            if not event.job_id or event.job_id == job_id:
+                state.last_activity = time.monotonic()
 
             for defn in state.definitions:
                 for idx, pipeline in enumerate(defn.triggers):
@@ -812,8 +824,13 @@ class SidecarDispatcher:
                         continue
 
                     # Idle guard: skip if activity is too recent
+                    # When the agent is gated (paused), treat it as idle
+                    # since the gate time — the agent isn't making progress.
                     if cond.idle_guard_s is not None:
-                        idle_s = now - state.last_activity
+                        if state.gated_since is not None:
+                            idle_s = now - state.gated_since
+                        else:
+                            idle_s = now - state.last_activity
                         if idle_s < cond.idle_guard_s:
                             continue
 

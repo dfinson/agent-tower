@@ -510,19 +510,13 @@ async def _wire_core_services(
 
     # Wire the sidecar gate handler — pauses agent tools on reject/hold verdicts.
     async def _gate_handler(job_id: str, sidecar_name: str, verdict: str, reason: str) -> None:
-        try:
-            await runtime_service.handle_sidecar_gate(job_id, sidecar_name, verdict, reason)
-        except Exception:
-            log.error("gate_handler_failed", job_id=job_id, sidecar=sidecar_name, exc_info=True)
+        await runtime_service.handle_sidecar_gate(job_id, sidecar_name, verdict, reason)
 
     sidecar_dispatcher.set_gate_handler(_gate_handler)
 
     # Wire the sidecar agent message handler — injects sidecar output into the agent conversation.
     async def _agent_message_handler(job_id: str, message: str) -> None:
-        try:
-            await runtime_service.send_message(job_id, message)
-        except Exception:
-            log.error("agent_message_handler_failed", job_id=job_id, exc_info=True)
+        await runtime_service.send_message(job_id, message)
 
     sidecar_dispatcher.set_agent_message_handler(_agent_message_handler)
 

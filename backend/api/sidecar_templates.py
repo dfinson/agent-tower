@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,7 @@ from backend.models.api_schemas import (
     SidecarTemplateResponse,
     UpdateSidecarTemplateRequest,
 )
+from backend.services.sidecar.dispatcher import SidecarDispatcher
 from backend.services.sidecar.template_service import SidecarTemplateService
 
 log = structlog.get_logger()
@@ -132,3 +134,22 @@ async def generate_sidecar_definition(
         log.warning("sidecar_generate_failed", exc_info=exc)
         raise HTTPException(status_code=503, detail="Failed to generate sidecar definition") from exc
     return GenerateSidecarResponse(definition=definition)
+
+
+class FireSidecarRequest(BaseModel):
+    """Optional context to pass to the sidecar's manual trigger."""
+
+    context: dict[str, Any] | None = None
+
+
+@router.post("/jobs/{job_id}/sidecars/{sidecar_name}/fire", status_code=202)
+async def fire_sidecar(
+    job_id: str,
+    sidecar_name: str,
+    dispatcher: FromDishka[SidecarDispatcher],
+    body: FireSidecarRequest | None = None,
+) -> dict[str, str]:
+    """Manually fire a sidecar's ManualCondition pipelines."""
+    context = body.context if body else None
+    await dispatcher.fire(job_id, sidecar_name, context)
+    return {"status": "fired"}
