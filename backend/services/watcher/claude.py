@@ -27,6 +27,10 @@ from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.events.event_enricher import ToolEventEnricher
 from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin
 
+# Claude SDK typed message parser — converts raw JSONL dicts to typed objects
+from claude_code_sdk import AssistantMessage, TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock, UserMessage
+from claude_code_sdk._internal.message_parser import MessageParseError, parse_message
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -801,18 +805,24 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
     async def _handle_user_event(self, raw: dict[str, Any], session_id: str, job_id: str) -> None:
         """Handle a user-type JSONL event."""
-        message = raw.get("message", {})
-        content = message.get("content", "")
+        try:
+            msg = parse_message(raw)
+        except MessageParseError:
+            log.warning("claude-watcher.user_parse_failed", job_id=job_id, session_id=session_id)
+            return
+        if not isinstance(msg, UserMessage):
+            log.warning("claude-watcher.unexpected_message_type", expected="user", got=type(msg).__name__)
+            return
 
         # Extract text from content (can be string or list of blocks)
         text_content = ""
-        if isinstance(content, str):
-            text_content = content
-        elif isinstance(content, list):
+        if isinstance(msg.content, str):
+            text_content = msg.content
+        elif isinstance(msg.content, list):
             parts = []
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    parts.append(block.get("text", ""))
+            for block in msg.content:
+                if isinstance(block, TextBlock):
+                    parts.append(block.text)
             text_content = "\n".join(parts)
 
         # Capture first user message as job prompt
@@ -840,106 +850,112 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         """Handle an assistant-type JSONL event."""
         from backend.services.tools.tool_classifier import classify_tool, extract_file_paths
 
-        message = raw.get("message", {})
-        content_blocks = message.get("content", [])
-        usage = message.get("usage")
-
-        # Process usage/telemetry
+        # Usage lives in the raw JSONL dict but is NOT on the typed AssistantMessage
+        raw_message = raw.get("message", {})
+        usage = raw_message.get("usage")
         if usage:
-            await self._extract_usage_telemetry(usage, job_id, message)
+            await self._extract_usage_telemetry(usage, job_id, raw_message)
 
-        # Process content blocks
-        if isinstance(content_blocks, list):
-            for block in content_blocks:
-                if not isinstance(block, dict):
-                    continue
-                block_type = block.get("type", "")
+        # Parse raw dict → typed AssistantMessage with typed content blocks
+        try:
+            msg = parse_message(raw)
+        except MessageParseError:
+            log.warning("claude-watcher.assistant_parse_failed", job_id=job_id, session_id=session_id)
+            return
+        if not isinstance(msg, AssistantMessage):
+            log.warning("claude-watcher.unexpected_message_type", expected="assistant", got=type(msg).__name__)
+            return
 
-                if block_type == "text":
-                    text = block.get("text", "")
-                    if text.strip():
-                        session_event = SessionEvent(
-                            kind=SessionEventKind.transcript,
-                            payload={"role": "agent", "content": text},
-                        )
-                        await self._feed_event(job_id, session_event)
-
-                elif block_type == "thinking":
-                    thinking_text = block.get("thinking", "")
-                    if thinking_text.strip():
-                        session_event = SessionEvent(
-                            kind=SessionEventKind.transcript,
-                            payload={"role": "reasoning", "content": thinking_text},
-                        )
-                        await self._feed_event(job_id, session_event)
-
-                elif block_type == "tool_use":
-                    tool_name = block.get("name", "tool")
-                    tool_id = block.get("id", "")
-                    tool_input = block.get("input")
-                    args_str = None
-                    if tool_input is not None:
-                        try:
-                            args_str = json.dumps(tool_input) if not isinstance(tool_input, str) else tool_input
-                        except (TypeError, ValueError):
-                            args_str = str(tool_input)
-
-                    # Use enricher to produce enriched tool_running payload
-                    enricher = self._enrichers.get(job_id)
-                    if enricher is None:
-                        enricher = ToolEventEnricher()
-                        self._enrichers[job_id] = enricher
-                    payload = enricher.on_tool_start(
-                        tool_id,
-                        tool_name,
-                        args_str,
-                        None,
-                    )
+        for block in msg.content:
+            if isinstance(block, TextBlock):
+                text = block.text or ""
+                if text.strip():
                     session_event = SessionEvent(
                         kind=SessionEventKind.transcript,
-                        payload=payload,
+                        payload={"role": "agent", "content": text},
                     )
                     await self._feed_event(job_id, session_event)
 
-                    # Emit file_changed for file-write tools to trigger diff
-                    if classify_tool(tool_name) == "file_write":
-                        paths = extract_file_paths(tool_name, args_str)
-                        for fpath in paths:
-                            await self._feed_event(
-                                job_id,
-                                SessionEvent(
-                                    kind=SessionEventKind.file_changed,
-                                    payload={"path": fpath},
-                                ),
-                            )
-
-                elif block_type == "tool_result":
-                    tool_use_id = block.get("tool_use_id", "")
-                    result_content = block.get("content", "")
-                    if isinstance(result_content, list):
-                        parts = []
-                        for item in result_content:
-                            if isinstance(item, dict):
-                                parts.append(item.get("text", ""))
-                        result_content = "\n".join(parts)
-
-                    is_error = block.get("is_error", False)
-                    # Use enricher to produce enriched tool_call payload
-                    enricher = self._enrichers.get(job_id)
-                    if enricher is None:
-                        enricher = ToolEventEnricher()
-                        self._enrichers[job_id] = enricher
-                    payload = enricher.on_tool_complete(
-                        tool_use_id,
-                        str(result_content),
-                        not is_error,
-                        tool_name_fallback="tool",
-                    )
+            elif isinstance(block, ThinkingBlock):
+                thinking_text = block.thinking or ""
+                if thinking_text.strip():
                     session_event = SessionEvent(
                         kind=SessionEventKind.transcript,
-                        payload=payload,
+                        payload={"role": "reasoning", "content": thinking_text},
                     )
                     await self._feed_event(job_id, session_event)
+
+            elif isinstance(block, ToolUseBlock):
+                tool_name = block.name or "tool"
+                tool_id = block.id or ""
+                tool_input = block.input
+                args_str = None
+                if tool_input is not None:
+                    try:
+                        args_str = json.dumps(tool_input) if not isinstance(tool_input, str) else tool_input
+                    except (TypeError, ValueError):
+                        args_str = str(tool_input)
+
+                # Use enricher to produce enriched tool_running payload
+                enricher = self._enrichers.get(job_id)
+                if enricher is None:
+                    enricher = ToolEventEnricher()
+                    self._enrichers[job_id] = enricher
+                payload = enricher.on_tool_start(
+                    tool_id,
+                    tool_name,
+                    args_str,
+                    None,
+                )
+                session_event = SessionEvent(
+                    kind=SessionEventKind.transcript,
+                    payload=payload,
+                )
+                await self._feed_event(job_id, session_event)
+
+                # Emit file_changed for file-write tools to trigger diff
+                if classify_tool(tool_name) == "file_write":
+                    paths = extract_file_paths(tool_name, args_str)
+                    for fpath in paths:
+                        await self._feed_event(
+                            job_id,
+                            SessionEvent(
+                                kind=SessionEventKind.file_changed,
+                                payload={"path": fpath},
+                            ),
+                        )
+
+            elif isinstance(block, ToolResultBlock):
+                tool_use_id = block.tool_use_id or ""
+                result_content = block.content or ""
+                if isinstance(result_content, list):
+                    # SDK does NOT convert ToolResultBlock.content list items
+                    # into typed objects — they remain raw dicts
+                    parts = []
+                    for item in result_content:
+                        if isinstance(item, dict):
+                            parts.append(item.get("text", ""))
+                        elif isinstance(item, TextBlock):
+                            parts.append(item.text)
+                    result_content = "\n".join(parts)
+
+                is_error = block.is_error or False
+                # Use enricher to produce enriched tool_call payload
+                enricher = self._enrichers.get(job_id)
+                if enricher is None:
+                    enricher = ToolEventEnricher()
+                    self._enrichers[job_id] = enricher
+                payload = enricher.on_tool_complete(
+                    tool_use_id,
+                    str(result_content),
+                    not is_error,
+                    tool_name_fallback="tool",
+                )
+                session_event = SessionEvent(
+                    kind=SessionEventKind.transcript,
+                    payload=payload,
+                )
+                await self._feed_event(job_id, session_event)
 
     async def _extract_usage_telemetry(
         self,

@@ -268,9 +268,10 @@ class TestJsonlEventProcessing:
             "type": "assistant",
             "message": {
                 "content": [
-                    {"type": "tool_use", "name": "edit_file", "input": {"path": "main.py"}},
+                    {"type": "tool_use", "id": "tu_1", "name": "edit_file", "input": {"path": "main.py"}},
                 ],
                 "usage": {"input_tokens": 50, "output_tokens": 20},
+                "model": "claude-sonnet-4-20250514",
             },
         }
 
@@ -297,8 +298,9 @@ class TestJsonlEventProcessing:
         raw = {
             "type": "assistant",
             "message": {
-                "content": [{"type": "thinking", "thinking": "Let me analyze the code..."}],
+                "content": [{"type": "thinking", "thinking": "Let me analyze the code...", "signature": "sig"}],
                 "usage": {"input_tokens": 30, "output_tokens": 10},
+                "model": "claude-sonnet-4-20250514",
             },
         }
 
@@ -328,6 +330,361 @@ class TestJsonlEventProcessing:
         raw = {"type": "attachment", "data": {}}
         ended = await watcher._process_jsonl_event(raw, "sess-1", "job-1")
         assert ended is False
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: SDK parse_message integration
+#
+# The watcher now uses the Claude SDK's parse_message() to convert raw JSONL
+# dicts into typed objects (AssistantMessage, UserMessage, etc.) instead of
+# manual dict.get() parsing. These tests ensure version bumps in the SDK
+# that change field requirements or parsing behaviour are caught immediately.
+# ---------------------------------------------------------------------------
+
+
+class TestSdkParserIntegration:
+    """Verify _handle_assistant_event and _handle_user_event work through parse_message."""
+
+    @pytest.mark.anyio
+    async def test_all_block_types_in_single_message(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        runtime_service: MagicMock,
+    ) -> None:
+        """A realistic assistant message with text + thinking + tool_use + tool_result."""
+        watcher._session_to_job["sess-1"] = "job-all"
+        watcher._job_to_session["job-all"] = "sess-1"
+
+        raw = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "thinking", "thinking": "I need to check the file.", "signature": "sig1"},
+                    {"type": "text", "text": "Let me look at that file."},
+                    {"type": "tool_use", "id": "tu_1", "name": "Read", "input": {"path": "main.py"}},
+                    {"type": "tool_result", "tool_use_id": "tu_1", "content": "file contents here"},
+                ],
+                "model": "claude-sonnet-4-20250514",
+                "usage": {"input_tokens": 200, "output_tokens": 100},
+            },
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-all")
+
+        calls = runtime_service.feed_external_event.call_args_list
+        payloads = [c[0][1].payload for c in calls]
+        roles = [p.get("role") for p in payloads]
+
+        assert "reasoning" in roles
+        assert "agent" in roles
+        assert "tool_running" in roles
+        assert "tool_call" in roles
+
+    @pytest.mark.anyio
+    async def test_malformed_assistant_silently_skipped(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        runtime_service: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """An assistant event that fails parse_message should log a warning, not crash."""
+        watcher._session_to_job["sess-1"] = "job-bad"
+        watcher._job_to_session["job-bad"] = "sess-1"
+
+        raw = {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "text", "text": "hi"}],
+                # missing "model" — parse_message will raise MessageParseError
+            },
+        }
+
+        ended = await watcher._process_jsonl_event(raw, "sess-1", "job-bad")
+        assert ended is False
+        runtime_service.feed_external_event.assert_not_called()
+        captured = capsys.readouterr()
+        assert "assistant_parse_failed" in captured.out
+
+    @pytest.mark.anyio
+    async def test_malformed_user_silently_skipped(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        runtime_service: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A user event missing 'message' should log a warning, not crash."""
+        watcher._session_to_job["sess-1"] = "job-bad2"
+        watcher._job_to_session["job-bad2"] = "sess-1"
+
+        raw = {
+            "type": "user",
+            # missing "message" entirely
+        }
+
+        ended = await watcher._process_jsonl_event(raw, "sess-1", "job-bad2")
+        assert ended is False
+        runtime_service.feed_external_event.assert_not_called()
+        captured = capsys.readouterr()
+        assert "user_parse_failed" in captured.out
+
+    @pytest.mark.anyio
+    async def test_user_string_content(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        runtime_service: MagicMock,
+    ) -> None:
+        """UserMessage with plain string content should emit operator transcript."""
+        watcher._session_to_job["sess-1"] = "job-ustr"
+        watcher._job_to_session["job-ustr"] = "sess-1"
+
+        raw = {
+            "type": "user",
+            "message": {"content": "Fix the bug"},
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-ustr")
+        call_args = runtime_service.feed_external_event.call_args
+        evt = call_args[0][1]
+        assert evt.payload["role"] == "operator"
+        assert evt.payload["content"] == "Fix the bug"
+
+    @pytest.mark.anyio
+    async def test_user_block_list_content(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        runtime_service: MagicMock,
+    ) -> None:
+        """UserMessage with a list of TextBlocks should join and emit."""
+        watcher._session_to_job["sess-1"] = "job-ublk"
+        watcher._job_to_session["job-ublk"] = "sess-1"
+
+        raw = {
+            "type": "user",
+            "message": {
+                "content": [
+                    {"type": "text", "text": "First part."},
+                    {"type": "text", "text": "Second part."},
+                ],
+            },
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-ublk")
+        call_args = runtime_service.feed_external_event.call_args
+        evt = call_args[0][1]
+        assert "First part." in evt.payload["content"]
+        assert "Second part." in evt.payload["content"]
+
+    @pytest.mark.anyio
+    async def test_tool_result_list_content_parsed(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        runtime_service: MagicMock,
+    ) -> None:
+        """ToolResultBlock with list content should join TextBlocks into result text."""
+        watcher._session_to_job["sess-1"] = "job-trl"
+        watcher._job_to_session["job-trl"] = "sess-1"
+
+        raw = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "id": "tu_1", "name": "Bash", "input": {"command": "ls"}},
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu_1",
+                        "content": [
+                            {"type": "text", "text": "file1.py"},
+                            {"type": "text", "text": "file2.py"},
+                        ],
+                    },
+                ],
+                "model": "claude-sonnet-4-20250514",
+            },
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-trl")
+        calls = runtime_service.feed_external_event.call_args_list
+        # Find the tool_call event (result)
+        for call in calls:
+            evt = call[0][1]
+            if evt.payload.get("role") == "tool_call":
+                assert "file1.py" in evt.payload["tool_result"]
+                assert "file2.py" in evt.payload["tool_result"]
+                break
+        else:
+            pytest.fail("No tool_call event emitted")
+
+    @pytest.mark.anyio
+    async def test_tool_result_error_flag(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        runtime_service: MagicMock,
+    ) -> None:
+        """ToolResultBlock with is_error=True should set tool_success=False."""
+        watcher._session_to_job["sess-1"] = "job-err"
+        watcher._job_to_session["job-err"] = "sess-1"
+
+        raw = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "id": "tu_e", "name": "Bash", "input": {"command": "exit 1"}},
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu_e",
+                        "content": "command failed",
+                        "is_error": True,
+                    },
+                ],
+                "model": "claude-sonnet-4-20250514",
+            },
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-err")
+        for call in runtime_service.feed_external_event.call_args_list:
+            evt = call[0][1]
+            if evt.payload.get("role") == "tool_call":
+                assert evt.payload["tool_success"] is False
+                break
+        else:
+            pytest.fail("No tool_call event emitted")
+
+    @pytest.mark.anyio
+    async def test_usage_extracted_even_when_blocks_malformed(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        runtime_service: MagicMock,
+    ) -> None:
+        """Usage telemetry comes from raw dict, not parse_message, so it works even
+        when content blocks fail to parse (e.g. missing model)."""
+        watcher._session_to_job["sess-1"] = "job-usg"
+        watcher._job_to_session["job-usg"] = "sess-1"
+
+        raw = {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "text", "text": "hi"}],
+                # No model → parse_message will raise, but usage should still be extracted
+                "usage": {"input_tokens": 999, "output_tokens": 111},
+            },
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-usg")
+
+        # Usage should have been accumulated despite parse failure
+        pending = watcher._pending_telemetry.get("job-usg", {})
+        assert pending.get("input_tokens", 0) == 999
+        assert pending.get("output_tokens", 0) == 111
+
+    @pytest.mark.anyio
+    async def test_empty_text_block_not_emitted(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        runtime_service: MagicMock,
+    ) -> None:
+        """Text blocks with only whitespace should be skipped."""
+        watcher._session_to_job["sess-1"] = "job-wh"
+        watcher._job_to_session["job-wh"] = "sess-1"
+
+        raw = {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "text", "text": "   "}],
+                "model": "claude-sonnet-4-20250514",
+            },
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-wh")
+        runtime_service.feed_external_event.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_empty_thinking_block_not_emitted(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        runtime_service: MagicMock,
+    ) -> None:
+        """Thinking blocks with only whitespace should be skipped."""
+        watcher._session_to_job["sess-1"] = "job-et"
+        watcher._job_to_session["job-et"] = "sess-1"
+
+        raw = {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "thinking", "thinking": "  \n  ", "signature": "sig"}],
+                "model": "claude-sonnet-4-20250514",
+            },
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-et")
+        runtime_service.feed_external_event.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_user_prompt_captured_on_first_message(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        runtime_service: MagicMock,
+    ) -> None:
+        """First user message should trigger prompt capture."""
+        watcher._session_to_job["sess-1"] = "job-pc"
+        watcher._job_to_session["job-pc"] = "sess-1"
+
+        raw = {
+            "type": "user",
+            "message": {"content": "Build a REST API"},
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-pc")
+        assert "job-pc" in watcher._prompt_captured
+
+    @pytest.mark.anyio
+    async def test_user_cwd_captured(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        runtime_service: MagicMock,
+    ) -> None:
+        """User event with cwd field should set worktree."""
+        watcher._session_to_job["sess-1"] = "job-cwd"
+        watcher._job_to_session["job-cwd"] = "sess-1"
+
+        raw = {
+            "type": "user",
+            "message": {"content": "hello"},
+            "cwd": "/home/user/repos/myproject",
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-cwd")
+        assert watcher._job_worktrees.get("job-cwd") == "/home/user/repos/myproject"
+
+    @pytest.mark.anyio
+    async def test_tool_use_input_serialized(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        runtime_service: MagicMock,
+    ) -> None:
+        """Tool input dict should be serialized to JSON string in the payload."""
+        watcher._session_to_job["sess-1"] = "job-tin"
+        watcher._job_to_session["job-tin"] = "sess-1"
+
+        raw = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "id": "tu_s", "name": "Write", "input": {"path": "x.py", "data": "abc"}},
+                ],
+                "model": "claude-sonnet-4-20250514",
+            },
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-tin")
+        for call in runtime_service.feed_external_event.call_args_list:
+            evt = call[0][1]
+            if evt.payload.get("role") == "tool_running":
+                args = evt.payload.get("tool_args", "")
+                assert "x.py" in args
+                assert "abc" in args
+                break
+        else:
+            pytest.fail("No tool_running event emitted")
 
 
 # ---------------------------------------------------------------------------
@@ -740,11 +1097,13 @@ class TestFileChangedEmission:
                 "content": [
                     {
                         "type": "tool_use",
+                        "id": "tu_fc",
                         "name": "edit_file",
                         "input": {"path": "src/main.py", "content": "..."},
                     },
                 ],
                 "usage": {"input_tokens": 50, "output_tokens": 20},
+                "model": "claude-sonnet-4-20250514",
             },
         }
 
@@ -771,11 +1130,13 @@ class TestFileChangedEmission:
                 "content": [
                     {
                         "type": "tool_use",
+                        "id": "tu_nfc",
                         "name": "read_file",
                         "input": {"path": "src/main.py"},
                     },
                 ],
                 "usage": {"input_tokens": 50, "output_tokens": 20},
+                "model": "claude-sonnet-4-20250514",
             },
         }
 
