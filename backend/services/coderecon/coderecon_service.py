@@ -6,9 +6,8 @@ network) and is always enabled.  All heavy work (tree-sitter parsing,
 graph building) happens in a thread pool so the async event loop is never
 blocked.
 
-Degrades gracefully: if the coderecon-review package is not installed or
-if a repo fails to index, the ``available`` property returns ``False``
-and every public method returns a safe fallback.
+The coderecon-review package is vendored and always required.  If the
+import fails, ``start()`` raises immediately — silent degradation is a bug.
 """
 
 from __future__ import annotations
@@ -49,7 +48,6 @@ class CodeReconService:
         self._available = False
         self._event_bus: EventBus | None = None
         self._kit_class: type | None = None
-        self._init_error: str | None = None
         self._executor = ThreadPoolExecutor(thread_name_prefix="coderecon")
 
     # ── Properties ──
@@ -64,17 +62,12 @@ class CodeReconService:
     # ── Lifecycle ──
 
     async def start(self) -> None:
-        """Validate that the coderecon-review package is importable."""
-        try:
-            from coderecon.review import ReviewKit
+        """Import coderecon-review.  Raises on failure — the package is required."""
+        from coderecon.review import ReviewKit
 
-            self._kit_class = ReviewKit
-            self._available = True
-            log.info("coderecon_review.ready")
-        except ImportError as exc:
-            self._init_error = str(exc)
-            self._available = False
-            log.warning("coderecon_review.import_failed", error=str(exc))
+        self._kit_class = ReviewKit
+        self._available = True
+        log.info("coderecon_review.ready")
 
     async def stop(self) -> None:
         """Close all ReviewKit instances and release resources."""
@@ -435,7 +428,6 @@ class CodeReconService:
         return {
             "state": "ready" if self._available else "unavailable",
             "indexed_repos": len(self._kits),
-            "init_error": self._init_error,
         }
 
     # ── Internal ──

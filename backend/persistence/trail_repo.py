@@ -362,10 +362,17 @@ class TrailNodeRepository:
     async def get_modify_nodes_needing_semantic_targets(
         self, *, limit: int
     ) -> list[TrailNodeRow]:
-        """Fetch modify nodes with start_sha != end_sha whose write children lack semantic_targets."""
+        """Fetch modify nodes whose write children lack semantic_targets.
+
+        Only returns nodes for jobs that are still running (worktree exists).
+        CodeRecon is worktree-scoped — once the worktree is cleaned up the
+        window for semantic enrichment is closed.
+        """
         async with self._session_factory() as session:
             from sqlalchemy import and_, exists
             from sqlalchemy.orm import aliased
+
+            from backend.models.db import JobRow
 
             Parent = aliased(TrailNodeRow, name="parent")
             Child = aliased(TrailNodeRow, name="child")
@@ -385,11 +392,13 @@ class TrailNodeRepository:
             )
             stmt = (
                 select(Parent)
+                .join(JobRow, JobRow.id == Parent.job_id)
                 .where(Parent.kind == "modify")
                 .where(Parent.start_sha.isnot(None))
                 .where(Parent.end_sha.isnot(None))
                 .where(Parent.start_sha != Parent.end_sha)
                 .where(child_exists)
+                .where(JobRow.state.in_(("running", "review")))
                 .order_by(Parent.timestamp)
                 .limit(limit)
             )

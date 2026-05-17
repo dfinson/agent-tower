@@ -436,7 +436,8 @@ class TrailEnricher:
         to identify which symbols were affected, then distributes the results to
         child write nodes by matching file paths.
         """
-        if not self._coderecon or not self._coderecon.available:
+        if not self._coderecon:
+            log.error("semantic_targets_skipped", reason="coderecon not injected")
             return 0
 
         modify_nodes = await self._repo.get_modify_nodes_needing_semantic_targets(
@@ -468,24 +469,25 @@ class TrailEnricher:
             try:
                 info = job_info.get(modify_node.job_id)
                 if not info:
-                    # No repo info — mark children with empty targets to avoid reprocessing
-                    children = await self._repo.get_write_children(modify_node.id)
-                    for child in children:
-                        if child.semantic_targets is None:
-                            await self._repo.set_semantic_targets(child.id, "[]")
-                    processed += len(children)
+                    log.error(
+                        "semantic_targets_no_job_info",
+                        modify_node_id=modify_node.id,
+                        job_id=modify_node.job_id,
+                    )
                     continue
+
+                worktree_path = info["worktree_path"]
 
                 # Ensure repo indexed and worktree registered
                 repo_name = await self._coderecon.ensure_repo_indexed(info["repo"])
-                await self._coderecon.register_worktree(repo_name, info["worktree_path"])
+                await self._coderecon.register_worktree(repo_name, worktree_path)
 
                 # Run semantic_diff between the modify node's SHAs
                 diff_result = await self._coderecon.semantic_diff(
                     repo_name,
                     base=modify_node.start_sha,
                     target=modify_node.end_sha,
-                    worktree=info["worktree_path"],
+                    worktree=worktree_path,
                 )
 
                 structural_changes = diff_result.structural_changes or []
@@ -538,20 +540,12 @@ class TrailEnricher:
                     processed += 1
 
             except Exception:
-                log.debug(
+                log.error(
                     "semantic_targets_failed",
                     modify_node_id=modify_node.id,
                     exc_info=True,
                 )
-                # Mark children with empty to avoid reprocessing on transient failures
-                try:
-                    children = await self._repo.get_write_children(modify_node.id)
-                    for child in children:
-                        if child.semantic_targets is None:
-                            await self._repo.set_semantic_targets(child.id, "[]")
-                    processed += len(children)
-                except Exception:
-                    pass
+                # Leave semantic_targets NULL so the node is retried next cycle.
 
         return processed
 
