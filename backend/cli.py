@@ -601,11 +601,26 @@ def _pause_active_sessions(base_url: str) -> None:
         click.echo(f"    {mark}  {job['id'][:8]}… {title}")
 
 
+def _kill_process_group(pid: int, sig: int) -> None:
+    """Send *sig* to the process group led by *pid*, falling back to the process itself."""
+    import os
+
+    try:
+        pgid = os.getpgid(pid)
+        os.killpg(pgid, sig)
+    except (ProcessLookupError, PermissionError):
+        # Process gone or we don't own the group — try the PID directly.
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(pid, sig)
+
+
 def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
     """Send SIGTERM, wait up to *timeout_seconds*, then SIGKILL if still alive.
 
     Kills both port-owning processes (uvicorn workers) and parent ``cpl up``
     / ``uv run cpl up`` processes so the entire process tree is cleaned up.
+    Uses process-group signals so that child processes (tunnel daemons,
+    uvicorn workers) are terminated together with their parent.
     """
     import os
     import time
@@ -621,9 +636,25 @@ def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
         click.echo("  No process found — already stopped.")
         return True
 
-    click.echo(f"  Sending SIGTERM to PID(s) {all_pids}…")
+    # Collect unique process groups so we kill entire subtrees (tunnel
+    # children, uvicorn workers) instead of individual PIDs.
+    pgids_seen: set[int] = set()
+    ordered_pids: list[int] = []
     for pid in all_pids:
-        with contextlib.suppress(ProcessLookupError):
+        try:
+            pgid = os.getpgid(pid)
+        except (ProcessLookupError, PermissionError):
+            continue
+        if pgid not in pgids_seen:
+            pgids_seen.add(pgid)
+            ordered_pids.append(pid)
+
+    click.echo(f"  Sending SIGTERM to PID(s) {all_pids}…")
+    for pid in ordered_pids:
+        _kill_process_group(pid, signal.SIGTERM)
+    # Also signal any PID we couldn't resolve a group for
+    for pid in all_pids:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.kill(pid, signal.SIGTERM)
 
     deadline = time.monotonic() + timeout_seconds
@@ -636,14 +667,25 @@ def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
         if time.monotonic() > deadline:
             click.echo(f"  SIGTERM timed out after {timeout_seconds}s — sending SIGKILL to {remaining}…")
             for pid in remaining:
-                with contextlib.suppress(ProcessLookupError):
-                    os.kill(pid, signal.SIGKILL)
+                _kill_process_group(pid, signal.SIGKILL)
             time.sleep(1)
             break
         time.sleep(0.5)
 
-    # Final verification
+    # Final verification — also use fuser as a last resort to mop up
+    # orphaned children that escaped process-group signalling.
     leftover = _find_pids_on_port(port)
+    if leftover:
+        import subprocess as _sp
+
+        click.echo(f"  Cleaning up remaining PIDs on port {port}: {leftover}…")
+        try:
+            _sp.run(["fuser", "-k", f"{port}/tcp"], capture_output=True, timeout=5)
+        except (FileNotFoundError, _sp.TimeoutExpired):
+            pass
+        time.sleep(1)
+        leftover = _find_pids_on_port(port)
+
     if leftover:
         click.secho(f"  Warning: PIDs still on port {port}: {leftover}", fg="yellow")
         return False
@@ -668,16 +710,35 @@ def down(host: str | None, port: int | None, force: bool) -> None:
         click.echo("CodePlane is not running.")
         return
 
-    # Pause sessions unless --force
-    if not force:
-        click.echo("Pausing active sessions…")
-        _pause_active_sessions(base_url)
-    else:
-        click.echo("Skipping session pause (--force).")
+    # Install signal handler so Ctrl+C during shutdown still cleans up
+    # the server processes instead of just aborting cpl down.
+    _interrupted = False
 
-    click.echo(f"Stopping CodePlane on port {port}…")
-    if not _stop_server(port):
-        raise SystemExit(1)
+    def _down_signal_handler(sig: int, frame: Any) -> None:
+        nonlocal _interrupted
+        if _interrupted:
+            # Second Ctrl+C — hard exit
+            raise SystemExit(1)
+        _interrupted = True
+        click.echo("\nInterrupted — forcing server stop…")
+
+    prev_sigint = signal.signal(signal.SIGINT, _down_signal_handler)
+    prev_sigterm = signal.signal(signal.SIGTERM, _down_signal_handler)
+
+    try:
+        # Pause sessions unless --force or interrupted
+        if not force and not _interrupted:
+            click.echo("Pausing active sessions…")
+            _pause_active_sessions(base_url)
+        elif force:
+            click.echo("Skipping session pause (--force).")
+
+        click.echo(f"Stopping CodePlane on port {port}…")
+        if not _stop_server(port):
+            raise SystemExit(1)
+    finally:
+        signal.signal(signal.SIGINT, prev_sigint)
+        signal.signal(signal.SIGTERM, prev_sigterm)
 
 
 # ---------------------------------------------------------------------------
