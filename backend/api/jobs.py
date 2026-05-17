@@ -383,29 +383,12 @@ async def list_models(
     models = cached_models_by_sdk.get(resolved_sdk, [])
     if not models and resolved_sdk == "copilot":
         try:
-            from copilot import CopilotClient
-            import copilot.client as _copilot_client
+            from backend.services.copilot_adapter._models import fetch_copilot_models_raw
 
-            _orig_billing_from_dict = _copilot_client.ModelBilling.from_dict
-
-            @staticmethod  # type: ignore[misc]
-            def _lenient_billing_from_dict(obj: dict) -> "_copilot_client.ModelBilling":
-                multiplier = obj.get("multiplier", 1.0)
-                return _copilot_client.ModelBilling(multiplier=float(multiplier))
-
-            _copilot_client.ModelBilling.from_dict = _lenient_billing_from_dict  # type: ignore[method-assign]
-            try:
-                _client = CopilotClient()
-                await _client.start()
-                try:
-                    live = [m.to_dict() for m in await _client.list_models()]
-                    if live:
-                        cached_models_by_sdk[resolved_sdk] = live  # warm the cache for next time
-                        models = live
-                finally:
-                    await _client.stop()
-            finally:
-                _copilot_client.ModelBilling.from_dict = _orig_billing_from_dict  # type: ignore[method-assign]
-        except (ImportError, ConnectionError, TimeoutError, RuntimeError, ValueError):
+            live = await fetch_copilot_models_raw()
+            if live:
+                cached_models_by_sdk[resolved_sdk] = live
+                models = live
+        except Exception:
             log.debug("model_live_fetch_failed", sdk=resolved_sdk, exc_info=True)
     return ModelListResponse(items=[ModelInfoResponse.model_validate(m) for m in models])

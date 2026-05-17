@@ -583,30 +583,10 @@ async def _init_optional_services(
     copilot_models: list[dict[str, object]] = []
     for _attempt in range(3):
         try:
-            from copilot import CopilotClient
-            import copilot.client as _copilot_client
+            from backend.services.copilot_adapter._models import fetch_copilot_models_raw
 
-            # The SDK's ModelBilling.from_dict raises ValueError when the API omits
-            # the 'multiplier' field (observed in some Copilot API responses).  Patch
-            # it to treat the field as optional so list_models() doesn't crash.
-            _orig_billing_from_dict = _copilot_client.ModelBilling.from_dict
-
-            @staticmethod  # type: ignore[misc]
-            def _lenient_billing_from_dict(obj: dict) -> "_copilot_client.ModelBilling":
-                multiplier = obj.get("multiplier", 1.0)
-                return _copilot_client.ModelBilling(multiplier=float(multiplier))
-
-            _copilot_client.ModelBilling.from_dict = _lenient_billing_from_dict  # type: ignore[method-assign]
-            try:
-                _model_client = CopilotClient()
-                await _model_client.start()
-                try:
-                    copilot_models = [m.to_dict() for m in await _model_client.list_models()]
-                    log.debug("copilot_models_cached", count=len(copilot_models))
-                finally:
-                    await _model_client.stop()
-            finally:
-                _copilot_client.ModelBilling.from_dict = _orig_billing_from_dict  # type: ignore[method-assign]
+            copilot_models = await fetch_copilot_models_raw()
+            log.debug("copilot_models_cached", count=len(copilot_models))
             break  # success
         except Exception as exc:
             if _attempt < 2:
