@@ -359,6 +359,65 @@ class TrailNodeRepository:
             stmt = update(TrailNodeRow).where(TrailNodeRow.id == node_id).values(edit_motivations=motivations_json)
             await session.execute(stmt)
 
+    async def get_modify_nodes_needing_semantic_targets(
+        self, *, limit: int
+    ) -> list[TrailNodeRow]:
+        """Fetch modify nodes with start_sha != end_sha whose write children lack semantic_targets."""
+        async with self._session_factory() as session:
+            from sqlalchemy import and_, exists
+            from sqlalchemy.orm import aliased
+
+            Parent = aliased(TrailNodeRow, name="parent")
+            Child = aliased(TrailNodeRow, name="child")
+
+            # Modify nodes that have at least one write child missing semantic_targets
+            child_exists = (
+                select(Child.id)
+                .where(
+                    and_(
+                        Child.parent_id == Parent.id,
+                        Child.kind == "write",
+                        Child.semantic_targets.is_(None),
+                    )
+                )
+                .correlate(Parent)
+                .exists()
+            )
+            stmt = (
+                select(Parent)
+                .where(Parent.kind == "modify")
+                .where(Parent.start_sha.isnot(None))
+                .where(Parent.end_sha.isnot(None))
+                .where(Parent.start_sha != Parent.end_sha)
+                .where(child_exists)
+                .order_by(Parent.timestamp)
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_write_children(self, parent_id: str) -> list[TrailNodeRow]:
+        """Fetch all write sub-nodes under a parent modify node."""
+        async with self._session_factory() as session:
+            stmt = (
+                select(TrailNodeRow)
+                .where(TrailNodeRow.parent_id == parent_id)
+                .where(TrailNodeRow.kind == "write")
+                .order_by(TrailNodeRow.seq)
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def set_semantic_targets(self, node_id: str, targets_json: str) -> None:
+        """Set the semantic_targets JSON on a write sub-node."""
+        async with serialized_write(self._session_factory) as session:
+            stmt = (
+                update(TrailNodeRow)
+                .where(TrailNodeRow.id == node_id)
+                .values(semantic_targets=targets_json)
+            )
+            await session.execute(stmt)
+
     async def update_tool_metadata(
         self,
         job_id: str,

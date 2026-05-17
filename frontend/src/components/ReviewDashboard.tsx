@@ -112,9 +112,9 @@ function ChangeCard({ change, onClick }: { change: StructuralChange; onClick: ()
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left flex flex-col gap-1.5 px-3 py-2.5 rounded-md hover:bg-accent/50 transition-colors cursor-pointer ${isHighRisk ? "border-l-2 border-red-400/60" : ""}`}
+      className={`w-full text-left flex flex-col gap-1.5 px-3 py-2.5 rounded-md hover:bg-accent/50 transition-colors cursor-pointer min-w-0 overflow-hidden ${isHighRisk ? "border-l-2 border-red-400/60" : ""}`}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0">
         <Icon size={13} className={`shrink-0 ${catCfg.color}`} />
         <span className="text-xs font-mono text-muted-foreground truncate flex-1">{change.file}</span>
         <span className={`text-[10px] uppercase font-medium px-1.5 py-0.5 rounded ${catCfg.color} bg-accent/50`}>
@@ -125,9 +125,9 @@ function ChangeCard({ change, onClick }: { change: StructuralChange; onClick: ()
         )}
       </div>
 
-      <div className="flex items-center gap-3 pl-5">
+      <div className="flex items-center gap-3 pl-5 flex-wrap min-w-0">
         {change.symbol && (
-          <span className="text-xs font-semibold text-foreground">{change.symbol}</span>
+          <span className="text-xs font-semibold text-foreground truncate max-w-full">{change.symbol}</span>
         )}
         {change.refCount > 0 && (
           <span className="text-[10px] text-muted-foreground">
@@ -148,7 +148,7 @@ function ChangeCard({ change, onClick }: { change: StructuralChange; onClick: ()
       </div>
 
       {change.summary && (
-        <p className="text-xs text-muted-foreground pl-5">{change.summary}</p>
+        <p className="text-xs text-muted-foreground pl-5 break-words">{change.summary}</p>
       )}
 
       {change.testFiles.length > 0 && (

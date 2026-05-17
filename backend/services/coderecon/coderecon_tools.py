@@ -29,31 +29,16 @@ You have structural analysis tools for this repository. Use them.
 
 ### When to use what
 
-- **recon** — Before writing code. Get ranked context for your task.
-  Always call this first instead of grep/find/read-guessing your way
-  through the codebase.
-  - `task`: Describe what you're about to do, not what you're looking
-    for. "Add retry logic to the HTTP client" not "find HTTP client".
-  - `seeds`: Pass file paths you already know are relevant.
-  - `pins`: Pass symbol names or file paths that MUST appear in results.
-- **recon_map** — When you need to understand the overall structure or find
-  where something lives. Replaces manual directory traversal.
-- **scaffold** — When you need to see a file's structure without reading
-  the full source. Returns imports + symbol hierarchy.
 - **recon_impact** — Before modifying a function/class. Shows all callers
   and dependents. Call this before any signature change.
-- **checkpoint** — After completing a logical unit of work. This runs
-  lint + tests + structural diff + commits. You MUST use checkpoint to
-  commit. You MUST use checkpoint to run tests.
+- **checkpoint** — After completing a logical unit of work. Pass the list
+  of changed file paths. This runs lint + tests + structural diff.
 
 ### Rules
 
-1. Never run tests directly — checkpoint owns test execution.
-2. Never run git commands directly — checkpoint owns commits.
-3. Never run linters directly — checkpoint runs them.
-4. Always call recon_impact before changing a function signature.
-5. If checkpoint fails, read its output. Fix the issue. Call checkpoint
-   again. Do not try to manually run the failing test.
+1. Always call recon_impact before changing a function signature.
+2. If checkpoint fails, read its output. Fix the issue. Call checkpoint
+   again.
 """
 
 _TOOL_GUIDANCE_FULL = (
@@ -67,11 +52,6 @@ _TOOL_GUIDANCE_FULL = (
 - **graph_cycles** — After adding new imports. Detects circular deps.
 - **recon_understand** — Full codebase narrative briefing.
 - **semantic_diff** — Structural change summary between two states.
-- **refactor_rename / refactor_move** — For renames and file moves.
-  These update all references automatically. Never do manual
-  find-and-replace for symbol renames.
-- **refactor_commit / refactor_cancel** — Apply or discard a previewed
-  refactoring.
 """
 )
 
@@ -79,30 +59,6 @@ _TOOL_GUIDANCE_FULL = (
 # ── Tool schemas (JSON Schema for each tool) ──
 
 _TOOL_DEFS: dict[str, dict[str, Any]] = {
-    "recon": {
-        "description": "Task-aware context retrieval — ranked code spans for a task description.",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "task": {"type": "string", "description": "Describe what you are about to do."},
-                "seeds": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "File paths you already know are relevant.",
-                },
-                "pins": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Symbol names or file paths that MUST appear in results.",
-                },
-            },
-            "required": ["task"],
-        },
-    },
-    "recon_map": {
-        "description": "Repository structure map with entry points. Replaces manual directory traversal.",
-        "schema": {"type": "object", "properties": {}},
-    },
     "recon_impact": {
         "description": "Reference/caller analysis for a symbol. Call before changing any function signature.",
         "schema": {
@@ -132,26 +88,24 @@ _TOOL_DEFS: dict[str, dict[str, Any]] = {
             },
         },
     },
-    "scaffold": {
-        "description": "File structural overview — imports + symbol hierarchy without bodies.",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "File path to inspect."},
-            },
-            "required": ["path"],
-        },
-    },
     "checkpoint": {
         "description": (
-            "Lint + test + structural diff + commit pipeline. "
-            "Use this to commit, run tests, and check structural integrity."
+            "Lint + test + structural diff pipeline for changed files. "
+            "Pass changed_files to verify structural integrity."
         ),
         "schema": {
             "type": "object",
             "properties": {
-                "message": {"type": "string", "description": "Commit message."},
+                "changed_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Paths (relative to repo root) of changed files.",
+                },
+                "diff": {"type": "boolean", "description": "Include semantic diff phase (default: true)."},
+                "lint": {"type": "boolean", "description": "Run linting (default: true)."},
+                "tests": {"type": "boolean", "description": "Run affected tests (default: true)."},
             },
+            "required": ["changed_files"],
         },
     },
     "graph_communities": {
@@ -175,48 +129,6 @@ _TOOL_DEFS: dict[str, dict[str, Any]] = {
                     "description": "Limit diff to these paths.",
                 },
             },
-        },
-    },
-    "refactor_rename": {
-        "description": "Rename a symbol across the codebase with impact preview.",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "target": {"type": "string", "description": "Symbol to rename."},
-                "new_name": {"type": "string", "description": "New name for the symbol."},
-            },
-            "required": ["target", "new_name"],
-        },
-    },
-    "refactor_move": {
-        "description": "Move a file/module, updating all imports.",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "source": {"type": "string", "description": "Source file or module path."},
-                "destination": {"type": "string", "description": "Destination path."},
-            },
-            "required": ["source", "destination"],
-        },
-    },
-    "refactor_commit": {
-        "description": "Apply or inspect a previewed refactoring.",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "refactor_id": {"type": "string", "description": "ID of the refactoring to apply."},
-            },
-            "required": ["refactor_id"],
-        },
-    },
-    "refactor_cancel": {
-        "description": "Discard a refactoring preview.",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "refactor_id": {"type": "string", "description": "ID of the refactoring to cancel."},
-            },
-            "required": ["refactor_id"],
         },
     },
 }
@@ -265,10 +177,10 @@ def _item_to_dict(obj: Any) -> Any:
 
 def _resolve_tier(tier: str) -> set[str]:
     """Return tool names allowed for a tier."""
-    minimal = {"recon", "recon_map", "scaffold"}
-    standard = minimal | {"checkpoint", "recon_impact"}
+    minimal = {"recon_impact"}
+    standard = minimal | {"checkpoint"}
     # Read-only structural tools for the preflight curator agent
-    preflight = {"recon", "recon_map", "recon_understand", "recon_impact", "scaffold"}
+    preflight = {"recon_understand", "recon_impact"}
     if tier == "minimal":
         return minimal
     if tier == "standard":
@@ -298,18 +210,6 @@ def build_coderecon_tools(
     async def _dispatch(tool_name: str, args: dict[str, Any]) -> str:
         """Central dispatcher — calls the appropriate CodeReconService method."""
         try:
-            if tool_name == "recon":
-                result = await service.recon(
-                    repo,
-                    args.get("task", ""),
-                    seeds=args.get("seeds"),
-                    pins=args.get("pins"),
-                    worktree=worktree,
-                )
-                return _serialize_result(result)
-            if tool_name == "recon_map":
-                result = await service.recon_map(repo, worktree=worktree)
-                return _serialize_result(result)
             if tool_name == "recon_impact":
                 result = await service.recon_impact(
                     repo,
@@ -318,13 +218,20 @@ def build_coderecon_tools(
                     worktree=worktree,
                 )
                 return _serialize_result(result)
-            if tool_name == "scaffold":
-                result = await service.scaffold(repo, path=args.get("path", ""), worktree=worktree)
-                return _serialize_result(result)
             if tool_name == "recon_understand":
-                result = await service.understand(
+                result = await service.scout(
                     repo,
                     scope=args.get("scope"),
+                    worktree=worktree,
+                )
+                return _serialize_result(result)
+            if tool_name == "checkpoint":
+                result = await service.checkpoint(
+                    repo,
+                    args.get("changed_files", []),
+                    diff=args.get("diff", True),
+                    lint=args.get("lint", True),
+                    tests=args.get("tests", True),
                     worktree=worktree,
                 )
                 return _serialize_result(result)
@@ -342,34 +249,6 @@ def build_coderecon_tools(
                     paths=args.get("paths"),
                     worktree=worktree,
                 )
-                return _serialize_result(result)
-
-            # Tools that need the raw SDK (not wrapped in CodeReconService yet)
-            sdk = await service.get_sdk()
-            if tool_name == "checkpoint":
-                result = await sdk.checkpoint(repo, message=args.get("message"), worktree=worktree)
-                return _serialize_result(result)
-            if tool_name == "refactor_rename":
-                result = await sdk.refactor_rename(
-                    repo,
-                    args["target"],
-                    args["new_name"],
-                    worktree=worktree,
-                )
-                return _serialize_result(result)
-            if tool_name == "refactor_move":
-                result = await sdk.refactor_move(
-                    repo,
-                    args["source"],
-                    args["destination"],
-                    worktree=worktree,
-                )
-                return _serialize_result(result)
-            if tool_name == "refactor_commit":
-                result = await sdk.refactor_commit(repo, args["refactor_id"], worktree=worktree)
-                return _serialize_result(result)
-            if tool_name == "refactor_cancel":
-                result = await sdk.refactor_cancel(repo, args["refactor_id"], worktree=worktree)
                 return _serialize_result(result)
 
             return json.dumps({"error": f"Unknown tool: {tool_name}"})

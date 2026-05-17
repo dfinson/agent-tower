@@ -818,6 +818,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         event_bus=event_bus,
         sidecar_sessions=services.sidecar_sessions,
         config=config.trail,
+        coderecon=coderecon_service,
     )
     event_bus.subscribe(trail_service.handle_event)
     services.runtime_service.set_trail_service(trail_service)

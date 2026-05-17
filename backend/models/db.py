@@ -434,6 +434,7 @@ class TrailNodeRow(Base):
     error_kind: Mapped[str | None] = mapped_column(String(50), nullable=True)
     write_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     edit_motivations: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
+    semantic_targets: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array of structural changes
     tool_display: Mapped[str | None] = mapped_column(String(200), nullable=True)
     tool_intent: Mapped[str | None] = mapped_column(Text, nullable=True)
     tool_success: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

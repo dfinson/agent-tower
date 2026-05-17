@@ -24,8 +24,10 @@ import structlog
 if TYPE_CHECKING:
     from coderecon.index.diff.models import SemanticDiffResult
     from coderecon.review import (
+        CheckpointResult,
         CommunitiesResult,
         CyclesResult,
+        ScoutResult,
         StructuralHealthResult,
     )
 
@@ -111,7 +113,9 @@ class CodeReconService:
 
             kit = self._kit_class(Path(resolved))
             try:
-                await loop.run_in_executor(self._executor, kit.ensure_indexed)
+                await loop.run_in_executor(
+                    self._executor, lambda: kit.ensure_indexed(worktree="main")
+                )
             except Exception:
                 log.warning("coderecon_review.index_failed", repo=resolved, exc_info=True)
                 with contextlib.suppress(Exception):
@@ -123,7 +127,7 @@ class CodeReconService:
             return resolved
 
     async def register_worktree(self, repo: str, worktree_path: str | Path) -> None:
-        """Register a worktree with an already-indexed repo."""
+        """Register a worktree with an already-indexed repo and index it."""
         kit = self._kits.get(repo)
         if kit is None:
             return
@@ -132,6 +136,9 @@ class CodeReconService:
             wt_name = Path(worktree_path).name
             wt = str(Path(worktree_path).resolve())
             await loop.run_in_executor(self._executor, kit.register_worktree, wt_name, Path(wt))
+            await loop.run_in_executor(
+                self._executor, lambda: kit.ensure_indexed(worktree=wt_name)
+            )
             log.info("coderecon_review.worktree_registered", repo=repo, worktree=wt)
         except Exception:
             log.debug("coderecon_review.worktree_register_failed", repo=repo, exc_info=True)
@@ -144,8 +151,8 @@ class CodeReconService:
         *,
         base: str = "HEAD",
         target: str | None = None,
+        paths: list[str] | None = None,
         worktree: str,
-        **_kwargs: Any,
     ) -> SemanticDiffResult:
         """Structural diff between two git states.
 
@@ -156,6 +163,8 @@ class CodeReconService:
         kwargs: dict[str, Any] = {"base": base, "worktree": Path(worktree).name}
         if target is not None:
             kwargs["target"] = target
+        if paths is not None:
+            kwargs["paths"] = paths
         return await loop.run_in_executor(self._executor, lambda: kit.semantic_diff(**kwargs))
 
     async def graph_cycles(
@@ -205,25 +214,23 @@ class CodeReconService:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, lambda: kit.impact(target, worktree=Path(worktree).name))
 
-    async def understand(
+    async def scout(
         self,
         repo: str,
         *,
         scope: str | None = None,
         worktree: str,
-    ) -> Any:
+    ) -> ScoutResult:
         """Codebase orientation — languages, top files, top symbols, cycles, communities.
 
-        Returns an UnderstandResult.
+        Returns a ScoutResult.
         """
         kit = self._get_kit(repo)
-        if not hasattr(kit, "understand"):
-            raise CodeReconUnavailableError
         loop = asyncio.get_running_loop()
         kwargs: dict[str, Any] = {"worktree": Path(worktree).name}
         if scope is not None:
             kwargs["scope"] = scope
-        return await loop.run_in_executor(self._executor, lambda: kit.understand(**kwargs))
+        return await loop.run_in_executor(self._executor, lambda: kit.scout(**kwargs))
 
     async def reindex(
         self,
@@ -241,30 +248,38 @@ class CodeReconService:
             self._executor, lambda: kit.reindex(changed_paths, worktree=Path(worktree).name)
         )
 
-    async def recon(
+    async def checkpoint(
         self,
         repo: str,
-        task: str,
+        changed_files: list[str],
         *,
-        seeds: Any = None,
-        pins: Any = None,
+        diff: bool = True,
+        lint: bool = True,
+        autofix: bool = True,
+        tests: bool = True,
+        test_filter: str | None = None,
+        max_test_hops: int = 0,
         worktree: str,
-    ) -> Any:
-        """Run coderecon recon analysis."""
-        kit = self._get_kit(repo)
-        loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {"task": task, "worktree": Path(worktree).name}
-        if seeds is not None:
-            kwargs["seeds"] = seeds
-        if pins is not None:
-            kwargs["pins"] = pins
-        return await loop.run_in_executor(self._executor, lambda: kit.recon(**kwargs))
+    ) -> CheckpointResult:
+        """Run diff + lint + affected tests for changed files.
 
-    async def recon_map(self, repo: str, *, worktree: str) -> Any:
-        """Run coderecon recon_map."""
+        Returns a CheckpointResult with diff, lint, and test phase outcomes.
+        """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, lambda: kit.recon_map(worktree=Path(worktree).name))
+        return await loop.run_in_executor(
+            self._executor,
+            lambda: kit.checkpoint(
+                changed_files,
+                diff=diff,
+                lint=lint,
+                autofix=autofix,
+                tests=tests,
+                test_filter=test_filter,
+                max_test_hops=max_test_hops,
+                worktree=Path(worktree).name,
+            ),
+        )
 
     async def recon_impact(
         self,
@@ -282,17 +297,50 @@ class CodeReconService:
             lambda: kit.impact(target=target, worktree=Path(worktree).name),
         )
 
-    async def scaffold(self, repo: str, *, path: str = "", worktree: str) -> Any:
-        """Run coderecon scaffold."""
+    async def sync_from_git(self, repo: str, *, worktree: str) -> int:
+        """Detect changed files since last index and reindex them.
+
+        Returns number of files reindexed.
+        """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, lambda: kit.scaffold(path=path, worktree=Path(worktree).name))
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.sync_from_git(worktree=Path(worktree).name)
+        )
 
-    async def get_sdk(self) -> Any:
-        """Return the raw coderecon SDK for direct access."""
-        if not self._available or self._kit_class is None:
-            raise CodeReconUnavailableError
-        return self._kit_class()
+    async def merge_index(self, repo: str, source: str, target: str = "main") -> dict[str, Any]:
+        """Reconcile source worktree index into target, then drop source.
+
+        Call after a successful git merge when the target worktree is clean.
+        Returns dict with adopted/reindexed/pruned counts.
+        """
+        kit = self._get_kit(repo)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.merge_index(source, target)
+        )
+
+    async def drop_worktree(self, repo: str, name: str) -> int:
+        """Remove all indexed data for a worktree.
+
+        Returns number of files removed from the index.
+        """
+        kit = self._get_kit(repo)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.drop_worktree(name)
+        )
+
+    async def enrich_scip(self, repo: str, *, worktree: str) -> Any:
+        """Run SCIP indexers and import compiler-grade cross-references.
+
+        Returns a ScipImportResult with per-tool success/failure details.
+        """
+        kit = self._get_kit(repo)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.enrich_scip(worktree=Path(worktree).name)
+        )
 
     async def repo_status(self, repo: str) -> dict[str, Any] | None:
         """Return indexing status for a repo."""

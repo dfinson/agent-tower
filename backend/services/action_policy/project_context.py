@@ -103,10 +103,10 @@ class ProjectContext:
                 except Exception:
                     log.debug("project_context_config_error", file=name, exc_info=True)
 
-        # CodeRecon understand for codebase narrative
+        # CodeRecon scout for codebase narrative
         if coderecon and coderecon.available and self.repo:
             try:
-                result = await coderecon.understand(
+                result = await coderecon.scout(
                     self.repo,
                     worktree=self.worktree,
                 )

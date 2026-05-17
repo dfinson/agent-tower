@@ -207,29 +207,43 @@ class TestTranscriptBuffer:
         adapter = _make_adapter()
         assert adapter._snapshot_preceding_context("nonexistent") is None
 
-    def test_content_truncation(self) -> None:
+    def test_tool_result_metadata_only(self) -> None:
+        """Tool results store metadata (name, size) not raw content."""
         adapter = _make_adapter()
         adapter._session_to_job["s1"] = "j1"
-        long_content = "a" * (adapter._TRANSCRIPT_CONTENT_MAX + 100)
+        long_content = "a" * 5000
+        adapter._buffer_transcript("s1", {"role": "tool_result", "content": long_content, "tool_name": "read_file"})
+        buf = adapter._transcript_buffers["j1"]
+        # No raw content stored — only metadata
+        assert "content" not in buf[0]
+        assert buf[0]["tool_name"] == "read_file"
+        assert buf[0]["result_bytes"] == "5000"
+        assert buf[0]["result_lines"] == "1"
+
+    def test_agent_content_not_truncated(self) -> None:
+        """Agent messages are stored in full — bounded by upstream model limits."""
+        adapter = _make_adapter()
+        adapter._session_to_job["s1"] = "j1"
+        long_content = "a" * 2000
         adapter._buffer_transcript("s1", {"role": "agent", "content": long_content})
         buf = adapter._transcript_buffers["j1"]
-        assert len(buf[0]["content"]) == adapter._TRANSCRIPT_CONTENT_MAX
+        assert len(buf[0]["content"]) == 2000
 
-    def test_tool_name_captured(self) -> None:
+    def test_tool_call_args_captured(self) -> None:
         adapter = _make_adapter()
         adapter._session_to_job["s1"] = "j1"
         adapter._buffer_transcript(
             "s1",
             {
-                "role": "tool_result",
-                "content": "ok",
+                "role": "tool_call",
+                "content": "",
                 "tool_name": "read_file",
                 "tool_args": '{"path": "/foo"}',
             },
         )
         buf = adapter._transcript_buffers["j1"]
         assert buf[0]["tool_name"] == "read_file"
-        assert "tool_args" in buf[0]
+        assert buf[0]["tool_args"] == '{"path": "/foo"}'
 
     def test_no_job_mapping_ignored(self) -> None:
         adapter = _make_adapter()

@@ -130,10 +130,18 @@ class BaseAgentAdapter(AgentAdapterInterface):
     # Transcript ring buffer for motivation context
     # ------------------------------------------------------------------
 
-    _TRANSCRIPT_CONTENT_MAX = 800  # truncate content in buffer entries
-
     def _buffer_transcript(self, session_id: str, payload: dict[str, Any]) -> None:
-        """Append a compact transcript entry to the per-job ring buffer."""
+        """Append a compact transcript entry to the per-job ring buffer.
+
+        Role-aware compression strategy:
+        - tool_result: metadata only (tool name, file path, result size).
+          The tool_call entry captures what was requested; the agent's
+          subsequent reasoning captures what was learned.  Raw content
+          (file dumps, search output) is never stored.
+        - tool_call: full args preserved (naturally compact — paths, queries).
+        - assistant/reasoning/operator: full content preserved (bounded by
+          the upstream model's output limits per turn).
+        """
         job_id = self._session_to_job.get(session_id)
         if not job_id:
             return
@@ -141,26 +149,48 @@ class BaseAgentAdapter(AgentAdapterInterface):
         # Skip deltas — only buffer complete messages and tool calls
         if role in ("agent_delta", "reasoning_delta", "tool_output_delta", "tool_running"):
             return
-        content = str(payload.get("content", ""))[: self._TRANSCRIPT_CONTENT_MAX]
-        entry: dict[str, str] = {"role": role, "content": content}
+
+        entry: dict[str, str] = {"role": role}
         tool_name = payload.get("tool_name")
-        if tool_name:
-            entry["tool_name"] = str(tool_name)
+
+        if role == "tool_result":
+            # Metadata only — raw tool output is high-volume, low-signal for
+            # motivation.  The preceding tool_call has what was requested.
+            if tool_name:
+                entry["tool_name"] = str(tool_name)
+            raw = str(payload.get("content", ""))
+            entry["result_lines"] = str(raw.count("\n") + 1 if raw else 0)
+            entry["result_bytes"] = str(len(raw))
+        elif role == "tool_call":
+            # Tool calls are high-signal and naturally compact.
+            if tool_name:
+                entry["tool_name"] = str(tool_name)
             tool_args = payload.get("tool_args")
             if tool_args:
-                entry["tool_args"] = str(tool_args)[: self._TRANSCRIPT_CONTENT_MAX]
+                entry["tool_args"] = str(tool_args)
+        else:
+            # assistant, reasoning, operator — the agent's own words.
+            # Bounded by upstream model output limits; no artificial truncation.
+            entry["content"] = str(payload.get("content", ""))
+            if tool_name:
+                entry["tool_name"] = str(tool_name)
+
         buf = self._transcript_buffers.setdefault(job_id, [])
         buf.append(entry)
         # Trim to ring buffer size
         if len(buf) > self._TRANSCRIPT_BUFFER_SIZE:
             del buf[: len(buf) - self._TRANSCRIPT_BUFFER_SIZE]
 
-    def _snapshot_preceding_context(self, job_id: str, count: int = 5) -> str | None:
-        """Return JSON array of the last *count* transcript entries, or None."""
+    def _snapshot_preceding_context(self, job_id: str, count: int | None = None) -> str | None:
+        """Return JSON array of the last *count* transcript entries, or None.
+
+        When count is None (default), returns the entire ring buffer — giving
+        downstream motivation enrichment the maximum available context window.
+        """
         buf = self._transcript_buffers.get(job_id)
         if not buf:
             return None
-        entries = buf[-count:]
+        entries = buf[-count:] if count is not None else list(buf)
         return json.dumps(entries, ensure_ascii=False)
 
     # Mutative shell command prefixes — commands that modify the filesystem,

@@ -144,10 +144,13 @@ export function JobDetailScreen() {
 
   // ── Mobile swipe-to-switch-tab ──
   const mobileTabOrder = useMemo(() => {
-    const tabs = ["live", "shell", "review", "files", "metrics"];
+    const tabs = ["live"];
+    if (hasChanges) tabs.push("review");
+    tabs.push("files", "metrics");
     if (hasArtifacts) tabs.push("artifacts");
+    if (hasMemory) tabs.push("knowledge");
     return tabs;
-  }, [hasArtifacts]);
+  }, [hasChanges, hasArtifacts, hasMemory]);
   const touchRef = useRef<{ x: number; y: number; t: number; el: EventTarget | null } | null>(null);
   const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
 
@@ -191,9 +194,9 @@ export function JobDetailScreen() {
       setMobileActivityOpen(true);
       return;
     }
-    if (dx < 0 && mobileActivityOpen) {
-      setMobileActivityOpen(false);
-      return;
+    if (mobileActivityOpen) {
+      if (dx < 0) setMobileActivityOpen(false);
+      return; // swipe-right while overlay is open: no-op (don't fall through to tab switching)
     }
 
     const idx = mobileTabOrder.indexOf(tab);
@@ -204,7 +207,9 @@ export function JobDetailScreen() {
     const nextIdx = dx < 0 ? (idx + 1) % len : (idx - 1 + len) % len;
     const nextTab = mobileTabOrder[nextIdx];
     if (!nextTab) return;
-    setSlideDir(dx < 0 ? "right" : "left");
+    // Clear then re-set so consecutive same-direction swipes re-trigger the CSS animation
+    setSlideDir(null);
+    requestAnimationFrame(() => setSlideDir(dx < 0 ? "right" : "left"));
     handleTabChange(nextTab);
   }, [tab, mobileTabOrder, mobileActivityOpen, handleTabChange, isInsideHScrollable]);
 

@@ -62,14 +62,14 @@ function StorySection({ title, items }: { title: string; items: Array<Record<str
             : [];
 
           return (
-            <div key={i} className={`text-xs text-foreground/90 pl-3 border-l-2 py-1 ${
+            <div key={i} className={`text-xs text-foreground/90 pl-3 border-l-2 py-1 min-w-0 break-words ${
               isCycleItem ? "border-red-400/50 bg-red-400/5 rounded-r" :
               itemType === "unverified_references" ? "border-yellow-400/50" :
               item.overflow ? "border-muted-foreground/30 italic text-muted-foreground" :
               item.community ? "border-blue-400/40" : "border-border"
             }`}>
               {item.symbol ? (
-                <span className="font-mono font-medium">{String(item.symbol)}</span>
+                <span className="font-mono font-medium break-all">{String(item.symbol)}</span>
               ) : null}
               {item.changeCount ? (
                 <span className="text-muted-foreground text-[10px] ml-1">({String(item.changeCount)} changes)</span>
@@ -156,7 +156,7 @@ function renderInlineCode(text: string): React.ReactNode[] {
       return (
         <code
           key={i}
-          className="font-mono text-[0.85em] text-primary/80 bg-muted/40 px-1 py-px rounded"
+          className="font-mono text-[0.85em] text-primary/80 bg-muted/40 px-1 py-px rounded break-all"
         >
           {part.slice(1, -1)}
         </code>
@@ -192,8 +192,8 @@ function DiffCard({ file, snippet }: { file: string; snippet: string }) {
 
   return (
     <div className="rounded border border-border/50 bg-muted/20 overflow-hidden my-2">
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/30 border-b border-border/30">
-        <span className="font-mono text-[11px] text-primary/80">{file}</span>
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/30 border-b border-border/30 min-w-0">
+        <span className="font-mono text-[11px] text-primary/80 truncate min-w-0">{file}</span>
       </div>
       <pre className="px-0 py-1 font-mono text-[11px] overflow-x-auto whitespace-pre m-0">
         {displayLines.map((line, i) => {
@@ -222,12 +222,12 @@ function StoryTOC({ blocks }: { blocks: StoryBlock[] }) {
     }, []);
   if (files.length === 0) return null;
   return (
-    <div className="text-xs text-muted-foreground border-b border-border/30 pb-3 mb-1">
+    <div className="text-xs text-muted-foreground border-b border-border/30 pb-3 mb-1 break-words overflow-hidden">
       <span className="font-medium text-foreground/60">Files touched: </span>
       {files.map((f, i) => (
         <span key={f}>
           {i > 0 && <span className="text-border mx-1">·</span>}
-          <span className="font-mono text-primary/70">{f}</span>
+          <span className="font-mono text-primary/70 break-all">{f}</span>
         </span>
       ))}
     </div>
@@ -395,13 +395,13 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
+    <div className="rounded-lg border border-border bg-card p-4 overflow-hidden min-w-0">
       <div className="flex items-center gap-2 mb-3">
         <BookOpen size={14} className="text-muted-foreground" />
         <h3 className="text-sm font-semibold">Code Review Story</h3>
       </div>
         <StoryTOC blocks={story.blocks} />
-        <div className="text-sm text-foreground/80 leading-relaxed flex flex-col gap-3">
+        <div className="text-sm text-foreground/80 leading-relaxed flex flex-col gap-3 min-w-0 break-words">
           {(() => {
             // Detect trailing orphaned references — refs appended by the
             // backend when the LLM didn't weave them into the narrative.
@@ -456,7 +456,7 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
                           className="flex items-baseline gap-2 text-xs"
                         >
                           <span
-                            className="font-mono text-[11px] text-primary/80 bg-muted/30 px-1.5 py-0.5 rounded shrink-0"
+                            className="font-mono text-[11px] text-primary/80 bg-muted/30 px-1.5 py-0.5 rounded shrink-0 truncate max-w-[60%]"
                             title={block.file ?? undefined}
                           >
                             {(block.file ?? "").split("/").pop() ?? "file"}
@@ -499,9 +499,9 @@ function StructuralReviewCard({ data }: { data: ReviewStoryResponse }) {
     data.verdict?.confidence === "LOW" ? "bg-red-400/5" : "bg-yellow-400/5";
 
   return (
-    <div className={`rounded-lg border ${borderColor} ${bgColor} p-3`}>
+    <div className={`rounded-lg border ${borderColor} ${bgColor} p-3 overflow-hidden min-w-0`}>
       {/* Header line: confidence + file count + verdict */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0 flex-wrap">
         {confidenceCfg && (
           <div className={`flex items-center gap-1 text-xs font-medium ${confidenceCfg.color}`}>
             <confidenceCfg.icon size={13} />
@@ -530,14 +530,14 @@ function StructuralReviewCard({ data }: { data: ReviewStoryResponse }) {
 
       {/* Verdict summary */}
       {data.verdict?.summary && (
-        <p className="text-xs text-foreground/80 mt-1">{data.verdict.summary}</p>
+        <p className="text-xs text-foreground/80 mt-1 break-words">{data.verdict.summary}</p>
       )}
 
       {/* Blockers — always visible if present */}
       {hasBlockers && data.verdict && (
         <div className="flex flex-col gap-1 mt-2">
           {data.verdict.blockers.map((b, i) => (
-            <div key={i} className="text-xs text-red-400 pl-2 border-l-2 border-red-400/30">
+            <div key={i} className="text-xs text-red-400 pl-2 border-l-2 border-red-400/30 break-words">
               {b}
             </div>
           ))}

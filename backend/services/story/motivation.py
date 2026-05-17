@@ -3,11 +3,11 @@
 Processes telemetry spans that have preceding_context (captured at
 tool-call time for mutative actions) but no motivation_summary yet.
 Calls a cheap LLM (gpt-4o-mini via the configured utility model) to
-generate a concise explanation of *why* the change was made.
+generate a concise narrative explanation of *why* the change was made.
 
 Two-pass pipeline:
-1. File-level: preceding_context → motivation_summary (title + why per span)
-2. Edit-level: tool_args → edit_motivations (title + why per edit, with edit_key)
+1. File-level: preceding_context → motivation_summary (flowing paragraph per span)
+2. Edit-level: tool_args → edit_motivations (flowing paragraph per edit, with edit_key)
 
 Runs as a periodic drain loop during the application lifespan.
 """
@@ -32,24 +32,25 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 _PROMPT_BODY = (
-    'Write in abstract third person — no "I", '
-    'no "the agent", no "this edit", no "this change".\n\n'
-    "Output exactly two lines of plain text (no markdown, no headers, no bullets):\n"
-    "LINE 1: Title — ≤10 words. {title_instruction}. No filler words.\n"
-    "LINE 2: WHY — 1-2 sentences. Only explain what isn't obvious from the diff. "
-    "Reference the specific prior finding, bug, or upstream change that caused this. "
-    "Cite concrete file paths, function names, finding IDs, or todo IDs from the context. "
-    'Never restate what the diff already shows. Never say "aligns with", "ensures consistency", '
-    '"improves maintainability", or similar filler.\n\n'
-    "Never fabricate references. Only cite what appears in the provided context."
+    "Write a single short paragraph (2-4 sentences) that flows naturally as prose.\n"
+    "Explain what was changed AND what prompted it — the upstream finding, bug, "
+    "test failure, or prior read that led here. Cite concrete file paths, function "
+    "names, finding IDs, or todo IDs from the context.\n\n"
+    "Rules:\n"
+    '- Third person, abstract voice — no "I", no "the agent", no "this change".\n'
+    "- Never restate what the diff shows. Only explain what ISN'T obvious.\n"
+    '- Never use filler ("aligns with", "ensures consistency", "improves").\n'
+    "- Never fabricate references — only cite what appears in the provided context.\n"
+    "- Plain text only — no markdown, no bullets, no headers.\n"
+    "- {scope_instruction}\n"
 )
 
-_SYSTEM_PROMPT = "You explain why a code change was made. " + _PROMPT_BODY.format(
-    title_instruction="Name the file and what changed"
+_SYSTEM_PROMPT = "You narrate why a code change was made. " + _PROMPT_BODY.format(
+    scope_instruction="Describe the change at the file level — what semantic object (function, class, module) was affected and why."
 )
 
-_EDIT_SYSTEM_PROMPT = "You explain why a specific code edit was made. " + _PROMPT_BODY.format(
-    title_instruction="Name the specific change"
+_EDIT_SYSTEM_PROMPT = "You narrate why a specific code edit was made. " + _PROMPT_BODY.format(
+    scope_instruction="Focus on this single edit within the file — what specific construct was modified and what triggered it."
 )
 
 # Batch size for each drain cycle
