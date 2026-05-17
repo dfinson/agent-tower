@@ -1193,6 +1193,10 @@ class RuntimeService:
         self._queued_resume_session_ids.pop(job_id, None)
         if self._sidecar_dispatcher is not None:
             try:
+                await self._sidecar_dispatcher.run_postflight(job_id)
+            except Exception:
+                log.warning("sidecar_postflight_failed", job_id=job_id, exc_info=True)
+            try:
                 await self._sidecar_dispatcher.deactivate(job_id)
             except Exception:
                 log.warning("sidecar_dispatcher_deactivate_failed", job_id=job_id, exc_info=True)
@@ -1514,6 +1518,10 @@ class RuntimeService:
 
         # Sidecar session cleanup (metrics snapshot + pool return)
         if self._sidecar_dispatcher is not None:
+            try:
+                await self._sidecar_dispatcher.run_postflight(job_id)
+            except Exception:
+                log.warning("sidecar_postflight_failed", job_id=job_id, exc_info=True)
             try:
                 await self._sidecar_dispatcher.deactivate(job_id)
             except Exception:

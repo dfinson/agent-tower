@@ -517,6 +517,15 @@ async def _wire_core_services(
 
     sidecar_dispatcher.set_gate_handler(_gate_handler)
 
+    # Wire the sidecar agent message handler — injects sidecar output into the agent conversation.
+    async def _agent_message_handler(job_id: str, message: str) -> None:
+        try:
+            await runtime_service.send_message(job_id, message)
+        except Exception:
+            log.error("agent_message_handler_failed", job_id=job_id, exc_info=True)
+
+    sidecar_dispatcher.set_agent_message_handler(_agent_message_handler)
+
     # Recover orphaned jobs from a previous crash (background — don't block startup)
     asyncio.create_task(
         runtime_service.recover_on_startup(),
@@ -819,6 +828,51 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     event_bus.subscribe(trail_service.handle_event)
     services.runtime_service.set_trail_service(trail_service)
     trail_task = asyncio.create_task(trail_service.drain_loop(), name="trail-enrichment-drain")
+
+    # --- Sidecar context providers ---
+    # Each provider is a closure over the owning service, matching the
+    # ContextProvider signature: Callable[[str], Awaitable[dict[str, Any] | None]]
+    from backend.persistence.job_repo import JobRepository
+
+    async def _trigger_event_provider(job_id: str) -> dict[str, Any] | None:
+        # Trigger event data arrives via extra_context (merged after providers).
+        # This provider exists so the name resolves without a warning.
+        return {}
+
+    async def _job_prompt_provider(job_id: str) -> dict[str, Any] | None:
+        async with session_factory() as session:
+            job = await JobRepository(session).get(job_id)
+        if job is None:
+            return None
+        return {"job_prompt": job.prompt or ""}
+
+    async def _job_diff_provider(job_id: str) -> dict[str, Any] | None:
+        async with session_factory() as session:
+            job = await JobRepository(session).get(job_id)
+        if job is None or not job.worktree_path or not job.base_ref:
+            return None
+        files = await services.diff_service.calculate_diff(job.worktree_path, job.base_ref)
+        summary = "\n".join(f"{f.status.value} {f.path}" for f in files)
+        return {"job_diff": summary}
+
+    async def _recent_messages_provider(job_id: str) -> dict[str, Any] | None:
+        state = trail_service.get_job_state(job_id)
+        if state is None:
+            return None
+        return {"recent_messages": "\n".join(state.recent_messages)}
+
+    async def _worktree_path_provider(job_id: str) -> dict[str, Any] | None:
+        async with session_factory() as session:
+            job = await JobRepository(session).get(job_id)
+        if job is None or not job.worktree_path:
+            return None
+        return {"worktree_path": job.worktree_path}
+
+    services.sidecar_dispatcher.register_context("trigger_event", _trigger_event_provider)
+    services.sidecar_dispatcher.register_context("job_prompt", _job_prompt_provider)
+    services.sidecar_dispatcher.register_context("job_diff", _job_diff_provider)
+    services.sidecar_dispatcher.register_context("recent_messages", _recent_messages_provider)
+    services.sidecar_dispatcher.register_context("worktree_path", _worktree_path_provider)
 
     # --- CodeRecon start (always-on, degrades gracefully if package missing) ---
     await coderecon_service.start()

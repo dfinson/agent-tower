@@ -493,10 +493,12 @@ class SidecarDispatcher:
         event_bus: EventBus,
         *,
         gate_handler: Callable[[str, str, str, str], Awaitable[None]] | None = None,
+        agent_message_handler: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> None:
         self._session_manager = session_manager
         self._event_bus = event_bus
         self._gate_handler = gate_handler
+        self._agent_message_handler = agent_message_handler
         self._jobs: dict[str, _JobState] = {}
 
         # Extensible registries (populated at startup by service owners)
@@ -528,6 +530,17 @@ class SidecarDispatcher:
         Signature: ``async handler(job_id, sidecar_name, verdict, reason)``.
         """
         self._gate_handler = handler
+
+    def set_agent_message_handler(
+        self,
+        handler: Callable[[str, str], Awaitable[None]],
+    ) -> None:
+        """Set the agent message injection handler.
+
+        Signature: ``async handler(job_id, message)``.
+        Called when an AgentMessageRoute fires to inject text into the agent conversation.
+        """
+        self._agent_message_handler = handler
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -1142,6 +1155,8 @@ class SidecarDispatcher:
         elif isinstance(route, AgentMessageRoute):
             content = parsed if isinstance(parsed, str) else json.dumps(parsed)
             label_prefix = f"[{route.label or defn.name}] " if (route.label or defn.name) else ""
+            full_message = f"{label_prefix}{content}"
+            # Publish event for visibility (transcript, other sidecars)
             await self._event_bus.publish(
                 DomainEvent(
                     event_id=DomainEvent.make_event_id(),
@@ -1150,12 +1165,23 @@ class SidecarDispatcher:
                     kind=DomainEventKind.sidecar_agent_message,
                     payload={
                         "role": route.role,
-                        "content": f"{label_prefix}{content}",
+                        "content": full_message,
                         "sidecar_name": defn.name,
                         "sidecar_icon": defn.icon,
                     },
                 )
             )
+            # Actually inject the message into the running agent session
+            if self._agent_message_handler is not None:
+                try:
+                    await self._agent_message_handler(job_id, full_message)
+                except Exception:
+                    log.warning(
+                        "dispatcher_agent_message_inject_failed",
+                        job_id=job_id,
+                        sidecar=defn.name,
+                        exc_info=True,
+                    )
 
         elif isinstance(route, GateRoute):
             if not isinstance(parsed, dict):

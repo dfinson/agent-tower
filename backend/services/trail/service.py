@@ -97,6 +97,10 @@ class TrailService:
         """Opt a job out of plan inference and native-plan capture."""
         self._plan_tracking_disabled.add(job_id)
 
+    def get_job_state(self, job_id: str) -> TrailJobState | None:
+        """Return in-memory trail state for a job, or None if not tracked."""
+        return self._job_state.get(job_id)
+
     # ==================================================================
     # Event handling (delegate to node builder + plan feed)
     # ==================================================================
