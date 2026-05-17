@@ -30,6 +30,7 @@ class RetryTracker:
         max_delay: float = 60.0,
         backoff_factor: float = 2.0,
         jitter: bool = True,
+        jitter_factor: float = 0.25,
     ) -> None:
         # Maps (tool_name, tool_target) → most-recent failure span_id (or None)
         self._last_failure: dict[tuple[str, str], int | None] = defaultdict(lambda: None)
@@ -39,6 +40,7 @@ class RetryTracker:
         self.max_delay = max_delay
         self.backoff_factor = backoff_factor
         self.jitter = jitter
+        self.jitter_factor = jitter_factor
 
     def record(
         self,
@@ -79,9 +81,18 @@ class RetryTracker:
             return 0.0
         return min(self.base_delay * (self.backoff_factor ** (failures - 1)), self.max_delay)
 
-    def calculate_delay_with_jitter(self, tool_name: str, tool_target: str) -> float:
-        """Calculate exponential backoff delay with optional random jitter (0-25% of delay)."""
-        delay = self.calculate_delay(tool_name, tool_target)
+    def calculate_delay_with_jitter(self, attempt: int) -> float:
+        """Calculate exponential backoff delay with uniform random jitter.
+
+        Args:
+            attempt: The 1-based attempt number (attempt 1 = first retry).
+
+        Returns:
+            Delay in seconds with jitter in [0, jitter_factor * delay] added.
+        """
+        if attempt <= 0:
+            return 0.0
+        delay = min(self.base_delay * (self.backoff_factor ** (attempt - 1)), self.max_delay)
         if delay > 0 and self.jitter:
-            delay += random.uniform(0, 0.25 * delay)  # noqa: S311
+            delay += random.uniform(0, self.jitter_factor * delay)  # noqa: S311
         return delay
