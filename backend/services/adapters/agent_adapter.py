@@ -147,6 +147,3 @@ class AgentAdapterInterface(ABC):
 
     def set_execution_phase(self, job_id: str, phase: ExecutionPhase) -> None:  # noqa: B027
         """Update the current execution phase for a job (used by cost analytics)."""
-
-    def set_completer(self, completer: Any) -> None:  # noqa: B027
-        """Set the LLM completer for tool-result summarization in the event pipeline."""

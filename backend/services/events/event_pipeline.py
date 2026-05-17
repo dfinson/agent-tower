@@ -38,8 +38,6 @@ from backend.services.events.event_enricher import build_tool_call_payload, buil
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine
 
-    from backend.services.completers.naming_service import Completable
-
 log = structlog.get_logger()
 
 
@@ -87,11 +85,6 @@ class EventPipeline:
         # Transcript ring buffer per job for motivation context
         self._transcript_buffers: dict[str, list[dict[str, str]]] = {}
         self._TRANSCRIPT_BUFFER_SIZE = 10
-        self._completer: Completable | None = None
-
-    def set_completer(self, completer: Completable) -> None:
-        """Set the LLM completer for tool-result summarization."""
-        self._completer = completer
 
     # ------------------------------------------------------------------
     # Lifecycle helpers
@@ -146,7 +139,7 @@ class EventPipeline:
         if title is not None:
             payload["title"] = title
         await self._emit(job_id, SessionEvent(kind=SessionEventKind.transcript, payload=payload))
-        await self._buffer_transcript(job_id, payload)
+        self._buffer_transcript(job_id, payload)
         self._record_message_count(job_id, "agent")
 
     async def on_agent_delta(self, job_id: str, delta: str) -> None:
@@ -174,7 +167,7 @@ class EventPipeline:
         """User/operator sent a message."""
         payload = TranscriptPayload(role="operator", content=content)
         await self._emit(job_id, SessionEvent(kind=SessionEventKind.transcript, payload=payload))
-        await self._buffer_transcript(job_id, payload)
+        self._buffer_transcript(job_id, payload)
         self._record_message_count(job_id, "operator")
 
     # ------------------------------------------------------------------
@@ -297,7 +290,7 @@ class EventPipeline:
 
         if not hidden:
             await self._emit(job_id, SessionEvent(kind=SessionEventKind.transcript, payload=payload))
-            await self._buffer_transcript(job_id, payload)
+            self._buffer_transcript(job_id, payload)
             await self._emit_log(
                 job_id,
                 f"Tool {'completed' if final_success else 'failed'}: {tool_name}",
@@ -651,13 +644,14 @@ class EventPipeline:
     # Transcript ring buffer for motivation context
     # ------------------------------------------------------------------
 
-    async def _buffer_transcript(self, job_id: str, payload: TranscriptPayload) -> None:
+    def _buffer_transcript(self, job_id: str, payload: TranscriptPayload) -> None:
         """Append a compact transcript entry to the per-job ring buffer.
 
         For completed tool calls (role=tool_call with a tool_result field),
-        the raw output is summarized by a cheap LLM relative to the tool's
-        calling intent.  This keeps the buffer compact while preserving the
-        semantic signal that motivation narratives need.
+        the raw result content is stored directly so the downstream motivation
+        model can interpret it in context.  No separate summarization step —
+        the model that generates write motivations already processes
+        preceding_context and will extract the relevant signal.
         """
         role = payload.get("role", "")
         if role in ("agent_delta", "reasoning_delta", "tool_output_delta", "tool_running"):
@@ -670,17 +664,9 @@ class EventPipeline:
             tool_args = payload.get("tool_args")
             if tool_args:
                 entry["tool_args"] = str(tool_args)
-            # Summarize the tool result if available
             raw_result = str(payload.get("tool_result", "") or "")
             if raw_result:
-                summary = await self._summarize_tool_result(
-                    job_id, str(tool_name or ""), str(tool_args or ""), raw_result,
-                )
-                if summary:
-                    entry["result_summary"] = summary
-                else:
-                    entry["result_lines"] = str(raw_result.count("\n") + 1)
-                    entry["result_bytes"] = str(len(raw_result))
+                entry["tool_result"] = raw_result
         else:
             entry["content"] = str(payload.get("content", ""))
             if tool_name:
@@ -689,28 +675,6 @@ class EventPipeline:
         buf.append(entry)
         if len(buf) > self._TRANSCRIPT_BUFFER_SIZE:
             del buf[: len(buf) - self._TRANSCRIPT_BUFFER_SIZE]
-
-    async def _summarize_tool_result(
-        self, job_id: str, tool_name: str, tool_args: str, raw: str,
-    ) -> str | None:
-        """Summarize a tool result relative to the tool call intent.
-
-        Returns the summary string, or None if no completer is available or
-        the call fails (caller falls back to metadata).
-        """
-        if not self._completer or not raw.strip():
-            return None
-        prompt = (
-            "Summarize this tool call result relative to the intent with "
-            "which it was called. One concise paragraph — capture what was "
-            "found, changed, or returned.\n\n"
-            f"Tool: {tool_name}\nArgs: {tool_args}\n\nResult:\n{raw}"
-        )
-        try:
-            return await self._completer.complete(prompt, timeout=10.0)
-        except Exception:
-            log.debug("tool_result_summarize_failed", job_id=job_id, tool=tool_name, exc_info=True)
-            return None
 
     def _snapshot_preceding_context(self, job_id: str) -> str | None:
         """Return JSON array of the last transcript entries, or None."""

@@ -24,7 +24,6 @@ import structlog
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from backend.services.completers.naming_service import Completable
     from backend.services.events.event_bus import EventBus
     from backend.services.git.git_service import GitService
 
@@ -85,11 +84,9 @@ class StepTracker:
         self,
         event_bus: EventBus,
         git_service: GitService | None = None,
-        completer: Completable | None = None,
     ) -> None:
         self._event_bus = event_bus
         self._git_service = git_service
-        self._completer = completer
         self._current: dict[str, _StepState] = {}
         self._counters: dict[str, int] = {}
         self._worktree_paths: dict[str, str] = {}  # job_id → worktree cwd
@@ -118,10 +115,9 @@ class StepTracker:
             return
 
         # Buffer non-delta transcript entries for preceding_context.
-        # Completed tool calls (role=tool_call with a tool_result field) are
-        # summarized by a cheap LLM relative to the tool's calling intent.
-        # This captures what was found/changed without storing the full raw
-        # output.  Falls back to metadata when no completer is available.
+        # Completed tool calls (role=tool_call with a tool_result field)
+        # store the raw result content so the downstream motivation model
+        # can interpret it directly — no separate summarization step.
         if role not in ("reasoning_delta", "tool_output_delta", "tool_running"):
             entry: dict[str, str] = {"role": role}
             t_name = payload.get("tool_name")
@@ -131,17 +127,9 @@ class StepTracker:
                 t_args = payload.get("tool_args")
                 if t_args:
                     entry["tool_args"] = str(t_args)
-                # Summarize the tool result if available
                 raw_result = str(payload.get("tool_result", "") or "")
                 if raw_result:
-                    summary = await self._summarize_tool_result(
-                        job_id, str(t_name or ""), str(t_args or ""), raw_result,
-                    )
-                    if summary:
-                        entry["result_summary"] = summary
-                    else:
-                        entry["result_lines"] = str(raw_result.count("\n") + 1)
-                        entry["result_bytes"] = str(len(raw_result))
+                    entry["tool_result"] = raw_result
             else:
                 entry["content"] = str(content)
                 if t_name:
@@ -372,28 +360,6 @@ class StepTracker:
         self._counters.pop(job_id, None)
         self._worktree_paths.pop(job_id, None)
         self._transcript_buffers.pop(job_id, None)
-
-    async def _summarize_tool_result(
-        self, job_id: str, tool_name: str, tool_args: str, raw: str,
-    ) -> str | None:
-        """Summarize a tool result relative to the tool call intent.
-
-        Returns the summary string, or None if no completer is available or
-        the call fails (caller falls back to metadata).
-        """
-        if not self._completer or not raw.strip():
-            return None
-        prompt = (
-            "Summarize this tool call result relative to the intent with "
-            "which it was called. One concise paragraph — capture what was "
-            "found, changed, or returned.\n\n"
-            f"Tool: {tool_name}\nArgs: {tool_args}\n\nResult:\n{raw}"
-        )
-        try:
-            return await self._completer.complete(prompt, timeout=10.0)
-        except Exception:
-            log.debug("tool_result_summarize_failed", job_id=job_id, tool=tool_name, exc_info=True)
-            return None
 
 
 # ---------------------------------------------------------------------------

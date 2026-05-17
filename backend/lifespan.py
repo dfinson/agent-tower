@@ -448,9 +448,6 @@ async def _wire_core_services(
     log.debug("sidecar_sessions_starting", model=config.runtime.utility_model, sdk=config.runtime.default_sdk)
     await sidecar_sessions.start()
 
-    # Wire tool-result summarization into adapter pipelines
-    adapter_registry.set_completer(sidecar_sessions)
-
     # --- Sidecar dispatcher (trigger evaluation + pipeline execution) ---
     # The gate handler is wired after RuntimeService is created (below).
     sidecar_dispatcher = SidecarDispatcher(
@@ -502,7 +499,6 @@ async def _wire_core_services(
         step_tracker=StepTracker(
             event_bus=event_bus,
             git_service=git_service,
-            completer=sidecar_sessions,
         ),
         coderecon_service=coderecon_service,
         sidecar_dispatcher=sidecar_dispatcher,
@@ -1157,7 +1153,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         coderecon_service=coderecon_service,
         steer_client=steer_client,
     )
-    session_state_watcher._pipeline.set_completer(services.sidecar_sessions)
     await session_state_watcher.start()
 
     # --- ClaudeSessionStateWatcher (auto-discover Claude CLI sessions) ---
@@ -1172,7 +1167,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         coderecon_service=coderecon_service,
         model_pricing=model_pricing_service,
     )
-    claude_session_watcher._pipeline.set_completer(services.sidecar_sessions)
     await claude_session_watcher.start()
 
     ingest_service = IngestService(

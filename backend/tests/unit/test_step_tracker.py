@@ -239,19 +239,12 @@ class TestCleanup:
         tracker.cleanup("nonexistent")
 
 
-class TestToolResultSummarization:
-    """Tests for LLM-based tool result summarization in the transcript buffer."""
+class TestToolResultStorage:
+    """Tests for raw tool result content storage in the transcript buffer."""
 
     @pytest.mark.asyncio
-    async def test_tool_result_summarized_when_completer_set(self, event_bus: AsyncMock) -> None:
-        completer = AsyncMock()
-        completer.complete = AsyncMock(return_value="Found 3 test files matching the query.")
-
-        tracker = StepTracker(event_bus=event_bus, git_service=None, completer=completer)
-
-        # Open a step
+    async def test_tool_result_stored_raw(self, tracker: StepTracker) -> None:
         await tracker.on_transcript_event("job-1", _make_event(turn_id="turn-1"))
-        # Tool call with result (as it arrives from the runtime service)
         await tracker.on_transcript_event(
             "job-1",
             _make_event(
@@ -263,42 +256,21 @@ class TestToolResultSummarization:
 
         buf = tracker._transcript_buffers["job-1"]
         tc = [e for e in buf if e["role"] == "tool_call"][0]
-        assert "result_summary" in tc
+        assert tc["tool_result"] == "file1.py\nfile2.py\nfile3.py"
         assert "result_bytes" not in tc
+        assert "result_summary" not in tc
 
     @pytest.mark.asyncio
-    async def test_tool_result_metadata_fallback_without_completer(self, tracker: StepTracker) -> None:
+    async def test_tool_result_empty_omitted(self, tracker: StepTracker) -> None:
         await tracker.on_transcript_event("job-1", _make_event(turn_id="turn-1"))
         await tracker.on_transcript_event(
             "job-1",
             _make_event(
                 role="tool_call", turn_id="turn-1",
-                tool_name="read_file", tool_result="some output",
+                tool_name="read_file", tool_result="",
             ),
         )
 
         buf = tracker._transcript_buffers["job-1"]
         tc = [e for e in buf if e["role"] == "tool_call"][0]
-        assert "result_bytes" in tc
-        assert "result_summary" not in tc
-
-    @pytest.mark.asyncio
-    async def test_tool_result_metadata_fallback_on_completer_error(self, event_bus: AsyncMock) -> None:
-        completer = AsyncMock()
-        completer.complete = AsyncMock(side_effect=RuntimeError("timeout"))
-
-        tracker = StepTracker(event_bus=event_bus, git_service=None, completer=completer)
-
-        await tracker.on_transcript_event("job-1", _make_event(turn_id="turn-1"))
-        await tracker.on_transcript_event(
-            "job-1",
-            _make_event(
-                role="tool_call", turn_id="turn-1",
-                tool_name="read_file", tool_result="output",
-            ),
-        )
-
-        buf = tracker._transcript_buffers["job-1"]
-        tc = [e for e in buf if e["role"] == "tool_call"][0]
-        assert "result_bytes" in tc
-        assert "result_summary" not in tc
+        assert "tool_result" not in tc

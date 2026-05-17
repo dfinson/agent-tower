@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -560,54 +560,28 @@ class TestPipelineTranscriptBuffer:
         assert "j1" not in pipeline._transcript_buffers
 
     @pytest.mark.asyncio
-    async def test_tool_result_summarized_when_completer_set(self) -> None:
-        """When a completer is available, tool_call entries get a result_summary."""
-        completer = AsyncMock()
-        completer.complete = AsyncMock(return_value="Read the config and found retry_count=3.")
-
-        harness = _PipelineHarness()
-        harness.pipeline.set_completer(completer)
-        p = harness.pipeline
-
-        await p.on_tool_start("j1", "t1", "read_file", '{"path": "/cfg.py"}')
-        await p.on_tool_complete("j1", "t1", "retry_count = 3\nbackoff = 2.0", True)
-
-        buf = p._transcript_buffers["j1"]
-        tc = [e for e in buf if e["role"] == "tool_call"]
-        assert len(tc) == 1
-        assert tc[0]["result_summary"] == "Read the config and found retry_count=3."
-        assert "result_bytes" not in tc[0]
-
-    @pytest.mark.asyncio
-    async def test_tool_result_metadata_fallback_on_completer_failure(self) -> None:
-        """When the completer raises, fall back to metadata-only."""
-        completer = AsyncMock()
-        completer.complete = AsyncMock(side_effect=RuntimeError("model unavailable"))
-
-        harness = _PipelineHarness()
-        harness.pipeline.set_completer(completer)
-        p = harness.pipeline
-
-        await p.on_tool_start("j1", "t1", "read_file", '{"path": "/x.py"}')
-        await p.on_tool_complete("j1", "t1", "some content\nmore lines", True)
-
-        buf = p._transcript_buffers["j1"]
-        tc = [e for e in buf if e["role"] == "tool_call"]
-        assert len(tc) == 1
-        assert "result_bytes" in tc[0]
-        assert "result_summary" not in tc[0]
-
-    @pytest.mark.asyncio
-    async def test_tool_result_metadata_when_no_completer(self, pipeline: EventPipeline) -> None:
-        """Without a completer, tool_call entries use metadata-only for results."""
-        await pipeline.on_tool_start("j1", "t1", "read_file", '{"path": "/x.py"}')
-        await pipeline.on_tool_complete("j1", "t1", "file contents here", True)
+    async def test_tool_result_stored_raw(self, pipeline: EventPipeline) -> None:
+        """Tool call entries store the raw tool_result content."""
+        await pipeline.on_tool_start("j1", "t1", "read_file", '{"path": "/cfg.py"}')
+        await pipeline.on_tool_complete("j1", "t1", "retry_count = 3\nbackoff = 2.0", True)
 
         buf = pipeline._transcript_buffers["j1"]
         tc = [e for e in buf if e["role"] == "tool_call"]
         assert len(tc) == 1
-        assert "result_bytes" in tc[0]
+        assert tc[0]["tool_result"] == "retry_count = 3\nbackoff = 2.0"
+        assert "result_bytes" not in tc[0]
         assert "result_summary" not in tc[0]
+
+    @pytest.mark.asyncio
+    async def test_tool_result_empty_omitted(self, pipeline: EventPipeline) -> None:
+        """Tool call entries with empty results omit the tool_result key."""
+        await pipeline.on_tool_start("j1", "t1", "read_file", '{"path": "/x.py"}')
+        await pipeline.on_tool_complete("j1", "t1", "", True)
+
+        buf = pipeline._transcript_buffers["j1"]
+        tc = [e for e in buf if e["role"] == "tool_call"]
+        assert len(tc) == 1
+        assert "tool_result" not in tc[0]
 
 
 # ===================================================================
