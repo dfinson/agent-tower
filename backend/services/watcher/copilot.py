@@ -23,7 +23,7 @@ import structlog
 
 from backend.models.domain import Job, JobSource, JobState, SessionEvent, SessionEventKind
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.events.event_enricher import ToolEventEnricher
+from backend.services.events.event_pipeline import EventPipeline
 from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin
 
 if TYPE_CHECKING:
@@ -94,8 +94,6 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         # Per-job context for event processor
         self._job_worktrees: dict[str, str] = {}  # job_id → worktree_path
         self._job_base_refs: dict[str, str] = {}  # job_id → base_ref
-        # Per-job tool event enricher (pairs start→complete with metadata)
-        self._enrichers: dict[str, ToolEventEnricher] = {}  # job_id → enricher
         # Instance-level background tasks (DB writes, coderecon indexing)
         self._bg_tasks: set[asyncio.Task[Any]] = set()
         # Per-job accumulated telemetry deltas (flushed atomically with offset)
@@ -107,6 +105,14 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         # _load_existing_sessions).  Prevents importing thousands of stale
         # sessions from session-store.db on every restart.
         self._started_at: str | None = None
+
+        # Unified event pipeline — handles enrichment, telemetry, DB writes
+        self._pipeline = EventPipeline(
+            emit=self._pipeline_emit,
+            schedule_write=self._pipeline_schedule_write,
+            sdk="copilot",
+        )
+        self._pipeline.set_session_factory(session_factory)
 
     async def start(self) -> None:
         """Begin discovery polling. Called from lifespan startup."""
@@ -594,16 +600,20 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             return f.read(_MAX_READ_CHUNK)
 
     # ------------------------------------------------------------------
-    # SDK event → telemetry + session queue
+    # SDK event → pipeline
     # ------------------------------------------------------------------
 
-    def _get_enricher(self, job_id: str) -> ToolEventEnricher:
-        """Get or create the ToolEventEnricher for a job."""
-        enricher = self._enrichers.get(job_id)
-        if enricher is None:
-            enricher = ToolEventEnricher()
-            self._enrichers[job_id] = enricher
-        return enricher
+    async def _pipeline_emit(self, job_id: str, event: SessionEvent) -> None:
+        """Deliver a pipeline-produced event to RuntimeService."""
+        worktree = self._job_worktrees.get(job_id)
+        base_ref = self._job_base_refs.get(job_id)
+        await self._runtime.feed_external_event(
+            job_id, event, worktree_path=worktree, base_ref=base_ref,
+        )
+
+    def _pipeline_schedule_write(self, coro: Any) -> None:
+        """Schedule a fire-and-forget DB write from the pipeline."""
+        self._fire_bg(coro, name="pipeline-write")
 
     async def _process_sdk_event(
         self,
@@ -611,193 +621,143 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         session_id: str,
         job_id: str,
     ) -> None:
-        """Process a single SDK event through the same pipeline as managed sessions.
+        """Process a single SDK event through the unified EventPipeline.
 
-        Uses the shared ToolEventEnricher for tool event enrichment (display
-        labels, visibility, duration, intent) so CLI sessions produce identical
-        transcript payloads to managed sessions.
+        Extracts vendor-specific fields from the typed SDK event, then
+        delegates to the pipeline's on_* methods for enrichment, telemetry,
+        DB writes, and event emission.
         """
-        from backend.services.adapters.sdk_event_mapping import (
-            emit_copilot_otel,
-            extract_copilot_telemetry,
-        )
+        from backend.services.adapters.sdk_event_mapping import extract_result_text
 
         kind_str = sdk_event.type.value if sdk_event.type else ""
         data = sdk_event.data
 
-        # --- Telemetry extraction (unchanged) ---
-        if data:
-            counters = extract_copilot_telemetry(kind_str, data)
-            if counters is not None:
-                emit_copilot_otel(kind_str, counters, job_id)
-                ctx = counters.pop("_context_tokens", None)
-                if ctx is not None:
-                    self._schedule_context_update(job_id, ctx)
-                db_counters = {k: v for k, v in counters.items() if not k.startswith("_")}
-                if db_counters:
-                    self._accumulate_telemetry(job_id, db_counters)
-                model = counters.get("_otel", {}).get("model")
-                if model:
-                    self._schedule_model_update(job_id, model)
+        # --- Transcript events ---
+        if kind_str == "assistant.message":
+            content = str(getattr(data, "content", "") or "")
+            if content.strip():
+                await self._pipeline.on_agent_message(job_id, content)
 
-        # --- Map to enriched SessionEvent (same logic as CopilotAdapter) ---
-        session_event = self._map_sdk_event_enriched(kind_str, data, job_id)
-        if session_event is None:
-            return
+        elif kind_str == "assistant.message_delta":
+            delta = str(getattr(data, "delta_content", "") or "")
+            if delta:
+                await self._pipeline.on_agent_delta(job_id, delta)
 
-        # Feed through RuntimeService's full processing pipeline
-        worktree = self._job_worktrees.get(job_id)
-        base_ref = self._job_base_refs.get(job_id)
-        await self._runtime.feed_external_event(
-            job_id,
-            session_event,
-            worktree_path=worktree,
-            base_ref=base_ref,
-        )
+        elif kind_str == "assistant.reasoning":
+            content = str(getattr(data, "content", "") or "")
+            if content:
+                await self._pipeline.on_reasoning(job_id, content)
 
-    def _map_sdk_event_enriched(
-        self,
-        kind_str: str,
-        data: Any,
-        job_id: str,
-    ) -> SessionEvent | None:
-        """Map a Copilot SDK event to a fully enriched SessionEvent.
+        elif kind_str == "assistant.reasoning_delta":
+            delta = str(getattr(data, "delta_content", "") or "")
+            if delta:
+                await self._pipeline.on_reasoning_delta(job_id, delta)
 
-        Mirrors CopilotAdapter._bridge_to_session_queue — produces identical
-        payloads including tool_display, tool_visibility, tool_intent, duration.
-        """
-        import json as _json
-
-        from backend.services.adapters.sdk_event_mapping import SDK_KIND_MAP, extract_result_text
-
-        kind = SDK_KIND_MAP.get(kind_str)
-        if kind is None:
-            return None
-
-        payload: dict[str, Any] = {}
-
-        if kind == SessionEventKind.transcript:
-            if kind_str == "assistant.message":
-                content = str(getattr(data, "content", "") or "")
-                if not content.strip():
-                    return None
-                payload = {"role": "agent", "content": content}
-            elif kind_str == "assistant.message_delta":
-                delta = str(getattr(data, "delta_content", "") or "")
-                if not delta:
-                    return None
-                payload = {"role": "agent_delta", "content": delta}
-            elif kind_str == "assistant.reasoning":
-                content = str(getattr(data, "content", "") or "")
-                payload = {"role": "reasoning", "content": content}
-            elif kind_str == "assistant.reasoning_delta":
-                delta = str(getattr(data, "delta_content", "") or "")
-                if not delta:
-                    return None
-                payload = {"role": "reasoning_delta", "content": delta}
-            elif kind_str == "user.message":
-                content = str(getattr(data, "content", "") or "")
-                if "<system_notification>" in content:
-                    return None
-                # Capture first user message as job prompt for CLI sessions
-                if job_id not in self._prompt_captured and content.strip():
-                    self._prompt_captured.add(job_id)
-                    self._fire_bg(
-                        self._set_job_prompt(job_id, content),
-                        name=f"copilot-prompt-{job_id[:8]}",
-                    )
-                payload = {"role": "operator", "content": content}
-            elif kind_str == "tool.execution_start":
-                tool_name = getattr(data, "tool_name", None) or getattr(data, "mcp_tool_name", None) or "tool"
-                mcp_server = getattr(data, "mcp_server_name", None)
-                if mcp_server and getattr(data, "mcp_tool_name", None):
-                    tool_name = f"{mcp_server}/{data.mcp_tool_name}"
-                if tool_name == "report_intent":
-                    return None
-                # Serialize arguments
-                args_str: str | None = None
-                raw_args = getattr(data, "arguments", None)
-                if raw_args is not None:
-                    try:
-                        args_str = _json.dumps(raw_args) if not isinstance(raw_args, str) else raw_args
-                    except (TypeError, ValueError, OverflowError):
-                        args_str = str(raw_args)
-                # Extract intent/title from SDK data
-                tool_intent = getattr(data, "intention", None) or ""
-                tool_title = getattr(data, "tool_title", None) or ""
-                if not tool_intent and isinstance(raw_args, dict):
-                    tool_intent = str(raw_args.get("description", ""))
-                # Use tool_call_id for pairing start→complete
-                tool_id = getattr(data, "tool_call_id", "") or ""
-                enricher = self._get_enricher(job_id)
-                payload = enricher.on_tool_start(
-                    tool_id,
-                    tool_name,
-                    args_str,
-                    None,
-                    tool_intent=tool_intent or None,
-                    tool_title=tool_title or None,
+        elif kind_str == "user.message":
+            content = str(getattr(data, "content", "") or "")
+            if "<system_notification>" in content:
+                return
+            # Capture first user message as job prompt for CLI sessions
+            if job_id not in self._prompt_captured and content.strip():
+                self._prompt_captured.add(job_id)
+                self._fire_bg(
+                    self._set_job_prompt(job_id, content),
+                    name=f"copilot-prompt-{job_id[:8]}",
                 )
-            elif kind_str == "tool.execution_partial_result":
-                chunk = str(getattr(data, "partial_output", "") or "")
-                if not chunk:
-                    return None
-                tool_id = getattr(data, "tool_call_id", "") or ""
-                enricher = self._get_enricher(job_id)
-                buffered = enricher.get_buffered(tool_id)
-                tool_name = buffered.get("tool_name", "tool")
-                from backend.services.tool_formatters import classify_tool_visibility
+            if content.strip():
+                await self._pipeline.on_user_message(job_id, content)
 
-                vis = classify_tool_visibility(tool_name, buffered.get("tool_args"))
-                if vis == "hidden":
-                    return None
-                payload = {
-                    "role": "tool_output_delta",
-                    "content": chunk,
-                    "tool_name": tool_name,
-                    "tool_call_id": tool_id,
-                    "turn_id": buffered.get("turn_id"),
-                }
-            elif kind_str == "tool.execution_complete":
-                tool_name = str(getattr(data, "tool_name", None) or "tool")
-                if tool_name == "report_intent":
-                    return None
-                tool_id = getattr(data, "tool_call_id", "") or ""
-                success = bool(getattr(data, "success", True))
-                result_text = extract_result_text(getattr(data, "result", None))
-                enricher = self._get_enricher(job_id)
-                payload = enricher.on_tool_complete(
-                    tool_id,
-                    result_text,
-                    success,
-                    tool_name_fallback=tool_name,
-                )
-        elif kind == SessionEventKind.file_changed:
-            payload = {"file": str(getattr(data, "file_path", "") or "")}
-        else:
-            # done / error — pass through raw dict
+        # --- Tool lifecycle ---
+        elif kind_str == "tool.execution_start":
+            tool_name = getattr(data, "tool_name", None) or getattr(data, "mcp_tool_name", None) or "tool"
+            mcp_server = getattr(data, "mcp_server_name", None)
+            if mcp_server and getattr(data, "mcp_tool_name", None):
+                tool_name = f"{mcp_server}/{data.mcp_tool_name}"
+            if tool_name == "report_intent":
+                return
+            # Serialize arguments
+            args_str: str | None = None
+            raw_args = getattr(data, "arguments", None)
+            if raw_args is not None:
+                try:
+                    args_str = json.dumps(raw_args) if not isinstance(raw_args, str) else raw_args
+                except (TypeError, ValueError, OverflowError):
+                    args_str = str(raw_args)
+            # Extract intent/title from SDK data
+            tool_intent = getattr(data, "intention", None) or ""
+            tool_title = getattr(data, "tool_title", None) or ""
+            if not tool_intent and isinstance(raw_args, dict):
+                tool_intent = str(raw_args.get("description", ""))
+            tool_id = getattr(data, "tool_call_id", "") or ""
+            await self._pipeline.on_tool_start(
+                job_id, tool_id, tool_name, args_str,
+                intent=tool_intent or None,
+                title=tool_title or None,
+            )
+
+        elif kind_str == "tool.execution_partial_result":
+            chunk = str(getattr(data, "partial_output", "") or "")
+            tool_id = getattr(data, "tool_call_id", "") or ""
+            if chunk:
+                await self._pipeline.on_tool_partial(job_id, tool_id, chunk)
+
+        elif kind_str == "tool.execution_complete":
+            tool_name = str(getattr(data, "tool_name", None) or "tool")
+            if tool_name == "report_intent":
+                return
+            tool_id = getattr(data, "tool_call_id", "") or ""
+            success = bool(getattr(data, "success", True))
+            result_text = extract_result_text(getattr(data, "result", None))
+            await self._pipeline.on_tool_complete(job_id, tool_id, result_text, success)
+
+        # --- File changes ---
+        elif kind_str == "session.workspace_file_changed":
+            path = str(getattr(data, "file_path", "") or "")
+            if path:
+                await self._pipeline.on_file_changed(job_id, path)
+
+        # --- Usage / telemetry ---
+        elif kind_str == "assistant.usage":
+            input_toks = int(getattr(data, "input_tokens", 0) or 0)
+            output_toks = int(getattr(data, "output_tokens", 0) or 0)
+            cache_read = int(getattr(data, "cache_read_tokens", 0) or 0)
+            cache_write = int(getattr(data, "cache_write_tokens", 0) or 0)
+            cost = float(getattr(data, "cost", 0) or 0)
+            model = str(getattr(data, "model", "") or "")
+            duration_ms = float(getattr(data, "duration", 0) or 0)
+            await self._pipeline.on_usage(
+                job_id,
+                input_tokens=input_toks,
+                output_tokens=output_toks,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_write,
+                cost_usd=cost,
+                duration_ms=duration_ms,
+                model=model,
+            )
+
+        elif kind_str == "session.usage_info":
+            current = int(getattr(data, "current_tokens", 0) or 0)
+            if current:
+                await self._pipeline.on_context_update(job_id, current)
+
+        elif kind_str == "session.compaction_complete":
+            pre = int(getattr(data, "pre_compaction_tokens", 0) or 0)
+            post = int(getattr(data, "post_compaction_tokens", 0) or 0)
+            await self._pipeline.on_compaction(job_id, pre, post)
+
+        # --- Session lifecycle ---
+        # Note: session.shutdown / session.task_complete / session.idle are
+        # handled by _tail_events for finalization.  We still emit on_done
+        # through the pipeline for consistency (RuntimeService skips done
+        # events in _translate_event, so this is a no-op today).
+        elif kind_str in ("session.task_complete", "session.idle", "session.shutdown"):
             payload = data.to_dict() if data and hasattr(data, "to_dict") else {}
+            await self._pipeline.on_done(job_id, payload)
 
-        return SessionEvent(kind=kind, payload=payload)
-
-    def _schedule_context_update(self, job_id: str, current_tokens: int) -> None:
-        """Schedule a context window update on the telemetry summary row."""
-
-        async def _write() -> None:
-            try:
-                from backend.persistence.database import serialized_write
-
-                async with serialized_write(self._session_factory) as session:
-                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-                    await TelemetrySummaryRepository(session).set_context(
-                        job_id=job_id,
-                        current_tokens=current_tokens,
-                    )
-            except Exception:
-                log.debug("session_watcher_context_update_failed", job_id=job_id, exc_info=True)
-
-        self._fire_bg(_write(), name=f"watcher-ctx-{job_id[:8]}")
+        elif kind_str == "session.error":
+            payload = data.to_dict() if data and hasattr(data, "to_dict") else {}
+            await self._pipeline.on_error(job_id, payload)
 
     # ------------------------------------------------------------------
     # Prompt capture for CLI sessions
@@ -882,9 +842,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         self._job_worktrees.pop(job_id, None)
         self._job_base_refs.pop(job_id, None)
         self._pending_telemetry.pop(job_id, None)
-        enricher = self._enrichers.pop(job_id, None)
-        if enricher:
-            enricher.cleanup()
+        self._pipeline.cleanup_job(job_id)
         # Find and remove session→job mapping
         sid_to_remove = None
         for sid, jid in self._session_to_job.items():

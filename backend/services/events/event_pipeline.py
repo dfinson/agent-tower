@@ -49,7 +49,9 @@ class EventPipeline:
     strings, or content-block dicts.
 
     Constructed with:
-    - ``emit``: async callback to deliver each produced SessionEvent.
+    - ``emit``: async callback ``(job_id, event) -> None`` to deliver each
+      produced SessionEvent.  The job_id allows multi-job consumers (watchers)
+      to route events to the correct session.
     - ``schedule_write``: callback to schedule a fire-and-forget DB write
       coroutine (``_schedule_db_write`` for managed, ``_fire_bg`` wrapper for
       watchers).
@@ -60,7 +62,7 @@ class EventPipeline:
     def __init__(
         self,
         *,
-        emit: Callable[[SessionEvent], Awaitable[None]],
+        emit: Callable[[str, SessionEvent], Awaitable[None]],
         schedule_write: Callable[[Coroutine[Any, Any, None]], None],
         sdk: str,
     ) -> None:
@@ -71,6 +73,7 @@ class EventPipeline:
         # Per-job state
         self._pending_tool_metadata: dict[str, dict[str, str]] = {}
         self._tool_start_times: dict[str, float] = {}
+        self._job_tool_ids: dict[str, set[str]] = {}  # job_id → active tool_ids
         self._job_start_times: dict[str, float] = {}
         self._turn_counters: dict[str, int] = {}
         self._current_phases: dict[str, str] = {}
@@ -113,6 +116,11 @@ class EventPipeline:
         self._log_seq.pop(job_id, None)
         self._retry_trackers.pop(job_id, None)
         self._transcript_buffers.pop(job_id, None)
+        # Purge any orphaned tool metadata for this job
+        orphan_tool_ids = self._job_tool_ids.pop(job_id, set())
+        for tid in orphan_tool_ids:
+            self._pending_tool_metadata.pop(tid, None)
+            self._tool_start_times.pop(tid, None)
 
     def get_buffered_tool(self, tool_id: str) -> dict[str, str]:
         """Get buffered metadata for a tool_id (for intermediate events)."""
@@ -130,27 +138,27 @@ class EventPipeline:
         payload = TranscriptPayload(role="agent", content=content)
         if title is not None:
             payload["title"] = title
-        await self._emit(SessionEvent(kind=SessionEventKind.transcript, payload=payload))
+        await self._emit(job_id, SessionEvent(kind=SessionEventKind.transcript, payload=payload))
         self._buffer_transcript(job_id, payload)
         self._record_message_count(job_id, "agent")
 
     async def on_agent_delta(self, job_id: str, delta: str) -> None:
         """Streaming chunk of agent text."""
-        await self._emit(SessionEvent(
+        await self._emit(job_id, SessionEvent(
             kind=SessionEventKind.transcript,
             payload=TranscriptPayload(role="agent_delta", content=delta),
         ))
 
     async def on_reasoning(self, job_id: str, content: str) -> None:
         """Agent produced a reasoning/thinking block."""
-        await self._emit(SessionEvent(
+        await self._emit(job_id, SessionEvent(
             kind=SessionEventKind.transcript,
             payload=TranscriptPayload(role="reasoning", content=content),
         ))
 
     async def on_reasoning_delta(self, job_id: str, delta: str) -> None:
         """Streaming chunk of reasoning text."""
-        await self._emit(SessionEvent(
+        await self._emit(job_id, SessionEvent(
             kind=SessionEventKind.transcript,
             payload=TranscriptPayload(role="reasoning_delta", content=delta),
         ))
@@ -158,7 +166,7 @@ class EventPipeline:
     async def on_user_message(self, job_id: str, content: str) -> None:
         """User/operator sent a message."""
         payload = TranscriptPayload(role="operator", content=content)
-        await self._emit(SessionEvent(kind=SessionEventKind.transcript, payload=payload))
+        await self._emit(job_id, SessionEvent(kind=SessionEventKind.transcript, payload=payload))
         self._buffer_transcript(job_id, payload)
         self._record_message_count(job_id, "operator")
 
@@ -194,6 +202,7 @@ class EventPipeline:
             "tool_intent": intent or "",
             "tool_title": title or "",
         }
+        self._job_tool_ids.setdefault(job_id, set()).add(tool_id)
 
         if hidden:
             return
@@ -205,7 +214,7 @@ class EventPipeline:
             tool_intent=intent,
             tool_title=title,
         )
-        await self._emit(SessionEvent(kind=SessionEventKind.transcript, payload=payload))
+        await self._emit(job_id, SessionEvent(kind=SessionEventKind.transcript, payload=payload))
         await self._emit_log(job_id, f"Tool started: {tool_name}", "debug")
 
         # Emit file_changed for file-write tools to trigger diff
@@ -230,7 +239,7 @@ class EventPipeline:
         if vis == "hidden":
             return
 
-        await self._emit(SessionEvent(kind=SessionEventKind.transcript, payload=TranscriptPayload(
+        await self._emit(job_id, SessionEvent(kind=SessionEventKind.transcript, payload=TranscriptPayload(
             role="tool_output_delta",
             content=chunk,
             tool_name=tool_name,
@@ -254,13 +263,18 @@ class EventPipeline:
         transcript event, a log line, and records full tool telemetry.
         """
         buffered = self._pending_tool_metadata.pop(tool_id, {})
+        start = self._tool_start_times.pop(tool_id, None)
+        # Remove from job→tool tracking
+        for tids in self._job_tool_ids.values():
+            if tool_id in tids:
+                tids.discard(tool_id)
+                break
         tool_name = buffered.get("tool_name", "tool")
         tool_args_str = buffered.get("tool_args") or None
         turn_id = buffered.get("turn_id") or None
         tool_intent = buffered.get("tool_intent") or None
         tool_title = buffered.get("tool_title") or None
 
-        start = self._tool_start_times.pop(tool_id, None)
         duration_ms = ((time.monotonic() - start) * 1000) if start is not None else None
 
         payload = build_tool_call_payload(
@@ -276,7 +290,7 @@ class EventPipeline:
         final_success = payload["tool_success"]
 
         if not hidden:
-            await self._emit(SessionEvent(kind=SessionEventKind.transcript, payload=payload))
+            await self._emit(job_id, SessionEvent(kind=SessionEventKind.transcript, payload=payload))
             self._buffer_transcript(job_id, payload)
             await self._emit_log(
                 job_id,
@@ -301,7 +315,7 @@ class EventPipeline:
 
     async def on_file_changed(self, job_id: str, path: str) -> None:
         """A file was created or modified."""
-        await self._emit(SessionEvent(
+        await self._emit(job_id, SessionEvent(
             kind=SessionEventKind.file_changed,
             payload=FileChangedPayload(path=path),
         ))
@@ -312,14 +326,14 @@ class EventPipeline:
 
     async def on_done(self, job_id: str, payload: DonePayload | None = None) -> None:
         """Agent session completed."""
-        await self._emit(SessionEvent(
+        await self._emit(job_id, SessionEvent(
             kind=SessionEventKind.done,
             payload=payload or DonePayload(),
         ))
 
     async def on_error(self, job_id: str, payload: ErrorPayload | None = None) -> None:
         """Agent session errored."""
-        await self._emit(SessionEvent(
+        await self._emit(job_id, SessionEvent(
             kind=SessionEventKind.error,
             payload=payload or ErrorPayload(),
         ))
@@ -457,7 +471,7 @@ class EventPipeline:
         """Emit a log SessionEvent."""
         seq = self._log_seq.get(job_id, 0) + 1
         self._log_seq[job_id] = seq
-        await self._emit(SessionEvent(
+        await self._emit(job_id, SessionEvent(
             kind=SessionEventKind.log,
             payload=LogPayload(
                 seq=seq,
