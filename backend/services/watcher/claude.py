@@ -573,7 +573,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         job = Job(
             id=job_id,
             repo=repo_path,
-            prompt="(discovered CLI session)",
+            prompt="",
             state=JobState.running,
             base_ref=base_ref,
             branch=branch,
@@ -933,7 +933,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                         tool_use_id,
                         str(result_content),
                         not is_error,
-                        tool_name_fallback=block.get("name", "tool"),
+                        tool_name_fallback="tool",
                     )
                     session_event = SessionEvent(
                         kind=SessionEventKind.transcript,
@@ -1011,9 +1011,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                 from backend.persistence.job_repo import JobRepository
 
                 repo = JobRepository(session)
-                job = await repo.get(job_id)
-                if job and job.prompt == "(discovered CLI session)":
-                    await repo.update_prompt(job_id, content[:500])
+                await repo.update_prompt(job_id, content)
         except Exception:
             log.debug("claude_watcher_prompt_update_failed", job_id=job_id, exc_info=True)
 

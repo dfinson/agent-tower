@@ -100,6 +100,8 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         self._bg_tasks: set[asyncio.Task[Any]] = set()
         # Per-job accumulated telemetry deltas (flushed atomically with offset)
         self._pending_telemetry: dict[str, dict[str, float | int]] = {}
+        # Track which job_ids have had their prompt captured
+        self._prompt_captured: set[str] = set()
         # ISO timestamp of when this watcher started — sessions created before
         # this are ignored unless they already have a job in the DB (handled by
         # _load_existing_sessions).  Prevents importing thousands of stale
@@ -407,7 +409,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         job = Job(
             id=job_id,
             repo=repo_path,
-            prompt="(discovered CLI session)",
+            prompt="",
             state=JobState.running,
             base_ref=base_ref,
             branch=branch,
@@ -697,6 +699,13 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 content = str(getattr(data, "content", "") or "")
                 if "<system_notification>" in content:
                     return None
+                # Capture first user message as job prompt for CLI sessions
+                if job_id not in self._prompt_captured and content.strip():
+                    self._prompt_captured.add(job_id)
+                    self._fire_bg(
+                        self._set_job_prompt(job_id, content),
+                        name=f"copilot-prompt-{job_id[:8]}",
+                    )
                 payload = {"role": "operator", "content": content}
             elif kind_str == "tool.execution_start":
                 tool_name = getattr(data, "tool_name", None) or getattr(data, "mcp_tool_name", None) or "tool"
@@ -789,6 +798,23 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 log.debug("session_watcher_context_update_failed", job_id=job_id, exc_info=True)
 
         self._fire_bg(_write(), name=f"watcher-ctx-{job_id[:8]}")
+
+    # ------------------------------------------------------------------
+    # Prompt capture for CLI sessions
+    # ------------------------------------------------------------------
+
+    async def _set_job_prompt(self, job_id: str, content: str) -> None:
+        """Set job prompt from first user message."""
+        try:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(self._session_factory) as session:
+                from backend.persistence.job_repo import JobRepository
+
+                repo = JobRepository(session)
+                await repo.update_prompt(job_id, content)
+        except Exception:
+            log.debug("session_watcher_prompt_update_failed", job_id=job_id, exc_info=True)
 
     # ------------------------------------------------------------------
     # Session finalization

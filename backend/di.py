@@ -136,12 +136,24 @@ class RequestProvider(Provider):
         self,
         sf: async_sessionmaker[AsyncSession],
     ) -> AsyncIterator[AsyncSession]:
+        from sqlalchemy import event as sa_event
+
         from backend.persistence.database import get_write_lock
 
         async with sf() as session:
+            # Track whether any DML was flushed during this session.
+            # flush() clears session.dirty, so the dirty/new/deleted check
+            # alone misses writes that were flushed but not yet committed.
+            _flushed = False
+
+            @sa_event.listens_for(session.sync_session, "after_flush")
+            def _mark_flushed(sync_session: Any, flush_context: Any) -> None:
+                nonlocal _flushed
+                _flushed = True
+
             try:
                 yield session
-                if session.dirty or session.new or session.deleted:
+                if session.dirty or session.new or session.deleted or _flushed:
                     async with get_write_lock():
                         await session.commit()
             except Exception:

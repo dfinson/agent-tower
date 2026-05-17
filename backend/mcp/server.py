@@ -260,7 +260,9 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
         if action == "cancel":
             if not job_id:
                 return {"error": "job_id is required for cancel"}
-            async with sf() as session:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(sf) as session:
                 svc = _make_job_service(mcp_state, session, config)
                 try:
                     job = await svc.cancel_job(job_id)
