@@ -276,10 +276,17 @@ _STORY_SYSTEM = (
     "so the reader follows the thread.\n\n"
     #
     # Format constraints
-    "FORMAT: Plain prose paragraphs only. No markdown headers, bullets, or "
-    "code blocks — output renders inline. Backtick-wrapped `symbols` are "
-    "allowed and encouraged. First person ('I started by…'). "
-    "Contractions fine. No emoji or exclamation marks. "
+    "FORMAT: Write in plain prose paragraphs. Use `backtick` code spans "
+    "freely. First person ('I started by…'). Contractions fine. No emoji "
+    "or exclamation marks.\n\n"
+    "SECTIONS: Break the story into 3–6 sections using `## Section Title` "
+    "headers. Each section groups a coherent phase of the work — a problem "
+    "discovered, a fix applied, a verification attempt. Section titles "
+    "should be short, specific, and name the thing that changed or "
+    "happened — 'Untangling the archived state', 'Filter reorder in "
+    "the service layer', 'Verification failures'. Never generic titles "
+    "like 'Introduction' or 'Conclusion'. The opening section still needs "
+    "a header. Separate paragraphs with blank lines.\n\n"
     "Every change MUST be referenced by its [[N]] marker at least once. "
     "Beat markers ({{DECIDE}}, {{BACKTRACK}}, {{INSIGHT}}, {{VERIFY}}) go "
     "on their own line before the relevant prose."
@@ -698,6 +705,7 @@ def _build_prompt(
 
 _MARKER_RE = re.compile(r"\[\[(\d+)\]\]")
 _BEAT_RE = re.compile(r"\{\{(DECIDE|BACKTRACK|INSIGHT|VERIFY)\}\}", re.IGNORECASE)
+_HEADING_RE = re.compile(r"^#{1,3}\s+(.+)$", re.MULTILINE)
 _SPLIT_RE = re.compile(
     r"(\[\[\d+\]\]|\{\{(?:DECIDE|BACKTRACK|INSIGHT|VERIFY)\}\})",
     re.IGNORECASE,
@@ -750,22 +758,38 @@ def _parse_blocks(
                 )
             continue
 
-        # Plain text segment — narrative or beat prose
+        # Plain text segment — narrative or beat prose.
+        # Split on ## headings to emit heading blocks.
         text = seg.strip()
         if not text:
             continue
 
+        # Extract heading lines and interleaved prose
+        sub_blocks: list[StoryBlock] = []
+        last_end = 0
+        for hm in _HEADING_RE.finditer(text):
+            before = text[last_end : hm.start()].strip()
+            if before:
+                sub_blocks.append({"type": "narrative", "text": before})
+            sub_blocks.append({"type": "heading", "text": hm.group(1).strip()})
+            last_end = hm.end()
+        trailing = text[last_end:].strip()
+        if trailing:
+            sub_blocks.append({"type": "narrative", "text": trailing})
+
+        if not sub_blocks:
+            continue
+
         if pending_beat:
-            blocks.append(
-                {
-                    "type": "beat",
-                    "text": text,
-                    "beatKind": pending_beat,
-                }
-            )
+            # Attach beat kind to the first narrative sub-block
+            for sb in sub_blocks:
+                if sb.get("type") == "narrative":
+                    sb["beatKind"] = pending_beat
+                    sb["type"] = "beat"
+                    break
             pending_beat = None
-        else:
-            blocks.append({"type": "narrative", "text": text})
+
+        blocks.extend(sub_blocks)
 
     # Discard any dangling beat marker with no trailing prose (#10)
     if pending_beat:

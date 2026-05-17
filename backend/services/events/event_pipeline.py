@@ -38,6 +38,8 @@ from backend.services.events.event_enricher import build_tool_call_payload, buil
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine
 
+    from backend.services.completers.naming_service import Completable
+
 log = structlog.get_logger()
 
 
@@ -85,6 +87,11 @@ class EventPipeline:
         # Transcript ring buffer per job for motivation context
         self._transcript_buffers: dict[str, list[dict[str, str]]] = {}
         self._TRANSCRIPT_BUFFER_SIZE = 10
+        self._completer: Completable | None = None
+
+    def set_completer(self, completer: Completable) -> None:
+        """Set the LLM completer for tool-result summarization."""
+        self._completer = completer
 
     # ------------------------------------------------------------------
     # Lifecycle helpers
@@ -139,7 +146,7 @@ class EventPipeline:
         if title is not None:
             payload["title"] = title
         await self._emit(job_id, SessionEvent(kind=SessionEventKind.transcript, payload=payload))
-        self._buffer_transcript(job_id, payload)
+        await self._buffer_transcript(job_id, payload)
         self._record_message_count(job_id, "agent")
 
     async def on_agent_delta(self, job_id: str, delta: str) -> None:
@@ -167,7 +174,7 @@ class EventPipeline:
         """User/operator sent a message."""
         payload = TranscriptPayload(role="operator", content=content)
         await self._emit(job_id, SessionEvent(kind=SessionEventKind.transcript, payload=payload))
-        self._buffer_transcript(job_id, payload)
+        await self._buffer_transcript(job_id, payload)
         self._record_message_count(job_id, "operator")
 
     # ------------------------------------------------------------------
@@ -290,7 +297,7 @@ class EventPipeline:
 
         if not hidden:
             await self._emit(job_id, SessionEvent(kind=SessionEventKind.transcript, payload=payload))
-            self._buffer_transcript(job_id, payload)
+            await self._buffer_transcript(job_id, payload)
             await self._emit_log(
                 job_id,
                 f"Tool {'completed' if final_success else 'failed'}: {tool_name}",
@@ -644,8 +651,14 @@ class EventPipeline:
     # Transcript ring buffer for motivation context
     # ------------------------------------------------------------------
 
-    def _buffer_transcript(self, job_id: str, payload: TranscriptPayload) -> None:
-        """Append a compact transcript entry to the per-job ring buffer."""
+    async def _buffer_transcript(self, job_id: str, payload: TranscriptPayload) -> None:
+        """Append a compact transcript entry to the per-job ring buffer.
+
+        For tool_result entries, if a completer is available the raw output is
+        summarized relative to the preceding tool_call's intent.  This keeps the
+        buffer compact while preserving the semantic signal that motivation
+        narratives need.
+        """
         role = payload.get("role", "")
         if role in ("agent_delta", "reasoning_delta", "tool_output_delta", "tool_running"):
             return
@@ -655,8 +668,12 @@ class EventPipeline:
             if tool_name:
                 entry["tool_name"] = str(tool_name)
             raw = str(payload.get("content", ""))
-            entry["result_lines"] = str(raw.count("\n") + 1 if raw else 0)
-            entry["result_bytes"] = str(len(raw))
+            summary = await self._summarize_tool_result(job_id, str(tool_name or ""), raw)
+            if summary:
+                entry["summary"] = summary
+            else:
+                entry["result_lines"] = str(raw.count("\n") + 1 if raw else 0)
+                entry["result_bytes"] = str(len(raw))
         elif role == "tool_call":
             if tool_name:
                 entry["tool_name"] = str(tool_name)
@@ -671,6 +688,39 @@ class EventPipeline:
         buf.append(entry)
         if len(buf) > self._TRANSCRIPT_BUFFER_SIZE:
             del buf[: len(buf) - self._TRANSCRIPT_BUFFER_SIZE]
+
+    async def _summarize_tool_result(
+        self, job_id: str, tool_name: str, raw: str,
+    ) -> str | None:
+        """Summarize a tool result relative to the preceding tool_call intent.
+
+        Returns the summary string, or None if no completer is available or
+        the call fails (caller falls back to metadata).
+        """
+        if not self._completer or not raw.strip():
+            return None
+        # Find the most recent tool_call in the buffer to get the intent
+        buf = self._transcript_buffers.get(job_id, [])
+        intent_desc = ""
+        for prev in reversed(buf):
+            if prev.get("role") == "tool_call":
+                prev_name = prev.get("tool_name", "")
+                prev_args = prev.get("tool_args", "")
+                intent_desc = f"Tool: {prev_name}\nArgs: {prev_args}"
+                break
+        if not intent_desc:
+            intent_desc = f"Tool: {tool_name}"
+        prompt = (
+            "Summarize this tool call result relative to the intent with "
+            "which it was called. One concise paragraph — capture what was "
+            "found, changed, or returned.\n\n"
+            f"{intent_desc}\n\nResult:\n{raw}"
+        )
+        try:
+            return await self._completer.complete(prompt, timeout=10.0)
+        except Exception:
+            log.debug("tool_result_summarize_failed", job_id=job_id, tool=tool_name, exc_info=True)
+            return None
 
     def _snapshot_preceding_context(self, job_id: str) -> str | None:
         """Return JSON array of the last transcript entries, or None."""
