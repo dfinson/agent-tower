@@ -106,26 +106,23 @@ class TestItemToDict:
 class TestResolveTier:
     def test_minimal(self):
         names = _resolve_tier("minimal")
-        assert names == {"recon", "recon_map", "scaffold"}
+        assert names == {"recon_impact"}
 
     def test_standard(self):
         names = _resolve_tier("standard")
-        assert "recon" in names
-        assert "recon_map" in names
-        assert "scaffold" in names
-        assert "checkpoint" in names
         assert "recon_impact" in names
+        assert "checkpoint" in names
         assert "graph_communities" not in names
 
     def test_preflight(self):
         names = _resolve_tier("preflight")
-        assert names == {"recon", "recon_map", "recon_understand", "recon_impact", "scaffold"}
+        assert names == {"recon_understand", "recon_impact"}
 
     def test_full(self):
         names = _resolve_tier("full")
         assert names == set(_TOOL_DEFS.keys())
         assert "graph_communities" in names
-        assert "refactor_rename" in names
+        assert "checkpoint" in names
 
     def test_unknown_returns_full(self):
         names = _resolve_tier("unknown_tier")
@@ -146,10 +143,10 @@ class TestCodeReconToolKit:
     def test_custom_values(self):
         kit = CodeReconToolKit(
             system_prompt="prompt",
-            allowed_tool_names=["recon"],
+            allowed_tool_names=["recon_impact"],
         )
         assert kit.system_prompt == "prompt"
-        assert kit.allowed_tool_names == ["recon"]
+        assert kit.allowed_tool_names == ["recon_impact"]
 
 
 # ── _TOOL_DEFS structure ──
@@ -163,29 +160,30 @@ class TestToolDefs:
             assert isinstance(defn["schema"], dict)
 
     def test_required_tools_exist(self):
-        assert "recon" in _TOOL_DEFS
         assert "checkpoint" in _TOOL_DEFS
-        assert "scaffold" in _TOOL_DEFS
-        assert "recon_map" in _TOOL_DEFS
         assert "recon_impact" in _TOOL_DEFS
+        assert "recon_understand" in _TOOL_DEFS
+        assert "semantic_diff" in _TOOL_DEFS
+        assert "graph_cycles" in _TOOL_DEFS
+        assert "graph_communities" in _TOOL_DEFS
 
-    def test_recon_schema_has_task_required(self):
-        schema = _TOOL_DEFS["recon"]["schema"]
-        assert "task" in schema["properties"]
-        assert "task" in schema.get("required", [])
+    def test_checkpoint_schema_has_changed_files_required(self):
+        schema = _TOOL_DEFS["checkpoint"]["schema"]
+        assert "changed_files" in schema["properties"]
+        assert "changed_files" in schema.get("required", [])
 
 
 # ── System prompt constants ──
 
 
 class TestGuidancePrompts:
-    def test_standard_mentions_recon(self):
-        assert "recon" in _TOOL_GUIDANCE_STANDARD
+    def test_standard_mentions_impact(self):
+        assert "recon_impact" in _TOOL_GUIDANCE_STANDARD
 
     def test_full_extends_standard(self):
         assert _TOOL_GUIDANCE_FULL.startswith(_TOOL_GUIDANCE_STANDARD)
         assert "graph_communities" in _TOOL_GUIDANCE_FULL
         assert "semantic_diff" in _TOOL_GUIDANCE_FULL
 
-    def test_full_mentions_refactor(self):
-        assert "refactor_rename" in _TOOL_GUIDANCE_FULL
+    def test_full_mentions_understand(self):
+        assert "recon_understand" in _TOOL_GUIDANCE_FULL

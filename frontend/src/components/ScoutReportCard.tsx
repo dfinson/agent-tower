@@ -17,10 +17,11 @@ import type { PreflightReport } from "../store";
 /** Human-readable labels for CodeRecon tool names. */
 const TOOL_LABELS: Record<string, string> = {
   recon_understand: "Codebase overview",
-  recon: "Task-aware retrieval",
-  recon_map: "Repository map",
   recon_impact: "Reference analysis",
-  scaffold: "File structure",
+  checkpoint: "Checkpoint",
+  graph_communities: "Communities",
+  graph_cycles: "Cycles",
+  semantic_diff: "Structural diff",
 };
 
 function formatDuration(ms: number): string {
