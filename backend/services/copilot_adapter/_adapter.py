@@ -90,6 +90,10 @@ class CopilotAdapter(BaseAgentAdapter):
     # Pipeline integration
     # ------------------------------------------------------------------
 
+    def set_completer(self, completer: Any) -> None:
+        """Forward completer to the event pipeline for tool-result summarization."""
+        self._pipeline.set_completer(completer)
+
     async def _pipeline_emit(self, job_id: str, event: SessionEvent) -> None:
         """Deliver a pipeline-produced event to the session queue."""
         for sid, jid in self._session_to_job.items():

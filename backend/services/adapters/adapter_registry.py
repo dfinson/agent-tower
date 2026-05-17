@@ -31,13 +31,27 @@ class AdapterRegistry:
         self._event_bus = event_bus
         self._session_factory = session_factory
         self._adapters: dict[AgentSDK, AgentAdapterInterface] = {}
+        self._completer: object | None = None
+
+    def set_completer(self, completer: object) -> None:
+        """Set the LLM completer for tool-result summarization.
+
+        Propagates to all cached adapters and will be passed to any
+        adapter created in the future.
+        """
+        self._completer = completer
+        for adapter in self._adapters.values():
+            adapter.set_completer(completer)
 
     def get_adapter(self, sdk: AgentSDK | str) -> AgentAdapterInterface:
         """Return a (possibly cached) adapter instance for the given SDK."""
         if isinstance(sdk, str):
             sdk = AgentSDK(sdk)
         if sdk not in self._adapters:
-            self._adapters[sdk] = self._create(sdk)
+            adapter = self._create(sdk)
+            if self._completer:
+                adapter.set_completer(self._completer)
+            self._adapters[sdk] = adapter
         return self._adapters[sdk]
 
     def _create(self, sdk: AgentSDK) -> AgentAdapterInterface:

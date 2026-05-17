@@ -654,32 +654,33 @@ class EventPipeline:
     async def _buffer_transcript(self, job_id: str, payload: TranscriptPayload) -> None:
         """Append a compact transcript entry to the per-job ring buffer.
 
-        For tool_result entries, if a completer is available the raw output is
-        summarized relative to the preceding tool_call's intent.  This keeps the
-        buffer compact while preserving the semantic signal that motivation
-        narratives need.
+        For completed tool calls (role=tool_call with a tool_result field),
+        the raw output is summarized by a cheap LLM relative to the tool's
+        calling intent.  This keeps the buffer compact while preserving the
+        semantic signal that motivation narratives need.
         """
         role = payload.get("role", "")
         if role in ("agent_delta", "reasoning_delta", "tool_output_delta", "tool_running"):
             return
         entry: dict[str, str] = {"role": role}
         tool_name = payload.get("tool_name")
-        if role == "tool_result":
-            if tool_name:
-                entry["tool_name"] = str(tool_name)
-            raw = str(payload.get("content", ""))
-            summary = await self._summarize_tool_result(job_id, str(tool_name or ""), raw)
-            if summary:
-                entry["summary"] = summary
-            else:
-                entry["result_lines"] = str(raw.count("\n") + 1 if raw else 0)
-                entry["result_bytes"] = str(len(raw))
-        elif role == "tool_call":
+        if role == "tool_call":
             if tool_name:
                 entry["tool_name"] = str(tool_name)
             tool_args = payload.get("tool_args")
             if tool_args:
                 entry["tool_args"] = str(tool_args)
+            # Summarize the tool result if available
+            raw_result = str(payload.get("tool_result", "") or "")
+            if raw_result:
+                summary = await self._summarize_tool_result(
+                    job_id, str(tool_name or ""), str(tool_args or ""), raw_result,
+                )
+                if summary:
+                    entry["result_summary"] = summary
+                else:
+                    entry["result_lines"] = str(raw_result.count("\n") + 1)
+                    entry["result_bytes"] = str(len(raw_result))
         else:
             entry["content"] = str(payload.get("content", ""))
             if tool_name:
@@ -690,31 +691,20 @@ class EventPipeline:
             del buf[: len(buf) - self._TRANSCRIPT_BUFFER_SIZE]
 
     async def _summarize_tool_result(
-        self, job_id: str, tool_name: str, raw: str,
+        self, job_id: str, tool_name: str, tool_args: str, raw: str,
     ) -> str | None:
-        """Summarize a tool result relative to the preceding tool_call intent.
+        """Summarize a tool result relative to the tool call intent.
 
         Returns the summary string, or None if no completer is available or
         the call fails (caller falls back to metadata).
         """
         if not self._completer or not raw.strip():
             return None
-        # Find the most recent tool_call in the buffer to get the intent
-        buf = self._transcript_buffers.get(job_id, [])
-        intent_desc = ""
-        for prev in reversed(buf):
-            if prev.get("role") == "tool_call":
-                prev_name = prev.get("tool_name", "")
-                prev_args = prev.get("tool_args", "")
-                intent_desc = f"Tool: {prev_name}\nArgs: {prev_args}"
-                break
-        if not intent_desc:
-            intent_desc = f"Tool: {tool_name}"
         prompt = (
             "Summarize this tool call result relative to the intent with "
             "which it was called. One concise paragraph — capture what was "
             "found, changed, or returned.\n\n"
-            f"{intent_desc}\n\nResult:\n{raw}"
+            f"Tool: {tool_name}\nArgs: {tool_args}\n\nResult:\n{raw}"
         )
         try:
             return await self._completer.complete(prompt, timeout=10.0)

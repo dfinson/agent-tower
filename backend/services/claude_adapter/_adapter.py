@@ -118,6 +118,10 @@ class ClaudeAdapter(BaseAgentAdapter):
         """Update the current execution phase for cost analytics span tagging."""
         self._pipeline.set_execution_phase(job_id, phase)
 
+    def set_completer(self, completer: Any) -> None:
+        """Forward completer to the event pipeline for tool-result summarization."""
+        self._pipeline.set_completer(completer)
+
     def _read_session_stderr(self, session_id: str) -> str:
         """Read captured stderr from the Claude subprocess."""
         path = self._stderr_files.get(session_id)
