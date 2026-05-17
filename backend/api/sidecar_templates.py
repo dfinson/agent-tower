@@ -151,5 +151,7 @@ async def fire_sidecar(
 ) -> dict[str, str]:
     """Manually fire a sidecar's ManualCondition pipelines."""
     context = body.context if body else None
-    await dispatcher.fire(job_id, sidecar_name, context)
+    found = await dispatcher.fire(job_id, sidecar_name, context)
+    if not found:
+        raise HTTPException(status_code=404, detail="Job not active or sidecar not found")
     return {"status": "fired"}

@@ -749,18 +749,22 @@ class SidecarDispatcher:
         job_id: str,
         sidecar_name: str,
         context: dict[str, Any] | None = None,
-    ) -> None:
-        """Manual trigger — fires all ManualCondition pipelines for a sidecar."""
+    ) -> bool:
+        """Manual trigger — fires all ManualCondition pipelines for a sidecar.
+
+        Returns True if the job was found (even if no manual pipelines matched).
+        """
         state = self._jobs.get(job_id)
         if not state:
             log.warning("dispatcher_fire_no_job", job_id=job_id, sidecar=sidecar_name)
-            return
+            return False
         for defn in state.definitions:
             if defn.name != sidecar_name:
                 continue
             for idx, pipeline in enumerate(defn.triggers):
                 if isinstance(pipeline.condition, ManualCondition):
                     await self._try_execute(job_id, state, defn, idx, context)
+        return True
 
     async def run_preflight(self, job_id: str) -> None:
         """Execute all preflight sidecars before the job agent starts."""
@@ -915,6 +919,7 @@ class SidecarDispatcher:
             if queued_defn.name == sidecar_name and not fired:
                 fired = True
                 state.in_flight.add(sidecar_name)
+                state.executing_depth += 1
                 try:
                     await self._execute_pipeline(
                         job_id,
@@ -925,6 +930,7 @@ class SidecarDispatcher:
                 except Exception:
                     log.error("dispatcher_queued_error", exc_info=True)
                 finally:
+                    state.executing_depth -= 1
                     state.in_flight.discard(sidecar_name)
             else:
                 remaining.append((queued_defn, queued_idx, queued_ctx))
