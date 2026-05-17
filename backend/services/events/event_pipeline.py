@@ -355,6 +355,7 @@ class EventPipeline:
         model: str = "",
         is_subagent: bool = False,
         advance_turn: bool = False,
+        num_turns: int = 1,
     ) -> None:
         """Record an LLM usage event (token counts, cost, timing)."""
         from backend.services.analytics import telemetry as tel
@@ -374,14 +375,16 @@ class EventPipeline:
             "output_tokens": output_tokens,
             "cache_read_tokens": cache_read_tokens,
             "cache_write_tokens": cache_write_tokens,
-            "llm_call_count": 1,
+            "llm_call_count": num_turns,
         }
         if cost_usd:
             db_counters["total_cost_usd"] = cost_usd
+        if is_subagent and cost_usd:
+            db_counters["subagent_cost_usd"] = cost_usd
         if duration_ms:
             db_counters["total_llm_duration_ms"] = int(duration_ms)
         if advance_turn:
-            db_counters["total_turns"] = 1
+            db_counters["total_turns"] = num_turns
         self._schedule_write(self._db_increment(job_id, **db_counters))
 
         if advance_turn:

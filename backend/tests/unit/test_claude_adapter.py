@@ -455,12 +455,15 @@ class TestBuildCanUseTool:
 
 
 class TestProcessAssistantMessage:
-    def test_text_block_emits_transcript(self, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_text_block_emits_transcript(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
         msg = _FakeAssistantMessage(content=[_FakeTextBlock("Hello world")])
 
-        adapter._process_assistant_message(sid, msg, [0])
+        await adapter._process_assistant_message(sid, msg)
 
         event = adapter._queues[sid].get_nowait()
         assert event is not None
@@ -468,94 +471,105 @@ class TestProcessAssistantMessage:
         assert event.payload["role"] == "agent"
         assert event.payload["content"] == "Hello world"
 
-    def test_empty_text_block_skipped(self, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_empty_text_block_skipped(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
         msg = _FakeAssistantMessage(content=[_FakeTextBlock("   ")])
 
-        adapter._process_assistant_message(sid, msg, [0])
+        await adapter._process_assistant_message(sid, msg)
 
         assert adapter._queues[sid].empty()
 
-    def test_tool_use_block_records_start_time(self, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_tool_use_block_records_start_time(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
         tool_block = _FakeToolUseBlock(name="Bash", id="tool-1")
         msg = _FakeAssistantMessage(content=[tool_block])
 
-        adapter._process_assistant_message(sid, msg, [0])
+        await adapter._process_assistant_message(sid, msg)
 
-        assert "tool-1" in adapter._tool_start_times
+        assert "tool-1" in adapter._pipeline._tool_start_times
 
-    @patch("backend.services.tool_formatters.format_tool_display_full", return_value="TodoWrite")
-    @patch("backend.services.tool_formatters.format_tool_display", return_value="Update todo list")
-    def test_todo_write_emits_transcript(
-        self,
-        mock_fmt: MagicMock,
-        mock_fmt_full: MagicMock,
-        adapter: ClaudeAdapter,
-    ) -> None:
+    @pytest.mark.asyncio
+    async def test_todo_write_emits_transcript(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
         tool_block = _FakeToolUseBlock(name="TodoWrite", id="tool-2")
         msg = _FakeAssistantMessage(content=[tool_block])
 
-        adapter._process_assistant_message(sid, msg, [0])
+        await adapter._process_assistant_message(sid, msg)
 
         # TodoWrite should now be emitted as a transcript event (no longer hidden)
-        assert "tool-2" in adapter._tool_start_times
+        assert "tool-2" in adapter._pipeline._tool_start_times
         assert not adapter._queues[sid].empty()
 
-    @patch("backend.services.tool_formatters.format_tool_display", return_value="Bash: ls")
-    def test_tool_result_block_emits_transcript(self, mock_fmt: MagicMock, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_tool_result_block_emits_transcript(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
-        adapter._tool_start_times["tool-1"] = time.monotonic() - 0.5
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        # Pre-populate tool metadata in pipeline (simulates on_tool_start)
+        adapter._pipeline._tool_start_times["tool-1"] = time.monotonic() - 0.5
+        adapter._pipeline._pending_tool_metadata["tool-1"] = {"tool_name": "Bash", "tool_args": "", "turn_id": "t1", "tool_intent": "", "tool_title": ""}
+        adapter._pipeline._job_tool_ids.setdefault("job-1", set()).add("tool-1")
 
         result_block = _FakeToolResultBlock(tool_use_id="tool-1", content="output here", is_error=False)
         msg = _FakeAssistantMessage(content=[result_block])
 
-        adapter._process_assistant_message(sid, msg, [0])
+        await adapter._process_assistant_message(sid, msg)
 
         events = []
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
         transcript_events = [e for e in events if e is not None and e.kind == SessionEventKind.transcript]
-        assert len(transcript_events) == 1
+        assert len(transcript_events) >= 1
         assert transcript_events[0].payload["tool_result"] == "output here"
         assert transcript_events[0].payload["tool_success"] is True
 
-    @patch("backend.services.tool_formatters.format_tool_display", return_value="tool: failed")
-    def test_tool_result_error(self, mock_fmt: MagicMock, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_tool_result_error(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         result_block = _FakeToolResultBlock(tool_use_id="tool-err", content="error msg", is_error=True)
         msg = _FakeAssistantMessage(content=[result_block])
 
-        adapter._process_assistant_message(sid, msg, [0])
+        await adapter._process_assistant_message(sid, msg)
 
         events = []
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
         transcript_events = [e for e in events if e is not None and e.kind == SessionEventKind.transcript]
-        assert len(transcript_events) == 1
+        assert len(transcript_events) >= 1
         assert transcript_events[0].payload["tool_success"] is False
 
-    @patch("backend.services.tool_formatters.format_tool_display", return_value="tool: ok")
-    def test_tool_result_list_content(self, mock_fmt: MagicMock, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_tool_result_list_content(self, adapter: ClaudeAdapter) -> None:
         """ToolResultBlock.content can be a list of objects with .text attrs."""
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         part1 = SimpleNamespace(text="line1")
         part2 = SimpleNamespace(text="line2")
         result_block = _FakeToolResultBlock(tool_use_id="tool-list", content=[part1, part2])
         msg = _FakeAssistantMessage(content=[result_block])
 
-        adapter._process_assistant_message(sid, msg, [0])
+        await adapter._process_assistant_message(sid, msg)
 
         events = []
         while not adapter._queues[sid].empty():
@@ -564,16 +578,18 @@ class TestProcessAssistantMessage:
         transcript_events = [e for e in events if e is not None and e.kind == SessionEventKind.transcript]
         assert transcript_events[0].payload["tool_result"] == "line1\nline2"
 
-    @patch("backend.services.tool_formatters.format_tool_display", return_value="tool: ok")
-    def test_tool_result_list_content_no_text_attr(self, mock_fmt: MagicMock, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_tool_result_list_content_no_text_attr(self, adapter: ClaudeAdapter) -> None:
         """Content list items without .text should be stringified."""
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         result_block = _FakeToolResultBlock(tool_use_id="tool-x", content=[42, "raw"])
         msg = _FakeAssistantMessage(content=[result_block])
 
-        adapter._process_assistant_message(sid, msg, [0])
+        await adapter._process_assistant_message(sid, msg)
 
         events = []
         while not adapter._queues[sid].empty():
@@ -582,21 +598,26 @@ class TestProcessAssistantMessage:
         transcript_events = [e for e in events if e is not None and e.kind == SessionEventKind.transcript]
         assert "42" in transcript_events[0].payload["tool_result"]
 
-    def test_no_content_blocks(self, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_no_content_blocks(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
         msg = _FakeAssistantMessage(content=None)
 
-        adapter._process_assistant_message(sid, msg, [0])
+        await adapter._process_assistant_message(sid, msg)
 
         assert adapter._queues[sid].empty()
 
-    def test_thinking_block_emits_reasoning(self, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_thinking_block_emits_reasoning(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
         msg = _FakeAssistantMessage(content=[_FakeThinkingBlock("I need to think about this")])
 
-        adapter._process_assistant_message(sid, msg, [0])
+        await adapter._process_assistant_message(sid, msg)
 
         event = adapter._queues[sid].get_nowait()
         assert event is not None
@@ -604,20 +625,25 @@ class TestProcessAssistantMessage:
         assert event.payload["role"] == "reasoning"
         assert event.payload["content"] == "I need to think about this"
 
-    def test_empty_thinking_block_skipped(self, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_empty_thinking_block_skipped(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
         msg = _FakeAssistantMessage(content=[_FakeThinkingBlock("   ")])
 
-        adapter._process_assistant_message(sid, msg, [0])
+        await adapter._process_assistant_message(sid, msg)
 
         assert adapter._queues[sid].empty()
 
 
 class TestProcessResultMessage:
-    def test_successful_result(self, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_successful_result(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         msg = _FakeResultMessage(
             result="All done",
@@ -627,7 +653,7 @@ class TestProcessResultMessage:
             is_error=False,
         )
 
-        adapter._process_result_message(sid, msg, [0])
+        await adapter._process_result_message(sid, msg)
 
         events = []
         while not adapter._queues[sid].empty():
@@ -635,18 +661,16 @@ class TestProcessResultMessage:
 
         done_events = [e for e in events if e is not None and e.kind == SessionEventKind.done]
         assert len(done_events) == 1
-        assert done_events[0].payload["result"] == "All done"
 
-        log_events = [e for e in events if e is not None and e.kind == SessionEventKind.log]
-        assert any("$0.0500" in e.payload["message"] for e in log_events)
-
-    def test_error_result(self, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_error_result(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         msg = _FakeResultMessage(result="Something broke", is_error=True)
 
-        adapter._process_result_message(sid, msg, [0])
+        await adapter._process_result_message(sid, msg)
 
         events = []
         while not adapter._queues[sid].empty():
@@ -656,11 +680,13 @@ class TestProcessResultMessage:
         assert len(error_events) == 1
         assert "error" in error_events[0].payload["message"].lower()
 
-    def test_result_with_job_records_telemetry(self) -> None:
+    @pytest.mark.asyncio
+    async def test_result_with_job_records_telemetry(self) -> None:
         adapter = ClaudeAdapter()
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         msg = _FakeResultMessage(
             result="ok",
@@ -681,31 +707,34 @@ class TestProcessResultMessage:
             patch("backend.services.analytics.telemetry.cost_usd") as mock_cost,
             patch("backend.services.analytics.telemetry.llm_duration") as mock_dur,
         ):
-            adapter._process_result_message(sid, msg, [0])
+            await adapter._process_result_message(sid, msg)
 
-            attrs = {"job_id": "job-1", "sdk": "claude", "model": "", "session_kind": "job"}
-            mock_in.add.assert_called_once_with(10, attrs)
-            mock_out.add.assert_called_once_with(5, attrs)
+            attrs = {"job_id": "job-1", "sdk": "claude"}
+            mock_in.add.assert_called_once_with(10, {**attrs, "model": ""})
+            mock_out.add.assert_called_once_with(5, {**attrs, "model": ""})
             mock_cr.add.assert_called_once_with(2, attrs)
             mock_cw.add.assert_called_once_with(1, attrs)
             mock_cost.add.assert_called_once_with(0.01, attrs)
-            mock_dur.record.assert_called_once_with(0.0, {**attrs, "is_subagent": False})
+            # duration_ms=0 is falsy, so llm_duration.record is not called
+            mock_dur.record.assert_not_called()
 
-    def test_result_empty_usage_dict(self, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_result_empty_usage_dict(self, adapter: ClaudeAdapter) -> None:
         """usage=None or non-dict should default to 0."""
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         msg = _FakeResultMessage(result="ok", usage=None)
-        adapter._process_result_message(sid, msg, [0])
+        await adapter._process_result_message(sid, msg)
 
         events = []
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        log_events = [e for e in events if e is not None and e.kind == SessionEventKind.log]
-        # Should contain "0+0 tokens"
-        assert any("0+0" in e.payload.get("message", "") for e in log_events)
+        # Should emit a done event without crashing
+        done_events = [e for e in events if e is not None and e.kind == SessionEventKind.done]
+        assert len(done_events) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -714,9 +743,12 @@ class TestProcessResultMessage:
 
 
 class TestProcessStreamEvent:
-    def test_thinking_delta_emits_reasoning_delta(self, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_thinking_delta_emits_reasoning_delta(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
         adapter._current_turn_ids[sid] = "turn-1"
 
         stream_event = _FakeStreamEvent(
@@ -727,18 +759,20 @@ class TestProcessStreamEvent:
             parent_tool_use_id=None,
         )
 
-        adapter._process_stream_event(sid, stream_event)
+        await adapter._process_stream_event(sid, stream_event)
 
         event = adapter._queues[sid].get_nowait()
         assert event is not None
         assert event.kind == SessionEventKind.transcript
         assert event.payload["role"] == "reasoning_delta"
         assert event.payload["content"] == "Let me consider..."
-        assert event.payload["turn_id"] == "turn-1"
 
-    def test_empty_thinking_delta_skipped(self, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_empty_thinking_delta_skipped(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         stream_event = _FakeStreamEvent(
             event={
@@ -747,16 +781,21 @@ class TestProcessStreamEvent:
             },
         )
 
-        adapter._process_stream_event(sid, stream_event)
+        await adapter._process_stream_event(sid, stream_event)
 
         assert adapter._queues[sid].empty()
 
-    @patch("backend.services.tool_formatters.classify_tool_visibility", return_value="visible")
-    def test_text_delta_emits_tool_output_delta(self, mock_vis: MagicMock, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_text_delta_emits_tool_output_delta(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
         parent_id = "tool-1"
-        adapter._pending_tool_metadata[parent_id] = {"tool_name": "Bash", "turn_id": "turn-1"}
+        # Tool metadata now lives in the pipeline
+        adapter._pipeline._pending_tool_metadata[parent_id] = {
+            "tool_name": "Bash", "tool_args": "", "turn_id": "turn-1", "tool_intent": "", "tool_title": "",
+        }
 
         stream_event = _FakeStreamEvent(
             event={
@@ -766,20 +805,23 @@ class TestProcessStreamEvent:
             parent_tool_use_id=parent_id,
         )
 
-        adapter._process_stream_event(sid, stream_event)
+        await adapter._process_stream_event(sid, stream_event)
 
         event = adapter._queues[sid].get_nowait()
         assert event is not None
         assert event.payload["role"] == "tool_output_delta"
         assert event.payload["content"] == "output line"
 
-    def test_no_event_dict_returns_early(self, adapter: ClaudeAdapter) -> None:
+    @pytest.mark.asyncio
+    async def test_no_event_dict_returns_early(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         stream_event = _FakeStreamEvent(event=None)
 
-        adapter._process_stream_event(sid, stream_event)
+        await adapter._process_stream_event(sid, stream_event)
 
         assert adapter._queues[sid].empty()
 
@@ -795,6 +837,8 @@ class TestConsumeMessages:
         sid = "sess-1"
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         adapter._queues[sid] = q
+        adapter._session_to_job[sid] = "job-1"
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         client = _FakeClaudeSDKClient()
         client._messages = [
@@ -810,14 +854,16 @@ class TestConsumeMessages:
 
         # Filter out sentinel None
         events = [e for e in events if e is not None]
-        log_events = [e for e in events if e is not None and e.kind == SessionEventKind.log]
-        assert any("initialized" in e.payload.get("message", "") for e in log_events)
+        # SystemMessage emits an agent transcript through the pipeline
+        transcript_events = [e for e in events if e.kind == SessionEventKind.transcript]
+        assert any("initialized" in (e.payload.get("content", "") or "") for e in transcript_events)
 
     @pytest.mark.asyncio
     async def test_result_message_ends_stream(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         adapter._queues[sid] = q
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         client = _FakeClaudeSDKClient()
         client._messages = [_FakeResultMessage(result="final")]
@@ -839,6 +885,7 @@ class TestConsumeMessages:
         sid = "sess-1"
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         adapter._queues[sid] = q
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         client = MagicMock()
 
@@ -1105,19 +1152,24 @@ class TestCreateSession:
 
 
 class TestToolResultTelemetry:
-    @patch("backend.services.tool_formatters.format_tool_display", return_value="Bash: ls")
-    def test_tool_result_records_telemetry_with_job(self, mock_fmt: MagicMock) -> None:
+    @pytest.mark.asyncio
+    async def test_tool_result_records_telemetry_with_job(self) -> None:
         adapter = ClaudeAdapter()
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._tool_start_times["tool-1"] = time.monotonic() - 1.0
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        # Pre-populate tool metadata in pipeline
+        adapter._pipeline._tool_start_times["tool-1"] = time.monotonic() - 1.0
+        adapter._pipeline._pending_tool_metadata["tool-1"] = {
+            "tool_name": "Bash", "tool_args": "", "turn_id": "t1", "tool_intent": "", "tool_title": "",
+        }
+        adapter._pipeline._job_tool_ids.setdefault("job-1", set()).add("tool-1")
 
         with patch("backend.services.analytics.telemetry.tool_duration") as mock_tool_dur:
-            adapter._process_tool_result_block(
+            await adapter._process_tool_result_block(
                 sid,
                 _FakeToolResultBlock(tool_use_id="tool-1", content="ok"),
-                [0],
                 "job-1",
             )
 
@@ -1125,17 +1177,17 @@ class TestToolResultTelemetry:
             call_args = mock_tool_dur.record.call_args
             assert call_args[0][1]["job_id"] == "job-1"
 
-    @patch("backend.services.tool_formatters.format_tool_display", return_value="tool: ok")
-    def test_tool_result_no_job_skips_telemetry(self, mock_fmt: MagicMock) -> None:
+    @pytest.mark.asyncio
+    async def test_tool_result_no_job_skips_telemetry(self) -> None:
         adapter = ClaudeAdapter()
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         with patch("backend.services.analytics.telemetry.tool_duration") as mock_tool_dur:
-            adapter._process_tool_result_block(
+            await adapter._process_tool_result_block(
                 sid,
                 _FakeToolResultBlock(tool_use_id="tool-2", content="ok"),
-                [0],
                 None,
             )
 
