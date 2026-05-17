@@ -162,7 +162,7 @@ export interface DiffUpdatePayload {
 // --- Story types ---
 
 export interface StoryBlock {
-  type: "narrative" | "reference" | "beat";
+  type: "narrative" | "reference" | "beat" | "heading";
   // narrative / beat fields
   text?: string | null;
   // beat fields

@@ -270,45 +270,6 @@ function StoryTOC({ blocks }: { blocks: StoryBlock[] }) {
   );
 }
 
-/**
- * Group story blocks into logical sections.
- * A section is a run of narrative/beat blocks (the explanation)
- * followed by reference blocks (the evidence). A new section starts
- * whenever narrative/beat text appears after a reference.
- */
-interface StorySection {
-  prose: StoryBlock[];      // narrative + beat blocks
-  references: StoryBlock[]; // reference blocks that follow
-}
-
-function groupIntoSections(blocks: StoryBlock[]): StorySection[] {
-  const sections: StorySection[] = [];
-  let current: StorySection = { prose: [], references: [] };
-
-  for (const block of blocks) {
-    const isText = (block.type === "narrative" || block.type === "beat") && block.text;
-    const isRef = block.type === "reference";
-
-    if (isText) {
-      // If we were accumulating refs, start a new section
-      if (current.references.length > 0) {
-        sections.push(current);
-        current = { prose: [], references: [] };
-      }
-      current.prose.push(block);
-    } else if (isRef) {
-      current.references.push(block);
-    }
-  }
-
-  // Push the last section if non-empty
-  if (current.prose.length > 0 || current.references.length > 0) {
-    sections.push(current);
-  }
-
-  return sections;
-}
-
 type Verbosity = "summary" | "standard" | "detailed";
 
 /** Trail-based story fallback when CodeRecon is unavailable. */
@@ -476,43 +437,33 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
         <h3 className="text-sm font-semibold">Code Review Story</h3>
       </div>
         <StoryTOC blocks={story.blocks} />
-        <div className="text-sm text-foreground/80 leading-relaxed flex flex-col gap-0 min-w-0 break-words">
-          {(() => {
-            const sections = groupIntoSections(story.blocks);
-
-            return sections.map((section, si) => {
-              // Skip sections with no visible content
-              const hasText = section.prose.some((b) => b.text);
-              const hasRefs = section.references.some((b) => b.file && b.snippet);
-              if (!hasText && !hasRefs) return null;
-
+        <div className="text-sm text-foreground/80 leading-relaxed flex flex-col gap-3 min-w-0 break-words">
+          {story.blocks.map((block: StoryBlock, i: number) => {
+            if (block.type === "heading" && block.text) {
               return (
-                <div
-                  key={`s-${si}`}
+                <h4
+                  key={`h-${i}`}
                   className={cn(
-                    "flex flex-col gap-3 py-4",
-                    si > 0 && "border-t border-border/20",
+                    "text-sm font-semibold text-foreground/90 pt-4 pb-1",
+                    i > 0 && "border-t border-border/20 mt-2",
                   )}
                 >
-                  {/* Prose: narrative + beat text */}
-                  {section.prose.map((block, pi) => {
-                    if (!block.text) return null;
-                    return (
-                      <React.Fragment key={`s${si}-p${pi}`}>
-                        {renderParagraphs(block.text, `s${si}-p${pi}`)}
-                      </React.Fragment>
-                    );
-                  })}
-
-                  {/* Reference diffs */}
-                  {section.references.map((block, ri) => {
-                    if (!block.file || !block.snippet) return null;
-                    return <DiffCard key={`s${si}-r${ri}`} file={block.file} snippet={block.snippet} />;
-                  })}
-                </div>
+                  {block.text}
+                </h4>
               );
-            });
-          })()}
+            }
+            if ((block.type === "narrative" || block.type === "beat") && block.text) {
+              return (
+                <React.Fragment key={`t-${i}`}>
+                  {renderParagraphs(block.text, `t-${i}`)}
+                </React.Fragment>
+              );
+            }
+            if (block.type === "reference" && block.file && block.snippet) {
+              return <DiffCard key={`r-${i}`} file={block.file} snippet={block.snippet} />;
+            }
+            return null;
+          })}
         </div>
         {controls}
       </div>

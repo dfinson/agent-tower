@@ -1004,9 +1004,10 @@ class StoryBlock(CamelModel):
     - ``narrative``: prose text connecting references and beats
     - ``reference``: validated code change with file/snippet data
     - ``beat``: cognitive turning point (decision, backtrack, insight, verify)
+    - ``heading``: section title for story structure
     """
 
-    type: str  # "narrative" | "reference" | "beat"
+    type: str  # "narrative" | "reference" | "beat" | "heading"
     # Narrative / beat fields
     text: str | None = None
     # Beat fields
