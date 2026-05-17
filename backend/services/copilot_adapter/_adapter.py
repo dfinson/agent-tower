@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
-from datetime import UTC
 from typing import TYPE_CHECKING, Any, cast
 
 import structlog
@@ -23,6 +22,7 @@ from backend.services.adapters.base_adapter import (
     PermissionDecision,
 )
 from backend.services.auth.permission_policy import PermissionRequest as PolicyRequest
+from backend.services.events.event_pipeline import EventPipeline
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -36,7 +36,6 @@ if TYPE_CHECKING:
         AssistantUsageData,
         PermissionRequest,
         SessionCompactionCompleteData,
-        SessionEventData,
         SessionModelChangeData,
         SessionShutdownData,
         SessionTruncationData,
@@ -78,6 +77,26 @@ class CopilotAdapter(BaseAgentAdapter):
         )
         self._sessions: dict[str, CopilotSession] = {}
 
+        # Unified event pipeline — shared by all sessions
+        self._pipeline = EventPipeline(
+            emit=self._pipeline_emit,
+            schedule_write=self._schedule_db_write,
+            sdk="copilot",
+        )
+        if session_factory:
+            self._pipeline.set_session_factory(session_factory)
+
+    # ------------------------------------------------------------------
+    # Pipeline integration
+    # ------------------------------------------------------------------
+
+    async def _pipeline_emit(self, job_id: str, event: SessionEvent) -> None:
+        """Deliver a pipeline-produced event to the session queue."""
+        for sid, jid in self._session_to_job.items():
+            if jid == job_id:
+                self._enqueue(sid, event)
+                return
+
     def _cleanup_session(self, session_id: str) -> None:
         """Remove session and queue references for a completed/aborted session.
 
@@ -88,6 +107,10 @@ class CopilotAdapter(BaseAgentAdapter):
         client = self._clients.get(session_id)
         if client is not None:
             asyncio.ensure_future(self._stop_client(client))
+        # Clean pipeline per-job state (tool buffers, retry trackers, etc.)
+        job_id = self._session_to_job.get(session_id)
+        if job_id:
+            self._pipeline.cleanup_job(job_id)
         super()._cleanup_session_state(session_id)
 
     @staticmethod
@@ -156,500 +179,284 @@ class CopilotAdapter(BaseAgentAdapter):
             return _Result(kind="approve-once")
         return _Result(kind="reject")
 
-    # --- Dispatch tables for telemetry and SDK→SessionEvent bridging ---
+    # --- Pipeline-based event processing ---
 
-    # Use the shared canonical mapping; avoid duplicating the dict here.
-    from backend.services.adapters.sdk_event_mapping import SDK_KIND_MAP as _SDK_KIND_MAP  # noqa: E301
-
-    # --- Extracted telemetry handlers ---
-
-    def _handle_usage_event(
+    async def _process_sdk_event_via_pipeline(
         self,
-        data: AssistantUsageData,
-        job_id: str,
+        sdk_event: SdkSessionEvent,
+        session_id: str,
+        job_id: str | None,
         requested_model: str,
         model_verified: list[bool],
         queue: asyncio.Queue[SessionEvent | None],
-        *,
-        session_kind: str = "job",
     ) -> None:
+        """Process a single SDK event through the unified EventPipeline.
 
-        from backend.services.analytics import telemetry as tel
-
-        actual_model = data.model or ""
-
-        if not model_verified[0] and requested_model and actual_model:
-            model_verified[0] = True
-            # Find the session_id for this job so we can emit events
-            sid = ""
-            for s, j in self._session_to_job.items():
-                if j == job_id:
-                    sid = s
-                    break
-            self._verify_and_set_model(sid, job_id, actual_model, requested_model)
-
-        # Sub-agent detection: if main_model is set and actual differs, this is a sub-agent turn
-        main_model = self._job_main_models.get(job_id, "")
-        is_subagent = bool(main_model and actual_model != main_model)
-
-        input_toks = int(data.input_tokens or 0)
-        output_toks = int(data.output_tokens or 0)
-        cache_read = int(data.cache_read_tokens or 0)
-        cache_write = int(data.cache_write_tokens or 0)
-        cost = float(data.cost or 0)
-        duration_ms = float(data.duration or 0)
-
-        self._record_llm_telemetry(
-            job_id,
-            "copilot",
-            actual_model,
-            input_tokens=input_toks,
-            output_tokens=output_toks,
-            cache_read=cache_read,
-            cache_write=cache_write,
-            cost_usd=cost,
-            duration_ms=duration_ms,
-            is_subagent=is_subagent,
-            num_turns=1,
-            session_kind=session_kind,
-        )
-
-        # Advance turn counter for this job
-        turn_num = self._turn_counters.get(job_id, 0) + 1
-        self._turn_counters[job_id] = turn_num
-
-        # SQLite span detail
-        self._record_llm_span(
-            job_id,
-            actual_model,
-            duration_ms=duration_ms,
-            input_tokens=input_toks,
-            output_tokens=output_toks,
-            cache_read=cache_read,
-            cache_write=cache_write,
-            cost_usd=cost,
-            is_subagent=is_subagent,
-            turn_id=None,
-            session_kind=session_kind,
-        )
-
-        # Capture Copilot quota snapshots if present
-        if data.quota_snapshots:
-            import json as _json
-
-            parsed: dict[str, dict[str, Any]] = {}
-            for key, snap in data.quota_snapshots.items():
-                used = float(snap.used_requests or 0)
-                entitlement = float(snap.entitlement_requests or 0)
-                remaining = float(snap.remaining_percentage or 0)
-                parsed[key] = {
-                    "used_requests": used,
-                    "entitlement_requests": entitlement,
-                    "remaining_percentage": remaining,
-                    "overage": float(snap.overage or 0),
-                    "overage_allowed": bool(snap.overage_allowed_with_exhausted_quota),
-                    "is_unlimited": bool(snap.is_unlimited_entitlement),
-                    "reset_date": str(snap.reset_date or ""),
-                }
-                # OTEL gauges
-                tel.quota_used_gauge.set(
-                    used,
-                    {"job_id": job_id, "sdk": "copilot", "resource": key, "session_kind": session_kind},
-                )
-                tel.quota_entitlement_gauge.set(
-                    entitlement,
-                    {"job_id": job_id, "sdk": "copilot", "resource": key, "session_kind": session_kind},
-                )
-                tel.quota_remaining_gauge.set(
-                    remaining,
-                    {"job_id": job_id, "sdk": "copilot", "resource": key, "session_kind": session_kind},
-                )
-
-            self._schedule_db_write(
-                self._db_write_set_quota(
-                    job_id=job_id,
-                    quota_remaining=_json.dumps(parsed),
-                )
+        Called via create_task from the synchronous SDK callback. Handles
+        telemetry, enrichment, log emission, and event delivery through
+        the pipeline's on_* methods.
+        """
+        try:
+            await self._process_sdk_event_inner(
+                sdk_event, session_id, job_id, requested_model, model_verified, queue,
             )
-
-    def _handle_tool_start(self, data: ToolExecutionStartData, job_id: str) -> None:
-        tool_id = data.tool_call_id or ""
-        import json as _json
-        import time as _time
-
-        self._tool_start_times[tool_id] = _time.monotonic()
-        # Buffer args for the combined transcript entry emitted on complete
-        args_str: str | None = None
-        if data.arguments is not None:
-            try:
-                args_str = _json.dumps(data.arguments) if not isinstance(data.arguments, str) else data.arguments
-            except (TypeError, ValueError, OverflowError):
-                log.debug("tool_args_serialize_failed", tool_id=tool_id, exc_info=True)
-                args_str = str(data.arguments)
-        t_name = data.tool_name or data.mcp_tool_name or "tool"
-        t_name_display = (
-            f"{data.mcp_server_name}/{data.mcp_tool_name}" if data.mcp_server_name and data.mcp_tool_name else t_name
-        )
-        # Capture human-readable intent/title fields from the SDK if present
-        tool_intent: str = getattr(data, "intention", None) or ""
-        tool_title: str = getattr(data, "tool_title", None) or ""
-        # Also extract description from arguments (SDK provides it for bash etc.)
-        tool_description: str = ""
-        if isinstance(data.arguments, dict):
-            tool_description = str(data.arguments.get("description", ""))
-        self._pending_tool_metadata[tool_id] = {
-            "tool_name": t_name_display,
-            "tool_args": args_str or "",
-            "turn_id": "",
-            "tool_intent": tool_intent or tool_description,
-            "tool_title": tool_title,
-        }
-
-    def _handle_tool_end(self, data: ToolExecutionCompleteData, job_id: str, *, session_kind: str = "job") -> None:
-        tool_id = data.tool_call_id or ""
-        import time as _time
-
-        start = self._tool_start_times.pop(tool_id, _time.monotonic())
-        dur = (_time.monotonic() - start) * 1000
-        # Prefer the display name buffered at tool.execution_start
-        buffered = self._pending_tool_metadata.get(tool_id, {})
-        resolved_name = buffered.get("tool_name", "tool")
-        success = bool(data.success) if data.success is not None else True
-
-        # Result text extraction
-        result_text = ""
-        if data.result is not None:
-            content = getattr(data.result, "content", None)
-            if content:
-                result_text = self._extract_result_text(content)
-            if not result_text:
-                result_text = str(data.result)
-
-        # Correct false failures for file-edit tools
-        if not success:
-            from backend.services.tool_formatters import correct_edit_success
-
-            success = correct_edit_success(resolved_name, success, result_text)
-
-        # Find the session_id for file_changed events
-        sid = ""
-        for s, j in self._session_to_job.items():
-            if j == job_id:
-                sid = s
-                break
-
-        self._record_tool_telemetry(
-            sid,
-            job_id,
-            "copilot",
-            tool_name=resolved_name,
-            tool_args_str=buffered.get("tool_args"),
-            success=success,
-            duration_ms=dur,
-            result_text=result_text,
-            turn_id=buffered.get("turn_id"),
-            session_kind=session_kind,
-        )
-
-    def _handle_context_changed(
-        self,
-        data: SessionUsageInfoData,
-        job_id: str,
-        *,
-        session_kind: str = "job",
-    ) -> None:
-        from backend.services.analytics import telemetry as tel
-
-        current = int(data.current_tokens or 0)
-        attrs = {"job_id": job_id, "sdk": "copilot", "session_kind": session_kind}
-        tel.context_tokens_gauge.set(current, attrs)
-
-        self._schedule_db_write(
-            self._db_write_set_context(
+        except Exception:
+            log.warning(
+                "copilot_pipeline_event_error",
+                session_id=session_id,
                 job_id=job_id,
-                current_tokens=current,
+                event_type=getattr(sdk_event.type, "value", None),
+                exc_info=True,
             )
-        )
 
-    def _handle_compaction(
+    async def _process_sdk_event_inner(
         self,
-        data: SessionCompactionCompleteData,
-        job_id: str,
-        *,
-        session_kind: str = "job",
-    ) -> None:
-        from backend.services.analytics import telemetry as tel
-
-        pre = int(data.pre_compaction_tokens or 0)
-        post = int(data.post_compaction_tokens or 0)
-        attrs = {"job_id": job_id, "sdk": "copilot", "session_kind": session_kind}
-        tel.compactions_counter.add(1, attrs)
-        tel.tokens_compacted.add(max(0, pre - post), attrs)
-
-        self._schedule_db_write(
-            self._db_write_increment(
-                job_id=job_id,
-                session_kind=session_kind,
-                compactions=1,
-                tokens_compacted=max(0, pre - post),
-            )
-        )
-
-        if post:
-            tel.context_tokens_gauge.set(post, attrs)
-            self._schedule_db_write(
-                self._db_write_set_context(
-                    job_id=job_id,
-                    current_tokens=post,
-                )
-            )
-
-    # --- Log emission ---
-
-    def _emit_log_event(
-        self,
-        kind_str: str,
-        data: SessionEventData | None,
+        sdk_event: SdkSessionEvent,
+        session_id: str,
+        job_id: str | None,
         requested_model: str,
+        model_verified: list[bool],
         queue: asyncio.Queue[SessionEvent | None],
-        log_seq: list[int],
     ) -> None:
-        """Emit a log SessionEvent for operational SDK events."""
-        _log_msg: str | None = None
-        _log_level: str = "info"
-        if kind_str == "tool.execution_start" and data:
-            ts = cast("ToolExecutionStartData", data)
-            t_name = ts.tool_name or ts.mcp_tool_name or "tool"
-            if ts.mcp_server_name and ts.mcp_tool_name:
-                t_name = f"{ts.mcp_server_name}/{ts.mcp_tool_name}"
-            _log_msg = f"Tool started: {t_name}"
-            _log_level = "debug"
-        elif kind_str == "tool.execution_complete" and data:
-            tc = cast("ToolExecutionCompleteData", data)
-            buffered_log_name = self._pending_tool_metadata.get((tc.tool_call_id or ""), {}).get("tool_name")
-            t_name = buffered_log_name or "tool"
-            ok = bool(tc.success) if tc.success is not None else True
-            # Correct false failures for file-edit tools in log messages too
-            if not ok:
+        """Inner implementation for SDK event processing (no exception guard)."""
+        kind_str = sdk_event.type.value if sdk_event.type else ""
+        data = sdk_event.data
+
+        if not job_id:
+            # No job association yet — only bridge done/error for sentinel
+            if kind_str in ("session.task_complete", "session.idle", "session.shutdown"):
+                with contextlib.suppress(asyncio.QueueFull):
+                    queue.put_nowait(None)
+            elif kind_str == "session.error":
+                with contextlib.suppress(asyncio.QueueFull):
+                    queue.put_nowait(None)
+            return
+
+        # --- Transcript events ---
+        if kind_str == "assistant.message":
+            am = cast("AssistantMessageData", data) if data else None
+            content = (am.content or "") if am else ""
+            if content.strip():
+                title = getattr(am, "title", None) if am else None
+                await self._pipeline.on_agent_message(job_id, content, title=title)
+
+        elif kind_str == "assistant.message_delta":
+            md = cast("AssistantMessageDeltaData", data) if data else None
+            delta = (md.delta_content or "") if md else ""
+            if delta:
+                await self._pipeline.on_agent_delta(job_id, delta)
+
+        elif kind_str == "assistant.reasoning":
+            ar = cast("AssistantReasoningData", data) if data else None
+            content = (ar.content or "") if ar else ""
+            if content:
+                await self._pipeline.on_reasoning(job_id, content)
+
+        elif kind_str == "assistant.reasoning_delta":
+            rd = cast("AssistantReasoningDeltaData", data) if data else None
+            delta = (rd.delta_content or "") if rd else ""
+            if delta:
+                await self._pipeline.on_reasoning_delta(job_id, delta)
+
+        elif kind_str == "user.message":
+            um = cast("UserMessageData", data) if data else None
+            content = (um.content or "") if um else ""
+            if "<system_notification>" in content:
+                return
+            if content.strip():
+                await self._pipeline.on_user_message(job_id, content)
+
+        # --- Tool lifecycle ---
+        elif kind_str == "tool.execution_start":
+            ts = cast("ToolExecutionStartData", data) if data else None
+            if ts:
+                tool_name = ts.tool_name or ts.mcp_tool_name or "tool"
+                if ts.mcp_server_name and ts.mcp_tool_name:
+                    tool_name = f"{ts.mcp_server_name}/{ts.mcp_tool_name}"
+
+                tool_id = ts.tool_call_id or ""
+                args_str: str | None = None
+                if ts.arguments is not None:
+                    try:
+                        import json as _json
+
+                        args_str = _json.dumps(ts.arguments) if not isinstance(ts.arguments, str) else ts.arguments
+                    except (TypeError, ValueError, OverflowError):
+                        args_str = str(ts.arguments)
+
+                tool_intent = getattr(ts, "intention", None) or ""
+                tool_title = getattr(ts, "tool_title", None) or ""
+                if not tool_intent and isinstance(ts.arguments, dict):
+                    tool_intent = str(ts.arguments.get("description", ""))
+
+                # report_intent is emitted as hidden tool_call (intent marker)
+                hidden = tool_name == "report_intent"
+                await self._pipeline.on_tool_start(
+                    job_id, tool_id, tool_name, args_str,
+                    intent=tool_intent or None,
+                    title=tool_title or None,
+                    hidden=hidden,
+                )
+
+        elif kind_str == "tool.execution_partial_result":
+            pr = cast("ToolExecutionPartialResultData", data) if data else None
+            if pr:
+                tool_id = pr.tool_call_id or ""
+                chunk = pr.partial_output or ""
+                if chunk:
+                    await self._pipeline.on_tool_partial(job_id, tool_id, chunk)
+
+        elif kind_str == "tool.execution_complete":
+            tc = cast("ToolExecutionCompleteData", data) if data else None
+            if tc:
+                tool_id = tc.tool_call_id or ""
+                success = bool(tc.success) if tc.success is not None else True
                 result_text = ""
                 if tc.result is not None:
-                    result_text = str(tc.result) if not isinstance(tc.result, str) else tc.result
-                from backend.services.tool_formatters import correct_edit_success
+                    content = getattr(tc.result, "content", None)
+                    if content:
+                        result_text = self._extract_result_text(content)
+                    elif content is None:
+                        # No content attribute or it's None — leave empty
+                        pass
+                    else:
+                        result_text = str(tc.result)
 
-                ok = correct_edit_success(t_name, ok, result_text)
-            _log_msg = f"Tool {'completed' if ok else 'failed'}: {t_name}"
-            _log_level = "info" if ok else "warn"
-        elif kind_str == "assistant.usage" and data:
-            au = cast("AssistantUsageData", data)
-            in_tok = int(au.input_tokens or 0)
-            out_tok = int(au.output_tokens or 0)
-            model = au.model or ""
-            if model and requested_model and model != requested_model:
-                _log_msg = (
-                    f"\u26a0 MODEL MISMATCH: requested {requested_model}"
-                    f" but serving {model} ({in_tok}+{out_tok} tokens)"
+                # Correct false failures for file-edit tools
+                if not success:
+                    from backend.services.tool_formatters import correct_edit_success
+
+                    buffered = self._pipeline.get_buffered_tool(tool_id)
+                    resolved_name = buffered.get("tool_name", "tool")
+                    success = correct_edit_success(resolved_name, success, result_text)
+
+                hidden = self._pipeline.get_buffered_tool(tool_id).get("tool_name") == "report_intent"
+                await self._pipeline.on_tool_complete(
+                    job_id, tool_id, result_text, success, hidden=hidden,
                 )
-                _log_level = "error"
-            else:
-                _log_msg = f"LLM call: {model} ({in_tok}+{out_tok} tokens)"
-                _log_level = "debug"
-        elif kind_str == "session.compaction_complete" and data:
-            cc = cast("SessionCompactionCompleteData", data)
-            pre = int(cc.pre_compaction_tokens or 0)
-            post = int(cc.post_compaction_tokens or 0)
-            _log_msg = f"Context compacted: {pre} \u2192 {post} tokens"
-            _log_level = "warn"
-        elif kind_str == "session.model_change" and data:
-            mc = cast("SessionModelChangeData", data)
-            _log_msg = f"Model changed to {mc.new_model}"
-            _log_level = "info"
 
-        if _log_msg is not None:
-            from datetime import datetime as _dt
+        # --- File change notification ---
+        elif kind_str == "session.workspace_file_changed":
+            file_path = getattr(data, "file_path", None) or ""
+            if file_path:
+                await self._pipeline.on_file_changed(job_id, file_path)
 
-            log_seq[0] += 1
-            queue.put_nowait(
-                SessionEvent(
-                    kind=SessionEventKind.log,
-                    payload={
-                        "seq": log_seq[0],
-                        "timestamp": _dt.now(UTC).isoformat(),
-                        "level": _log_level,
-                        "message": _log_msg,
-                    },
+        # --- Usage / telemetry ---
+        elif kind_str == "assistant.usage":
+            au = cast("AssistantUsageData", data) if data else None
+            if au:
+                actual_model = au.model or ""
+
+                # Model verification (first call only)
+                if not model_verified[0] and requested_model and actual_model:
+                    model_verified[0] = True
+                    self._verify_and_set_model(session_id, job_id, actual_model, requested_model)
+
+                # Sub-agent detection
+                main_model = self._job_main_models.get(job_id, "")
+                is_subagent = bool(main_model and actual_model != main_model)
+
+                input_toks = int(au.input_tokens or 0)
+                output_toks = int(au.output_tokens or 0)
+                cache_read = int(au.cache_read_tokens or 0)
+                cache_write = int(au.cache_write_tokens or 0)
+                cost = float(au.cost or 0)
+                duration_ms = float(au.duration or 0)
+
+                await self._pipeline.on_usage(
+                    job_id,
+                    input_tokens=input_toks,
+                    output_tokens=output_toks,
+                    cache_read_tokens=cache_read,
+                    cache_write_tokens=cache_write,
+                    cost_usd=cost,
+                    duration_ms=duration_ms,
+                    model=actual_model,
+                    is_subagent=is_subagent,
+                    advance_turn=True,
                 )
+
+                # Copilot-specific: quota snapshots
+                if au.quota_snapshots:
+                    self._record_quota_snapshots(au.quota_snapshots, job_id)
+
+        elif kind_str == "session.usage_info":
+            sui = cast("SessionUsageInfoData", data) if data else None
+            if sui:
+                current = int(sui.current_tokens or 0)
+                if current:
+                    await self._pipeline.on_context_update(job_id, current)
+
+        elif kind_str == "session.compaction_complete":
+            cc = cast("SessionCompactionCompleteData", data) if data else None
+            if cc:
+                pre = int(cc.pre_compaction_tokens or 0)
+                post = int(cc.post_compaction_tokens or 0)
+                await self._pipeline.on_compaction(job_id, pre, post)
+
+        elif kind_str == "session.truncation":
+            trunc = cast("SessionTruncationData", data) if data else None
+            if trunc and trunc.token_limit:
+                window = int(trunc.token_limit)
+                await self._pipeline.on_truncation(job_id, window)
+
+        elif kind_str == "session.model_change":
+            mc = cast("SessionModelChangeData", data) if data else None
+            if mc and mc.new_model:
+                self._job_main_models[job_id] = mc.new_model
+                await self._pipeline.on_model_change(job_id, mc.new_model)
+
+        elif kind_str == "session.shutdown":
+            sd = cast("SessionShutdownData", data) if data else None
+            premium = None
+            if sd and sd.total_premium_requests is not None:
+                premium = int(sd.total_premium_requests)
+            await self._pipeline.on_shutdown(job_id, premium_requests=premium)
+
+        # --- Session lifecycle (emit + sentinel) ---
+        if kind_str in ("session.task_complete", "session.idle", "session.shutdown"):
+            await self._pipeline.on_done(job_id)
+            with contextlib.suppress(asyncio.QueueFull):
+                queue.put_nowait(None)
+        elif kind_str == "session.error":
+            payload = data.to_dict() if data and hasattr(data, "to_dict") else {}
+            await self._pipeline.on_error(job_id, payload)
+            with contextlib.suppress(asyncio.QueueFull):
+                queue.put_nowait(None)
+
+    def _record_quota_snapshots(self, quota_snapshots: Any, job_id: str) -> None:
+        """Record Copilot quota snapshot telemetry (adapter-specific)."""
+        import json as _json
+
+        from backend.services.analytics import telemetry as tel
+
+        parsed: dict[str, dict[str, Any]] = {}
+        for key, snap in quota_snapshots.items():
+            used = float(snap.used_requests or 0)
+            entitlement = float(snap.entitlement_requests or 0)
+            remaining = float(snap.remaining_percentage or 0)
+            parsed[key] = {
+                "used_requests": used,
+                "entitlement_requests": entitlement,
+                "remaining_percentage": remaining,
+                "overage": float(snap.overage or 0),
+                "overage_allowed": bool(snap.overage_allowed_with_exhausted_quota),
+                "is_unlimited": bool(snap.is_unlimited_entitlement),
+                "reset_date": str(snap.reset_date or ""),
+            }
+            tel.quota_used_gauge.set(
+                used, {"job_id": job_id, "sdk": "copilot", "resource": key},
+            )
+            tel.quota_entitlement_gauge.set(
+                entitlement, {"job_id": job_id, "sdk": "copilot", "resource": key},
+            )
+            tel.quota_remaining_gauge.set(
+                remaining, {"job_id": job_id, "sdk": "copilot", "resource": key},
             )
 
-    # --- SDK → SessionEvent queue bridge ---
-
-    def _bridge_to_session_queue(
-        self,
-        kind_str: str,
-        data: SessionEventData | None,
-        payload: dict[str, object],
-        queue: asyncio.Queue[SessionEvent | None],
-        session_id: str,
-        job_id: str | None = None,
-    ) -> None:
-        """Map SDK events to SessionEvent entries and push onto the queue."""
-        kind = self._SDK_KIND_MAP.get(kind_str)
-        if kind is None:
-            return  # unrecognised SDK event – skip silently
-        try:
-            event_payload: dict[str, object] = {}
-            if kind == SessionEventKind.transcript:
-                if kind_str == "assistant.message":
-                    am = cast("AssistantMessageData", data) if data else None
-                    content = (am.content or "") if am else ""
-                    # SDK emits empty assistant.message events for tool-dispatch
-                    # turns (content is just whitespace). Skip these — the tool
-                    # calls themselves are separate transcript events.
-                    if not content.strip():
-                        return
-                    event_payload = {
-                        "role": "agent",
-                        "content": content,
-                        "title": getattr(am, "title", None),
-                    }
-                elif kind_str == "assistant.message_delta":
-                    md = cast("AssistantMessageDeltaData", data) if data else None
-                    delta = (md.delta_content or "") if md else ""
-                    if not delta:
-                        return
-                    event_payload = {
-                        "role": "agent_delta",
-                        "content": delta,
-                    }
-                elif kind_str == "assistant.reasoning_delta":
-                    rd = cast("AssistantReasoningDeltaData", data) if data else None
-                    delta = (rd.delta_content or "") if rd else ""
-                    if not delta:
-                        return
-                    event_payload = {
-                        "role": "reasoning_delta",
-                        "content": delta,
-                    }
-                elif kind_str == "assistant.reasoning":
-                    ar = cast("AssistantReasoningData", data) if data else None
-                    content = (ar.content or "") if ar else ""
-                    event_payload = {
-                        "role": "reasoning",
-                        "content": content,
-                    }
-                elif kind_str == "user.message":
-                    um = cast("UserMessageData", data) if data else None
-                    content = (um.content or "") if um else ""
-                    # SDK injects internal system_notification messages (e.g.
-                    # agent completion status) — suppress these from the
-                    # transcript since they are not real operator messages.
-                    if "<system_notification>" in content:
-                        return
-                    event_payload = {
-                        "role": "operator",
-                        "content": content,
-                    }
-                elif kind_str == "tool.execution_start":
-                    ts = cast("ToolExecutionStartData", data) if data else None
-                    tool_id = (ts.tool_call_id or "") if ts else ""
-                    buffered = self._pending_tool_metadata.get(tool_id, {})
-                    tool_name = buffered.get("tool_name", "tool")
-                    # Emit report_intent as a lightweight completed intent-marker so
-                    # the frontend can extract and display the intent label.  We emit
-                    # it here (at start) because all we need is the args; we never
-                    # need to wait for a result.
-                    if tool_name == "report_intent":
-                        turn_id = buffered.get("turn_id")
-                        event_payload = {
-                            "role": "tool_call",
-                            "content": "report_intent",
-                            "tool_name": "report_intent",
-                            "tool_args": buffered.get("tool_args"),
-                            "tool_result": None,
-                            "tool_success": True,
-                            "turn_id": turn_id,
-                            "tool_intent": None,
-                            "tool_title": None,
-                            "tool_display": None,
-                            "tool_display_full": None,
-                            "tool_duration_ms": None,
-                            "tool_visibility": "hidden",
-                        }
-                        self._enqueue(session_id, SessionEvent(kind=kind, payload=event_payload))
-                        return
-                    turn_id = buffered.get("turn_id")
-                    event_payload = self._build_tool_running_payload(
-                        tool_name,
-                        buffered.get("tool_args"),
-                        turn_id,
-                        tool_intent=buffered.get("tool_intent"),
-                        tool_title=buffered.get("tool_title"),
-                    )
-                elif kind_str == "tool.execution_partial_result":
-                    # Streaming stdout/stderr chunk from a running tool (typically Bash).
-                    pr = cast("ToolExecutionPartialResultData", data) if data else None
-                    tool_id = (pr.tool_call_id or "") if pr else ""
-                    chunk = (pr.partial_output or "") if pr else ""
-                    if not chunk:
-                        return
-                    buffered = self._pending_tool_metadata.get(tool_id, {})
-                    tool_name = buffered.get("tool_name", "tool")
-                    # Don't stream internal tools
-                    if tool_name in ("report_intent",):
-                        return
-                    from backend.services.tool_formatters import classify_tool_visibility
-
-                    vis = classify_tool_visibility(tool_name, buffered.get("tool_args"))
-                    if vis == "hidden":
-                        return
-                    event_payload = {
-                        "role": "tool_output_delta",
-                        "content": chunk,
-                        "tool_name": tool_name,
-                        "tool_call_id": tool_id,
-                        "turn_id": buffered.get("turn_id"),
-                    }
-                elif kind_str == "tool.execution_complete":
-                    tc = cast("ToolExecutionCompleteData", data) if data else None
-                    tool_id = (tc.tool_call_id or "") if tc else ""
-                    buffered = self._pending_tool_metadata.pop(tool_id, {})
-                    tool_name = buffered.get("tool_name", "tool")
-                    # Drop SDK-internal tools (e.g. report_intent) from transcript
-                    if tool_name in ("report_intent",):
-                        return
-                    result_text = ""
-                    if tc:
-                        result_obj = tc.result
-                        result_content: object = (
-                            getattr(result_obj, "content", None) if result_obj is not None else None
-                        )
-                        if result_content:
-                            result_text = self._extract_result_text(result_content)
-
-                    tool_args_str = buffered.get("tool_args")
-                    sdk_success = bool(tc.success) if tc and tc.success is not None else True
-                    # Compute tool execution duration
-                    import time as _time
-
-                    _start = self._tool_start_times.get(tool_id)
-                    dur_ms = ((_time.monotonic() - _start) * 1000) if _start is not None else None
-                    event_payload = self._build_tool_call_payload(
-                        tool_name,
-                        tool_args_str,
-                        result_text,
-                        sdk_success=sdk_success,
-                        turn_id=buffered.get("turn_id"),
-                        duration_ms=dur_ms,
-                        tool_intent=buffered.get("tool_intent"),
-                        tool_title=buffered.get("tool_title"),
-                    )
-            else:
-                event_payload = payload if isinstance(payload, dict) else {}
-            self._enqueue(session_id, SessionEvent(kind=kind, payload=event_payload))
-        except (asyncio.QueueFull, AttributeError):
-            log.warning("copilot_queue_put_failed", session_id=session_id, exc_info=True)
-        if kind == SessionEventKind.done or kind == SessionEventKind.error:
-            with contextlib.suppress(asyncio.QueueFull, AttributeError):
-                queue.put_nowait(None)  # sentinel
+        self._schedule_db_write(
+            self._db_write_set_quota(job_id=job_id, quota_remaining=_json.dumps(parsed))
+        )
 
     async def create_session(self, config: SessionConfig) -> str:
         from copilot import CopilotClient
@@ -738,104 +545,26 @@ class CopilotAdapter(BaseAgentAdapter):
         if config.session_kind != "job":
             self.set_session_kind(session_id, config.session_kind)
 
-        # Sequence counter for log events emitted from this session.
-        log_seq = [0]
-
         # Track whether we've verified the model on the first usage event.
         _model_verified = [False]
 
         # Register SDK callback that bridges into the async queue
         # and extracts telemetry from Copilot-specific event types.
         def _on_event(sdk_event: SdkSessionEvent) -> None:
-            kind_str = sdk_event.type.value if sdk_event.type else "log"
-            payload = sdk_event.data.to_dict() if sdk_event.data else {}
-            data = sdk_event.data
-
-            # --- Copilot SDK → OTEL telemetry + SQLite ---
+            """Synchronous SDK callback — bridges to the async pipeline via create_task."""
             job_id = self._session_to_job.get(session_id)
-            session_kind = self.get_session_kind(session_id)
-            if job_id and data:
-                from backend.services.analytics import telemetry as tel
-
-                if kind_str == "assistant.usage":
-                    self._handle_usage_event(
-                        cast("AssistantUsageData", data),
-                        job_id,
-                        requested_model,
-                        _model_verified,
-                        queue,
-                        session_kind=session_kind,
-                    )
-                elif kind_str == "tool.execution_start":
-                    self._handle_tool_start(cast("ToolExecutionStartData", data), job_id)
-                elif kind_str == "tool.execution_complete":
-                    self._handle_tool_end(
-                        cast("ToolExecutionCompleteData", data),
-                        job_id,
-                        session_kind=session_kind,
-                    )
-                elif kind_str == "session.usage_info":
-                    self._handle_context_changed(
-                        cast("SessionUsageInfoData", data),
-                        job_id,
-                        session_kind=session_kind,
-                    )
-                elif kind_str == "session.compaction_complete":
-                    self._handle_compaction(
-                        cast("SessionCompactionCompleteData", data),
-                        job_id,
-                        session_kind=session_kind,
-                    )
-                elif kind_str == "session.truncation":
-                    trunc = cast("SessionTruncationData", data)
-                    if trunc.token_limit:
-                        window = int(trunc.token_limit)
-                        tel.context_window_gauge.set(
-                            window,
-                            {"job_id": job_id, "sdk": "copilot", "session_kind": session_kind},
-                        )
-                        self._schedule_db_write(self._db_write_set_context(job_id=job_id, window_size=window))
-                elif kind_str == "session.model_change":
-                    mc = cast("SessionModelChangeData", data)
-                    if mc.new_model:
-                        self._job_main_models[job_id] = mc.new_model
-                        self._schedule_db_write(self._db_write_set_model(job_id=job_id, model=mc.new_model))
-                elif kind_str == "assistant.message":
-                    tel.messages_counter.add(
-                        1,
-                        {"job_id": job_id, "sdk": "copilot", "role": "agent", "session_kind": session_kind},
-                    )
-                    self._schedule_db_write(
-                        self._db_write_increment(job_id=job_id, session_kind=session_kind, agent_messages=1),
-                    )
-                elif kind_str == "user.message":
-                    tel.messages_counter.add(
-                        1,
-                        {"job_id": job_id, "sdk": "copilot", "role": "operator", "session_kind": session_kind},
-                    )
-                    self._schedule_db_write(
-                        self._db_write_increment(job_id=job_id, session_kind=session_kind, operator_messages=1),
-                    )
-                elif kind_str == "session.shutdown":
-                    sd = cast("SessionShutdownData", data)
-                    if sd.total_premium_requests is not None:
-                        tel.premium_requests_counter.add(
-                            float(sd.total_premium_requests),
-                            {"job_id": job_id, "sdk": "copilot", "session_kind": session_kind},
-                        )
-                        self._schedule_db_write(
-                            self._db_write_increment(
-                                job_id=job_id,
-                                session_kind=session_kind,
-                                premium_requests=float(sd.total_premium_requests),
-                            )
-                        )
-
-            # --- Emit log events for operational SDK events ---
-            self._emit_log_event(kind_str, data, requested_model, queue, log_seq)
-
-            # --- Bridge to SessionEvent queue ---
-            self._bridge_to_session_queue(kind_str, data, payload, queue, session_id, job_id=job_id)
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                self._process_sdk_event_via_pipeline(
+                    sdk_event,
+                    session_id,
+                    job_id,
+                    requested_model,
+                    _model_verified,
+                    queue,
+                ),
+                name=f"copilot-pipeline-{session_id[:8]}",
+            )
 
         session.on(_on_event)
         # Send initial prompt — cleanup on any failure.

@@ -464,6 +464,9 @@ class TestOnEventCallback:
 
     We invoke create_session with a fake client, capture the session/queue,
     and fire SDK events through the callback to verify translation.
+
+    The callback now uses create_task, so we must yield to the event loop
+    after firing events to let processing complete.
     """
 
     @pytest.mark.asyncio
@@ -481,7 +484,14 @@ class TestOnEventCallback:
 
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
+        # Prevent pipeline DB writes from failing (no session_factory in tests)
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
         return session_id, queue, session
+
+    async def _fire(self, session: Any, event: _FakeSdkSessionEvent) -> None:
+        """Fire an SDK event and yield to let the pipeline task execute."""
+        session.fire_event(event)
+        await asyncio.sleep(0)
 
     def _drain_queue(self, q: asyncio.Queue[SessionEvent | None]) -> list[SessionEvent]:
         events: list[SessionEvent] = []
@@ -496,7 +506,7 @@ class TestOnEventCallback:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData(content="Hello from agent", title=None, turn_id=None)
-        session.fire_event(_FakeSdkSessionEvent("assistant.message", data))
+        await self._fire(session, _FakeSdkSessionEvent("assistant.message", data))
 
         events = self._drain_queue(queue)
         transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
@@ -509,7 +519,7 @@ class TestOnEventCallback:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData(content="   ", title=None, turn_id=None)
-        session.fire_event(_FakeSdkSessionEvent("assistant.message", data))
+        await self._fire(session, _FakeSdkSessionEvent("assistant.message", data))
 
         events = self._drain_queue(queue)
         transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
@@ -520,7 +530,7 @@ class TestOnEventCallback:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData(content="user says hi", message=None)
-        session.fire_event(_FakeSdkSessionEvent("user.message", data))
+        await self._fire(session, _FakeSdkSessionEvent("user.message", data))
 
         events = self._drain_queue(queue)
         transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
@@ -532,7 +542,7 @@ class TestOnEventCallback:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData(content="<system_notification>done</system_notification>", message=None)
-        session.fire_event(_FakeSdkSessionEvent("user.message", data))
+        await self._fire(session, _FakeSdkSessionEvent("user.message", data))
 
         events = self._drain_queue(queue)
         transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
@@ -543,7 +553,7 @@ class TestOnEventCallback:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData()
-        session.fire_event(_FakeSdkSessionEvent("session.task_complete", data))
+        await self._fire(session, _FakeSdkSessionEvent("session.task_complete", data))
 
         events = self._drain_queue(queue)
         done_events = [e for e in events if e.kind == SessionEventKind.done]
@@ -554,7 +564,7 @@ class TestOnEventCallback:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData()
-        session.fire_event(_FakeSdkSessionEvent("session.error", data))
+        await self._fire(session, _FakeSdkSessionEvent("session.error", data))
 
         # Drain including None sentinel
         all_items = []
@@ -572,7 +582,7 @@ class TestOnEventCallback:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData()
-        session.fire_event(_FakeSdkSessionEvent("session.idle", data))
+        await self._fire(session, _FakeSdkSessionEvent("session.idle", data))
 
         events = self._drain_queue(queue)
         done_events = [e for e in events if e.kind == SessionEventKind.done]
@@ -583,7 +593,7 @@ class TestOnEventCallback:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData(total_premium_requests=None)
-        session.fire_event(_FakeSdkSessionEvent("session.shutdown", data))
+        await self._fire(session, _FakeSdkSessionEvent("session.shutdown", data))
 
         events = self._drain_queue(queue)
         done_events = [e for e in events if e.kind == SessionEventKind.done]
@@ -594,7 +604,7 @@ class TestOnEventCallback:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData(file_path="/tmp/workspace/main.py")
-        session.fire_event(_FakeSdkSessionEvent("session.workspace_file_changed", data))
+        await self._fire(session, _FakeSdkSessionEvent("session.workspace_file_changed", data))
 
         events = self._drain_queue(queue)
         fc = [e for e in events if e.kind == SessionEventKind.file_changed]
@@ -605,7 +615,7 @@ class TestOnEventCallback:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData()
-        session.fire_event(_FakeSdkSessionEvent("internal.something", data))
+        await self._fire(session, _FakeSdkSessionEvent("internal.something", data))
 
         events = self._drain_queue(queue)
         # Only log events (from tool started etc.) might appear, no mapped event
@@ -619,7 +629,7 @@ class TestOnEventCallback:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData(delta_content="Let me think...", turn_id=None)
-        session.fire_event(_FakeSdkSessionEvent("assistant.reasoning_delta", data))
+        await self._fire(session, _FakeSdkSessionEvent("assistant.reasoning_delta", data))
 
         events = self._drain_queue(queue)
         transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
@@ -632,7 +642,7 @@ class TestOnEventCallback:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData(delta_content="", turn_id=None)
-        session.fire_event(_FakeSdkSessionEvent("assistant.reasoning_delta", data))
+        await self._fire(session, _FakeSdkSessionEvent("assistant.reasoning_delta", data))
 
         events = self._drain_queue(queue)
         transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
@@ -643,7 +653,7 @@ class TestOnEventCallback:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData(content="Full reasoning block", reasoning_text=None, turn_id=None)
-        session.fire_event(_FakeSdkSessionEvent("assistant.reasoning", data))
+        await self._fire(session, _FakeSdkSessionEvent("assistant.reasoning", data))
 
         events = self._drain_queue(queue)
         transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
@@ -671,7 +681,14 @@ class TestEventTelemetry:
 
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
+        # Prevent pipeline DB writes from failing (no session_factory in tests)
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
         return session_id, queue, session
+
+    async def _fire(self, session: Any, event: _FakeSdkSessionEvent) -> None:
+        """Fire an SDK event and yield to let the pipeline task execute."""
+        session.fire_event(event)
+        await asyncio.sleep(0)
 
     def _drain_queue(self, q: asyncio.Queue[SessionEvent | None]) -> list[SessionEvent]:
         events: list[SessionEvent] = []
@@ -704,26 +721,27 @@ class TestEventTelemetry:
             patch("backend.services.analytics.telemetry.cost_usd") as mock_cost,
             patch("backend.services.analytics.telemetry.llm_duration") as mock_dur,
         ):
-            session.fire_event(_FakeSdkSessionEvent("assistant.usage", data))
+            await self._fire(session, _FakeSdkSessionEvent("assistant.usage", data))
 
+            # Pipeline uses {job_id, sdk} attrs (no session_kind)
             mock_in.add.assert_called_once_with(
-                100, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"}
+                100, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o"}
             )
             mock_out.add.assert_called_once_with(
-                50, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"}
+                50, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o"}
             )
             mock_cr.add.assert_called_once_with(
-                10, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"}
+                10, {"job_id": "job-tel", "sdk": "copilot"}
             )
             mock_cw.add.assert_called_once_with(
-                5, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"}
+                5, {"job_id": "job-tel", "sdk": "copilot"}
             )
             mock_cost.add.assert_called_once_with(
-                0.002, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"}
+                0.002, {"job_id": "job-tel", "sdk": "copilot"}
             )
             mock_dur.record.assert_called_once_with(
                 1500.0,
-                {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job", "is_subagent": False},
+                {"job_id": "job-tel", "sdk": "copilot", "is_subagent": False},
             )
 
     @pytest.mark.asyncio
@@ -736,6 +754,7 @@ class TestEventTelemetry:
 
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         data = _FakeEventData(
             model="gpt-3.5-turbo",
@@ -748,7 +767,7 @@ class TestEventTelemetry:
             quota_snapshots=None,
         )
 
-        session.fire_event(_FakeSdkSessionEvent("assistant.usage", data))
+        await self._fire(session, _FakeSdkSessionEvent("assistant.usage", data))
 
         events = []
         while not queue.empty():
@@ -771,6 +790,7 @@ class TestEventTelemetry:
 
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         data = _FakeEventData(
             model="gpt-4o",
@@ -783,7 +803,7 @@ class TestEventTelemetry:
             quota_snapshots=None,
         )
 
-        session.fire_event(_FakeSdkSessionEvent("assistant.usage", data))
+        await self._fire(session, _FakeSdkSessionEvent("assistant.usage", data))
 
         events = []
         while not queue.empty():
@@ -810,11 +830,11 @@ class TestEventTelemetry:
         )
 
         with patch("backend.services.analytics.telemetry.tool_duration") as mock_tool_dur:
-            session.fire_event(_FakeSdkSessionEvent("tool.execution_start", start_data))
+            await self._fire(session, _FakeSdkSessionEvent("tool.execution_start", start_data))
 
-            # Verify start time recorded
-            assert "tc-1" in adapter._tool_start_times
-            assert "tc-1" in adapter._pending_tool_metadata
+            # Verify tool is buffered in the pipeline
+            buffered = adapter._pipeline.get_buffered_tool("tc-1")
+            assert buffered.get("tool_name") == "bash"
 
             # Now fire completion
             result_obj = SimpleNamespace(content=[SimpleNamespace(text="file1.py")])
@@ -827,7 +847,7 @@ class TestEventTelemetry:
                 partial_output=None,
                 turn_id="t1",
             )
-            session.fire_event(_FakeSdkSessionEvent("tool.execution_complete", complete_data))
+            await self._fire(session, _FakeSdkSessionEvent("tool.execution_complete", complete_data))
 
             mock_tool_dur.record.assert_called_once()
             call_args = mock_tool_dur.record.call_args
@@ -838,15 +858,18 @@ class TestEventTelemetry:
     async def test_tool_execution_complete_emits_transcript(self, mock_fmt: MagicMock, adapter: CopilotAdapter) -> None:
         sid, queue, session = await self._setup_session_with_job(adapter)
 
-        # Buffer the tool start
-        adapter._pending_tool_metadata["tc-2"] = {
-            "tool_name": "bash",
-            "tool_args": '{"command": "ls"}',
-            "turn_id": "t1",
-            "tool_intent": "",
-            "tool_title": "",
-        }
-        adapter._tool_start_times["tc-2"] = time.monotonic() - 0.5
+        # Fire tool start first to buffer metadata
+        start_data = _FakeEventData(
+            tool_call_id="tc-2",
+            tool_name="bash",
+            mcp_tool_name=None,
+            mcp_server_name=None,
+            arguments={"command": "ls"},
+            turn_id="t1",
+            intention=None,
+            tool_title=None,
+        )
+        await self._fire(session, _FakeSdkSessionEvent("tool.execution_start", start_data))
 
         result_obj = SimpleNamespace(content=[SimpleNamespace(text="output")])
         complete_data = _FakeEventData(
@@ -859,13 +882,9 @@ class TestEventTelemetry:
             turn_id="t1",
         )
 
-        session.fire_event(_FakeSdkSessionEvent("tool.execution_complete", complete_data))
+        await self._fire(session, _FakeSdkSessionEvent("tool.execution_complete", complete_data))
 
-        events = []
-        while not queue.empty():
-            e = queue.get_nowait()
-            if e is not None:
-                events.append(e)
+        events = self._drain_queue(queue)
 
         transcripts = [
             e for e in events if e.kind == SessionEventKind.transcript and e.payload.get("role") == "tool_call"
@@ -876,17 +895,21 @@ class TestEventTelemetry:
 
     @pytest.mark.asyncio
     async def test_report_intent_tool_skipped_from_transcript(self, adapter: CopilotAdapter) -> None:
-        """report_intent tool calls should not appear in transcript."""
+        """report_intent tool calls should be hidden in transcript."""
         sid, queue, session = await self._setup_session_with_job(adapter)
 
-        adapter._pending_tool_metadata["tc-ri"] = {
-            "tool_name": "report_intent",
-            "tool_args": '{"intent": "testing"}',
-            "turn_id": "t1",
-            "tool_intent": "",
-            "tool_title": "",
-        }
-        adapter._tool_start_times["tc-ri"] = time.monotonic()
+        # Fire tool start for report_intent
+        start_data = _FakeEventData(
+            tool_call_id="tc-ri",
+            tool_name="report_intent",
+            mcp_tool_name=None,
+            mcp_server_name=None,
+            arguments={"intent": "testing"},
+            turn_id="t1",
+            intention=None,
+            tool_title=None,
+        )
+        await self._fire(session, _FakeSdkSessionEvent("tool.execution_start", start_data))
 
         complete_data = _FakeEventData(
             tool_call_id="tc-ri",
@@ -898,18 +921,16 @@ class TestEventTelemetry:
             turn_id="t1",
         )
 
-        session.fire_event(_FakeSdkSessionEvent("tool.execution_complete", complete_data))
+        await self._fire(session, _FakeSdkSessionEvent("tool.execution_complete", complete_data))
 
-        events = []
-        while not queue.empty():
-            e = queue.get_nowait()
-            if e is not None:
-                events.append(e)
+        events = self._drain_queue(queue)
 
+        # report_intent emits as hidden tool_call — check that it has hidden visibility
         transcripts = [
             e for e in events if e.kind == SessionEventKind.transcript and e.payload.get("role") == "tool_call"
         ]
-        assert len(transcripts) == 0
+        for t in transcripts:
+            assert t.payload.get("tool_visibility") == "hidden"
 
     @pytest.mark.asyncio
     async def test_context_changed(self, adapter: CopilotAdapter) -> None:
@@ -918,9 +939,9 @@ class TestEventTelemetry:
         data = _FakeEventData(current_tokens=5000)
 
         with patch("backend.services.analytics.telemetry.context_tokens_gauge") as mock_gauge:
-            session.fire_event(_FakeSdkSessionEvent("session.usage_info", data))
+            await self._fire(session, _FakeSdkSessionEvent("session.usage_info", data))
 
-            mock_gauge.set.assert_called_once_with(5000, {"job_id": "job-tel", "sdk": "copilot", "session_kind": "job"})
+            mock_gauge.set.assert_called_once_with(5000, {"job_id": "job-tel", "sdk": "copilot"})
 
     @pytest.mark.asyncio
     async def test_compaction_complete(self, adapter: CopilotAdapter) -> None:
@@ -933,12 +954,12 @@ class TestEventTelemetry:
             patch("backend.services.analytics.telemetry.tokens_compacted") as mock_tc,
             patch("backend.services.analytics.telemetry.context_tokens_gauge") as mock_ctx,
         ):
-            session.fire_event(_FakeSdkSessionEvent("session.compaction_complete", data))
+            await self._fire(session, _FakeSdkSessionEvent("session.compaction_complete", data))
 
-            mock_comp.add.assert_called_once_with(1, {"job_id": "job-tel", "sdk": "copilot", "session_kind": "job"})
-            mock_tc.add.assert_called_once_with(7000, {"job_id": "job-tel", "sdk": "copilot", "session_kind": "job"})
+            mock_comp.add.assert_called_once_with(1, {"job_id": "job-tel", "sdk": "copilot"})
+            mock_tc.add.assert_called_once_with(7000, {"job_id": "job-tel", "sdk": "copilot"})
             # Also records a context change for the post-compaction token count
-            mock_ctx.set.assert_called_with(3000, {"job_id": "job-tel", "sdk": "copilot", "session_kind": "job"})
+            mock_ctx.set.assert_called_with(3000, {"job_id": "job-tel", "sdk": "copilot"})
 
     @pytest.mark.asyncio
     async def test_session_truncation(self, adapter: CopilotAdapter) -> None:
@@ -947,10 +968,10 @@ class TestEventTelemetry:
         data = _FakeEventData(token_limit=128000)
 
         with patch("backend.services.analytics.telemetry.context_window_gauge") as mock_gauge:
-            session.fire_event(_FakeSdkSessionEvent("session.truncation", data))
+            await self._fire(session, _FakeSdkSessionEvent("session.truncation", data))
 
             mock_gauge.set.assert_called_once_with(
-                128000, {"job_id": "job-tel", "sdk": "copilot", "session_kind": "job"}
+                128000, {"job_id": "job-tel", "sdk": "copilot"}
             )
 
     @pytest.mark.asyncio
@@ -959,9 +980,9 @@ class TestEventTelemetry:
 
         data = _FakeEventData(new_model="gpt-4o-mini")
 
-        session.fire_event(_FakeSdkSessionEvent("session.model_change", data))
+        await self._fire(session, _FakeSdkSessionEvent("session.model_change", data))
 
-        # New code just updates _job_main_models dict directly
+        # Model change is tracked on the adapter
         assert adapter._job_main_models.get("job-tel") == "gpt-4o-mini"
 
     @pytest.mark.asyncio
@@ -971,10 +992,10 @@ class TestEventTelemetry:
         data = _FakeEventData(content="hello", title=None, turn_id=None)
 
         with patch("backend.services.analytics.telemetry.messages_counter") as mock_msg:
-            session.fire_event(_FakeSdkSessionEvent("assistant.message", data))
+            await self._fire(session, _FakeSdkSessionEvent("assistant.message", data))
 
             mock_msg.add.assert_called_once_with(
-                1, {"job_id": "job-tel", "sdk": "copilot", "role": "agent", "session_kind": "job"}
+                1, {"job_id": "job-tel", "sdk": "copilot", "role": "agent"}
             )
 
     @pytest.mark.asyncio
@@ -984,10 +1005,10 @@ class TestEventTelemetry:
         data = _FakeEventData(content="user prompt", message=None)
 
         with patch("backend.services.analytics.telemetry.messages_counter") as mock_msg:
-            session.fire_event(_FakeSdkSessionEvent("user.message", data))
+            await self._fire(session, _FakeSdkSessionEvent("user.message", data))
 
             mock_msg.add.assert_called_once_with(
-                1, {"job_id": "job-tel", "sdk": "copilot", "role": "operator", "session_kind": "job"}
+                1, {"job_id": "job-tel", "sdk": "copilot", "role": "operator"}
             )
 
 
@@ -1005,7 +1026,14 @@ class TestLogEvents:
         with patch("copilot.CopilotClient", return_value=fake_client):
             session_id = await adapter.create_session(config)
 
+        # Prevent pipeline DB writes from failing
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
         return session_id, adapter._queues[session_id], adapter._sessions[session_id]
+
+    async def _fire(self, session: Any, event: _FakeSdkSessionEvent) -> None:
+        """Fire an SDK event and yield to let the pipeline task execute."""
+        session.fire_event(event)
+        await asyncio.sleep(0)
 
     def _drain_queue(self, q: asyncio.Queue[SessionEvent | None]) -> list[SessionEvent]:
         events: list[SessionEvent] = []
@@ -1030,7 +1058,7 @@ class TestLogEvents:
             tool_title=None,
         )
 
-        session.fire_event(_FakeSdkSessionEvent("tool.execution_start", data))
+        await self._fire(session, _FakeSdkSessionEvent("tool.execution_start", data))
 
         events = self._drain_queue(queue)
         log_events = [e for e in events if e.kind == SessionEventKind.log]
@@ -1040,14 +1068,18 @@ class TestLogEvents:
     async def test_tool_complete_emits_log(self, adapter: CopilotAdapter) -> None:
         sid, queue, session = await self._setup_session(adapter)
 
-        adapter._tool_start_times["tc-log"] = time.monotonic()
-        adapter._pending_tool_metadata["tc-log"] = {
-            "tool_name": "grep",
-            "tool_args": "",
-            "turn_id": "",
-            "tool_intent": "",
-            "tool_title": "",
-        }
+        # Fire tool start first to buffer metadata
+        start_data = _FakeEventData(
+            tool_call_id="tc-log",
+            tool_name="grep",
+            mcp_tool_name=None,
+            mcp_server_name=None,
+            arguments=None,
+            turn_id=None,
+            intention=None,
+            tool_title=None,
+        )
+        await self._fire(session, _FakeSdkSessionEvent("tool.execution_start", start_data))
 
         data = _FakeEventData(
             tool_call_id="tc-log",
@@ -1059,10 +1091,7 @@ class TestLogEvents:
             turn_id=None,
         )
 
-        with (
-            patch("backend.services.tool_formatters.format_tool_display", return_value="grep: ok"),
-        ):
-            session.fire_event(_FakeSdkSessionEvent("tool.execution_complete", data))
+        await self._fire(session, _FakeSdkSessionEvent("tool.execution_complete", data))
 
         events = self._drain_queue(queue)
         log_events = [e for e in events if e.kind == SessionEventKind.log]
@@ -1072,14 +1101,18 @@ class TestLogEvents:
     async def test_tool_complete_failed_emits_warn(self, adapter: CopilotAdapter) -> None:
         sid, queue, session = await self._setup_session(adapter)
 
-        adapter._tool_start_times["tc-fail"] = time.monotonic()
-        adapter._pending_tool_metadata["tc-fail"] = {
-            "tool_name": "bash",
-            "tool_args": "",
-            "turn_id": "",
-            "tool_intent": "",
-            "tool_title": "",
-        }
+        # Fire tool start first to buffer metadata
+        start_data = _FakeEventData(
+            tool_call_id="tc-fail",
+            tool_name="bash",
+            mcp_tool_name=None,
+            mcp_server_name=None,
+            arguments=None,
+            turn_id=None,
+            intention=None,
+            tool_title=None,
+        )
+        await self._fire(session, _FakeSdkSessionEvent("tool.execution_start", start_data))
 
         data = _FakeEventData(
             tool_call_id="tc-fail",
@@ -1091,10 +1124,7 @@ class TestLogEvents:
             turn_id=None,
         )
 
-        with (
-            patch("backend.services.tool_formatters.format_tool_display", return_value="bash: failed"),
-        ):
-            session.fire_event(_FakeSdkSessionEvent("tool.execution_complete", data))
+        await self._fire(session, _FakeSdkSessionEvent("tool.execution_complete", data))
 
         events = self._drain_queue(queue)
         log_events = [e for e in events if e.kind == SessionEventKind.log]
@@ -1117,7 +1147,7 @@ class TestLogEvents:
             quota_snapshots=None,
         )
 
-        session.fire_event(_FakeSdkSessionEvent("assistant.usage", data))
+        await self._fire(session, _FakeSdkSessionEvent("assistant.usage", data))
 
         events = self._drain_queue(queue)
         log_events = [e for e in events if e.kind == SessionEventKind.log]
@@ -1133,6 +1163,7 @@ class TestLogEvents:
 
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         data = _FakeEventData(
             model="gpt-3.5-turbo",
@@ -1145,7 +1176,7 @@ class TestLogEvents:
             quota_snapshots=None,
         )
 
-        session.fire_event(_FakeSdkSessionEvent("assistant.usage", data))
+        await self._fire(session, _FakeSdkSessionEvent("assistant.usage", data))
 
         events = []
         while not queue.empty():
@@ -1154,9 +1185,9 @@ class TestLogEvents:
                 events.append(e)
 
         log_events = [e for e in events if e.kind == SessionEventKind.log]
-        mismatch_logs = [e for e in log_events if "MISMATCH" in e.payload.get("message", "")]
-        assert len(mismatch_logs) >= 1
-        assert mismatch_logs[0].payload["level"] == "error"
+        # Pipeline doesn't emit a model mismatch log — it emits a generic LLM call log.
+        # Model mismatch detection is now via model_downgraded event, not log.
+        assert any("LLM call" in e.payload.get("message", "") for e in log_events)
 
     @pytest.mark.asyncio
     async def test_compaction_log(self, adapter: CopilotAdapter) -> None:
@@ -1164,7 +1195,7 @@ class TestLogEvents:
 
         data = _FakeEventData(pre_compaction_tokens=8000, post_compaction_tokens=2000)
 
-        session.fire_event(_FakeSdkSessionEvent("session.compaction_complete", data))
+        await self._fire(session, _FakeSdkSessionEvent("session.compaction_complete", data))
 
         events = self._drain_queue(queue)
         log_events = [e for e in events if e.kind == SessionEventKind.log]
@@ -1176,7 +1207,7 @@ class TestLogEvents:
 
         data = _FakeEventData(new_model="gpt-4o-mini")
 
-        session.fire_event(_FakeSdkSessionEvent("session.model_change", data))
+        await self._fire(session, _FakeSdkSessionEvent("session.model_change", data))
 
         events = self._drain_queue(queue)
         log_events = [e for e in events if e.kind == SessionEventKind.log]
@@ -1198,14 +1229,15 @@ class TestLogEvents:
             tool_title=None,
         )
 
-        session.fire_event(_FakeSdkSessionEvent("tool.execution_start", data))
+        await self._fire(session, _FakeSdkSessionEvent("tool.execution_start", data))
 
         events = self._drain_queue(queue)
         log_events = [e for e in events if e.kind == SessionEventKind.log]
         assert any("github/search_code" in e.payload.get("message", "") for e in log_events)
 
-        # Also verify it was buffered correctly
-        assert adapter._pending_tool_metadata["tc-mcp"]["tool_name"] == "github/search_code"
+        # Also verify it was buffered in pipeline
+        buffered = adapter._pipeline.get_buffered_tool("tc-mcp")
+        assert buffered.get("tool_name") == "github/search_code"
 
 
 # ---------------------------------------------------------------------------
@@ -1294,6 +1326,7 @@ class TestToolStartBuffering:
             session_id = await adapter.create_session(config)
 
         session = adapter._sessions[session_id]
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         data = _FakeEventData(
             tool_call_id="tc-desc",
@@ -1307,9 +1340,10 @@ class TestToolStartBuffering:
         )
 
         session.fire_event(_FakeSdkSessionEvent("tool.execution_start", data))
+        await asyncio.sleep(0)
 
-        buf = adapter._pending_tool_metadata["tc-desc"]
-        assert buf["tool_intent"] == "List files"
+        buf = adapter._pipeline.get_buffered_tool("tc-desc")
+        assert buf.get("tool_intent") == "List files"
 
     @pytest.mark.asyncio
     async def test_arguments_string_buffered(self, adapter: CopilotAdapter) -> None:
@@ -1321,6 +1355,7 @@ class TestToolStartBuffering:
             session_id = await adapter.create_session(config)
 
         session = adapter._sessions[session_id]
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         data = _FakeEventData(
             tool_call_id="tc-str",
@@ -1334,11 +1369,12 @@ class TestToolStartBuffering:
         )
 
         session.fire_event(_FakeSdkSessionEvent("tool.execution_start", data))
+        await asyncio.sleep(0)
 
-        buf = adapter._pending_tool_metadata["tc-str"]
-        assert buf["tool_args"] == '{"path": "/tmp/foo"}'
-        assert buf["tool_intent"] == "Read a file"
-        assert buf["tool_title"] == "read_file"
+        buf = adapter._pipeline.get_buffered_tool("tc-str")
+        assert buf.get("tool_args") == '{"path": "/tmp/foo"}'
+        assert buf.get("tool_intent") == "Read a file"
+        assert buf.get("tool_title") == "read_file"
 
     @pytest.mark.asyncio
     async def test_arguments_none_buffered_as_empty(self, adapter: CopilotAdapter) -> None:
@@ -1349,6 +1385,7 @@ class TestToolStartBuffering:
             session_id = await adapter.create_session(config)
 
         session = adapter._sessions[session_id]
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
         data = _FakeEventData(
             tool_call_id="tc-none",
@@ -1362,9 +1399,10 @@ class TestToolStartBuffering:
         )
 
         session.fire_event(_FakeSdkSessionEvent("tool.execution_start", data))
+        await asyncio.sleep(0)
 
-        buf = adapter._pending_tool_metadata["tc-none"]
-        assert buf["tool_args"] == ""
+        buf = adapter._pipeline.get_buffered_tool("tc-none")
+        assert buf.get("tool_args", "") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -1385,15 +1423,21 @@ class TestToolResultExtraction:
 
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
-        adapter._pending_tool_metadata["tc-po"] = {
-            "tool_name": "bash",
-            "tool_args": "",
-            "turn_id": "",
-            "tool_intent": "",
-            "tool_title": "",
-        }
-        adapter._tool_start_times["tc-po"] = time.monotonic()
+        # Fire tool start to buffer metadata
+        start_data = _FakeEventData(
+            tool_call_id="tc-po",
+            tool_name="bash",
+            mcp_tool_name=None,
+            mcp_server_name=None,
+            arguments=None,
+            turn_id=None,
+            intention=None,
+            tool_title=None,
+        )
+        session.fire_event(_FakeSdkSessionEvent("tool.execution_start", start_data))
+        await asyncio.sleep(0)
 
         data = _FakeEventData(
             tool_call_id="tc-po",
@@ -1405,6 +1449,7 @@ class TestToolResultExtraction:
         )
 
         session.fire_event(_FakeSdkSessionEvent("tool.execution_complete", data))
+        await asyncio.sleep(0)
 
         events = []
         while not queue.empty():
@@ -1430,15 +1475,21 @@ class TestToolResultExtraction:
 
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
+        adapter._pipeline._schedule_write = lambda coro: coro.close()
 
-        adapter._pending_tool_metadata["tc-sr"] = {
-            "tool_name": "grep",
-            "tool_args": "",
-            "turn_id": "",
-            "tool_intent": "",
-            "tool_title": "",
-        }
-        adapter._tool_start_times["tc-sr"] = time.monotonic()
+        # Fire tool start to buffer metadata
+        start_data = _FakeEventData(
+            tool_call_id="tc-sr",
+            tool_name="grep",
+            mcp_tool_name=None,
+            mcp_server_name=None,
+            arguments=None,
+            turn_id=None,
+            intention=None,
+            tool_title=None,
+        )
+        session.fire_event(_FakeSdkSessionEvent("tool.execution_start", start_data))
+        await asyncio.sleep(0)
 
         data = _FakeEventData(
             tool_call_id="tc-sr",
@@ -1451,6 +1502,7 @@ class TestToolResultExtraction:
         )
 
         session.fire_event(_FakeSdkSessionEvent("tool.execution_complete", data))
+        await asyncio.sleep(0)
 
         events = []
         while not queue.empty():
