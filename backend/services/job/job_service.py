@@ -765,6 +765,19 @@ class JobService:
         # Clean up worktree and branch immediately rather than waiting for
         # the daily retention sweep — the UI promises this happens on archive.
         if self._git and job.worktree_path and job.worktree_path != job.repo:
+            # Drop the CodeRecon structural index for this worktree first
+            # (only for abandoned jobs — merged jobs are handled by merge_index)
+            if self._coderecon and self._coderecon.available:
+                try:
+                    from pathlib import Path
+
+                    wt_name = Path(job.worktree_path).name
+                    repo_name = await self._coderecon.ensure_repo_indexed(job.repo)
+                    await self._coderecon.drop_worktree(repo_name, wt_name)
+                    log.info("archive_coderecon_index_dropped", job_id=job_id, worktree=wt_name)
+                except Exception:
+                    log.debug("archive_coderecon_drop_failed", job_id=job_id, exc_info=True)
+
             try:
                 await self._git.remove_worktree(job.repo, job.worktree_path)
                 log.info("archive_worktree_removed", job_id=job_id, worktree=job.worktree_path)

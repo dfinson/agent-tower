@@ -436,6 +436,7 @@ async def _wire_core_services(
         config=config.completion,
         platform_registry=platform_registry,
         diff_service=diff_service,
+        coderecon=coderecon_service,
     )
 
     # --- Sidecar session manager (per-job dedicated utility sessions) ---
@@ -911,6 +912,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 repo_name = await coderecon_service.ensure_repo_indexed(repo_path)
                 if changed_files:
                     await coderecon_service.reindex(repo_name, changed_files, worktree=worktree_path)
+                else:
+                    await coderecon_service.sync_from_git(repo_name, worktree=worktree_path)
                 warnings = await coderecon_service.check_step_structural_health(repo_name, worktree=worktree_path)
                 for w in warnings:
                     await event_bus.publish(
