@@ -2028,6 +2028,23 @@ class RuntimeService:
         self._echo_suppress.setdefault(job_id, set()).add(message)
         return True
 
+    async def inject_sidecar_message(self, job_id: str, message: str) -> bool:
+        """Inject a sidecar message into a running agent session.
+
+        Unlike ``send_message`` (operator path), this does NOT publish a
+        transcript event (the sidecar dispatcher already emits
+        sidecar_transcript / sidecar_agent_message events for UI visibility)
+        and does NOT resume paused tools.
+        """
+        agent_session = self._agent_sessions.get(job_id)
+        if agent_session is None:
+            log.warning("inject_sidecar_message_no_session", job_id=job_id)
+            return False
+        await agent_session.send_message(message)
+        # Suppress the SDK echo — the sidecar events already provide UI visibility.
+        self._echo_suppress.setdefault(job_id, set()).add(message)
+        return True
+
     async def resolve_policy_batch(
         self,
         job_id: str,

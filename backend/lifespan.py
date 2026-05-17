@@ -517,7 +517,7 @@ async def _wire_core_services(
 
     # Wire the sidecar agent message handler — injects sidecar output into the agent conversation.
     async def _agent_message_handler(job_id: str, message: str) -> None:
-        await runtime_service.send_message(job_id, message)
+        await runtime_service.inject_sidecar_message(job_id, message)
 
     sidecar_dispatcher.set_agent_message_handler(_agent_message_handler)
 
