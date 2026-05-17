@@ -478,6 +478,8 @@ class RuntimeService:
                     count=len(definitions),
                     names=[d.name for d in definitions],
                 )
+                # Run preflight sidecars before the agent starts
+                await self._sidecar_dispatcher.run_preflight(job.id)
         except Exception:
             log.warning("custom_sidecar_activation_failed", job_id=job.id, exc_info=True)
 

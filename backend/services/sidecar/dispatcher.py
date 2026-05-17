@@ -593,6 +593,19 @@ class SidecarDispatcher:
         state = self._jobs.pop(job_id, None)
         if not state:
             return
+        # Drain any queued pipelines before closing sessions
+        for queued_defn, queued_idx, queued_ctx in state.queued:
+            try:
+                await self._execute_pipeline(
+                    job_id, queued_defn, queued_defn.triggers[queued_idx], queued_ctx
+                )
+            except Exception:
+                log.warning(
+                    "dispatcher_drain_error",
+                    job_id=job_id,
+                    sidecar=queued_defn.name,
+                    exc_info=True,
+                )
         self._session_manager.close_job(job_id)
         log.info("dispatcher_deactivated", job_id=job_id)
 
@@ -726,6 +739,30 @@ class SidecarDispatcher:
             for idx, pipeline in enumerate(defn.triggers):
                 if isinstance(pipeline.condition, ManualCondition):
                     await self._try_execute(job_id, state, defn, idx, context)
+
+    async def run_preflight(self, job_id: str) -> None:
+        """Execute all preflight sidecars before the job agent starts."""
+        state = self._jobs.get(job_id)
+        if not state:
+            return
+        for defn in state.definitions:
+            if defn.phase != "preflight":
+                continue
+            # Open session for preflight
+            self._session_manager.open(
+                job_id,
+                defn.name,
+                config=SidecarConfig(
+                    name=defn.name,
+                    phase=cast("SidecarPhase", defn.phase),
+                    lifetime=cast("SidecarLifetime", defn.lifetime),
+                    system_prompt=defn.system_prompt,
+                    max_turns=defn.max_turns,
+                    timeout_s=defn.timeout_s,
+                ),
+            )
+            for idx, _pipeline in enumerate(defn.triggers):
+                await self._try_execute(job_id, state, defn, idx, None)
 
     async def run_postflight(self, job_id: str) -> None:
         """Execute all postflight sidecars for a completed job."""
@@ -916,8 +953,8 @@ class SidecarDispatcher:
         else:
             session_or_none = self._session_manager.get(job_id, defn.name)
             if session_or_none is None:
-                # Session expired or not found — re-open for windowed
-                if defn.lifetime == "windowed":
+                # Session expired or not found — re-open for windowed/persistent
+                if defn.lifetime in ("windowed", "persistent"):
                     self._session_manager.open(
                         job_id,
                         defn.name,
@@ -945,7 +982,7 @@ class SidecarDispatcher:
         else:
             # Text-only sidecar — single completion call.
             try:
-                raw = await session.complete(prompt, timeout=30.0)
+                raw = await session.complete(prompt, timeout=defn.timeout_s or 30.0)
             except (TimeoutError, OSError, RuntimeError):
                 log.warning("dispatcher_llm_error", job_id=job_id, sidecar=defn.name, exc_info=True)
                 return
