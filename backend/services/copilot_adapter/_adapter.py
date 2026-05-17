@@ -574,7 +574,7 @@ class CopilotAdapter(BaseAgentAdapter):
                             "tool_duration_ms": None,
                             "tool_visibility": "hidden",
                         }
-                        queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))
+                        self._enqueue(session_id, SessionEvent(kind=kind, payload=event_payload))
                         return
                     turn_id = buffered.get("turn_id")
                     event_payload = self._build_tool_running_payload(
@@ -644,7 +644,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     )
             else:
                 event_payload = payload if isinstance(payload, dict) else {}
-            queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))
+            self._enqueue(session_id, SessionEvent(kind=kind, payload=event_payload))
         except (asyncio.QueueFull, AttributeError):
             log.warning("copilot_queue_put_failed", session_id=session_id, exc_info=True)
         if kind == SessionEventKind.done or kind == SessionEventKind.error:
