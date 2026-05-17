@@ -81,13 +81,16 @@ def watcher(
     runtime_service: MagicMock,
     git_service: AsyncMock,
 ) -> ClaudeSessionStateWatcher:
-    return ClaudeSessionStateWatcher(
+    w = ClaudeSessionStateWatcher(
         event_bus=event_bus,
         runtime_service=runtime_service,
         session_factory=db_session,
         config=config,
         git_service=git_service,
     )
+    # Prevent pipeline DB writes from hitting the in-memory engine during tests
+    w._pipeline._schedule_write = lambda coro: coro.close()  # type: ignore[assignment]
+    return w
 
 
 # ---------------------------------------------------------------------------
@@ -550,6 +553,7 @@ class TestSdkParserIntegration:
             pytest.fail("No tool_call event emitted")
 
     @pytest.mark.anyio
+    @pytest.mark.anyio
     async def test_usage_extracted_even_when_blocks_malformed(
         self,
         watcher: ClaudeSessionStateWatcher,
@@ -569,12 +573,14 @@ class TestSdkParserIntegration:
             },
         }
 
-        await watcher._process_jsonl_event(raw, "sess-1", "job-usg")
+        with patch.object(watcher._pipeline, "on_usage", new_callable=AsyncMock) as mock_usage:
+            await watcher._process_jsonl_event(raw, "sess-1", "job-usg")
 
-        # Usage should have been accumulated despite parse failure
-        pending = watcher._pending_telemetry.get("job-usg", {})
-        assert pending.get("input_tokens", 0) == 999
-        assert pending.get("output_tokens", 0) == 111
+            # Usage should have been routed through pipeline despite parse failure
+            mock_usage.assert_called_once()
+            call_kwargs = mock_usage.call_args[1]
+            assert call_kwargs["input_tokens"] == 999
+            assert call_kwargs["output_tokens"] == 111
 
     @pytest.mark.anyio
     async def test_empty_text_block_not_emitted(
@@ -1039,7 +1045,7 @@ class TestCostCalculation:
         watcher: ClaudeSessionStateWatcher,
         runtime_service: MagicMock,
     ) -> None:
-        """_extract_usage_telemetry should accumulate cost_usd in pending telemetry."""
+        """_process_usage_telemetry should route cost through pipeline.on_usage."""
         from backend.services.analytics.model_pricing import ModelPricingService
 
         # Inject a pricing service with bundled data
@@ -1066,11 +1072,14 @@ class TestCostCalculation:
             },
         }
 
-        await watcher._process_jsonl_event(raw, "sess-1", "job-cost")
+        with patch.object(watcher._pipeline, "on_usage", new_callable=AsyncMock) as mock_usage:
+            await watcher._process_jsonl_event(raw, "sess-1", "job-cost")
 
-        # Check that pending telemetry has a non-zero cost
-        pending = watcher._pending_telemetry.get("job-cost", {})
-        assert pending.get("total_cost_usd", 0) > 0
+            # Check that pipeline received cost > 0
+            mock_usage.assert_called_once()
+            call_kwargs = mock_usage.call_args[1]
+            assert call_kwargs["cost_usd"] > 0
+            assert call_kwargs["model"] == "claude-sonnet-4-20250514"
 
 
 # ---------------------------------------------------------------------------

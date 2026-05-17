@@ -22,9 +22,9 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from backend.models.domain import Job, JobSource, JobState, SessionEvent, SessionEventKind
+from backend.models.domain import Job, JobSource, JobState, SessionEvent
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.events.event_enricher import ToolEventEnricher
+from backend.services.events.event_pipeline import EventPipeline
 from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin
 
 # Claude SDK typed message parser — converts raw JSONL dicts to typed objects
@@ -169,8 +169,6 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         # Per-job context for event processor
         self._job_worktrees: dict[str, str] = {}  # job_id → worktree_path
         self._job_base_refs: dict[str, str] = {}  # job_id → base_ref
-        # Per-job tool event enricher (pairs tool_use→tool_result with metadata)
-        self._enrichers: dict[str, ToolEventEnricher] = {}  # job_id → enricher
         # Instance-level background tasks (DB writes, coderecon indexing)
         self._bg_tasks: set[asyncio.Task[Any]] = set()
         # Per-job accumulated telemetry deltas (flushed atomically with offset)
@@ -187,6 +185,14 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         # this are ignored unless they already have a job in the DB (handled
         # by _load_existing_sessions).
         self._started_at: float = 0.0
+
+        # Unified event pipeline — handles enrichment, telemetry, DB writes
+        self._pipeline = EventPipeline(
+            emit=self._pipeline_emit,
+            schedule_write=self._pipeline_schedule_write,
+            sdk="claude",
+        )
+        self._pipeline.set_session_factory(session_factory)
 
     # ------------------------------------------------------------------
     # Public interface
@@ -833,13 +839,9 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                 name=f"claude-prompt-{job_id[:8]}",
             )
 
-        # Feed as transcript event
+        # Feed through pipeline
         if text_content.strip():
-            session_event = SessionEvent(
-                kind=SessionEventKind.transcript,
-                payload={"role": "operator", "content": text_content},
-            )
-            await self._feed_event(job_id, session_event)
+            await self._pipeline.on_user_message(job_id, text_content)
 
         # Extract metadata from cwd field if present
         cwd = raw.get("cwd")
@@ -848,13 +850,11 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
     async def _handle_assistant_event(self, raw: dict[str, Any], session_id: str, job_id: str) -> None:
         """Handle an assistant-type JSONL event."""
-        from backend.services.tools.tool_classifier import classify_tool, extract_file_paths
-
         # Usage lives in the raw JSONL dict but is NOT on the typed AssistantMessage
         raw_message = raw.get("message", {})
         usage = raw_message.get("usage")
         if usage:
-            await self._extract_usage_telemetry(usage, job_id, raw_message)
+            await self._process_usage_telemetry(usage, job_id, raw_message)
 
         # Parse raw dict → typed AssistantMessage with typed content blocks
         try:
@@ -870,60 +870,25 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             if isinstance(block, TextBlock):
                 text = block.text or ""
                 if text.strip():
-                    session_event = SessionEvent(
-                        kind=SessionEventKind.transcript,
-                        payload={"role": "agent", "content": text},
-                    )
-                    await self._feed_event(job_id, session_event)
+                    await self._pipeline.on_agent_message(job_id, text)
 
             elif isinstance(block, ThinkingBlock):
                 thinking_text = block.thinking or ""
                 if thinking_text.strip():
-                    session_event = SessionEvent(
-                        kind=SessionEventKind.transcript,
-                        payload={"role": "reasoning", "content": thinking_text},
-                    )
-                    await self._feed_event(job_id, session_event)
+                    await self._pipeline.on_reasoning(job_id, thinking_text)
 
             elif isinstance(block, ToolUseBlock):
                 tool_name = block.name or "tool"
                 tool_id = block.id or ""
                 tool_input = block.input
-                args_str = None
+                args_str: str | None = None
                 if tool_input is not None:
                     try:
                         args_str = json.dumps(tool_input) if not isinstance(tool_input, str) else tool_input
                     except (TypeError, ValueError):
                         args_str = str(tool_input)
 
-                # Use enricher to produce enriched tool_running payload
-                enricher = self._enrichers.get(job_id)
-                if enricher is None:
-                    enricher = ToolEventEnricher()
-                    self._enrichers[job_id] = enricher
-                payload = enricher.on_tool_start(
-                    tool_id,
-                    tool_name,
-                    args_str,
-                    None,
-                )
-                session_event = SessionEvent(
-                    kind=SessionEventKind.transcript,
-                    payload=payload,
-                )
-                await self._feed_event(job_id, session_event)
-
-                # Emit file_changed for file-write tools to trigger diff
-                if classify_tool(tool_name) == "file_write":
-                    paths = extract_file_paths(tool_name, args_str)
-                    for fpath in paths:
-                        await self._feed_event(
-                            job_id,
-                            SessionEvent(
-                                kind=SessionEventKind.file_changed,
-                                payload={"path": fpath},
-                            ),
-                        )
+                await self._pipeline.on_tool_start(job_id, tool_id, tool_name, args_str)
 
             elif isinstance(block, ToolResultBlock):
                 tool_use_id = block.tool_use_id or ""
@@ -940,44 +905,22 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                     result_content = "\n".join(parts)
 
                 is_error = block.is_error or False
-                # Use enricher to produce enriched tool_call payload
-                enricher = self._enrichers.get(job_id)
-                if enricher is None:
-                    enricher = ToolEventEnricher()
-                    self._enrichers[job_id] = enricher
-                payload = enricher.on_tool_complete(
-                    tool_use_id,
-                    str(result_content),
-                    not is_error,
-                    tool_name_fallback="tool",
+                await self._pipeline.on_tool_complete(
+                    job_id, tool_use_id, str(result_content), not is_error,
                 )
-                session_event = SessionEvent(
-                    kind=SessionEventKind.transcript,
-                    payload=payload,
-                )
-                await self._feed_event(job_id, session_event)
 
-    async def _extract_usage_telemetry(
+    async def _process_usage_telemetry(
         self,
         usage: dict[str, Any],
         job_id: str,
         message: dict[str, Any],
     ) -> None:
-        """Extract token usage and cost telemetry from assistant message."""
-        from backend.services.analytics import telemetry as tel
-
+        """Route token usage and cost through the pipeline."""
         input_toks = int(usage.get("input_tokens", 0))
         output_toks = int(usage.get("output_tokens", 0))
         cache_read = int(usage.get("cache_read_input_tokens", 0))
         cache_write = int(usage.get("cache_creation_input_tokens", 0))
         model = message.get("model", "") or ""
-
-        attrs = {"job_id": job_id, "sdk": "claude"}
-        tel.tokens_input.add(input_toks, {**attrs, "model": model})
-        tel.tokens_output.add(output_toks, {**attrs, "model": model})
-        tel.tokens_cache_read.add(cache_read, attrs)
-        tel.tokens_cache_write.add(cache_write, attrs)
-        tel.messages_counter.add(1, {**attrs, "role": "agent"})
 
         # Compute cost from model pricing service
         cost_usd = (
@@ -985,38 +928,32 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             if self._model_pricing
             else 0.0
         )
-        if cost_usd > 0:
-            tel.cost_usd.add(cost_usd, attrs)
 
-        # Accumulate for atomic flush with offset
-        self._accumulate_telemetry(
+        await self._pipeline.on_usage(
             job_id,
-            {
-                "input_tokens": input_toks,
-                "output_tokens": output_toks,
-                "cache_read_tokens": cache_read,
-                "cache_write_tokens": cache_write,
-                "total_cost_usd": cost_usd,
-                "llm_call_count": 1,
-            },
+            input_tokens=input_toks,
+            output_tokens=output_toks,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
+            cost_usd=cost_usd,
+            model=model,
         )
-        if model:
-            self._schedule_model_update(job_id, model)
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
-    async def _feed_event(self, job_id: str, session_event: SessionEvent) -> None:
-        """Feed a SessionEvent through RuntimeService's full processing pipeline."""
+    async def _pipeline_emit(self, job_id: str, event: SessionEvent) -> None:
+        """Deliver a pipeline-produced event to RuntimeService."""
         worktree = self._job_worktrees.get(job_id)
         base_ref = self._job_base_refs.get(job_id)
         await self._runtime.feed_external_event(
-            job_id,
-            session_event,
-            worktree_path=worktree,
-            base_ref=base_ref,
+            job_id, event, worktree_path=worktree, base_ref=base_ref,
         )
+
+    def _pipeline_schedule_write(self, coro: Any) -> None:
+        """Schedule a fire-and-forget DB write from the pipeline."""
+        self._fire_bg(coro, name="pipeline-write")
 
     async def _set_job_prompt(self, job_id: str, content: str) -> None:
         """Set job prompt from first user message."""
@@ -1104,9 +1041,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         self._pending_telemetry.pop(job_id, None)
         self._pending_messages.pop(job_id, None)
         self._prompt_captured.discard(job_id)
-        enricher = self._enrichers.pop(job_id, None)
-        if enricher:
-            enricher.cleanup()
+        self._pipeline.cleanup_job(job_id)
         # Note: do NOT remove from _finalizing here — the guard must persist
         # to prevent double-finalization from concurrent triggers.
         sid_to_remove = self._job_to_session.pop(job_id, None)
