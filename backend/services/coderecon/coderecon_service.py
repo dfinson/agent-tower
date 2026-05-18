@@ -23,11 +23,14 @@ import structlog
 if TYPE_CHECKING:
     from coderecon.index.diff.models import SemanticDiffResult
     from coderecon.review import (
+        BlastRadiusResult,
         CheckpointResult,
         CommunitiesResult,
+        CoverageIngestResult,
         CyclesResult,
         ScoutResult,
         StructuralHealthResult,
+        TestCandidate,
     )
 
     from backend.services.events.event_bus import EventBus
@@ -429,6 +432,69 @@ class CodeReconService:
             "state": "ready" if self._available else "unavailable",
             "indexed_repos": len(self._kits),
         }
+
+    # ── Coverage & Blast Radius ──
+
+    async def ingest_coverage(
+        self,
+        repo: str,
+        report_path: str,
+        *,
+        worktree: str = "main",
+        test_id: str | None = None,
+        failed_tests: list[str] | None = None,
+        rebuild_reachability: bool = True,
+    ) -> CoverageIngestResult:
+        """Ingest a coverage report (coverage.py JSON or lcov) into the index."""
+        kit = self._get_kit(repo)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            lambda: kit.ingest_coverage(
+                report_path,
+                worktree=worktree,
+                test_id=test_id,
+                failed_tests=failed_tests,
+                rebuild_reachability=rebuild_reachability,
+            ),
+        )
+
+    async def blast_radius(
+        self,
+        repo: str,
+        changed_files: list[str],
+        *,
+        worktree: str = "main",
+        max_hops: int = 2,
+    ) -> BlastRadiusResult:
+        """Compute blast radius for a set of changed files.
+
+        Returns test candidates, coverage gaps, and whether coverage data exists.
+        """
+        kit = self._get_kit(repo)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            lambda: kit.blast_radius(changed_files, worktree=worktree, max_hops=max_hops),
+        )
+
+    async def covering_tests(
+        self,
+        repo: str,
+        file_path: str,
+        *,
+        worktree: str = "main",
+    ) -> dict[str, list[TestCandidate]]:
+        """Return tests that cover definitions in the given file.
+
+        Keys are qualified symbol names, values are lists of TestCandidate.
+        """
+        kit = self._get_kit(repo)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            lambda: kit.covering_tests(file_path, worktree=worktree),
+        )
 
     # ── Internal ──
 

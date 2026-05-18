@@ -788,6 +788,7 @@ export interface StructuralChange {
   testFiles: string[];
   risk: number;
   lineRange: number[] | null;
+  coverageConfidence: string | null;  // high | medium | low | null
 }
 
 export interface StructuralDiffResponse {
@@ -870,6 +871,48 @@ export interface CommunitiesResponse {
 
 export function fetchCommunities(jobId: string): Promise<CommunitiesResponse> {
   return request(`/jobs/${encodeURIComponent(jobId)}/communities`);
+}
+
+// Coverage / Blast Radius
+// ---------------------------------------------------------------------------
+
+export interface CoveringTestCandidate {
+  testId: string;
+  source: string;  // coverage | reachability | graph
+  distance: number;
+  confidence: number;
+  reason: string;
+}
+
+export interface CoveringTestsResponse {
+  jobId: string;
+  filePath: string;
+  available: boolean;
+  symbols: Record<string, CoveringTestCandidate[]>;
+}
+
+export interface BlastRadiusCandidate {
+  testId: string;
+  source: string;
+  distance: number;
+  confidence: number;
+  reason: string;
+}
+
+export interface BlastRadiusResponse {
+  jobId: string;
+  available: boolean;
+  hasCoverageData: boolean;
+  candidates: BlastRadiusCandidate[];
+  coverageGaps: string[];
+}
+
+export function fetchCoveringTests(jobId: string, filePath: string): Promise<CoveringTestsResponse> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/covering-tests?file_path=${encodeURIComponent(filePath)}`);
+}
+
+export function fetchBlastRadius(jobId: string): Promise<BlastRadiusResponse> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/blast-radius`);
 }
 
 // Review Story

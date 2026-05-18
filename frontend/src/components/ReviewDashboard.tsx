@@ -12,7 +12,7 @@
  */
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { AlertTriangle, ArrowRightLeft, Plus, Minus, Pencil, ShieldCheck, ShieldAlert, Shield, Info } from "lucide-react";
-import { fetchStructuralDiff, fetchMultiSession, type StructuralChange, type StructuralDiffResponse } from "../api/client";
+import { fetchStructuralDiff, fetchMultiSession, fetchBlastRadius, type StructuralChange, type StructuralDiffResponse, type BlastRadiusResponse } from "../api/client";
 import { useStore } from "../store";
 import { selectStructuralDiff, selectMultiSession } from "../store/selectors";
 import { Spinner } from "./ui/spinner";
@@ -157,6 +157,18 @@ function ChangeCard({ change, onClick }: { change: StructuralChange; onClick: ()
           <span className="text-[10px] text-muted-foreground">({change.testFiles.length} file{change.testFiles.length !== 1 ? "s" : ""})</span>
         </div>
       )}
+
+      {change.coverageConfidence && (
+        <div className="flex items-center gap-1 pl-5">
+          <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+            change.coverageConfidence === "high" ? "text-green-300 bg-green-400/10" :
+            change.coverageConfidence === "medium" ? "text-yellow-300 bg-yellow-400/10" :
+            "text-red-300 bg-red-400/10"
+          }`}>
+            coverage: {change.coverageConfidence}
+          </span>
+        </div>
+      )}
     </button>
   );
 }
@@ -165,6 +177,13 @@ function ChangeCard({ change, onClick }: { change: StructuralChange; onClick: ()
 
 function DashboardSubView({ data, onSymbolClick }: { data: StructuralDiffResponse; onSymbolClick: (symbol: string) => void }) {
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [blastRadius, setBlastRadius] = useState<BlastRadiusResponse | null>(null);
+
+  useEffect(() => {
+    if (data.jobId) {
+      fetchBlastRadius(data.jobId).then(setBlastRadius).catch(() => {});
+    }
+  }, [data.jobId]);
 
   if (data.changes.length === 0) {
     return (
@@ -192,6 +211,29 @@ function DashboardSubView({ data, onSymbolClick }: { data: StructuralDiffRespons
         )}
         <TriageBar triage={data.triage} activeFilter={categoryFilter} onFilter={setCategoryFilter} />
       </div>
+
+      {/* Blast Radius summary */}
+      {blastRadius && blastRadius.available && (blastRadius.candidates.length > 0 || blastRadius.coverageGaps.length > 0) && (
+        <div className="rounded-lg border border-border bg-card p-4">
+          <h4 className="text-xs font-semibold mb-2 flex items-center gap-1.5">
+            <ShieldCheck size={13} className="text-blue-400" />
+            Blast Radius
+            {blastRadius.hasCoverageData && (
+              <span className="text-[10px] font-normal text-green-400 ml-1">coverage-backed</span>
+            )}
+          </h4>
+          {blastRadius.candidates.length > 0 && (
+            <div className="text-xs text-muted-foreground mb-1">
+              {blastRadius.candidates.length} affected test{blastRadius.candidates.length !== 1 ? "s" : ""} identified
+            </div>
+          )}
+          {blastRadius.coverageGaps.length > 0 && (
+            <div className="text-xs text-red-400">
+              ⚠ {blastRadius.coverageGaps.length} file{blastRadius.coverageGaps.length !== 1 ? "s" : ""} with no test coverage
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Change list */}
       <div className="rounded-lg border border-border bg-card">

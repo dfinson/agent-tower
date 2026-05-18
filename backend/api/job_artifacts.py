@@ -15,8 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full
 from backend.models.api_schemas import (
+    BlastRadiusCandidate,
+    BlastRadiusResponse,
     CommunitiesResponse,
     CommunityGroup,
+    CoveringTestCandidate,
+    CoveringTestsResponse,
     DiffFileModel,
     DiffListResponse,
     ImpactGraphResponse,
@@ -790,6 +794,7 @@ def _build_structural_changes(raw_changes: list[Any]) -> list[StructuralChange]:
                 test_files=test_files,
                 risk=risk,
                 line_range=[c.start_line, c.end_line] if c.start_line else None,
+                coverage_confidence=impact.coverage_confidence if impact and hasattr(impact, "coverage_confidence") else None,
             )
         )
     return changes
@@ -1401,4 +1406,105 @@ async def _generate_review_story(
                 else "Some structural uncertainty — review recommended."
             ),
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Coverage / Blast Radius endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/jobs/{job_id}/covering-tests", response_model=CoveringTestsResponse)
+async def get_job_covering_tests(
+    job_id: str,
+    svc: FromDishka[JobService],
+    coderecon: FromDishka[CodeReconService],
+    file_path: Annotated[str, Query(description="Relative file path to query covering tests for")],
+) -> CoveringTestsResponse:
+    """Return tests that cover definitions in the given file for a job's repo."""
+    job = await svc.get_job(job_id)
+    if not coderecon.available or not job.repo or not job.worktree_path:
+        return CoveringTestsResponse(job_id=job_id, file_path=file_path, available=False)
+
+    try:
+        repo_name = await _ensure_repo_and_worktree(coderecon, job.repo, job.worktree_path)
+        result = await coderecon.covering_tests(
+            repo_name, file_path, worktree=job.worktree_path,
+        )
+    except Exception:
+        log.warning("covering_tests_failed", job_id=job_id, file_path=file_path, exc_info=True)
+        return CoveringTestsResponse(job_id=job_id, file_path=file_path, available=False)
+
+    symbols: dict[str, list[CoveringTestCandidate]] = {}
+    for symbol, candidates in result.items():
+        symbols[symbol] = [
+            CoveringTestCandidate(
+                test_id=c.test_id,
+                source=c.source,
+                distance=c.distance,
+                confidence=c.confidence,
+                reason=c.reason,
+            )
+            for c in candidates
+        ]
+
+    return CoveringTestsResponse(
+        job_id=job_id,
+        file_path=file_path,
+        symbols=symbols,
+    )
+
+
+@router.get("/jobs/{job_id}/blast-radius", response_model=BlastRadiusResponse)
+async def get_job_blast_radius(
+    job_id: str,
+    svc: FromDishka[JobService],
+    coderecon: FromDishka[CodeReconService],
+    step_repo: FromDishka[StepRepository],
+) -> BlastRadiusResponse:
+    """Return blast radius analysis for a job's changed files."""
+    job = await svc.get_job(job_id)
+    if not coderecon.available or not job.repo or not job.worktree_path:
+        return BlastRadiusResponse(job_id=job_id, available=False)
+
+    # Get changed files from semantic diff
+    try:
+        repo_name = await _ensure_repo_and_worktree(coderecon, job.repo, job.worktree_path)
+        diff_result = await coderecon.semantic_diff(
+            repo_name,
+            base=job.base_ref or "HEAD",
+            worktree=job.worktree_path,
+        )
+        changed_files = list({c.path for c in diff_result.structural_changes})
+    except Exception:
+        log.warning("blast_radius_diff_failed", job_id=job_id, exc_info=True)
+        return BlastRadiusResponse(job_id=job_id, available=False)
+
+    if not changed_files:
+        return BlastRadiusResponse(job_id=job_id, has_coverage_data=False)
+
+    try:
+        result = await coderecon.blast_radius(
+            repo_name, changed_files, worktree=job.worktree_path,
+        )
+    except Exception:
+        log.warning("blast_radius_failed", job_id=job_id, exc_info=True)
+        return BlastRadiusResponse(job_id=job_id, available=False)
+
+    candidates = [
+        BlastRadiusCandidate(
+            test_id=c.test_id,
+            source=c.source,
+            distance=c.distance,
+            confidence=c.confidence,
+            reason=c.reason,
+        )
+        for c in result.candidates
+    ]
+
+    return BlastRadiusResponse(
+        job_id=job_id,
+        has_coverage_data=result.has_coverage_data,
+        candidates=candidates,
+        coverage_gaps=result.coverage_gaps,
     )

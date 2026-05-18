@@ -33,12 +33,15 @@ You have structural analysis tools for this repository. Use them.
   and dependents. Call this before any signature change.
 - **checkpoint** — After completing a logical unit of work. Pass the list
   of changed file paths. This runs lint + tests + structural diff.
+- **blast_radius** — After identifying changed files. Shows which tests
+  cover those files and where coverage gaps exist.
 
 ### Rules
 
 1. Always call recon_impact before changing a function signature.
 2. If checkpoint fails, read its output. Fix the issue. Call checkpoint
    again.
+3. Use blast_radius to verify test coverage before marking work complete.
 """
 
 _TOOL_GUIDANCE_FULL = (
@@ -131,6 +134,28 @@ _TOOL_DEFS: dict[str, dict[str, Any]] = {
             },
         },
     },
+    "blast_radius": {
+        "description": (
+            "Coverage-aware blast radius analysis. Given changed files, returns "
+            "affected test candidates ranked by confidence, plus coverage gaps "
+            "(files with no test coverage)."
+        ),
+        "schema": {
+            "type": "object",
+            "properties": {
+                "changed_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Paths (relative to repo root) of changed files.",
+                },
+                "max_hops": {
+                    "type": "integer",
+                    "description": "Maximum graph hops for reachability (default: 2).",
+                },
+            },
+            "required": ["changed_files"],
+        },
+    },
 }
 
 
@@ -178,7 +203,7 @@ def _item_to_dict(obj: Any) -> Any:
 def _resolve_tier(tier: str) -> set[str]:
     """Return tool names allowed for a tier."""
     minimal = {"recon_impact"}
-    standard = minimal | {"checkpoint"}
+    standard = minimal | {"checkpoint", "blast_radius"}
     # Read-only structural tools for the preflight curator agent
     preflight = {"recon_understand", "recon_impact"}
     if tier == "minimal":
@@ -248,6 +273,14 @@ def build_coderecon_tools(
                     target=args.get("target"),
                     paths=args.get("paths"),
                     worktree=worktree,
+                )
+                return _serialize_result(result)
+            if tool_name == "blast_radius":
+                result = await service.blast_radius(
+                    repo,
+                    args.get("changed_files", []),
+                    worktree=worktree,
+                    max_hops=args.get("max_hops", 2),
                 )
                 return _serialize_result(result)
 

@@ -1088,6 +1088,7 @@ class StructuralChange(CamelModel):
     test_files: list[str] = Field(default_factory=list)
     risk: float = 0.0
     line_range: list[int] | None = None  # [start, end]
+    coverage_confidence: str | None = None  # high | medium | low | None (no data)
 
 
 class StructuralDiffResponse(CamelModel):
@@ -1118,7 +1119,51 @@ class MultiSessionResponse(CamelModel):
     job_id: str
     available: bool = True
     sessions: list[SessionSegment] = []
-    direction_changes: list[dict[str, Any]] = Field(default_factory=list)
+    direction_changes: list[dict[str, Any]] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Coverage / Blast Radius (CodeRecon coverage integration)
+# ---------------------------------------------------------------------------
+
+
+class CoveringTestCandidate(CamelModel):
+    """A test that covers a specific symbol."""
+
+    test_id: str
+    source: str  # coverage | reachability | graph
+    distance: int = 0
+    confidence: float = 0.0
+    reason: str = ""
+
+
+class CoveringTestsResponse(CamelModel):
+    """Tests covering definitions in a file."""
+
+    job_id: str
+    file_path: str
+    available: bool = True
+    symbols: dict[str, list[CoveringTestCandidate]] = Field(default_factory=dict)
+
+
+class BlastRadiusCandidate(CamelModel):
+    """A test candidate from blast radius analysis."""
+
+    test_id: str
+    source: str
+    distance: int = 0
+    confidence: float = 0.0
+    reason: str = ""
+
+
+class BlastRadiusResponse(CamelModel):
+    """Blast radius result for a job's changed files."""
+
+    job_id: str
+    available: bool = True
+    has_coverage_data: bool = False
+    candidates: list[BlastRadiusCandidate] = Field(default_factory=list)
+    coverage_gaps: list[str] = Field(default_factory=list)
 
 
 class ImpactReference(CamelModel):

@@ -82,25 +82,27 @@ A collapsible panel injected after the motivation zone for each changed symbol.
 
 **Collapsed state** (single row):
 ```
-▶ IMPACT · 5 callers affected by signature change  [1 FAIL] [1 untested] [3 tested]
+▶ IMPACT · 5 callers affected by signature change  [1 FAIL]
 ```
 
 - "IMPACT" label in a bordered badge
 - Human-readable summary (e.g. "5 callers affected by signature change",
-  "new function · 1 caller, untested")
-- Pill counts broken down by status
+  "new function · 1 caller")
+- Pill for actionable status only (FAIL count). Coverage is not restated here —
+  it's visible on the lines themselves.
 
 **Expanded state** — list of caller cards:
 
 Each caller card shows:
 - Expand chevron (▶)
-- Coverage chip: `FAIL` / `untested` / `tested`
+- Coverage dot (same as diff gutter: green = covered, red = uncovered)
 - Function name (monospace)
 - File:line location
 - [Peek] button (visible on hover)
 
 **Click caller row → inline source preview** (3-5 lines of context, call site
-highlighted). This is NOT a separate panel — it expands in-place below the row.
+highlighted). Source lines have coverage dots in the gutter, identical to the
+main diff view. This is NOT a separate panel — it expands in-place below the row.
 
 **Click [Peek] → modal** with wider source context (~13 lines), highlighted call
 site, header showing `file:line`, [Go to source ↗] button, [×] close.
@@ -212,9 +214,29 @@ TypeError: validate_config() got unexpected keyword argument 'strict' as positio
 ## Constraints
 
 - No internal CodeRecon labels (tier, confidence, certainty) exposed to UI
-- Caller coverage is ternary: tested / untested / FAIL
+- Caller coverage uses the same gutter dots as the diff — no separate labels or chips
 - No redundant signature diff inside the impact zone (the actual diff above shows it)
 - Test failures appear under the relevant caller row, not as a top-level section
 - Collapsed impact zone = single header row only
 - Motivation is per-symbol, not per-file
 - Everything rendered as view zones within the diff — no separate tabs or panels
+
+---
+
+## Tooltips
+
+Tooltips are reserved for genuinely ambiguous elements — icons or abbreviations
+whose meaning isn't immediately clear from context. Self-explanatory labels
+(toggles, "Peek", "Go to source", ×, chevrons) do not get tooltips.
+
+| Element | Tooltip text |
+|---------|-------------|
+| File badge `M` | Modified |
+| File badge `A` | Added |
+| File badge `D` | Deleted |
+| Coverage dot (green) | Covered by N test(s) |
+| Coverage dot (yellow) | Not covered by any test |
+| Popover `↗` icon | Open in editor |
+| Test status `✓` | Passed |
+| Test status `✗` | Failed |
+| Test status `○` | Not run |
