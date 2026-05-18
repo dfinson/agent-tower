@@ -12,7 +12,7 @@ from backend.services.completers.lightweight_completer import LightweightComplet
 
 class TestIsAnthropicModel:
     def test_claude_model(self):
-        assert LightweightCompleter._is_anthropic_model("claude-haiku-4-20250414") is True
+        assert LightweightCompleter._is_anthropic_model("claude-haiku-4-5") is True
 
     def test_case_insensitive(self):
         assert LightweightCompleter._is_anthropic_model("CLAUDE-OPUS") is True
@@ -25,7 +25,7 @@ class TestDetectProvider:
     def test_anthropic(self):
         adapter = AsyncMock()
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}, clear=False):
-            c = LightweightCompleter(adapter, model="claude-haiku-4-20250414")
+            c = LightweightCompleter(adapter, model="claude-haiku-4-5")
         assert c._provider == "anthropic"
         assert c._api_key == "sk-test"
         assert c.available is True
@@ -41,7 +41,7 @@ class TestDetectProvider:
     def test_no_keys(self):
         adapter = AsyncMock()
         with patch.dict(os.environ, {}, clear=True):
-            c = LightweightCompleter(adapter, model="claude-haiku-4-20250414")
+            c = LightweightCompleter(adapter, model="claude-haiku-4-5")
         assert c._provider is None
         assert c.available is False
 
@@ -52,7 +52,7 @@ class TestDetectProvider:
             {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_BASE_URL": "http://proxy:8000"},
             clear=False,
         ):
-            c = LightweightCompleter(adapter, model="claude-haiku-4-20250414")
+            c = LightweightCompleter(adapter, model="claude-haiku-4-5")
         assert c._base_url == "http://proxy:8000"
 
 

@@ -40,7 +40,7 @@ class LightweightCompleter:
         self,
         adapter: AgentAdapterInterface,
         *,
-        model: str = "claude-haiku-4-20250414",
+        model: str = "claude-haiku-4-5",
         max_tokens: int = 256,
     ) -> None:
         self._adapter = adapter

@@ -66,7 +66,7 @@ class NarratorCompleter:
         self,
         adapter: AgentAdapterInterface,
         *,
-        model: str = "claude-haiku-4-20250414",
+        model: str = "claude-haiku-4-5",
     ) -> None:
         self._adapter = adapter
         self._model = model

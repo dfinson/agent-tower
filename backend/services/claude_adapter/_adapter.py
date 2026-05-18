@@ -727,7 +727,7 @@ class ClaudeAdapter(BaseAgentAdapter):
 
         options = ClaudeCodeOptions(
             max_turns=1,
-            model="claude-haiku-4-20250414",
+            model="claude-haiku-4-5",
             permission_mode="bypassPermissions",
             allowed_tools=[],
         )

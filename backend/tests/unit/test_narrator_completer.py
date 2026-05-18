@@ -35,11 +35,11 @@ class TestLookupMaxOutputTokens:
         assert result is None
 
     def test_normalized_lookup(self, tmp_path: Path):
-        pricing = {"claude-haiku-4-20250414": {"max_output_tokens": 8192}}
+        pricing = {"claude-haiku-4-5": {"max_output_tokens": 8192}}
         pricing_file = tmp_path / "pricing.json"
         pricing_file.write_text(json.dumps(pricing))
         with patch("backend.services.completers.narrator_completer._PRICING_PATH", pricing_file):
-            result = _lookup_max_output_tokens("claude-haiku-4-20250414")
+            result = _lookup_max_output_tokens("claude-haiku-4-5")
         assert result == 8192
 
     def test_missing_file(self, tmp_path: Path):
@@ -70,7 +70,7 @@ class TestLookupMaxOutputTokens:
 class TestIsAnthropicModel:
     def test_claude_model(self):
         assert NarratorCompleter._is_anthropic_model("claude-sonnet-4-20250514") is True
-        assert NarratorCompleter._is_anthropic_model("claude-haiku-4-20250414") is True
+        assert NarratorCompleter._is_anthropic_model("claude-haiku-4-5") is True
 
     def test_case_insensitive(self):
         assert NarratorCompleter._is_anthropic_model("Claude-Sonnet-4") is True
@@ -88,7 +88,7 @@ class TestDetectProvider:
     def test_anthropic_provider(self):
         adapter = AsyncMock()
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}, clear=False):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-20250414")
+            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
         assert completer._provider == "anthropic"
         assert completer._api_key == "sk-test"
 
@@ -103,19 +103,19 @@ class TestDetectProvider:
     def test_no_provider(self):
         adapter = AsyncMock()
         with patch.dict(os.environ, {}, clear=True):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-20250414")
+            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
         assert completer._provider is None
 
     def test_available_property(self):
         adapter = AsyncMock()
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}, clear=False):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-20250414")
+            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
         assert completer.available is True
 
     def test_not_available(self):
         adapter = AsyncMock()
         with patch.dict(os.environ, {}, clear=True):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-20250414")
+            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
         assert completer.available is False
 
 
@@ -126,14 +126,14 @@ class TestEffectiveMaxTokens:
     def test_uses_pricing_data(self):
         adapter = AsyncMock()
         with patch.dict(os.environ, {}, clear=True):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-20250414")
+            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
         completer._max_output_tokens = 4096
         assert completer._effective_max_tokens() == 4096
 
     def test_fallback_anthropic(self):
         adapter = AsyncMock()
         with patch.dict(os.environ, {}, clear=True):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-20250414")
+            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
         completer._max_output_tokens = None
         assert completer._effective_max_tokens() == 8192
 
@@ -168,7 +168,7 @@ class TestComplete:
             model="test",
         )
         with patch.dict(os.environ, {}, clear=True):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-20250414")
+            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
         assert completer._provider is None
 
         result = await completer.complete("test prompt")
