@@ -212,12 +212,6 @@ function DiffCard({ file, snippet }: { file: string; snippet: string }) {
   );
 }
 
-/** Categorize a file as created/modified based on its diff snippet. */
-function fileCategory(snippet: string | null | undefined): "created" | "modified" {
-  if (!snippet) return "modified";
-  return snippet.includes("new file mode") ? "created" : "modified";
-}
-
 /** Build a categorized file overview from story blocks. */
 function StoryTOC({ blocks }: { blocks: StoryBlock[] }) {
   const refs = blocks.filter(
@@ -227,16 +221,17 @@ function StoryTOC({ blocks }: { blocks: StoryBlock[] }) {
 
   // Deduplicate: keep first occurrence of each file
   const seen = new Set<string>();
-  const unique: Array<{ file: string; category: "created" | "modified" }> = [];
+  const unique: Array<{ file: string; action: "created" | "modified" | "read" }> = [];
   for (const r of refs) {
     if (!seen.has(r.file)) {
       seen.add(r.file);
-      unique.push({ file: r.file, category: fileCategory(r.snippet) });
+      unique.push({ file: r.file, action: r.action ?? "modified" });
     }
   }
 
-  const created = unique.filter((u) => u.category === "created");
-  const modified = unique.filter((u) => u.category === "modified");
+  const created = unique.filter((u) => u.action === "created");
+  const modified = unique.filter((u) => u.action === "modified");
+  const read = unique.filter((u) => u.action === "read");
 
   const FileList = ({ items, label, color }: { items: typeof unique; label: string; color: string }) => {
     if (items.length === 0) return null;
@@ -266,6 +261,7 @@ function StoryTOC({ blocks }: { blocks: StoryBlock[] }) {
       </span>
       <FileList items={modified} label="Modified" color="text-yellow-500/80" />
       <FileList items={created} label="Created" color="text-green-500/80" />
+      <FileList items={read} label="Read" color="text-blue-500/80" />
     </div>
   );
 }

@@ -53,6 +53,7 @@ class StoryReference(TypedDict, total=False):
     stepIntent: str
     activityLabel: str
     isFileChange: bool
+    action: str  # "created" | "modified" | "read"
 
 
 class _JobContext(TypedDict, total=False):
@@ -104,6 +105,7 @@ class StoryBlock(TypedDict, total=False):
     phase: str
     stepIntent: str
     activityLabel: str
+    action: str  # "created" | "modified" | "read"
 
 
 class TrailBeat(TypedDict, total=False):
@@ -450,6 +452,7 @@ async def _build_references(
             "stepTitle": _truncate(step_info.get("title") if step_info else None, 60),
             "turnId": node.turn_id or "",
             "isFileChange": is_write,
+            "action": "modified" if is_write else "read",
         }
         if node.snippet:
             ref["snippet"] = node.snippet
@@ -1254,6 +1257,9 @@ class StoryService:
             f = ref.get("file", "")
             if f and not ref.get("snippet") and ref.get("isFileChange") and f in file_diffs:
                 ref["snippet"] = file_diffs[f]
+                # Determine created vs modified from the diff header
+                if "new file mode" in file_diffs[f]:
+                    ref["action"] = "created"
 
     async def _generate(
         self,

@@ -176,6 +176,7 @@ export interface StoryBlock {
   turnId?: string | null;
   editCount?: number | null;
   snippet?: string | null;
+  action?: "created" | "modified" | "read" | null;
 }
 
 export interface StoryResponse {
