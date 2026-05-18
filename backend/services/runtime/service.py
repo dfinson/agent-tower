@@ -539,7 +539,9 @@ class RuntimeService:
             if job.mode == JobMode.plan and override_prompt is None and resume_sdk_session_id is None:
                 from backend.services.runtime.plan_mode import build_planning_prompt
 
-                session_config = dataclass_replace(session_config, prompt=build_planning_prompt(job))
+                session_config = dataclass_replace(
+                    session_config, prompt=build_planning_prompt(job), session_kind="planning"
+                )
 
             # --- Wire action policy router (mandatory) ---
             # Must run BEFORE any sessions (preflight, sidecar, main) so that
@@ -2655,6 +2657,7 @@ class RuntimeService:
         )
 
         self._waiting_for_approval.discard(job_id)
+        self._last_activity[job_id] = time.monotonic()
 
         # -- Rejection → re-plan loop (iterative, not recursive) ----------
         _MAX_REPLAN_ITERATIONS = 5
@@ -2753,6 +2756,7 @@ class RuntimeService:
                 )
 
                 self._waiting_for_approval.discard(job_id)
+                self._last_activity[job_id] = time.monotonic()
 
             except asyncio.CancelledError:
                 raise  # Let cancellation propagate to _run_job's handler
@@ -2772,6 +2776,11 @@ class RuntimeService:
 
         async with serialized_write(self._session_factory) as sess:
             job_repo = JobRepository(sess)
+            # Guard against a cancel that slipped in while we processed the approval
+            current_job = await job_repo.get(job_id)
+            if current_job is None or current_job.state == JobState.canceled:
+                log.info("plan_mode.canceled_before_implementation", job_id=job_id)
+                return JobState.canceled
             svc = self._make_job_service(sess)
             await svc.transition_state(job_id, JobState.running)
             await job_repo.update_mode(job_id, JobMode.plan_implementing)

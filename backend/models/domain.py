@@ -230,7 +230,7 @@ class SessionEventKind(StrEnum):
 
 
 # Valid values for SessionConfig.session_kind — used for telemetry grouping.
-SessionKind = Literal["job", "preflight", "memory_extraction", "memory_compaction", "narrator", "sidecar"]
+SessionKind = Literal["job", "planning", "preflight", "memory_extraction", "memory_compaction", "narrator", "sidecar"]
 
 
 # -- Sidecar session configuration -------------------------------------------

@@ -189,13 +189,13 @@ class ClaudeAdapter(BaseAgentAdapter):
 
     async def _consume_messages(self, session_id: str, client: object) -> None:
         """Consume messages from the ClaudeSDKClient and translate to SessionEvents."""
-        from claude_code_sdk import (  # type: ignore[attr-defined]
+        from claude_code_sdk import (
             AssistantMessage,
             ResultMessage,
-            StreamEvent,
             SystemMessage,
             UserMessage,
         )
+        from claude_code_sdk.types import StreamEvent
 
         # Guard against SDK message-parse failures for unknown event types
         # (e.g. rate_limit_event in SDK ≤0.0.25).

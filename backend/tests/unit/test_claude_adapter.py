@@ -179,15 +179,29 @@ def _build_fake_sdk_module() -> ModuleType:
     return mod
 
 
-# Inject the fake module before importing the adapter
+# Inject the fake module before importing the adapter.
+# Force-set (not setdefault) because other test files in the suite may have
+# already imported the real claude_code_sdk by the time this module loads.
 _fake_sdk = _build_fake_sdk_module()
-sys.modules.setdefault("claude_code_sdk", _fake_sdk)
+sys.modules["claude_code_sdk"] = _fake_sdk
 
 # Also provide the _errors submodule so ``from claude_code_sdk._errors import``
 # works inside _consume_messages.
 _fake_errors = ModuleType("claude_code_sdk._errors")
 _fake_errors.MessageParseError = type("MessageParseError", (Exception,), {})
-sys.modules.setdefault("claude_code_sdk._errors", _fake_errors)
+sys.modules["claude_code_sdk._errors"] = _fake_errors
+
+# Provide the types submodule so ``from claude_code_sdk.types import StreamEvent``
+# works inside _consume_messages.
+_fake_types = ModuleType("claude_code_sdk.types")
+_fake_types.StreamEvent = _FakeStreamEvent
+sys.modules["claude_code_sdk.types"] = _fake_types
+
+# If the adapter was already imported with the real SDK, purge it so it
+# re-imports with our fakes above.
+for _key in list(sys.modules):
+    if _key.startswith("backend.services.claude_adapter"):
+        del sys.modules[_key]
 
 from backend.services.adapters.base_adapter import BaseAgentAdapter  # noqa: E402
 from backend.services.claude_adapter import (  # noqa: E402
