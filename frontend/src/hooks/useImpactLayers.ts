@@ -10,6 +10,16 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { fetchImpactGraph } from "../api/client";
 import type { DiffFileModel, DiffHunkModel } from "../api/types";
 
+/** Escape HTML special characters to prevent XSS when inserting into innerHTML. */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export interface ImpactCaller {
   symbol: string;
   file: string;
@@ -159,18 +169,18 @@ export function useImpactLayers({
           // Collapsed header
           const failCount = zone.callers.filter((c) => c.isTest).length;
           domNode.innerHTML = `
-            <div class="impact-zone-header" data-symbol="${zone.symbolName}">
+            <div class="impact-zone-header" data-symbol="${escapeHtml(zone.symbolName)}">
               <span class="impact-chevron">▶</span>
               <span class="impact-badge">IMPACT</span>
-              <span class="impact-summary">${zone.summary}</span>
+              <span class="impact-summary">${escapeHtml(zone.summary)}</span>
               ${failCount > 0 ? `<span class="impact-fail-pill">${failCount} test${failCount > 1 ? "s" : ""}</span>` : ""}
             </div>
             <div class="impact-zone-body" style="display: none;">
               ${zone.callers.slice(0, 10).map((c) => `
                 <div class="impact-caller-card">
                   <span class="impact-caller-dot ${c.isTest ? "test" : "source"}"></span>
-                  <span class="impact-caller-name">${c.symbol}</span>
-                  <span class="impact-caller-loc">${c.file}${c.line ? `:${c.line}` : ""}</span>
+                  <span class="impact-caller-name">${escapeHtml(c.symbol)}</span>
+                  <span class="impact-caller-loc">${escapeHtml(c.file)}${c.line ? `:${c.line}` : ""}</span>
                 </div>
               `).join("")}
               ${zone.callers.length > 10 ? `<div class="impact-more">+${zone.callers.length - 10} more</div>` : ""}

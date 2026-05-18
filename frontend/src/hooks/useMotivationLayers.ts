@@ -9,6 +9,16 @@ import { useEffect, useRef, useState } from "react";
 import { fetchJobMotivations } from "../api/client";
 import type { DiffFileModel, FileMotivation, HunkMotivation, JobMotivationsResponse } from "../api/types";
 
+/** Escape HTML special characters to prevent XSS when inserting into innerHTML. */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 interface UseMotivationLayersOpts {
   jobId: string;
   file: DiffFileModel | undefined;
@@ -102,8 +112,8 @@ export function useMotivationLayers({
           const domNode = document.createElement("div");
           domNode.className = "motivation-zone";
           domNode.innerHTML = `
-            <span class="motivation-label">${z.title}</span>
-            <span class="motivation-text">${z.why}</span>
+            <span class="motivation-label">${escapeHtml(z.title)}</span>
+            <span class="motivation-text">${escapeHtml(z.why)}</span>
           `;
 
           const id = accessor.addZone({
