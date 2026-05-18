@@ -107,9 +107,10 @@ describe("useImpactLayers", () => {
     await waitFor(() => {
       expect(result.current.zones).toHaveLength(1);
     });
-    expect(result.current.zones[0].symbolName).toBe("my_function");
-    expect(result.current.zones[0].callers).toHaveLength(2);
-    expect(result.current.zones[0].callers[0].isTest).toBe(true);
+    const zone = result.current.zones[0]!;
+    expect(zone.symbolName).toBe("my_function");
+    expect(zone.callers).toHaveLength(2);
+    expect(zone.callers[0]!.isTest).toBe(true);
   });
 
   it("does not create zones when API returns unavailable", async () => {
