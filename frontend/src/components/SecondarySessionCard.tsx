@@ -1,17 +1,20 @@
 /**
- * SecondarySessionCard — 3-level progressive disclosure of any secondary session.
+ * SecondarySessionCard — inline feed card for secondary sessions.
  *
- * Level 1: One-line summary (name, status, entry count)
- * Level 2: Expanded card with entry list (reasoning + tool calls)
- * Level 3: Full detail with collapsible tool call results
+ * Design:
+ * - Header: icon, name, status badge, elapsed time
+ * - When running: latest reasoning line (live-updating)
+ * - When completed: output always visible (markdown)
+ * - Expandable: full interleaved entry timeline (reasoning → tool_call → ...)
  */
 
 import { useState, memo } from "react";
 import {
   ChevronDown, ChevronRight, CheckCircle2, Loader2, XCircle,
-  Wrench, Clock, Telescope, Bot, Eye, Sparkles,
+  Wrench, Brain, Telescope, Bot, Eye, Sparkles,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { AgentMarkdown } from "./AgentMarkdown";
 import type { SecondarySession, SecondarySessionEntry } from "../store/types";
 
 /** Map session kind → icon component. */
@@ -24,207 +27,182 @@ const KIND_ICONS: Record<string, typeof Bot> = {
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${(ms / 60_000).toFixed(1)}m`;
 }
 
-/** Level 1: Compact summary header. */
-const SessionSummaryLine = memo(function SessionSummaryLine({
-  session,
-}: {
-  session: SecondarySession;
-}) {
-  const Icon = KIND_ICONS[session.kind] ?? Bot;
-  const entryCount = session.entries.length;
-  const toolCalls = session.entries.filter((e) => e.kind === "tool_call").length;
+function elapsedSince(startedAt: string, completedAt?: string | null): string {
+  const start = new Date(startedAt).getTime();
+  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
+  return formatDuration(end - start);
+}
 
-  if (session.status === "running") {
-    return (
-      <div className="flex items-center gap-1.5">
-        <Loader2 size={14} className="text-blue-400 animate-spin shrink-0" />
-        <Icon size={13} className="text-muted-foreground shrink-0" />
-        <span className="text-sm font-semibold text-foreground">{session.name}</span>
-        <span className="text-xs text-muted-foreground">
-          working…{toolCalls > 0 && ` (${toolCalls} ${toolCalls === 1 ? "call" : "calls"})`}
-        </span>
-      </div>
-    );
-  }
-
-  const statusIcon = session.status === "completed" ? (
-    <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
-  ) : (
-    <XCircle size={14} className="text-red-400 shrink-0" />
-  );
-
+/** The interleaved entry timeline (the expandable part). */
+const EntryTimeline = memo(function EntryTimeline({ entries }: { entries: SecondarySessionEntry[] }) {
   return (
-    <div className="flex items-center gap-1.5">
-      {statusIcon}
-      <Icon size={13} className="text-muted-foreground shrink-0" />
-      <span className="text-sm font-semibold text-muted-foreground">{session.name}</span>
-      <span className="text-xs text-muted-foreground/70">
-        {toolCalls > 0 ? `· ${toolCalls} ${toolCalls === 1 ? "call" : "calls"}` : entryCount === 0 && session.output ? "· message" : ""}
-      </span>
-    </div>
-  );
-});
-
-/** Level 2: Entry list with reasoning and tool call chips. */
-const EntryList = memo(function EntryList({ entries }: { entries: SecondarySessionEntry[] }) {
-  const toolCalls = entries.filter((e) => e.kind === "tool_call");
-
-  if (toolCalls.length === 0 && entries.length === 0) return null;
-
-  // Aggregate tool calls by name
-  const toolSummary = toolCalls.reduce<Record<string, number>>((acc, e) => {
-    const name = e.toolName ?? "unknown";
-    acc[name] = (acc[name] ?? 0) + 1;
-    return acc;
-  }, {});
-
-  const totalDuration = toolCalls.reduce((sum, e) => sum + (e.durationMs ?? 0), 0);
-
-  return (
-    <div className="ml-3 pl-2 border-l-2 border-border space-y-1.5 py-1.5">
-      {Object.keys(toolSummary).length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {Object.entries(toolSummary).map(([name, count]) => (
-            <span
-              key={name}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-muted/50 text-muted-foreground"
-            >
-              <Wrench size={10} className="shrink-0" />
-              {name}
-              {count > 1 && <span className="text-muted-foreground/60">×{count}</span>}
-            </span>
-          ))}
-        </div>
-      )}
-      {totalDuration > 0 && (
-        <div className="flex items-center gap-3 text-[11px] text-muted-foreground/60">
-          <span className="flex items-center gap-1">
-            <Clock size={10} />
-            {formatDuration(totalDuration)}
-          </span>
-        </div>
-      )}
-    </div>
-  );
-});
-
-/** Level 3: Full log with collapsible entries. */
-const DetailLog = memo(function DetailLog({ entries }: { entries: SecondarySessionEntry[] }) {
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-
-  return (
-    <div className="ml-3 pl-2 border-l-2 border-border space-y-0.5 py-1">
+    <div className="space-y-0.5 py-1.5">
       {entries.map((entry, i) => {
-        const isExpanded = expandedIdx === i;
-        const duration = entry.durationMs ? formatDuration(entry.durationMs) : null;
-
         if (entry.kind === "reasoning") {
           return (
-            <div key={i} className="py-0.5 px-1.5">
-              <p className="text-[11px] text-muted-foreground/70 whitespace-pre-wrap line-clamp-3">
+            <div key={i} className="flex items-start gap-2 py-0.5">
+              <Brain size={11} className="text-muted-foreground/50 shrink-0 mt-0.5" />
+              <p className="text-[12px] text-muted-foreground/80 whitespace-pre-wrap leading-relaxed">
                 {entry.content}
               </p>
             </div>
           );
         }
 
-        const label = entry.toolName ?? entry.kind;
-        return (
-          <div key={i}>
-            <button
-              onClick={() => setExpandedIdx(isExpanded ? null : i)}
-              className="flex items-start gap-1.5 w-full text-left py-1 px-1.5 rounded-sm transition-colors hover:bg-accent/50"
-            >
-              {isExpanded ? (
-                <ChevronDown size={12} className="text-muted-foreground shrink-0 mt-0.5" />
-              ) : (
-                <ChevronRight size={12} className="text-muted-foreground shrink-0 mt-0.5" />
-              )}
-              <span className="text-[12px] text-foreground/70 flex-1 truncate">
-                {label}
-                {entry.toolArgs && (
-                  <span className="text-muted-foreground/50 ml-1">
-                    ({entry.toolArgs.length > 60 ? entry.toolArgs.slice(0, 60) + "…" : entry.toolArgs})
+        if (entry.kind === "tool_call") {
+          const name = entry.toolName ?? "tool";
+          const args = entry.toolArgs
+            ? entry.toolArgs.length > 80 ? entry.toolArgs.slice(0, 80) + "…" : entry.toolArgs
+            : null;
+          const duration = entry.durationMs ? formatDuration(entry.durationMs) : null;
+
+          return (
+            <div key={i} className="flex items-start gap-2 py-0.5">
+              <Wrench size={11} className="text-blue-400/70 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <span className="text-[12px] font-mono text-foreground/70">{name}</span>
+                {args && (
+                  <span className="text-[11px] text-muted-foreground/50 ml-1.5">
+                    {args}
                   </span>
                 )}
-              </span>
-              {duration && (
-                <span className="text-[10px] text-muted-foreground/40 shrink-0">{duration}</span>
-              )}
-            </button>
-            {isExpanded && entry.content && (
-              <div className="ml-5 mb-1.5">
-                <pre className="text-[11px] text-muted-foreground/60 bg-muted/30 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
-                  {entry.content}
-                </pre>
               </div>
-            )}
-          </div>
-        );
+              {duration && (
+                <span className="text-[10px] text-muted-foreground/40 shrink-0 tabular-nums">{duration}</span>
+              )}
+            </div>
+          );
+        }
+
+        if (entry.kind === "output") {
+          return (
+            <div key={i} className="flex items-start gap-2 py-0.5">
+              <CheckCircle2 size={11} className="text-emerald-400/70 shrink-0 mt-0.5" />
+              <p className="text-[12px] text-muted-foreground whitespace-pre-wrap leading-relaxed line-clamp-4">
+                {entry.content}
+              </p>
+            </div>
+          );
+        }
+
+        if (entry.kind === "error") {
+          return (
+            <div key={i} className="flex items-start gap-2 py-0.5">
+              <XCircle size={11} className="text-red-400/70 shrink-0 mt-0.5" />
+              <p className="text-[12px] text-red-400/80 whitespace-pre-wrap">{entry.content}</p>
+            </div>
+          );
+        }
+
+        return null;
       })}
     </div>
   );
 });
 
-/** Main SecondarySessionCard — integrates all 3 levels. */
-export function SecondarySessionCard({ session }: { session: SecondarySession }) {
+/** Main SecondarySessionCard — inline feed block. */
+export const SecondarySessionCard = memo(function SecondarySessionCard({
+  session,
+}: {
+  session: SecondarySession;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const [showLog, setShowLog] = useState(false);
-  const hasEntries = session.entries.length > 0;
-  const hasContent = hasEntries || !!session.output;
+  const Icon = KIND_ICONS[session.kind] ?? Bot;
+  const toolCalls = session.entries.filter((e) => e.kind === "tool_call").length;
+  const isRunning = session.status === "running";
+  const isCompleted = session.status === "completed";
+  const isFailed = session.status === "failed" || session.status === "timeout";
+
+  // Latest reasoning line for live preview when collapsed
+  const latestReasoning = [...session.entries].reverse().find((e) => e.kind === "reasoning");
 
   return (
-    <div>
-      {/* Level 1: Clickable header */}
-      <button
-        onClick={() => hasContent && setExpanded((e) => !e)}
-        className={cn(
-          "flex items-center gap-1.5 w-full text-left py-1.5 hover:bg-accent/50 rounded-sm transition-colors",
-          !hasContent && "cursor-default",
-        )}
-      >
-        {hasContent ? (
-          expanded ? (
-            <ChevronDown size={13} className="text-muted-foreground shrink-0" />
-          ) : (
-            <ChevronRight size={13} className="text-muted-foreground shrink-0" />
-          )
-        ) : (
-          <span className="w-[13px]" />
-        )}
-        <SessionSummaryLine session={session} />
-      </button>
+    <div className={cn(
+      "rounded-lg border px-3 py-2.5 my-2",
+      isRunning && "border-blue-500/30 bg-blue-500/[0.04]",
+      isCompleted && "border-border bg-muted/20",
+      isFailed && "border-red-500/30 bg-red-500/[0.04]",
+    )}>
+      {/* Header row */}
+      <div className="flex items-center gap-2">
+        <Icon size={14} className={cn(
+          "shrink-0",
+          isRunning && "text-blue-400",
+          isCompleted && "text-muted-foreground",
+          isFailed && "text-red-400",
+        )} />
+        <span className={cn(
+          "text-sm font-medium flex-1 min-w-0 truncate",
+          isRunning && "text-foreground",
+          isCompleted && "text-muted-foreground",
+          isFailed && "text-red-400",
+        )}>
+          {session.name}
+        </span>
 
-      {/* Level 2: Entry summary or output fallback */}
-      {expanded && hasEntries && (
-        <>
-          <EntryList entries={session.entries} />
-          {/* Level 3 toggle */}
-          {session.entries.length > 0 && (
-            <div className="ml-5 mt-1">
-              <button
-                onClick={() => setShowLog((s) => !s)}
-                className="text-[11px] text-primary/70 hover:text-primary transition-colors"
-              >
-                {showLog ? "Hide detail log" : "View detail log"}
-              </button>
-            </div>
-          )}
-        </>
+        {/* Status badge */}
+        {isRunning && (
+          <span className="flex items-center gap-1 text-[11px] text-blue-400">
+            <Loader2 size={11} className="animate-spin" />
+            running
+          </span>
+        )}
+        {isCompleted && (
+          <span className="flex items-center gap-1 text-[11px] text-emerald-400/80">
+            <CheckCircle2 size={11} />
+            done
+          </span>
+        )}
+        {isFailed && (
+          <span className="flex items-center gap-1 text-[11px] text-red-400/80">
+            <XCircle size={11} />
+            {session.status}
+          </span>
+        )}
+
+        {/* Elapsed time */}
+        <span className="text-[11px] text-muted-foreground/50 tabular-nums shrink-0">
+          {elapsedSince(session.startedAt, session.completedAt)}
+        </span>
+      </div>
+
+      {/* Latest reasoning preview (when collapsed & has reasoning) */}
+      {!expanded && latestReasoning && (
+        <p className="text-[12px] text-muted-foreground/60 mt-1.5 line-clamp-1 leading-relaxed pl-[22px]">
+          {latestReasoning.content}
+        </p>
       )}
-      {expanded && !hasEntries && session.output && (
-        <div className="ml-5 pl-2 border-l-2 border-border py-1.5">
-          <p className="text-[12px] text-muted-foreground whitespace-pre-wrap line-clamp-6">
-            {session.output}
-          </p>
+
+      {/* Expand toggle */}
+      {session.entries.length > 0 && (
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          className="flex items-center gap-1 mt-1.5 text-[11px] text-primary/60 hover:text-primary transition-colors pl-[22px]"
+        >
+          {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+          {expanded ? "Collapse" : `Expand (${toolCalls} ${toolCalls === 1 ? "call" : "calls"})`}
+        </button>
+      )}
+
+      {/* Expanded: full entry timeline */}
+      {expanded && (
+        <div className="mt-1.5 pl-[22px] border-l-2 border-border/50 ml-[6px]">
+          <EntryTimeline entries={session.entries} />
         </div>
       )}
 
-      {/* Level 3: Full detail log */}
-      {expanded && showLog && <DetailLog entries={session.entries} />}
+      {/* Output — always visible when completed */}
+      {isCompleted && session.output && (
+        <div className="mt-2 pt-2 border-t border-border/50 pl-[22px]">
+          <div className="text-[13px] text-foreground/80 leading-relaxed max-h-48 overflow-y-auto">
+            <AgentMarkdown content={session.output} />
+          </div>
+        </div>
+      )}
     </div>
   );
-}
+});

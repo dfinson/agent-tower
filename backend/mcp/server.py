@@ -38,7 +38,7 @@ from backend.models.api_schemas import (  # type: ignore[attr-defined]
     WorkspaceEntryType,
     WorkspaceListResponse,
 )
-from backend.models.domain import JobNotFoundError, RepoNotAllowedError, SDKModelMismatchError, StateConflictError
+from backend.models.domain import JobNotFoundError, JobState, RepoNotAllowedError, SDKModelMismatchError, StateConflictError
 from backend.services.artifacts.artifact_service import ArtifactService
 from backend.services.git.git_service import GitError, GitService
 from backend.services.job.job_service import JobService
@@ -199,6 +199,8 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
         if action == "create":
             if not repo or not prompt:
                 return {"error": "repo and prompt are required for create"}
+            import asyncio
+
             from backend.persistence.database import serialized_write
 
             async with serialized_write(sf) as session:
@@ -220,9 +222,20 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                     return {"error": str(exc)}
                 except SDKModelMismatchError as exc:
                     return {"error": str(exc)}
-                runtime = mcp_state.runtime_service
-                await runtime.start_or_enqueue(job)
-                job = await svc.get_job(job.id)
+
+            # Commit is done — now launch setup in background (same as REST handler)
+            # to avoid holding a DB transaction while runtime acquires its own sessions.
+            runtime = mcp_state.runtime_service
+            if job.state != JobState.failed:
+
+                async def _setup_and_start() -> None:
+                    try:
+                        await runtime.setup_and_start(job)
+                    except Exception:
+                        log.warning("mcp_job_setup_failed", job_id=job.id, exc_info=True)
+
+                asyncio.create_task(_setup_and_start(), name=f"mcp-setup-{job.id}")
+
             return CreateJobResponse(
                 id=job.id,
                 state=job.state,
@@ -275,6 +288,8 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
         if action == "rerun":
             if not job_id:
                 return {"error": "job_id is required for rerun"}
+            import asyncio
+
             from backend.persistence.database import serialized_write
 
             async with serialized_write(sf) as session:
@@ -283,6 +298,19 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                     job = await svc.rerun_job(job_id)
                 except (JobNotFoundError, RepoNotAllowedError) as exc:
                     return {"error": str(exc)}
+
+            # Start the rerun job in background (same pattern as create)
+            runtime = mcp_state.runtime_service
+            if job.state != JobState.failed:
+
+                async def _setup_rerun() -> None:
+                    try:
+                        await runtime.setup_and_start(job)
+                    except Exception:
+                        log.warning("mcp_rerun_setup_failed", job_id=job.id, exc_info=True)
+
+                asyncio.create_task(_setup_rerun(), name=f"mcp-rerun-{job.id}")
+
             return CreateJobResponse(
                 id=job.id,
                 state=job.state,

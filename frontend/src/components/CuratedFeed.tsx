@@ -36,6 +36,7 @@ import { trimWorktreePaths } from "./ToolRenderers";
 import type { ActionCluster, AgentTurn, FeedItem } from "./CuratedFeedLogic";
 import { buildFeedItems } from "./CuratedFeedLogic";
 import { PhaseBox, SubAgentBubble } from "./CuratedFeedPreviews";
+import { SecondarySessionCard } from "./SecondarySessionCard";
 
 // ---------------------------------------------------------------------------
 // Search highlight context — provides the active search query to children
@@ -567,10 +568,47 @@ export function CuratedFeed({
     }),
   ], [rawEntries, jobId, prompt, promptTimestamp]);
 
-  const feedItems = useMemo(
+  const sessions = useStore(selectSecondarySessions(jobId));
+  const sessionList = useMemo(() => Object.values(sessions), [sessions]);
+
+  const baseFeedItems = useMemo(
     () => buildFeedItems(entries, jobApprovals, jobBatchApprovals),
     [entries, jobApprovals, jobBatchApprovals],
   );
+
+  const feedItems = useMemo(() => {
+    if (sessionList.length === 0) return baseFeedItems;
+
+    // Interleave secondary sessions by startedAt timestamp.
+    const merged: FeedItem[] = [];
+    let sessionIdx = 0;
+    const sorted = [...sessionList].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+
+    for (const item of baseFeedItems) {
+      // Insert any sessions that started before this feed item's timestamp
+      const itemTs = item.type === "turn" || item.type === "condensed"
+        ? item.turn.firstTimestamp
+        : item.type === "operator" || item.type === "divider"
+          ? item.entry.timestamp
+          : item.type === "approval"
+            ? item.approval.requestedAt
+            : item.type === "batch_approval"
+              ? item.batch.requestedAt
+              : "";
+
+      while (sessionIdx < sorted.length && sorted[sessionIdx]!.startedAt <= itemTs) {
+        merged.push({ type: "secondary_session", session: sorted[sessionIdx]! });
+        sessionIdx++;
+      }
+      merged.push(item);
+    }
+    // Append remaining sessions at the end
+    while (sessionIdx < sorted.length) {
+      merged.push({ type: "secondary_session", session: sorted[sessionIdx]! });
+      sessionIdx++;
+    }
+    return merged;
+  }, [baseFeedItems, sessionList]);
 
   // Virtualizer — auto-scroll only when user is at the bottom.
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -1090,6 +1128,8 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
       return <InlineApprovalCard approval={item.approval} />;
     case "batch_approval":
       return <InlineBatchApprovalCard batch={item.batch} />;
+    case "secondary_session":
+      return <SecondarySessionCard session={item.session} />;
 
     case "divider":
       return <DividerLine entry={item.entry} />;

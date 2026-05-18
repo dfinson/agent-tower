@@ -5,7 +5,7 @@
  * classification, clustering, and file path utilities.
  */
 
-import type { TranscriptEntry, ApprovalRequest, BatchApproval } from "../store";
+import type { TranscriptEntry, ApprovalRequest, BatchApproval, SecondarySession } from "../store";
 import {
   parseArgs,
   stripMcpPrefix,
@@ -114,6 +114,7 @@ export type FeedItem =
   | { type: "condensed"; turn: AgentTurn; clusters: ActionCluster[] }
   | { type: "approval"; approval: ApprovalRequest }
   | { type: "batch_approval"; batch: BatchApproval }
+  | { type: "secondary_session"; session: SecondarySession }
   | { type: "divider"; entry: TranscriptEntry };
 
 // ---------------------------------------------------------------------------

@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ChevronDown, ChevronRight, CheckCircle2, Loader2, Circle, ListTree, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
-import { useStore, selectActivityTimeline, selectJobPlan, selectHoveredPlanItemId, selectSecondarySessions } from "../store";
+import { useStore, selectActivityTimeline, selectJobPlan, selectHoveredPlanItemId } from "../store";
 import type { ActivityTimelineActivity } from "../store";
 import { PlanPanel } from "./PlanPanel";
-import { SecondarySessionCard } from "./SecondarySessionCard";
 import { Tooltip } from "./ui/tooltip";
 import { cn } from "../lib/utils";
 
@@ -215,11 +214,6 @@ export function ActivityTimeline({
   const timeline = useStore(selectActivityTimeline(jobId));
   const planSteps = useStore(selectJobPlan(jobId));
   const hoveredPlanItemId = useStore(selectHoveredPlanItemId);
-  const sessions = useStore(selectSecondarySessions(jobId));
-
-  // Filter preflight sessions for the scout card area
-  const preflightSessions = Object.values(sessions).filter((s) => s.kind === "preflight");
-  const showScout = preflightSessions.length > 0;
 
   // Expand-all / collapse-all toggle
   const [allExpanded, setAllExpanded] = useState(false);
@@ -237,7 +231,7 @@ export function ActivityTimeline({
     ? timeline.activities.map((a) => a.status === "active" ? { ...a, status: "done" as const } : a)
     : timeline.activities;
 
-  if (activities.length === 0 && planSteps.length === 0 && !showScout) {
+  if (activities.length === 0 && planSteps.length === 0) {
     return (
       <div className="flex flex-col items-center gap-3 px-4 py-6">
         <ListTree size={20} className="text-muted-foreground" />
@@ -282,9 +276,6 @@ export function ActivityTimeline({
         </div>
       )}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
-        {showScout && preflightSessions.map((session) => (
-          <SecondarySessionCard key={session.id} session={session} />
-        ))}
         {activities.map((activity, i) => (
           <ActivitySection
             key={activity.activityId}
