@@ -8,7 +8,7 @@
  * - Expandable: full interleaved entry timeline (reasoning → tool_call → ...)
  */
 
-import { useState, memo } from "react";
+import { useState, useMemo, memo } from "react";
 import {
   ChevronDown, ChevronRight, CheckCircle2, Loader2, XCircle,
   Wrench, Brain, Telescope, Bot, Eye, Sparkles,
@@ -118,7 +118,12 @@ export const SecondarySessionCard = memo(function SecondarySessionCard({
   const isFailed = session.status === "failed" || session.status === "timeout";
 
   // Latest reasoning line for live preview when collapsed
-  const latestReasoning = [...session.entries].reverse().find((e) => e.kind === "reasoning");
+  const latestReasoning = useMemo(() => {
+    for (let i = session.entries.length - 1; i >= 0; i--) {
+      if (session.entries[i]!.kind === "reasoning") return session.entries[i]!;
+    }
+    return undefined;
+  }, [session.entries]);
 
   return (
     <div className={cn(
@@ -184,7 +189,7 @@ export const SecondarySessionCard = memo(function SecondarySessionCard({
           className="flex items-center gap-1 mt-1.5 text-[11px] text-primary/60 hover:text-primary transition-colors pl-[22px]"
         >
           {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-          {expanded ? "Collapse" : `Expand (${toolCalls} ${toolCalls === 1 ? "call" : "calls"})`}
+          {expanded ? "Collapse" : `Expand${toolCalls > 0 ? ` (${toolCalls} ${toolCalls === 1 ? "call" : "calls"})` : ""}`}
         </button>
       )}
 

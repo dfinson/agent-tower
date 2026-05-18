@@ -9,6 +9,7 @@ single tool name, keeping the total tool count low for LLM clients.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,6 +86,10 @@ class MCPState:
     runtime_service: RuntimeService
     approval_service: ApprovalService
     sidecar_sessions: SidecarSessionManager | None = None
+
+
+# Strong refs to fire-and-forget tasks to prevent GC before completion.
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +204,6 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
         if action == "create":
             if not repo or not prompt:
                 return {"error": "repo and prompt are required for create"}
-            import asyncio
 
             from backend.persistence.database import serialized_write
 
@@ -234,7 +238,9 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                     except Exception:
                         log.warning("mcp_job_setup_failed", job_id=job.id, exc_info=True)
 
-                asyncio.create_task(_setup_and_start(), name=f"mcp-setup-{job.id}")
+                task = asyncio.create_task(_setup_and_start(), name=f"mcp-setup-{job.id}")
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
 
             return CreateJobResponse(
                 id=job.id,
@@ -288,7 +294,6 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
         if action == "rerun":
             if not job_id:
                 return {"error": "job_id is required for rerun"}
-            import asyncio
 
             from backend.persistence.database import serialized_write
 
@@ -309,7 +314,9 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                     except Exception:
                         log.warning("mcp_rerun_setup_failed", job_id=job.id, exc_info=True)
 
-                asyncio.create_task(_setup_rerun(), name=f"mcp-rerun-{job.id}")
+                task = asyncio.create_task(_setup_rerun(), name=f"mcp-rerun-{job.id}")
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
 
             return CreateJobResponse(
                 id=job.id,
