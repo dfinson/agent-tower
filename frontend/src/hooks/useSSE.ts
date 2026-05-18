@@ -128,7 +128,10 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "structural_warning",
         // Sidecar transcript entries
         "sidecar_transcript",
-        // Preflight scout report
+        // Preflight scout streaming events
+        "preflight_started",
+        "preflight_tool_call",
+        "preflight_reasoning",
         "preflight_report",
       ];
 

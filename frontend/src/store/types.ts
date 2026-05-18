@@ -221,6 +221,10 @@ export interface AppState {
   activityTimelines: Record<string, ActivityTimelineState>; // keyed by jobId
   /** Preflight scout report — keyed by jobId. */
   preflightReports: Record<string, PreflightReport>;
+  /** Jobs with an active (in-progress) preflight scout session. */
+  preflightActive: Record<string, boolean>;
+  /** Streamed reasoning text from the preflight scout, keyed by jobId. */
+  preflightReasoning: Record<string, string>;
   /** Accumulated streaming text for in-progress agent messages, keyed by
    * "${jobId}:${turnId}" (or "${jobId}:__default__" when turnId is absent).
    * Cleared when the complete agent message arrives for that turn. */

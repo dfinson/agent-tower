@@ -90,7 +90,7 @@ if TYPE_CHECKING:
     from backend.services.sidecar.dispatcher import SidecarDispatcher
     from backend.services.steps.tracker import StepTracker
     from backend.services.terminal.terminal_service import TerminalService
-    from backend.services.tools.preflight_curator import PreflightCurator
+    from backend.services.tools.preflight_curator import PreflightCurator, PreflightToolCall
     from backend.services.trail import TrailService
 
 
@@ -2657,7 +2657,15 @@ class RuntimeService:
         self._waiting_for_approval.discard(job_id)
 
         # -- Rejection → re-plan loop (iterative, not recursive) ----------
+        _MAX_REPLAN_ITERATIONS = 5
+        replan_count = 0
         while resolution == ApprovalResolution.rejected:
+            replan_count += 1
+            if replan_count > _MAX_REPLAN_ITERATIONS:
+                log.warning("plan_mode.max_replans_exceeded", job_id=job_id, count=replan_count)
+                await self._fail_job(job_id, f"Plan rejected {_MAX_REPLAN_ITERATIONS} times — giving up")
+                return JobState.failed
+
             log.info("plan_mode.plan_rejected", job_id=job_id)
 
             try:
@@ -2768,6 +2776,19 @@ class RuntimeService:
             await svc.transition_state(job_id, JobState.running)
             await job_repo.update_mode(job_id, JobMode.plan_implementing)
         await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.job_mode_changed,
+                payload={
+                    "previous_mode": JobMode.plan,
+                    "new_mode": JobMode.plan_implementing,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+        )
 
         # Build implementation handoff prompt
         impl_prompt = build_implementation_handoff(
@@ -2833,12 +2854,54 @@ class RuntimeService:
             return session_config
 
         try:
+            # Emit started event so the frontend shows the scout card immediately
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job.id,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.preflight_started,
+                    payload={},
+                )
+            )
+
+            async def _on_tool_call(tc: "PreflightToolCall") -> None:
+                """Emit per-tool-call progress event for live frontend updates."""
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=DomainEvent.make_event_id(),
+                        job_id=job.id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.preflight_tool_call,
+                        payload={
+                            "tool_name": tc.tool_name,
+                            "tool_args": tc.tool_args,
+                            "result_preview": tc.result_preview,
+                            "duration_ms": tc.duration_ms,
+                        },
+                    )
+                )
+
+            async def _on_reasoning(text: str) -> None:
+                """Emit reasoning text so the frontend can show scout thinking."""
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=DomainEvent.make_event_id(),
+                        job_id=job.id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.preflight_reasoning,
+                        payload={"content": text},
+                    )
+                )
+
             report = await self._preflight_curator.curate(
                 task=session_config.prompt,
                 memory=raw_memory or None,
                 repo=str(job.repo),
                 worktree=worktree_path,
                 job_id=job.id,
+                on_tool_call=_on_tool_call,
+                on_reasoning=_on_reasoning,
             )
             # Emit structured preflight report event for the frontend
             await self._event_bus.publish(

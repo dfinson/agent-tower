@@ -146,3 +146,9 @@ export const selectHoveredPlanItemId = (state: AppState) => state.hoveredPlanIte
 
 export const selectPreflightReport = (jobId: string) => (state: AppState) =>
   state.preflightReports[jobId] ?? null;
+
+export const selectPreflightActive = (jobId: string) => (state: AppState) =>
+  !!state.preflightActive[jobId];
+
+export const selectPreflightReasoning = (jobId: string) => (state: AppState) =>
+  state.preflightReasoning[jobId] ?? "";

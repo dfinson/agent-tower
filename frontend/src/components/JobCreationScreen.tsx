@@ -44,6 +44,7 @@ export function JobCreationScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [addRepoOpen, setAddRepoOpen] = useState(false);
   const [preset, setPreset] = useState<"autonomous" | "supervised" | "locked">("supervised");
+  const [mode, setMode] = useState<"standard" | "plan">("standard");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [sdk, setSdk] = useState<string | null>(null);
   const [branchSuggesting, setBranchSuggesting] = useState(false);
@@ -218,6 +219,7 @@ export function JobCreationScreen() {
         model: model || undefined,
         sdk: activeSdk !== defaultSdk ? activeSdk : undefined,
         sessionToken: sessionTokenRef.current ?? undefined,
+        mode: mode !== "standard" ? mode : undefined,
       });
       jobCreatedRef.current = true;
       toast.success(`Job ${result.id} created`);
@@ -227,7 +229,7 @@ export function JobCreationScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [repo, prompt, voiceState, baseRef, branch, model, navigate, preset, activeSdk, defaultSdk]);
+  }, [repo, prompt, voiceState, baseRef, branch, model, navigate, preset, mode, activeSdk, defaultSdk]);
 
   const enabledSdks = sdks.filter((s) => s.enabled);
   const showSdkSelector = enabledSdks.length > 1;
@@ -322,6 +324,36 @@ export function JobCreationScreen() {
               {preset === "autonomous" && "Network actions need approval. Everything else runs."}
               {preset === "supervised" && "Network and irreversible actions need approval. Reversible local-only actions run."}
               {preset === "locked" && "Reversible local-only actions run with a rollback snapshot. Everything else needs approval."}
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Execution Mode</Label>
+            <div className="flex gap-2">
+              {(
+                [
+                  { value: "standard" as const, label: "Standard", tip: "Agent executes the task directly in a single session." },
+                  { value: "plan" as const, label: "Plan First", tip: "Agent produces a plan for your review, then implements after approval." },
+                ]
+              ).map(({ value, label, tip }) => (
+                <Tooltip key={value} content={tip}>
+                  <button
+                    type="button"
+                    onClick={() => setMode(value)}
+                    className={`flex-1 rounded-md border px-3 py-1.5 sm:py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium transition-colors ${
+                      mode === value
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-transparent text-muted-foreground hover:text-foreground hover:border-foreground/40"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                </Tooltip>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground leading-snug">
+              {mode === "standard" && "Agent executes the task directly in a single session."}
+              {mode === "plan" && "Agent produces a structured plan for your review, then implements after approval."}
             </p>
           </div>
 

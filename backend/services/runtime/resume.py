@@ -19,6 +19,7 @@ from backend.models.domain import (
     TERMINAL_STATES,
     GitMergeOutcome,
     Job,
+    JobMode,
     JobNotFoundError,
     JobSpec,
     JobState,
@@ -42,6 +43,13 @@ _SERVER_RESTART_RECOVERY_INSTRUCTION = (
     "The CodePlane server restarted while this job was in progress. "
     "Resume this existing job in place from the current worktree and prior context. "
     "Do not start over or create a duplicate job."
+)
+
+_PLAN_IMPLEMENTING_RECOVERY_INSTRUCTION = (
+    "The CodePlane server restarted while this job was in the implementation phase. "
+    "You were executing an approved plan. Resume implementation from where you left off — "
+    "check the worktree for completed work and continue with the remaining plan items. "
+    "Do not re-plan or start over."
 )
 
 _DEFAULT_RESUME_INSTRUCTION = "Continue the current task from where you left off and finish it."
@@ -119,6 +127,25 @@ async def recover_active_job(
         if job.state not in (JobState.running, JobState.waiting_for_approval):
             raise StateConflictError(f"Job {job_id} is not active and cannot be recovered (current: {job.state}).")
 
+        # Plan-mode jobs in waiting_for_approval were mid-approval when the server
+        # crashed. The in-memory plan context is lost and we cannot reconstruct the
+        # approval gate listener. Fail gracefully instead of silently corrupting state.
+        if job.mode == JobMode.plan and job.state == JobState.waiting_for_approval:
+            log.warning("plan_mode.approval_lost_on_restart", job_id=job_id)
+            now = datetime.now(UTC)
+            await job_repo.update_state(
+                job_id,
+                new_state=JobState.failed,
+                updated_at=now,
+                completed_at=now,
+                failure_reason="Server restarted while plan was awaiting approval. Please re-run the job.",
+            )
+            await session.commit()
+            reloaded = await job_repo.get(job_id)
+            if reloaded is None:
+                raise JobNotFoundError(f"Job {job_id} not found after marking failed")
+            return reloaded
+
         snapshot = RecoverySnapshot(
             state=job.state,
             session_count=job.session_count,
@@ -131,6 +158,10 @@ async def recover_active_job(
         )
 
         job = await ensure_resumable_worktree(host, job_repo, job)
+
+        # Use a plan-implementing-specific instruction when recovering mid-implementation
+        if job.mode == JobMode.plan_implementing and instruction == _SERVER_RESTART_RECOVERY_INSTRUCTION:
+            instruction = _PLAN_IMPLEMENTING_RECOVERY_INSTRUCTION
 
         new_session_count = job.session_count + 1
         if job.sdk_session_id:

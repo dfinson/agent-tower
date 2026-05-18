@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ChevronDown, ChevronRight, CheckCircle2, Loader2, Circle, ListTree, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
-import { useStore, selectActivityTimeline, selectJobPlan, selectHoveredPlanItemId, selectPreflightReport } from "../store";
+import { useStore, selectActivityTimeline, selectJobPlan, selectHoveredPlanItemId, selectPreflightReport, selectPreflightActive } from "../store";
 import type { ActivityTimelineActivity } from "../store";
 import { PlanPanel } from "./PlanPanel";
 import { ScoutReportCard } from "./ScoutReportCard";
@@ -216,6 +216,7 @@ export function ActivityTimeline({
   const planSteps = useStore(selectJobPlan(jobId));
   const hoveredPlanItemId = useStore(selectHoveredPlanItemId);
   const preflightReport = useStore(selectPreflightReport(jobId));
+  const preflightIsActive = useStore(selectPreflightActive(jobId));
 
   // Expand-all / collapse-all toggle
   const [allExpanded, setAllExpanded] = useState(false);
@@ -233,9 +234,9 @@ export function ActivityTimeline({
     ? timeline.activities.map((a) => a.status === "active" ? { ...a, status: "done" as const } : a)
     : timeline.activities;
 
-  // Show scout card only when we actually received a report
-  const showScout = !!preflightReport;
-  const scoutStatus = "done" as const;
+  // Show scout card when preflight is active (streaming) or completed
+  const showScout = preflightIsActive || !!preflightReport;
+  const scoutStatus = preflightIsActive ? "active" as const : "done" as const;
 
   if (activities.length === 0 && planSteps.length === 0 && !showScout) {
     return (

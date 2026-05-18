@@ -25,6 +25,8 @@ import structlog
 from backend.models.domain import SessionConfig, SessionEventKind
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from backend.services.adapters.agent_adapter import AgentAdapterInterface
     from backend.services.coderecon.coderecon_service import CodeReconService
 
@@ -150,6 +152,8 @@ class PreflightCurator:
         repo: str,
         worktree: str,
         job_id: str = "",
+        on_tool_call: "Callable[[PreflightToolCall], Awaitable[None]] | None" = None,
+        on_reasoning: "Callable[[str], Awaitable[None]] | None" = None,
     ) -> PreflightReport:
         """Run the preflight curator agent and return its structured report.
 
@@ -191,9 +195,15 @@ class PreflightCurator:
         )
 
         # Run the agent session and collect its output
-        return await self._run_session(config)
+        return await self._run_session(config, on_tool_call=on_tool_call, on_reasoning=on_reasoning)
 
-    async def _run_session(self, config: SessionConfig) -> PreflightReport:
+    async def _run_session(
+        self,
+        config: SessionConfig,
+        *,
+        on_tool_call: "Callable[[PreflightToolCall], Awaitable[None]] | None" = None,
+        on_reasoning: "Callable[[str], Awaitable[None]] | None" = None,
+    ) -> PreflightReport:
         """Execute the curator session and extract the final brief with tool call data."""
         t0 = time.monotonic()
 
@@ -213,15 +223,20 @@ class PreflightCurator:
                                 content = str(payload.get("content", ""))
                                 if content and content.strip():
                                     agent_chunks.append(content)
+                                    if on_reasoning is not None:
+                                        await on_reasoning(content)
                             elif role == "tool_call":
                                 raw_args = payload.get("tool_args")
                                 raw_content = payload.get("content", "")
-                                tool_calls.append(PreflightToolCall(
+                                tc = PreflightToolCall(
                                     tool_name=str(payload.get("tool_name", "")),
                                     tool_args=str(raw_args) if raw_args else None,
                                     result_preview=str(raw_content)[:500] if raw_content else "",
                                     duration_ms=payload.get("duration_ms"),
-                                ))
+                                )
+                                tool_calls.append(tc)
+                                if on_tool_call is not None:
+                                    await on_tool_call(tc)
 
                     elif event.kind == SessionEventKind.done:
                         # ResultMessage carries the complete final text

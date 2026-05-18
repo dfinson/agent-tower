@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useStore, selectJobTranscript, selectApprovals, selectBatchApprovals, selectJobPlan } from "../store";
+import { useStore, selectJobTranscript, selectApprovals, selectBatchApprovals, selectJobPlan, selectPreflightActive, selectPreflightReasoning } from "../store";
 import type { TranscriptEntry, ApprovalRequest, BatchApproval, PlanStep } from "../store";
 import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval, resolveBatch, trustJob, ApiError } from "../api/client";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -535,18 +535,25 @@ function DividerLine({ entry }: { entry: TranscriptEntry }) {
 function AgentActivityBar({ jobId, sdk, jobState }: { jobId: string; sdk?: string; jobState?: string }) {
   const job = useStore((s) => s.jobs[jobId]);
   const streamingMessages = useStore((s) => s.streamingMessages);
+  const preflightActive = useStore(selectPreflightActive(jobId));
   const isJobLive = jobState === "running" || jobState === "waiting_for_approval";
 
   const hasStream = Object.keys(streamingMessages).some((k) => k.startsWith(`${jobId}:`));
   if (!isJobLive || hasStream) return null;
 
-  const headline = job?.progressHeadline || null;
+  const headline = preflightActive
+    ? "Scout exploring codebase…"
+    : (job?.progressHeadline || null);
   const isApproval = jobState === "waiting_for_approval";
 
   return (
     <div className="animate-activity-shimmer rounded-md border border-border/30 px-3 py-2 mb-1 flex items-center gap-2.5 transition-opacity duration-300">
       <div className="relative shrink-0">
-        <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
+        {preflightActive ? (
+          <Telescope size={14} className="text-blue-400" />
+        ) : (
+          <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
+        )}
         <span className={cn(
           "absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full",
           isApproval ? "bg-amber-400 animate-pulse" : "bg-emerald-400",

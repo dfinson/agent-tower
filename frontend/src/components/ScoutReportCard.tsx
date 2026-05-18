@@ -32,17 +32,21 @@ function formatDuration(ms: number): string {
 /** Level 1: Compact one-line summary for the activity timeline header. */
 export const ScoutSummaryLine = memo(function ScoutSummaryLine({
   report,
+  status,
 }: {
   report: PreflightReport | null;
   status: "active" | "done";
 }) {
-  if (!report) {
+  if (!report || status === "active") {
+    const toolCount = report?.toolCalls.length ?? 0;
     return (
       <div className="flex items-center gap-1.5">
         <Loader2 size={14} className="text-blue-400 animate-spin shrink-0" />
         <Telescope size={13} className="text-muted-foreground shrink-0" />
         <span className="text-sm font-semibold text-foreground">Scout</span>
-        <span className="text-xs text-muted-foreground">exploring…</span>
+        <span className="text-xs text-muted-foreground">
+          exploring…{toolCount > 0 && ` (${toolCount} ${toolCount === 1 ? "call" : "calls"})`}
+        </span>
       </div>
     );
   }

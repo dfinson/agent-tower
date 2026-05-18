@@ -201,11 +201,56 @@ export function handleToolGroupSummary(state: AppState, payload: Record<string, 
   return { transcript: { ...state.transcript, [jobId]: patched } };
 }
 
+export function handlePreflightStarted(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const jobId = payload.jobId as string;
+  if (!jobId) return null;
+  return {
+    preflightActive: { ...state.preflightActive, [jobId]: true },
+    // Initialize an empty partial report so the card renders immediately
+    preflightReports: {
+      ...state.preflightReports,
+      [jobId]: state.preflightReports[jobId] ?? {
+        elapsedMs: 0,
+        toolCalls: [],
+        briefLength: 0,
+      },
+    },
+  };
+}
+
+export function handlePreflightToolCall(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const jobId = payload.jobId as string;
+  if (!jobId) return null;
+  const existing = state.preflightReports[jobId] ?? { elapsedMs: 0, toolCalls: [], briefLength: 0 };
+  return {
+    preflightReports: {
+      ...state.preflightReports,
+      [jobId]: {
+        ...existing,
+        toolCalls: [
+          ...existing.toolCalls,
+          {
+            toolName: (payload.toolName as string) ?? "",
+            toolArgs: (payload.toolArgs as string | null) ?? null,
+            resultPreview: (payload.resultPreview as string) ?? "",
+            durationMs: (payload.durationMs as number | null) ?? null,
+          },
+        ],
+      },
+    },
+  };
+}
+
 export function handlePreflightReport(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
   const jobId = payload.jobId as string;
   if (!jobId) return null;
   const toolCalls = (payload.toolCalls as Array<Record<string, unknown>> | undefined) ?? [];
+  // Clear active flag + reasoning, replace with final report
+  const { [jobId]: _, ...remainingActive } = state.preflightActive;
+  const { [jobId]: _r, ...remainingReasoning } = state.preflightReasoning;
   return {
+    preflightActive: remainingActive,
+    preflightReasoning: remainingReasoning,
     preflightReports: {
       ...state.preflightReports,
       [jobId]: {
@@ -222,10 +267,27 @@ export function handlePreflightReport(state: AppState, payload: Record<string, u
   };
 }
 
+export function handlePreflightReasoning(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const jobId = payload.jobId as string;
+  if (!jobId) return null;
+  const content = (payload.content as string) ?? "";
+  if (!content) return null;
+  const prev = state.preflightReasoning[jobId] ?? "";
+  return {
+    preflightReasoning: {
+      ...state.preflightReasoning,
+      [jobId]: prev ? content : content,  // replace with latest chunk (not accumulate entire session)
+    },
+  };
+}
+
 export const transcriptHandlers: Record<string, SSEHandler> = {
   log_line: handleLogLine,
   transcript_update: handleTranscriptUpdate,
   tool_group_summary: handleToolGroupSummary,
   sidecar_transcript: handleSidecarTranscript,
+  preflight_started: handlePreflightStarted,
+  preflight_tool_call: handlePreflightToolCall,
+  preflight_reasoning: handlePreflightReasoning,
   preflight_report: handlePreflightReport,
 };

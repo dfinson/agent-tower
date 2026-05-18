@@ -387,7 +387,17 @@ class JobRepository(BaseRepository):
         await self._update_row(job_id, preset=preset)
 
     async def update_mode(self, job_id: str, mode: str) -> None:
-        """Update the execution mode (e.g. plan → plan_implementing)."""
+        """Update the execution mode (e.g. plan → plan_implementing).
+
+        Only valid JobMode values are accepted. Use 'standard' or
+        'plan_implementing' — 'plan' is set at creation time only.
+        """
+        # Validate the mode is a known enum value
+        try:
+            JobMode(mode)
+        except ValueError:
+            valid = ", ".join(e.value for e in JobMode)
+            raise ValueError(f"Invalid mode {mode!r}. Valid options: {valid}") from None
         await self._update_row(job_id, mode=mode)
 
     async def update_tail_offset(self, job_id: str, offset: int) -> None:

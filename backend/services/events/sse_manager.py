@@ -108,6 +108,9 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.sidecar_agent_message: "sidecar_transcript",  # visible as sidecar transcript in UI
     DomainEventKind.sidecar_gate_verdict: None,  # internal — handled by dispatcher
     DomainEventKind.sidecar_metadata_update: None,  # internal — handled by dispatcher
+    DomainEventKind.preflight_started: "preflight_started",
+    DomainEventKind.preflight_tool_call: "preflight_tool_call",
+    DomainEventKind.preflight_reasoning: "preflight_reasoning",
     DomainEventKind.preflight_report: "preflight_report",
 }
 
@@ -292,6 +295,35 @@ def _build_batch_approval_resolved(event: DomainEvent) -> str:
     )
 
 
+def _build_preflight_started(event: DomainEvent) -> str:
+    import json
+
+    return json.dumps({"jobId": event.job_id})
+
+
+def _build_preflight_tool_call(event: DomainEvent) -> str:
+    import json
+
+    p = event.payload
+    return json.dumps({
+        "jobId": event.job_id,
+        "toolName": p.get("tool_name", ""),
+        "toolArgs": p.get("tool_args"),
+        "resultPreview": p.get("result_preview", ""),
+        "durationMs": p.get("duration_ms"),
+    })
+
+
+def _build_preflight_reasoning(event: DomainEvent) -> str:
+    import json
+
+    p = event.payload
+    return json.dumps({
+        "jobId": event.job_id,
+        "content": p.get("content", ""),
+    })
+
+
 def _build_preflight_report(event: DomainEvent) -> str:
     p = event.payload
     tool_calls_raw = p.get("tool_calls", [])
@@ -327,6 +359,9 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
     "plan_step_updated": _build_plan_step_updated,
     "batch_approval_requested": _build_batch_approval_requested,
     "batch_approval_resolved": _build_batch_approval_resolved,
+    "preflight_started": _build_preflight_started,
+    "preflight_tool_call": _build_preflight_tool_call,
+    "preflight_reasoning": _build_preflight_reasoning,
     "preflight_report": _build_preflight_report,
     # --- Field-map builders (declarative) ---
     "log_line": (

@@ -2432,6 +2432,7 @@ export interface components {
             enablePlanTracking?: boolean | null;
             /** Sessiontoken */
             sessionToken?: string | null;
+            mode?: components["schemas"]["JobMode"] | null;
         };
         /** CreateJobResponse */
         CreateJobResponse: {
@@ -3692,6 +3693,14 @@ export interface components {
          * @enum {string}
          */
         Preset: "autonomous" | "supervised" | "locked";
+        /**
+         * JobMode
+         * @description Execution mode for a job.
+         *     standard — Normal single-phase execution.
+         *     plan     — Plan-first: agent produces a plan, operator reviews, then implementation runs.
+         * @enum {string}
+         */
+        JobMode: "standard" | "plan";
         /** ProgressHeadlinePayload */
         ProgressHeadlinePayload: {
             /** Jobid */
