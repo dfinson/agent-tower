@@ -135,8 +135,28 @@ export function AnalyticsScreen() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadData = (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
+  // Refresh counter — incrementing triggers the effect to re-fetch
+  const [refreshCounter, setRefreshCounter] = useState(0);
+  const loadData = useCallback(() => {
+    setRefreshing(true);
+    setRefreshCounter((c) => c + 1);
+  }, []);
+
+  // Abort controller to cancel in-flight requests when filters change
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    // Cancel any previous in-flight requests
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
+
+    const isAborted = () => signal.aborted;
+    const swallow = (err: unknown) => {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      throw err;
+    };
 
     setScorecardLoading(true);
     setModelLoading(true);
@@ -149,69 +169,63 @@ export function AnalyticsScreen() {
     setCacheLoading(true);
     setScorecardError(null);
 
-    // Fire all fetches independently
+    // Fire all fetches independently — use actual period (no forced 30-day min)
     fetchScorecard(period)
-      .then((sc) => { setScorecard(sc); setLastUpdated(new Date()); })
-      .catch((err) => setScorecardError(err.message || "Failed to load scorecard"))
-      .finally(() => { setScorecardLoading(false); if (isRefresh) setRefreshing(false); });
+      .then((sc) => { if (!isAborted()) { setScorecard(sc); setLastUpdated(new Date()); } })
+      .catch((err) => { if (!isAborted()) setScorecardError(err.message || "Failed to load scorecard"); })
+      .catch(swallow)
+      .finally(() => { if (!isAborted()) { setScorecardLoading(false); setRefreshing(false); } });
 
-    fetchModelComparison(Math.max(period, 30), selectedRepo || undefined)
-      .then(setModelComparison)
-      .catch(() => {})
-      .finally(() => setModelLoading(false));
+    fetchModelComparison(period, selectedRepo || undefined)
+      .then((d) => { if (!isAborted()) setModelComparison(d); })
+      .catch(swallow)
+      .finally(() => { if (!isAborted()) setModelLoading(false); });
 
-    fetchAnalyticsTools(Math.max(period, 30))
-      .then(setTools)
-      .catch(() => {})
-      .finally(() => setToolsLoading(false));
+    fetchAnalyticsTools(period)
+      .then((d) => { if (!isAborted()) setTools(d); })
+      .catch(swallow)
+      .finally(() => { if (!isAborted()) setToolsLoading(false); });
 
     fetchAnalyticsRepos(period)
-      .then(setRepos)
-      .catch(() => {})
-      .finally(() => setReposLoading(false));
+      .then((d) => { if (!isAborted()) setRepos(d); })
+      .catch(swallow)
+      .finally(() => { if (!isAborted()) setReposLoading(false); });
 
     fetchFleetCostDrivers(period)
-      .then(setFleetDrivers)
-      .catch(() => setFleetDrivers(null))
-      .finally(() => setDriversLoading(false));
+      .then((d) => { if (!isAborted()) setFleetDrivers(d); })
+      .catch((err) => { swallow(err); if (!isAborted()) setFleetDrivers(null); })
+      .finally(() => { if (!isAborted()) setDriversLoading(false); });
 
-    fetchFleetLatencyDrivers(Math.max(period, 30))
-      .then(setFleetLatency)
-      .catch(() => setFleetLatency(null))
-      .finally(() => setLatencyLoading(false));
+    fetchFleetLatencyDrivers(period)
+      .then((d) => { if (!isAborted()) setFleetLatency(d); })
+      .catch((err) => { swallow(err); if (!isAborted()) setFleetLatency(null); })
+      .finally(() => { if (!isAborted()) setLatencyLoading(false); });
 
     fetchObservations()
-      .then((obs) => setObservations(obs?.observations ?? []))
-      .catch(() => {})
-      .finally(() => setObsLoading(false));
+      .then((obs) => { if (!isAborted()) setObservations(obs?.observations ?? []); })
+      .catch(swallow)
+      .finally(() => { if (!isAborted()) setObsLoading(false); });
 
-    fetchYield(Math.max(period, 30))
-      .then(setYieldData)
-      .catch(() => setYieldData(null))
-      .finally(() => setYieldLoading(false));
+    fetchYield(period)
+      .then((d) => { if (!isAborted()) setYieldData(d); })
+      .catch((err) => { swallow(err); if (!isAborted()) setYieldData(null); })
+      .finally(() => { if (!isAborted()) setYieldLoading(false); });
 
-    fetchCacheEfficiency(Math.max(period, 30))
-      .then(setCacheEfficiency)
-      .catch(() => setCacheEfficiency(null))
-      .finally(() => setCacheLoading(false));
+    fetchCacheEfficiency(period)
+      .then((d) => { if (!isAborted()) setCacheEfficiency(d); })
+      .catch((err) => { swallow(err); if (!isAborted()) setCacheEfficiency(null); })
+      .finally(() => { if (!isAborted()) setCacheLoading(false); });
 
-    fetchModelEfficiency(Math.max(period, 30))
-      .then(setModelEfficiency)
-      .catch(() => setModelEfficiency(null));
-
-
-
-
+    fetchModelEfficiency(period)
+      .then((d) => { if (!isAborted()) setModelEfficiency(d); })
+      .catch(swallow);
 
     fetchExecutiveSummary(period)
-      .then(setExecutiveSummary)
-      .catch(() => setExecutiveSummary(null));
-  };
+      .then((d) => { if (!isAborted()) setExecutiveSummary(d); })
+      .catch(swallow);
 
-  useEffect(() => {
-    loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, selectedRepo]);
+    return () => { controller.abort(); };
+  }, [period, selectedRepo, refreshCounter]);
 
   const handleDismissObservation = async (id: number) => {
     try {
@@ -240,14 +254,14 @@ export function AnalyticsScreen() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => loadData(true)}
+            onClick={() => loadData()}
             disabled={refreshing}
             className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
           >
             <Loader2 size={14} className={refreshing ? "animate-spin" : ""} />
             Refresh
           </button>
-          <ExportDropdown period={Math.max(period, 30)} />
+          <ExportDropdown period={period} />
           <select
             value={period}
             onChange={(e) => setPeriod(Number(e.target.value))}

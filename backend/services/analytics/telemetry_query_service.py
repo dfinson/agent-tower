@@ -125,11 +125,30 @@ class TelemetryQueryService:
 
     async def get_telemetry(self, job_id: str) -> JobTelemetryResponse:
         """Build the full telemetry response for *job_id*."""
+        import asyncio
+
         summary = await self._summary_repo.get(job_id)
         if summary is None:
             return JobTelemetryResponse(job_id=job_id, available=False)
 
-        job_row = await self._job_repo.get(job_id)
+        # Fetch remaining data in parallel — these are all independent queries
+        (
+            job_row,
+            spans,
+            attribution_rows,
+            latency_rows,
+            file_stats,
+            top_files,
+            sidecar_rows,
+        ) = await asyncio.gather(
+            self._job_repo.get(job_id),
+            self._spans_repo.list_for_job(job_id),
+            self._cost_repo.for_job(job_id),
+            self._latency_repo.for_job(job_id),
+            self._file_repo.reread_stats(job_id),
+            self._file_repo.most_accessed_files(job_id=job_id),
+            self._summary_repo.list_sidecars(job_id),
+        )
         sdk = job_row.sdk if job_row else ""
 
         # Parse quota JSON if present
@@ -144,16 +163,6 @@ class TelemetryQueryService:
         cache_read = summary.get("cache_read_tokens", 0)
         window_size = summary.get("context_window_size", 0)
         current_ctx = summary.get("current_context_tokens", 0)
-
-        # Load span detail for tool/LLM call breakdowns
-        spans = await self._spans_repo.list_for_job(job_id)
-        attribution_rows = await self._cost_repo.for_job(job_id)
-        latency_rows = await self._latency_repo.for_job(job_id)
-        file_stats = await self._file_repo.reread_stats(job_id)
-        top_files = await self._file_repo.most_accessed_files(job_id=job_id)
-
-        # Load sidecar session summaries (preflight, memory, etc.)
-        sidecar_rows = await self._summary_repo.list_sidecars(job_id)
 
         # --- Build tool/LLM call lists ---
         tool_calls: list[TelemetryToolCall] = []

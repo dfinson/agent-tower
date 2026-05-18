@@ -351,6 +351,14 @@ export function JobDetailScreen() {
     return () => { cancelled = true; };
   }, [jobId, jobState]);
 
+  // Eagerly prefetch review data when diffs exist so the review tab loads instantly
+  const prefetchReviewData = useStore((s) => s.prefetchReviewData);
+  useEffect(() => {
+    if (hasChanges && jobId) {
+      prefetchReviewData(jobId);
+    }
+  }, [hasChanges, jobId, prefetchReviewData]);
+
   const doCancelJob = useCallback(async () => {
     if (!jobId) return;
     try {
