@@ -154,6 +154,32 @@ export interface StepDiffResponse {
   hunkMotivations?: Record<string, HunkMotivation>;
 }
 
+// --- Line Coverage types (layered diff V8) ---
+
+export interface LineCoverageTestInfo {
+  name: string;
+  file: string;
+  line: number;
+  status: "pass" | "fail" | "notrun";
+}
+
+export interface LineCoverageResponse {
+  jobId: string;
+  filePath: string;
+  available: boolean;
+  coveredLines: number[];
+  uncoveredLines: number[];
+  totalInstrumented: number;
+  lineRate: number;
+  testsByLine: Record<string, LineCoverageTestInfo[]>;
+}
+
+export interface JobMotivationsResponse {
+  jobId: string;
+  fileMotivations: Record<string, FileMotivation>;
+  hunkMotivations: Record<string, HunkMotivation>;
+}
+
 export interface DiffUpdatePayload {
   jobId: string;
   changedFiles: DiffFileModel[];

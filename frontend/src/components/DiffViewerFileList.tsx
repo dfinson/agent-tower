@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useLayoutEffect } from "react";
-import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, Check, Minus, Info, Eye, ArrowUpDown, BookOpenCheck, Lightbulb, Columns2 } from "lucide-react";
+import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, Check, Minus, Info, Eye, ArrowUpDown, BookOpenCheck, Lightbulb, Columns2, Shield, Waypoints } from "lucide-react";
 import { cn } from "../lib/utils";
 import { Tooltip } from "./ui/tooltip";
 import type { DiffFileModel, FileMotivation, HunkMotivation } from "../api/types";
@@ -81,6 +81,10 @@ interface DiffViewerFileListProps {
   setSplitView: (v: boolean) => void;
   showIntent: boolean;
   setShowIntent: (v: boolean) => void;
+  showCoverage: boolean;
+  setShowCoverage: (v: boolean) => void;
+  showImpact: boolean;
+  setShowImpact: (v: boolean) => void;
   hunkMotivations: Record<string, HunkMotivation>;
   fileMotivations: Record<string, FileMotivation>;
   viewedFiles: Set<number>;
@@ -104,6 +108,10 @@ export function DiffViewerFileList({
   setSplitView,
   showIntent,
   setShowIntent,
+  showCoverage,
+  setShowCoverage,
+  showImpact,
+  setShowImpact,
   hunkMotivations,
   fileMotivations,
   viewedFiles,
@@ -151,6 +159,28 @@ export function DiffViewerFileList({
               </button>
             </Tooltip>
           )}
+          <Tooltip content={showCoverage ? "Hide coverage layer" : "Show coverage layer"}>
+            <button
+              onClick={() => setShowCoverage(!showCoverage)}
+              className={cn(
+                "p-0.5 rounded transition-colors",
+                showCoverage ? "text-green-400 hover:text-green-300" : "text-muted-foreground/40 hover:text-muted-foreground",
+              )}
+            >
+              <Shield size={13} />
+            </button>
+          </Tooltip>
+          <Tooltip content={showImpact ? "Hide impact layer" : "Show impact layer"}>
+            <button
+              onClick={() => setShowImpact(!showImpact)}
+              className={cn(
+                "p-0.5 rounded transition-colors",
+                showImpact ? "text-purple-400 hover:text-purple-300" : "text-muted-foreground/40 hover:text-muted-foreground",
+              )}
+            >
+              <Waypoints size={13} />
+            </button>
+          </Tooltip>
           <Tooltip content={splitView ? "Unified diff" : "Split diff"}>
             <button
               onClick={() => setSplitView(!splitView)}

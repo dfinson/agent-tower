@@ -911,6 +911,22 @@ export function fetchCoveringTests(jobId: string, filePath: string): Promise<Cov
   return request(`/jobs/${encodeURIComponent(jobId)}/covering-tests?file_path=${encodeURIComponent(filePath)}`);
 }
 
+export function fetchLineCoverage(
+  jobId: string,
+  filePath: string,
+  lineRange?: { start: number; end: number },
+): Promise<import("./types").LineCoverageResponse> {
+  let url = `/jobs/${encodeURIComponent(jobId)}/line-coverage?file_path=${encodeURIComponent(filePath)}`;
+  if (lineRange) {
+    url += `&start_line=${lineRange.start}&end_line=${lineRange.end}`;
+  }
+  return request(url);
+}
+
+export function fetchJobMotivations(jobId: string): Promise<import("./types").JobMotivationsResponse> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/motivations`);
+}
+
 export function fetchBlastRadius(jobId: string): Promise<BlastRadiusResponse> {
   return request(`/jobs/${encodeURIComponent(jobId)}/blast-radius`);
 }

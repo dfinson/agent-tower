@@ -23,9 +23,14 @@ from backend.models.api_schemas import (
     CoveringTestsResponse,
     DiffFileModel,
     DiffListResponse,
+    FileMotivation,
+    HunkMotivation,
     ImpactGraphResponse,
     ImpactReference,
+    JobMotivationsResponse,
     JobSnapshotResponse,
+    LineCoverageResponse,
+    LineCoverageTestInfo,
     LogLinePayload,
     LogListResponse,
     MultiSessionResponse,
@@ -1410,6 +1415,62 @@ async def _generate_review_story(
 
 
 # ---------------------------------------------------------------------------
+# Motivations endpoint (job-level)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/jobs/{job_id}/motivations", response_model=JobMotivationsResponse)
+async def get_job_motivations(
+    job_id: str,
+    svc: FromDishka[JobService],
+    spans_repo: FromDishka[TelemetrySpansRepository],
+) -> JobMotivationsResponse:
+    """Return all motivation annotations for a job's changed files."""
+    await svc.get_job(job_id)  # validate job exists
+
+    spans = await spans_repo.motivated_spans_for_job(job_id=job_id)
+    file_motivations: dict[str, FileMotivation] = {}
+    hunk_motivations: dict[str, HunkMotivation] = {}
+
+    for span in spans:
+        target = span.get("tool_target", "")
+        summary = span.get("motivation_summary", "")
+        if not target or not summary:
+            continue
+
+        # Parse motivation_summary as "Title: rest" or just use as why
+        if ": " in summary and len(summary.split(": ", 1)[0]) < 80:
+            title, why = summary.split(": ", 1)
+        else:
+            title = ""
+            why = summary
+
+        file_motivations[target] = FileMotivation(title=title, why=why)
+
+        # Parse edit_motivations JSON if present
+        edit_motivations_raw = span.get("edit_motivations")
+        if edit_motivations_raw:
+            import json as _json
+            try:
+                edits = _json.loads(edit_motivations_raw) if isinstance(edit_motivations_raw, str) else edit_motivations_raw
+                for i, edit in enumerate(edits if isinstance(edits, list) else []):
+                    key = f"{target}:{i}"
+                    hunk_motivations[key] = HunkMotivation(
+                        edit_key=edit.get("edit_key", key),
+                        title=edit.get("title", ""),
+                        why=edit.get("why", ""),
+                    )
+            except (ValueError, TypeError):
+                pass
+
+    return JobMotivationsResponse(
+        job_id=job_id,
+        file_motivations=file_motivations,
+        hunk_motivations=hunk_motivations,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Coverage / Blast Radius endpoints
 # ---------------------------------------------------------------------------
 
@@ -1452,6 +1513,54 @@ async def get_job_covering_tests(
         job_id=job_id,
         file_path=file_path,
         symbols=symbols,
+    )
+
+
+@router.get("/jobs/{job_id}/line-coverage", response_model=LineCoverageResponse)
+async def get_job_line_coverage(
+    job_id: str,
+    svc: FromDishka[JobService],
+    coderecon: FromDishka[CodeReconService],
+    file_path: Annotated[str, Query(description="Relative file path to query line coverage for")],
+    start_line: Annotated[int | None, Query(description="Optional start of line range")] = None,
+    end_line: Annotated[int | None, Query(description="Optional end of line range")] = None,
+) -> LineCoverageResponse:
+    """Return per-line coverage data for gutter dot rendering in the layered diff view."""
+    job = await svc.get_job(job_id)
+    if not coderecon.available or not job.repo or not job.worktree_path:
+        return LineCoverageResponse(job_id=job_id, file_path=file_path, available=False)
+
+    line_range = (start_line, end_line) if start_line is not None and end_line is not None else None
+
+    try:
+        repo_name = await _ensure_repo_and_worktree(coderecon, job.repo, job.worktree_path)
+        result = await coderecon.line_coverage(
+            repo_name,
+            file_path,
+            worktree=job.worktree_path,
+            line_range=line_range,
+            include_tests=True,
+        )
+    except Exception:
+        log.warning("line_coverage_failed", job_id=job_id, file_path=file_path, exc_info=True)
+        return LineCoverageResponse(job_id=job_id, file_path=file_path, available=False)
+
+    # Map tests_by_line from {int: [str]} to {str: [LineCoverageTestInfo]}
+    tests_by_line: dict[str, list[LineCoverageTestInfo]] = {}
+    for line_no, test_names in (result.tests_by_line or {}).items():
+        tests_by_line[str(line_no)] = [
+            LineCoverageTestInfo(name=name, file="", line=0, status="pass")
+            for name in test_names
+        ]
+
+    return LineCoverageResponse(
+        job_id=job_id,
+        file_path=file_path,
+        covered_lines=result.covered_lines,
+        uncovered_lines=result.uncovered_lines,
+        total_instrumented=result.total_instrumented,
+        line_rate=result.line_rate,
+        tests_by_line=tests_by_line,
     )
 
 

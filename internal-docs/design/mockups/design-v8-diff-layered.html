@@ -140,10 +140,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 /* Caller inline source preview */
 .caller-source { display: none; margin: 0; padding: 2px 0 6px 88px; }
 .caller-source.open { display: block; }
-.source-block { background: #1a1a1a; border: 1px solid #2a2a3a; border-radius: 4px; overflow: hidden; font-family: 'Cascadia Code', monospace; font-size: 11px; line-height: 17px; }
+.source-block { background: #1a1a1a; border: 1px solid #2a2a3a; border-radius: 4px; overflow: visible; font-family: 'Cascadia Code', monospace; font-size: 11px; line-height: 17px; }
 .source-block .src-line { display: flex; padding: 0 8px; position: relative; }
 .source-block .src-line.highlight { background: rgba(86, 156, 214, 0.12); }
-.source-block .src-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; align-self: center; margin-right: 4px; }
+.source-block .src-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; align-self: center; margin-right: 4px; cursor: pointer; z-index: 5; }
 .source-block .src-dot.covered { background: #4ec9b0; }
 .source-block .src-dot.uncovered { background: #f14c4c; }
 .source-block .src-ln { width: 32px; color: #5a5a5a; text-align: right; padding-right: 8px; user-select: none; flex-shrink: 0; }
@@ -374,10 +374,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
               </div>
               <div class="caller-source">
                 <div class="source-block">
-                  <div class="src-line"><span class="src-dot covered"></span><span class="src-ln">70</span><span class="src-code">def test_validate_strict_mode(validator):</span></div>
-                  <div class="src-line"><span class="src-dot covered"></span><span class="src-ln">71</span><span class="src-code">    cfg = {"host": "localhost", "port": 8080}</span></div>
-                  <div class="src-line highlight"><span class="src-dot covered"></span><span class="src-ln">72</span><span class="src-code">    result = validator.validate_config(cfg, strict=True)</span></div>
-                  <div class="src-line"><span class="src-dot covered"></span><span class="src-ln">73</span><span class="src-code">    assert result is True</span></div>
+                  <div class="src-line"><span class="src-dot covered" data-tip="Covered by 1 test" data-tests='[{"name":"test_validate_strict_mode","file":"tests/test_config.py:70","status":"fail"}]'></span><span class="src-ln">70</span><span class="src-code">def test_validate_strict_mode(validator):</span></div>
+                  <div class="src-line"><span class="src-dot covered" data-tip="Covered by 1 test" data-tests='[{"name":"test_validate_strict_mode","file":"tests/test_config.py:70","status":"fail"}]'></span><span class="src-ln">71</span><span class="src-code">    cfg = {"host": "localhost", "port": 8080}</span></div>
+                  <div class="src-line highlight"><span class="src-dot covered" data-tip="Covered by 1 test" data-tests='[{"name":"test_validate_strict_mode","file":"tests/test_config.py:70","status":"fail"}]'></span><span class="src-ln">72</span><span class="src-code">    result = validator.validate_config(cfg, strict=True)</span></div>
+                  <div class="src-line"><span class="src-dot covered" data-tip="Covered by 1 test" data-tests='[{"name":"test_validate_strict_mode","file":"tests/test_config.py:70","status":"fail"}]'></span><span class="src-ln">73</span><span class="src-code">    assert result is True</span></div>
                 </div>
               </div>
               <div class="test-failure">
@@ -397,10 +397,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
               </div>
               <div class="caller-source">
                 <div class="source-block">
-                  <div class="src-line"><span class="src-dot uncovered"></span><span class="src-ln">32</span><span class="src-code">    def load_environment(self, env_name: str) -> Config:</span></div>
-                  <div class="src-line"><span class="src-dot uncovered"></span><span class="src-ln">33</span><span class="src-code">        raw = self._read_env_file(env_name)</span></div>
-                  <div class="src-line highlight"><span class="src-dot uncovered"></span><span class="src-ln">34</span><span class="src-code">        self.validator.validate_config(raw, schema=env_name)</span></div>
-                  <div class="src-line"><span class="src-dot uncovered"></span><span class="src-ln">35</span><span class="src-code">        return Config.from_dict(raw)</span></div>
+                  <div class="src-line"><span class="src-dot uncovered" data-tip="Not covered by tests"></span><span class="src-ln">32</span><span class="src-code">    def load_environment(self, env_name: str) -> Config:</span></div>
+                  <div class="src-line"><span class="src-dot uncovered" data-tip="Not covered by tests"></span><span class="src-ln">33</span><span class="src-code">        raw = self._read_env_file(env_name)</span></div>
+                  <div class="src-line highlight"><span class="src-dot uncovered" data-tip="Not covered by tests"></span><span class="src-ln">34</span><span class="src-code">        self.validator.validate_config(raw, schema=env_name)</span></div>
+                  <div class="src-line"><span class="src-dot uncovered" data-tip="Not covered by tests"></span><span class="src-ln">35</span><span class="src-code">        return Config.from_dict(raw)</span></div>
                 </div>
               </div>
             </div>
@@ -416,11 +416,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
               </div>
               <div class="caller-source">
                 <div class="source-block">
-                  <div class="src-line"><span class="src-dot covered"></span><span class="src-ln">86</span><span class="src-code">    def apply_overrides(self, base: dict, overrides: dict) -> dict:</span></div>
-                  <div class="src-line"><span class="src-dot covered"></span><span class="src-ln">87</span><span class="src-code">        merged = {**base, **overrides}</span></div>
-                  <div class="src-line highlight"><span class="src-dot covered"></span><span class="src-ln">88</span><span class="src-code">        if not self._validator.validate_config(merged):</span></div>
-                  <div class="src-line"><span class="src-dot covered"></span><span class="src-ln">89</span><span class="src-code">            raise ConfigError("Invalid merged config")</span></div>
-                  <div class="src-line"><span class="src-dot covered"></span><span class="src-ln">90</span><span class="src-code">        return merged</span></div>
+                  <div class="src-line"><span class="src-dot covered" data-tip="Covered by 2 tests" data-tests='[{"name":"test_validate_basic","file":"tests/test_config.py:22","status":"pass"},{"name":"test_validate_strict_mode","file":"tests/test_config.py:70","status":"fail"}]'></span><span class="src-ln">86</span><span class="src-code">    def apply_overrides(self, base: dict, overrides: dict) -> dict:</span></div>
+                  <div class="src-line"><span class="src-dot covered" data-tip="Covered by 2 tests" data-tests='[{"name":"test_validate_basic","file":"tests/test_config.py:22","status":"pass"},{"name":"test_validate_strict_mode","file":"tests/test_config.py:70","status":"fail"}]'></span><span class="src-ln">87</span><span class="src-code">        merged = {**base, **overrides}</span></div>
+                  <div class="src-line highlight"><span class="src-dot covered" data-tip="Covered by 2 tests" data-tests='[{"name":"test_validate_basic","file":"tests/test_config.py:22","status":"pass"},{"name":"test_validate_strict_mode","file":"tests/test_config.py:70","status":"fail"}]'></span><span class="src-ln">88</span><span class="src-code">        if not self._validator.validate_config(merged):</span></div>
+                  <div class="src-line"><span class="src-dot covered" data-tip="Covered by 2 tests" data-tests='[{"name":"test_validate_basic","file":"tests/test_config.py:22","status":"pass"},{"name":"test_validate_strict_mode","file":"tests/test_config.py:70","status":"fail"}]'></span><span class="src-ln">89</span><span class="src-code">            raise ConfigError("Invalid merged config")</span></div>
+                  <div class="src-line"><span class="src-dot covered" data-tip="Covered by 2 tests" data-tests='[{"name":"test_validate_basic","file":"tests/test_config.py:22","status":"pass"},{"name":"test_validate_strict_mode","file":"tests/test_config.py:70","status":"fail"}]'></span><span class="src-ln">90</span><span class="src-code">        return merged</span></div>
                 </div>
               </div>
             </div>
@@ -436,8 +436,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
               </div>
               <div class="caller-source">
                 <div class="source-block">
-                  <div class="src-line"><span class="src-dot covered"></span><span class="src-ln">22</span><span class="src-code">def test_validate_basic(validator):</span></div>
-                  <div class="src-line highlight"><span class="src-dot covered"></span><span class="src-ln">23</span><span class="src-code">    assert validator.validate_config({"key": "val"})</span></div>
+                  <div class="src-line"><span class="src-dot covered" data-tip="Covered by 1 test" data-tests='[{"name":"test_validate_basic","file":"tests/test_config.py:22","status":"pass"}]'></span><span class="src-ln">22</span><span class="src-code">def test_validate_basic(validator):</span></div>
+                  <div class="src-line highlight"><span class="src-dot covered" data-tip="Covered by 1 test" data-tests='[{"name":"test_validate_basic","file":"tests/test_config.py:22","status":"pass"}]'></span><span class="src-ln">23</span><span class="src-code">    assert validator.validate_config({"key": "val"})</span></div>
                   <div class="src-line"><span class="src-ln">24</span><span class="src-code"></span></div>
                 </div>
               </div>
@@ -454,10 +454,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
               </div>
               <div class="caller-source">
                 <div class="source-block">
-                  <div class="src-line"><span class="src-dot covered"></span><span class="src-ln">13</span><span class="src-code">def on_config_reload(self, new_cfg: dict) -> None:</span></div>
-                  <div class="src-line"><span class="src-dot covered"></span><span class="src-ln">14</span><span class="src-code">    is_prod = self._env == "production"</span></div>
-                  <div class="src-line highlight"><span class="src-dot covered"></span><span class="src-ln">15</span><span class="src-code">    validator.validate_config(new_cfg, strict=is_prod)</span></div>
-                  <div class="src-line"><span class="src-dot covered"></span><span class="src-ln">16</span><span class="src-code">    self._cfg = new_cfg</span></div>
+                  <div class="src-line"><span class="src-dot covered" data-tip="Covered by 1 test" data-tests='[{"name":"test_hot_reload","file":"tests/test_hot_reload.py:8","status":"pass"}]'></span><span class="src-ln">13</span><span class="src-code">def on_config_reload(self, new_cfg: dict) -> None:</span></div>
+                  <div class="src-line"><span class="src-dot covered" data-tip="Covered by 1 test" data-tests='[{"name":"test_hot_reload","file":"tests/test_hot_reload.py:8","status":"pass"}]'></span><span class="src-ln">14</span><span class="src-code">    is_prod = self._env == "production"</span></div>
+                  <div class="src-line highlight"><span class="src-dot covered" data-tip="Covered by 1 test" data-tests='[{"name":"test_hot_reload","file":"tests/test_hot_reload.py:8","status":"pass"}]'></span><span class="src-ln">15</span><span class="src-code">    validator.validate_config(new_cfg, strict=is_prod)</span></div>
+                  <div class="src-line"><span class="src-dot covered" data-tip="Covered by 1 test" data-tests='[{"name":"test_hot_reload","file":"tests/test_hot_reload.py:8","status":"pass"}]'></span><span class="src-ln">16</span><span class="src-code">    self._cfg = new_cfg</span></div>
                 </div>
               </div>
             </div>
@@ -537,9 +537,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
               </div>
               <div class="caller-source">
                 <div class="source-block">
-                  <div class="src-line"><span class="src-dot uncovered"></span><span class="src-ln">44</span><span class="src-code">        if schema is not None:</span></div>
-                  <div class="src-line highlight"><span class="src-dot uncovered"></span><span class="src-ln">45</span><span class="src-code">            return self._validate_with_schema(config, schema, strict=strict)</span></div>
-                  <div class="src-line"><span class="src-dot uncovered"></span><span class="src-ln">46</span><span class="src-code">        if not isinstance(config, dict):</span></div>
+                  <div class="src-line"><span class="src-dot uncovered" data-tip="Not covered by tests"></span><span class="src-ln">44</span><span class="src-code">        if schema is not None:</span></div>
+                  <div class="src-line highlight"><span class="src-dot uncovered" data-tip="Not covered by tests"></span><span class="src-ln">45</span><span class="src-code">            return self._validate_with_schema(config, schema, strict=strict)</span></div>
+                  <div class="src-line"><span class="src-dot uncovered" data-tip="Not covered by tests"></span><span class="src-ln">46</span><span class="src-code">        if not isinstance(config, dict):</span></div>
                 </div>
               </div>
             </div>
@@ -890,11 +890,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  // --- Gutter dot tooltip ---
+  // --- Gutter dot tooltip (cov-dot AND src-dot) ---
   document.addEventListener('mouseover', (e) => {
-    const dot = e.target.closest('.cov-dot');
+    const dot = e.target.closest('.cov-dot, .src-dot');
     if (!dot || dot.classList.contains('hidden')) return;
-    tip.textContent = dot.dataset.tip;
+    const tipText = dot.dataset.tip;
+    if (!tipText) return;
+    tip.textContent = tipText;
     tip.style.display = 'block';
     const r = dot.getBoundingClientRect();
     tip.style.left = (r.right + 8) + 'px';
@@ -902,7 +904,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
   });
 
   document.addEventListener('mouseout', (e) => {
-    if (e.target.closest('.cov-dot')) tip.style.display = 'none';
+    if (e.target.closest('.cov-dot, .src-dot')) tip.style.display = 'none';
   });
 
   // --- Covered dot click → popover ---
@@ -922,7 +924,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
     }
 
     if (activePopover) { activePopover.remove(); activePopover = null; }
-    const dot = e.target.closest('.cov-dot.covered');
+    const dot = e.target.closest('.cov-dot.covered, .src-dot.covered');
     if (!dot || dot.classList.contains('hidden')) return;
     const tests = JSON.parse(dot.dataset.tests || '[]');
     if (!tests.length) return;
@@ -947,7 +949,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
           '<span class="act-btn" title="Open in editor" data-action="goto" data-file="' + fileName + '" data-line="' + lineNum + '">↗</span>' +
           '</div></div>';
       }).join('');
-    dot.closest('.diff-line').appendChild(pop);
+    const line = dot.closest('.diff-line') || dot.closest('.src-line');
+    line.appendChild(pop);
     activePopover = pop;
     e.stopPropagation();
   });

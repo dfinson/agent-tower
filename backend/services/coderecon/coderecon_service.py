@@ -496,6 +496,32 @@ class CodeReconService:
             lambda: kit.covering_tests(file_path, worktree=worktree),
         )
 
+    async def line_coverage(
+        self,
+        repo: str,
+        file_path: str,
+        *,
+        worktree: str = "main",
+        line_range: tuple[int, int] | None = None,
+        include_tests: bool = False,
+    ) -> Any:
+        """Return per-line coverage for gutter rendering.
+
+        Delegates to ReviewKit.line_coverage() which returns a
+        LineCoverageResult dataclass.
+        """
+        kit = self._get_kit(repo)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            lambda: kit.line_coverage(
+                file_path,
+                worktree=worktree,
+                line_range=line_range,
+                include_tests=include_tests,
+            ),
+        )
+
     # ── Internal ──
 
     def _get_kit(self, repo: str) -> Any:

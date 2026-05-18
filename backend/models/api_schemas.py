@@ -1006,6 +1006,14 @@ class StepDiffPayload(CamelModel):
     hunk_motivations: dict[str, HunkMotivation] = {}
 
 
+class JobMotivationsResponse(CamelModel):
+    """All motivation annotations for a job, keyed by file path."""
+
+    job_id: str
+    file_motivations: dict[str, FileMotivation] = {}
+    hunk_motivations: dict[str, HunkMotivation] = {}
+
+
 class TranscriptSearchResult(CamelModel):
     """A transcript event matching a search query."""
 
@@ -1144,6 +1152,28 @@ class CoveringTestsResponse(CamelModel):
     file_path: str
     available: bool = True
     symbols: dict[str, list[CoveringTestCandidate]] = Field(default_factory=dict)
+
+
+class LineCoverageTestInfo(CamelModel):
+    """A test that covers a specific line."""
+
+    name: str
+    file: str
+    line: int = 0
+    status: str = "pass"  # pass | fail | notrun
+
+
+class LineCoverageResponse(CamelModel):
+    """Per-line coverage for gutter rendering in the layered diff view."""
+
+    job_id: str
+    file_path: str
+    available: bool = True
+    covered_lines: list[int] = Field(default_factory=list)
+    uncovered_lines: list[int] = Field(default_factory=list)
+    total_instrumented: int = 0
+    line_rate: float = 0.0
+    tests_by_line: dict[str, list[LineCoverageTestInfo]] = Field(default_factory=dict)
 
 
 class BlastRadiusCandidate(CamelModel):

@@ -13,6 +13,11 @@ import { cn } from "../lib/utils";
 import { MicButton } from "./VoiceButton";
 
 import { useDrag } from "../hooks/useDrag";
+import { useCoverageLayers } from "../hooks/useCoverageLayers";
+import { useImpactLayers } from "../hooks/useImpactLayers";
+import { useMotivationLayers } from "../hooks/useMotivationLayers";
+import { useLayeredDiffStyles } from "../hooks/useLayeredDiffStyles";
+import { CoveragePopover } from "./CoveragePopover";
 import type { DiffFileModel, DiffHunkModel, FileMotivation, HunkMotivation, StepDiffResponse } from "../api/types";
 import { BottomSheet } from "./ui/bottom-sheet";
 import { DiffViewerFileList, STATUS_ICON, STATUS_BADGE, STATUS_ICON_CLASS } from "./DiffViewerFileList";
@@ -98,6 +103,10 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
 
   // Split (side-by-side) vs unified (single) diff view
   const [splitView, setSplitView] = useState(false);
+
+  // V8: Layered diff toggles
+  const [showCoverage, setShowCoverage] = useState(false);
+  const [showImpact, setShowImpact] = useState(false);
 
   // Fetch step-specific diff from API when filter has a turnId
   useEffect(() => {
@@ -450,6 +459,40 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
     return () => clearTimeout(timer);
   }, [selectedFile?.path, hunkLineRanges, hunkMotivations, showIntent, modified]);
 
+  // V8: Inject layered diff CSS
+  useLayeredDiffStyles();
+
+  // V8: Coverage layer — glyph decorations + popover on click
+  const { popover: coveragePopover, dismissPopover: dismissCoveragePopover } = useCoverageLayers({
+    jobId,
+    filePath: selectedFile?.path,
+    enabled: showCoverage,
+    editorRef: diffEditorRef,
+    monacoRef,
+    editorReady,
+  });
+
+  // V8: Impact layer — view zones showing callers/tests affected by changes
+  useImpactLayers({
+    jobId,
+    file: selectedFile,
+    enabled: showImpact,
+    editorRef: diffEditorRef,
+    monacoRef,
+    editorReady,
+  });
+
+  // V8: Motivation layer — already partially wired via showIntent; add job-level fallback
+  useMotivationLayers({
+    jobId,
+    file: selectedFile,
+    enabled: showIntent && !Object.keys(hunkMotivations).length,
+    editorRef: diffEditorRef,
+    editorReady,
+    stepFileMotivations: Object.keys(fileMotivations).length > 0 ? fileMotivations : undefined,
+    stepHunkMotivations: Object.keys(hunkMotivations).length > 0 ? hunkMotivations : undefined,
+  });
+
   // DiffEditor mount handler — wires the glyph-margin click listener
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleEditorMount = useCallback((editor: any, monaco: any) => {
@@ -675,6 +718,10 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
           setSplitView={setSplitView}
           showIntent={showIntent}
           setShowIntent={setShowIntent}
+          showCoverage={showCoverage}
+          setShowCoverage={setShowCoverage}
+          showImpact={showImpact}
+          setShowImpact={setShowImpact}
           hunkMotivations={hunkMotivations}
           fileMotivations={fileMotivations}
           viewedFiles={viewedFiles}
@@ -716,7 +763,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                 scrollBeyondLastLine: false,
                 fontSize: isMobile ? 12 : 13,
                 lineNumbersMinChars: 3,
-                glyphMargin: canAsk,
+                glyphMargin: canAsk || showCoverage,
                 lineDecorationsWidth: 4,
                 folding: true,
               }}
@@ -821,6 +868,9 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
           </span>
         </div>
       )}
+
+      {/* V8: Coverage popover — shown when clicking a coverage glyph dot */}
+      <CoveragePopover state={coveragePopover} onDismiss={dismissCoveragePopover} />
     </div>
   );
 }

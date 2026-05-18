@@ -136,11 +136,33 @@ TypeError: validate_config() got unexpected keyword argument 'strict' as positio
 
 | Layer      | Backend source                                      | API endpoint               |
 |------------|-----------------------------------------------------|----------------------------|
-| Coverage   | CodeRecon `affected_tests` + test runner results    | `GET /jobs/{id}/review`    |
+| Coverage   | `ReviewKit.line_coverage(file, include_tests=True)` | `GET /jobs/{id}/line-coverage?file_path=X` |
 | Motivation | `job_telemetry_spans.motivation_summary` + `.edit_motivations` | `GET /jobs/{id}/review` |
 | Impact     | CodeRecon `callers_of(symbol)` + coverage overlay   | `GET /jobs/{id}/review`    |
 | File list  | Git diff `--name-status` against base_ref           | `GET /jobs/{id}/diff`      |
 | Source peek| Read from worktree at path:line                     | `GET /jobs/{id}/workspace` |
+
+### Line coverage (CodeRecon ReviewKit)
+
+`ReviewKit.line_coverage()` returns per-line hit data directly — no def-level
+aggregation needed for gutter rendering.
+
+```python
+result = kit.line_coverage(
+    "backend/services/config_validator.py",
+    worktree="job-abc",
+    line_range=(42, 60),
+    include_tests=True,
+)
+# result.covered_lines   → [42, 43, 48, 51, 52, 53]
+# result.uncovered_lines → [44, 45, 46, 47]
+# result.tests_by_line   → {42: ["test_validate_basic", ...], ...}
+# result.line_rate       → 0.6
+```
+
+Backed by `LineCoverageFact` table (one row per test×file×line with hit count).
+Ingested automatically during `checkpoint()` / `ingest_coverage_per_test()`.
+Composite index on `(file_path, line_no)` for fast gutter queries.
 
 ### Review endpoint response shape
 
@@ -150,19 +172,22 @@ TypeError: validate_config() got unexpected keyword argument 'strict' as positio
     {
       "path": "backend/services/config_validator.py",
       "status": "modified",
+      "line_coverage": {
+        "covered_lines": [42, 43, 48, 51, 52, 53],
+        "uncovered_lines": [44, 45, 46, 47],
+        "total_instrumented": 10,
+        "line_rate": 0.6,
+        "tests_by_line": {
+          "42": [{"name": "test_validate_basic", "file": "tests/test_config.py", "line": 23, "status": "pass"}],
+          "48": [{"name": "test_validate_basic", "file": "tests/test_config.py", "line": 23, "status": "pass"},
+                 {"name": "test_validate_strict_mode", "file": "tests/test_config.py", "line": 70, "status": "fail"}]
+        }
+      },
       "symbols": [
         {
           "name": "validate_config",
           "kind": "function",
           "motivation": "The validate_config signature lacked...",
-          "coverage": {
-            "lines": {
-              "42": {"status": "uncovered"},
-              "46": {"status": "covered", "tests": [
-                {"name": "test_validate_basic", "file": "tests/test_config.py", "line": 23, "status": "pass"}
-              ]}
-            }
-          },
           "impact": {
             "summary": "5 callers affected by signature change",
             "callers": [
@@ -192,10 +217,12 @@ TypeError: validate_config() got unexpected keyword argument 'strict' as positio
 - Hunk headers, line numbers, +/−/context styling
 
 ### Phase 2 — Coverage layer
-- Gutter dots on added lines (data from CodeRecon)
-- Hover tooltips
-- Click-to-expand test list popover with status icons
-- Peek + Go to source actions on each test
+- New endpoint `GET /jobs/{id}/line-coverage?file_path=X` delegating to
+  `ReviewKit.line_coverage(file, include_tests=True)`
+- Gutter dots on added lines (green = covered, red = uncovered)
+- Hover tooltips ("Covered by N test(s)" / "Not covered")
+- Click green dot → popover listing tests with status, Peek, ↗
+- Same behavior on impact source preview dots
 
 ### Phase 3 — Motivation layer
 - View zones injected per-symbol after changed lines

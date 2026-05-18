@@ -606,7 +606,7 @@ dev = [
 [[package]]
 name = "coderecon-review"
 version = "0.1.0"
-source = { git = "https://github.com/dfinson/coderecon.git?subdirectory=packages%2Fcoderecon-review#e85798ba01151d5da4f1ef9a8e3f2709571cf761" }
+source = { git = "https://github.com/dfinson/coderecon.git?subdirectory=packages%2Fcoderecon-review#501d42d6c2731a25c071e3af6208aa5e93d725a8" }
 dependencies = [
     { name = "alembic" },
     { name = "networkx" },
