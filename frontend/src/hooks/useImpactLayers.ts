@@ -74,15 +74,19 @@ export function useImpactLayers({
   const [zones, setZones] = useState<ImpactZoneData[]>([]);
   const viewZoneIdsRef = useRef<string[]>([]);
   const zoneDomsRef = useRef<Map<string, HTMLElement>>(new Map());
+  const fileRef = useRef(file);
+  fileRef.current = file;
 
-  // Fetch impact data for symbols detected in the file's hunks
+  // Fetch impact data for symbols detected in the file's hunks.
+  // Keyed on file?.path to avoid re-fetching on referential changes.
   useEffect(() => {
-    if (!file || !enabled) {
+    const currentFile = fileRef.current;
+    if (!currentFile || !enabled) {
       setZones([]);
       return;
     }
 
-    const symbols = extractSymbolsFromHunks(file.hunks);
+    const symbols = extractSymbolsFromHunks(currentFile.hunks);
     if (symbols.length === 0) {
       setZones([]);
       return;
@@ -121,7 +125,7 @@ export function useImpactLayers({
     });
 
     return () => { cancelled = true; };
-  }, [jobId, file, enabled]);
+  }, [jobId, file?.path, enabled]);
 
   // Inject view zones into the modified editor
   useEffect(() => {
