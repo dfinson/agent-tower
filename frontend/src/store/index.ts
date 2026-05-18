@@ -24,7 +24,8 @@ export type {
   LogLine,
   TranscriptEntry,
   PlanStep,
-  PreflightReport,
+  SecondarySession,
+  SecondarySessionEntry,
   TimelineEntry,
   ActivityTimelineStep,
   ActivityTimelineActivity,
@@ -55,9 +56,7 @@ export {
   selectJobPlan,
   selectActivityTimeline,
   selectHoveredPlanItemId,
-  selectPreflightReport,
-  selectPreflightActive,
-  selectPreflightReasoning,
+  selectSecondarySessions,
   selectStructuralDiff,
   selectMultiSession,
   selectCommunities,
@@ -109,7 +108,7 @@ function touchJob(jobId: string): string[] {
 
 /** Evict per-job data for stale jobs from a state snapshot. */
 function evictStaleJobs(
-  state: Pick<AppState, "logs" | "transcript" | "diffs" | "stories" | "plans" | "timelines" | "activityTimelines" | "preflightReports" | "streamingMessages" | "streamingToolOutput" | "structuralDiffs" | "multiSessions" | "communities" | "reviewStories">,
+  state: Pick<AppState, "logs" | "transcript" | "diffs" | "stories" | "plans" | "timelines" | "activityTimelines" | "secondarySessions" | "streamingMessages" | "streamingToolOutput" | "structuralDiffs" | "multiSessions" | "communities" | "reviewStories">,
   evictIds: string[],
 ): Partial<AppState> | null {
   if (evictIds.length === 0) return null;
@@ -120,7 +119,7 @@ function evictStaleJobs(
   const plans = { ...state.plans };
   const timelines = { ...state.timelines };
   const activityTimelines = { ...state.activityTimelines };
-  const preflightReports = { ...state.preflightReports };
+  const secondarySessions = { ...state.secondarySessions };
   const structuralDiffs = { ...state.structuralDiffs };
   const multiSessions = { ...state.multiSessions };
   const communities = { ...state.communities };
@@ -137,7 +136,7 @@ function evictStaleJobs(
     delete plans[id];
     delete timelines[id];
     delete activityTimelines[id];
-    delete preflightReports[id];
+    delete secondarySessions[id];
     delete structuralDiffs[id];
     delete multiSessions[id];
     delete communities[id];
@@ -156,7 +155,7 @@ function evictStaleJobs(
       }
     }
   }
-  return { logs, transcript, diffs, stories, plans, timelines, activityTimelines, preflightReports, streamingMessages, streamingToolOutput, structuralDiffs, multiSessions, communities, reviewStories };
+  return { logs, transcript, diffs, stories, plans, timelines, activityTimelines, secondarySessions, streamingMessages, streamingToolOutput, structuralDiffs, multiSessions, communities, reviewStories };
 }
 
 /** Rebuild activity timeline state from a flat list of turn summary payloads (hydration). */
@@ -243,9 +242,7 @@ export const useStore = create<AppState>((set, get) => ({
   plans: {},
   timelines: {},
   activityTimelines: {},
-  preflightReports: {},
-  preflightActive: {},
-  preflightReasoning: {},
+  secondarySessions: {},
   streamingMessages: {},
   streamingToolOutput: {},
   streamingReasoning: {},
@@ -408,6 +405,35 @@ export const useStore = create<AppState>((set, get) => ({
               filesWritten: p.filesWritten,
               durationMs: p.durationMs,
             })),
+        },
+        // Hydrate secondary sessions (preflight, sidecars, monitors)
+        secondarySessions: {
+          ...s.secondarySessions,
+          [jobId]: Object.fromEntries(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (snapshot.secondarySessions ?? []).map((sess: any) => [sess.id, {
+              id: sess.id,
+              jobId,
+              kind: sess.kind,
+              name: sess.name,
+              icon: sess.icon,
+              status: sess.status,
+              startedAt: sess.startedAt,
+              completedAt: sess.completedAt ?? null,
+              output: sess.output ?? null,
+              inputTokens: sess.inputTokens ?? 0,
+              outputTokens: sess.outputTokens ?? 0,
+              costUsd: sess.costUsd ?? 0,
+              entries: (sess.entries ?? []).map((e: any) => ({
+                seq: e.seq,
+                kind: e.kind,
+                content: e.content ?? "",
+                toolName: e.toolName ?? null,
+                toolArgs: e.toolArgs ?? null,
+                durationMs: e.durationMs ?? null,
+              })),
+            }]),
+          ),
         },
       };
     });

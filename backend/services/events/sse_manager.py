@@ -31,13 +31,10 @@ from backend.models.api_schemas import (
     MergeConflictPayload,
     ModelDowngradedPayload,
     PlanStepPayload,
-    PreflightReportPayload,
-    PreflightToolCallPayload,
     RepoIndexCompletePayload,
     RepoIndexProgressPayload,
     SessionHeartbeatPayload,
     SessionResumedPayload,
-    SidecarTranscriptPayload,
     SnapshotPayload,
     StallDetectedPayload,
     StepEntriesReassignedPayload,
@@ -104,14 +101,14 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.repo_index_complete: "repo_index_complete",
     DomainEventKind.structural_warning: "structural_warning",
     DomainEventKind.stall_detected: "stall_detected",
-    DomainEventKind.sidecar_transcript: "sidecar_transcript",
-    DomainEventKind.sidecar_agent_message: "sidecar_transcript",  # visible as sidecar transcript in UI
+    DomainEventKind.sidecar_transcript: None,  # replaced by secondary_session_completed
+    DomainEventKind.sidecar_agent_message: None,  # replaced by secondary_session_completed
     DomainEventKind.sidecar_gate_verdict: None,  # internal — handled by dispatcher
     DomainEventKind.sidecar_metadata_update: None,  # internal — handled by dispatcher
-    DomainEventKind.preflight_started: "preflight_started",
-    DomainEventKind.preflight_tool_call: "preflight_tool_call",
-    DomainEventKind.preflight_reasoning: "preflight_reasoning",
-    DomainEventKind.preflight_report: "preflight_report",
+    # Unified secondary session events
+    DomainEventKind.secondary_session_started: "secondary_session_started",
+    DomainEventKind.secondary_session_entry: "secondary_session_entry",
+    DomainEventKind.secondary_session_completed: "secondary_session_completed",
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)
@@ -139,8 +136,7 @@ _SELECTIVE_SUPPRESSED: frozenset[str] = frozenset(
 _JOB_SCOPED_ONLY: frozenset[str] = frozenset(
     {
         "telemetry_updated",
-        "sidecar_transcript",
-        "preflight_report",
+        "secondary_session_entry",
     }
 )
 
@@ -295,54 +291,55 @@ def _build_batch_approval_resolved(event: DomainEvent) -> str:
     )
 
 
-def _build_preflight_started(event: DomainEvent) -> str:
-    import json
-
-    return json.dumps({"jobId": event.job_id})
+# -- Unified secondary session builders --
 
 
-def _build_preflight_tool_call(event: DomainEvent) -> str:
+def _build_secondary_session_started(event: DomainEvent) -> str:
     import json
 
     p = event.payload
     return json.dumps({
+        "sessionId": p.get("session_id", ""),
         "jobId": event.job_id,
-        "toolName": p.get("tool_name", ""),
-        "toolArgs": p.get("tool_args"),
-        "resultPreview": p.get("result_preview", ""),
-        "durationMs": p.get("duration_ms"),
+        "kind": p.get("kind", ""),
+        "name": p.get("name", ""),
+        "icon": p.get("icon", "bot"),
     })
 
 
-def _build_preflight_reasoning(event: DomainEvent) -> str:
+def _build_secondary_session_entry(event: DomainEvent) -> str:
+    import json
+
+    p = event.payload
+    entry = p.get("entry", {})
+    return json.dumps({
+        "sessionId": p.get("session_id", ""),
+        "jobId": event.job_id,
+        "entry": {
+            "seq": entry.get("seq", 0),
+            "kind": entry.get("kind", ""),
+            "content": entry.get("content", ""),
+            "toolName": entry.get("tool_name"),
+            "toolArgs": entry.get("tool_args"),
+            "durationMs": entry.get("duration_ms"),
+        },
+    })
+
+
+def _build_secondary_session_completed(event: DomainEvent) -> str:
     import json
 
     p = event.payload
     return json.dumps({
+        "sessionId": p.get("session_id", ""),
         "jobId": event.job_id,
-        "content": p.get("content", ""),
+        "status": p.get("status", "completed"),
+        "output": p.get("output"),
+        "inputTokens": p.get("input_tokens", 0),
+        "outputTokens": p.get("output_tokens", 0),
+        "costUsd": p.get("cost_usd", 0.0),
+        "metadata": p.get("metadata", {}),
     })
-
-
-def _build_preflight_report(event: DomainEvent) -> str:
-    p = event.payload
-    tool_calls_raw = p.get("tool_calls", [])
-    tool_calls = [
-        PreflightToolCallPayload(
-            tool_name=tc.get("tool_name", ""),
-            tool_args=tc.get("tool_args"),
-            result_preview=tc.get("result_preview", ""),
-            duration_ms=tc.get("duration_ms"),
-        )
-        for tc in tool_calls_raw
-    ]
-    return PreflightReportPayload(
-        job_id=event.job_id,
-        timestamp=event.timestamp,
-        elapsed_ms=p.get("elapsed_ms", 0.0),
-        tool_calls=tool_calls,
-        brief_length=p.get("brief_length", 0),
-    ).model_dump_json(by_alias=True)
 
 
 # ---------------------------------------------------------------------------
@@ -359,10 +356,10 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
     "plan_step_updated": _build_plan_step_updated,
     "batch_approval_requested": _build_batch_approval_requested,
     "batch_approval_resolved": _build_batch_approval_resolved,
-    "preflight_started": _build_preflight_started,
-    "preflight_tool_call": _build_preflight_tool_call,
-    "preflight_reasoning": _build_preflight_reasoning,
-    "preflight_report": _build_preflight_report,
+    # Unified secondary session events
+    "secondary_session_started": _build_secondary_session_started,
+    "secondary_session_entry": _build_secondary_session_entry,
+    "secondary_session_completed": _build_secondary_session_completed,
     # --- Field-map builders (declarative) ---
     "log_line": (
         LogLinePayload,
@@ -576,18 +573,6 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
             "tool_name": ("tool_name", ""),
             "elapsed": ("elapsed", ""),
             "reason": ("reason", ""),
-        },
-    ),
-    "sidecar_transcript": (
-        SidecarTranscriptPayload,
-        {
-            "seq": ("seq", 0),
-            "timestamp": ("timestamp", _TS_FALLBACK),
-            "name": ("sidecar_name", None),
-            "icon": ("sidecar_icon", None),
-            "description": ("sidecar_description", None),
-            "template_id": ("sidecar_template_id", None),
-            "content": ("content", ""),
         },
     ),
 }

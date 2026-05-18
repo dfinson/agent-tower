@@ -68,10 +68,10 @@ class DomainEventKind(StrEnum):
     sidecar_agent_message = "SidecarAgentMessage"
     sidecar_gate_verdict = "SidecarGateVerdict"
     sidecar_metadata_update = "SidecarMetadataUpdate"
-    preflight_started = "PreflightStarted"
-    preflight_tool_call = "PreflightToolCall"
-    preflight_reasoning = "PreflightReasoning"
-    preflight_report = "PreflightReport"
+    # Unified secondary session events (preflight, sidecars, monitors)
+    secondary_session_started = "SecondarySessionStarted"
+    secondary_session_entry = "SecondarySessionEntry"
+    secondary_session_completed = "SecondarySessionCompleted"
     job_mode_changed = "JobModeChanged"
 
 

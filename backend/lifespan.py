@@ -453,6 +453,7 @@ async def _wire_core_services(
     sidecar_dispatcher = SidecarDispatcher(
         session_manager=sidecar_sessions,
         event_bus=event_bus,
+        session_factory=session_factory,
     )
     await sidecar_dispatcher.start()
     event_bus.subscribe(sidecar_dispatcher.handle_event)

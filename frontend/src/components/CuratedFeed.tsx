@@ -18,15 +18,11 @@ import {
   Send, Bot, User, ChevronDown, ChevronUp, Brain,
   ShieldQuestion, CheckCircle2, XCircle as XCircleIcon,
   ArrowDown, Search, PauseCircle, X,
-  Clock, Milestone,
-  Shield, Eye, Zap, Target, FlaskConical, Bug, Lock, Key, Compass,
-  Gauge, Microscope, AlarmClock, Bookmark, Clipboard, Filter, Flag, Heart, Lightbulb,
-  Megaphone, Palette, Radar, Satellite, ScanLine, Scale, Siren, Telescope, Wand,
-  type LucideIcon,
+  Clock, Milestone, Telescope,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useStore, selectJobTranscript, selectApprovals, selectBatchApprovals, selectJobPlan, selectPreflightActive, selectPreflightReasoning } from "../store";
+import { useStore, selectJobTranscript, selectApprovals, selectBatchApprovals, selectJobPlan, selectSecondarySessions } from "../store";
 import type { TranscriptEntry, ApprovalRequest, BatchApproval, PlanStep } from "../store";
 import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval, resolveBatch, trustJob, ApiError } from "../api/client";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -72,60 +68,7 @@ const OperatorMessage = memo(function OperatorMessage({ entry }: { entry: Transc
   );
 });
 
-// ---------------------------------------------------------------------------
-// Sidecar icon map — maps backend icon name strings to Lucide components
-// ---------------------------------------------------------------------------
-const SIDECAR_ICONS: Record<string, LucideIcon> = {
-  shield: Shield, eye: Eye, search: Search, zap: Zap, brain: Brain,
-  target: Target, flask: FlaskConical, bug: Bug, lock: Lock, key: Key,
-  compass: Compass, gauge: Gauge, microscope: Microscope, alarm: AlarmClock,
-  bookmark: Bookmark, clipboard: Clipboard, filter: Filter, flag: Flag,
-  heart: Heart, lightbulb: Lightbulb, megaphone: Megaphone, palette: Palette,
-  radar: Radar, satellite: Satellite, scanner: ScanLine, scale: Scale,
-  siren: Siren, telescope: Telescope, wand: Wand,
-};
 
-const SidecarMessage = memo(function SidecarMessage({ entry }: { entry: TranscriptEntry }) {
-  const navigate = useNavigate();
-  const IconComp = SIDECAR_ICONS[entry.sidecarIcon ?? ""] ?? Zap;
-  const name = entry.sidecarName ?? "Sidecar";
-  const description = entry.sidecarDescription ?? "";
-  const templateId = entry.sidecarTemplateId;
-
-  return (
-    <div className="flex gap-2 sm:gap-3 py-3">
-      <Tooltip
-        side="right"
-        content={
-          <div className="max-w-xs space-y-1.5 py-0.5">
-            <div className="font-medium text-foreground">{name}</div>
-            {description && <div className="text-muted-foreground text-[11px] leading-snug">{description}</div>}
-            {templateId && (
-              <button
-                className="text-primary text-[11px] hover:underline cursor-pointer"
-                onClick={() => navigate(`/settings`)}
-              >
-                View template →
-              </button>
-            )}
-          </div>
-        }
-      >
-        <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-violet-500/20 border border-violet-500/30 flex items-center justify-center cursor-help">
-          <IconComp size={12} className="text-violet-400" />
-        </div>
-      </Tooltip>
-      <div className="min-w-0 flex-1">
-        <div className="text-[11px] text-violet-400/80 font-medium mb-0.5">{name}</div>
-        <div className="rounded-lg bg-violet-500/[0.08] border border-violet-500/20 px-3 py-2">
-          <div className="text-[15px] sm:text-sm text-foreground leading-relaxed">
-            <HighlightedMarkdown content={entry.content ?? ""} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-});
 
 const AgentTurnBlock = memo(function AgentTurnBlock({
   turn,
@@ -535,7 +478,8 @@ function DividerLine({ entry }: { entry: TranscriptEntry }) {
 function AgentActivityBar({ jobId, sdk, jobState }: { jobId: string; sdk?: string; jobState?: string }) {
   const job = useStore((s) => s.jobs[jobId]);
   const streamingMessages = useStore((s) => s.streamingMessages);
-  const preflightActive = useStore(selectPreflightActive(jobId));
+  const sessions = useStore(selectSecondarySessions(jobId));
+  const preflightActive = Object.values(sessions).some((s) => s.kind === "preflight" && s.status === "running");
   const isJobLive = jobState === "running" || jobState === "waiting_for_approval";
 
   const hasStream = Object.keys(streamingMessages).some((k) => k.startsWith(`${jobId}:`));
@@ -831,7 +775,7 @@ export function CuratedFeed({
         );
       } else if (item.type === "approval") match = item.approval.description.toLowerCase().includes(q);
       else if (item.type === "batch_approval") match = item.batch.summary.toLowerCase().includes(q);
-      else if (item.type === "sidecar") match = !!(item.entry.content?.toLowerCase().includes(q) || item.entry.sidecarName?.toLowerCase().includes(q));
+
       else match = true;
       if (match) set.add(idx);
     });
@@ -1146,8 +1090,7 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
       return <InlineApprovalCard approval={item.approval} />;
     case "batch_approval":
       return <InlineBatchApprovalCard batch={item.batch} />;
-    case "sidecar":
-      return <SidecarMessage entry={item.entry} />;
+
     case "divider":
       return <DividerLine entry={item.entry} />;
     default:

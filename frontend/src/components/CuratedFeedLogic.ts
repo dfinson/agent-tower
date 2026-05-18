@@ -114,7 +114,6 @@ export type FeedItem =
   | { type: "condensed"; turn: AgentTurn; clusters: ActionCluster[] }
   | { type: "approval"; approval: ApprovalRequest }
   | { type: "batch_approval"; batch: BatchApproval }
-  | { type: "sidecar"; entry: TranscriptEntry }
   | { type: "divider"; entry: TranscriptEntry };
 
 // ---------------------------------------------------------------------------
@@ -300,12 +299,6 @@ export function buildFeedItems(
     if (entry.role === "divider") {
       flushTurn();
       items.push({ type: "divider", entry });
-      continue;
-    }
-
-    if (entry.role === "sidecar") {
-      flushTurn();
-      items.push({ type: "sidecar", entry });
       continue;
     }
 

@@ -18,6 +18,8 @@ from backend.models.api_schemas import (
     LogLinePayload,
     PlanStepPayload,
     ProgressHeadlinePayload,
+    SecondarySessionEntryResponse,
+    SecondarySessionResponse,
     TranscriptPayload,
     TurnSummaryPayload,
 )
@@ -265,6 +267,7 @@ async def assemble_snapshot(
     detect_plan_generations: bool = True,
     exclude_pending_steps: bool = False,
     deduplicate_turn_summaries: bool = True,
+    session_factory: Any = None,
 ) -> JobSnapshotResponse:
     """Assemble a full job snapshot response.
 
@@ -324,6 +327,46 @@ async def assemble_snapshot(
         deduplicate=deduplicate_turn_summaries,
     )
 
+    # Secondary sessions (preflight, sidecars, monitors)
+    secondary_sessions: list[SecondarySessionResponse] = []
+    if session_factory is not None:
+        try:
+            from backend.persistence.secondary_session_repo import SecondarySessionRepository
+
+            _ssrepo = SecondarySessionRepository(session_factory)
+            rows = await _ssrepo.get_by_job(job_id)
+            for row in rows:
+                entries_rows = await _ssrepo.get_entries(row.id)
+                entries = [
+                    SecondarySessionEntryResponse(
+                        seq=er.seq,
+                        kind=er.kind,
+                        content=er.content or "",
+                        tool_name=er.tool_name,
+                        tool_args=er.tool_args,
+                        duration_ms=er.duration_ms,
+                    )
+                    for er in entries_rows
+                ]
+                secondary_sessions.append(
+                    SecondarySessionResponse(
+                        id=row.id,
+                        kind=row.kind,
+                        name=row.name,
+                        icon=row.icon,
+                        status=row.status,
+                        started_at=row.started_at,
+                        completed_at=row.completed_at,
+                        output=row.output,
+                        input_tokens=row.input_tokens or 0,
+                        output_tokens=row.output_tokens or 0,
+                        cost_usd=row.cost_usd or 0.0,
+                        entries=entries,
+                    )
+                )
+        except Exception:
+            pass  # graceful degradation — don't break snapshot if table doesn't exist yet
+
     return JobSnapshotResponse(
         job=job_to_response(job, progress_preview),
         logs=logs,
@@ -333,4 +376,5 @@ async def assemble_snapshot(
         timeline=timeline,
         steps=plan_steps,
         turn_summaries=turn_summaries,
+        secondary_sessions=secondary_sessions,
     )

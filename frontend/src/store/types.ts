@@ -168,19 +168,31 @@ export interface ActivityTimelineState {
   activities: ActivityTimelineActivity[];
 }
 
-/** A single tool call captured during the preflight scout session. */
-export interface PreflightToolCall {
-  toolName: string;
+/** A single entry within a secondary session (reasoning, tool call, output, error). */
+export interface SecondarySessionEntry {
+  seq: number;
+  kind: "reasoning" | "tool_call" | "output" | "error";
+  content: string;
+  toolName?: string | null;
   toolArgs?: string | null;
-  resultPreview: string;
   durationMs?: number | null;
 }
 
-/** Structured report from the preflight scout session. */
-export interface PreflightReport {
-  elapsedMs: number;
-  toolCalls: PreflightToolCall[];
-  briefLength: number;
+/** A unified secondary session (preflight, sidecar, monitor, extractor). */
+export interface SecondarySession {
+  id: string;
+  jobId: string;
+  kind: "preflight" | "sidecar" | "monitor" | "extractor";
+  name: string;
+  icon: string;
+  status: "running" | "completed" | "failed" | "timeout";
+  startedAt: string;
+  completedAt?: string | null;
+  output?: string | null;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+  entries: SecondarySessionEntry[];
 }
 
 /** Terminal session metadata tracked in the store. */
@@ -219,12 +231,8 @@ export interface AppState {
   plans: Record<string, PlanStep[]>; // keyed by jobId
   timelines: Record<string, TimelineEntry[]>; // keyed by jobId
   activityTimelines: Record<string, ActivityTimelineState>; // keyed by jobId
-  /** Preflight scout report — keyed by jobId. */
-  preflightReports: Record<string, PreflightReport>;
-  /** Jobs with an active (in-progress) preflight scout session. */
-  preflightActive: Record<string, boolean>;
-  /** Streamed reasoning text from the preflight scout, keyed by jobId. */
-  preflightReasoning: Record<string, string>;
+  /** Unified secondary sessions — keyed by jobId, then sessionId. */
+  secondarySessions: Record<string, Record<string, SecondarySession>>;
   /** Accumulated streaming text for in-progress agent messages, keyed by
    * "${jobId}:${turnId}" (or "${jobId}:__default__" when turnId is absent).
    * Cleared when the complete agent message arrives for that turn. */
@@ -296,6 +304,7 @@ export interface AppState {
     timeline: TimelineEntry[];
     steps?: Array<{ planStepId?: string; label: string; status: string; summary?: string; toolCount?: number; filesWritten?: string[]; durationMs?: number }>;
     turnSummaries?: Array<Record<string, unknown>>;
+    secondarySessions?: Array<{ id: string; kind: string; name: string; icon: string; status: string; startedAt: string; completedAt?: string | null; output?: string | null; inputTokens?: number; outputTokens?: number; costUsd?: number; entries?: Array<{ seq: number; kind: string; content: string; toolName?: string | null; toolArgs?: string | null; durationMs?: number | null }> }>;
   }) => void;
 
   // Terminal actions

@@ -778,6 +778,30 @@ class SnapshotPayload(CamelModel):
     pending_approvals: list[ApprovalResponse]
 
 
+class SecondarySessionEntryResponse(CamelModel):
+    seq: int
+    kind: str
+    content: str
+    tool_name: str | None = None
+    tool_args: str | None = None
+    duration_ms: float | None = None
+
+
+class SecondarySessionResponse(CamelModel):
+    id: str
+    kind: str
+    name: str
+    icon: str
+    status: str
+    started_at: datetime
+    completed_at: datetime | None = None
+    output: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    entries: list[SecondarySessionEntryResponse] = []
+
+
 class JobSnapshotResponse(CamelModel):
     """Full state hydration for a single job — used after reconnect or page refresh."""
 
@@ -789,6 +813,7 @@ class JobSnapshotResponse(CamelModel):
     timeline: list[ProgressHeadlinePayload]
     steps: list[PlanStepPayload] = []
     turn_summaries: list[TurnSummaryPayload] = []
+    secondary_sessions: list[SecondarySessionResponse] = []
 
 
 class SDKInfoResponse(CamelModel):

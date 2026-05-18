@@ -144,11 +144,6 @@ export const selectActivityTimeline = (jobId: string) => (state: AppState) =>
   state.activityTimelines[jobId] ?? EMPTY_ACTIVITY_TIMELINE;
 export const selectHoveredPlanItemId = (state: AppState) => state.hoveredPlanItemId;
 
-export const selectPreflightReport = (jobId: string) => (state: AppState) =>
-  state.preflightReports[jobId] ?? null;
-
-export const selectPreflightActive = (jobId: string) => (state: AppState) =>
-  !!state.preflightActive[jobId];
-
-export const selectPreflightReasoning = (jobId: string) => (state: AppState) =>
-  state.preflightReasoning[jobId] ?? "";
+const EMPTY_SECONDARY_SESSIONS: Record<string, import("./types").SecondarySession> = {};
+export const selectSecondarySessions = (jobId: string) => (state: AppState) =>
+  state.secondarySessions[jobId] ?? EMPTY_SECONDARY_SESSIONS;

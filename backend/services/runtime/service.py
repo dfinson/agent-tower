@@ -2850,6 +2850,8 @@ class RuntimeService:
         *session_config* with ``memory_context`` populated (or unchanged
         on failure).
         """
+        from backend.models.secondary_session import EntryKind, SecondarySessionKind, SecondarySessionStatus
+        from backend.persistence.secondary_session_repo import SecondarySessionRepository
         from backend.services.memory.workspace import load_workspace_memory
 
         raw_memory = load_workspace_memory(job.repo)
@@ -2862,44 +2864,91 @@ class RuntimeService:
             log.debug("preflight_curator.not_configured", job_id=job.id)
             return session_config
 
+        session_id = str(uuid.uuid4())
+        started_at = datetime.now(UTC)
+        repo = SecondarySessionRepository(self._session_factory)
+        seq_counter = 0
+
         try:
-            # Emit started event so the frontend shows the scout card immediately
+            # Persist + emit started
+            await repo.create_session(
+                session_id=session_id,
+                job_id=job.id,
+                kind=SecondarySessionKind.preflight.value,
+                name="Preflight Scout",
+                icon="search",
+                started_at=started_at,
+            )
             await self._event_bus.publish(
                 DomainEvent(
                     event_id=DomainEvent.make_event_id(),
                     job_id=job.id,
-                    timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.preflight_started,
-                    payload={},
+                    timestamp=started_at,
+                    kind=DomainEventKind.secondary_session_started,
+                    payload={
+                        "session_id": session_id,
+                        "kind": SecondarySessionKind.preflight.value,
+                        "name": "Preflight Scout",
+                        "icon": "search",
+                    },
                 )
             )
 
             async def _on_tool_call(tc: "PreflightToolCall") -> None:
-                """Emit per-tool-call progress event for live frontend updates."""
+                nonlocal seq_counter
+                seq_counter += 1
+                now = datetime.now(UTC)
+                entry_payload = {
+                    "seq": seq_counter,
+                    "kind": EntryKind.tool_call.value,
+                    "content": tc.result_preview or "",
+                    "tool_name": tc.tool_name,
+                    "tool_args": tc.tool_args,
+                    "duration_ms": tc.duration_ms,
+                }
+                await repo.add_entry(
+                    session_id=session_id,
+                    seq=seq_counter,
+                    timestamp=now,
+                    kind=EntryKind.tool_call.value,
+                    content=tc.result_preview or "",
+                    tool_name=tc.tool_name,
+                    tool_args=tc.tool_args,
+                    duration_ms=tc.duration_ms,
+                )
                 await self._event_bus.publish(
                     DomainEvent(
                         event_id=DomainEvent.make_event_id(),
                         job_id=job.id,
-                        timestamp=datetime.now(UTC),
-                        kind=DomainEventKind.preflight_tool_call,
-                        payload={
-                            "tool_name": tc.tool_name,
-                            "tool_args": tc.tool_args,
-                            "result_preview": tc.result_preview,
-                            "duration_ms": tc.duration_ms,
-                        },
+                        timestamp=now,
+                        kind=DomainEventKind.secondary_session_entry,
+                        payload={"session_id": session_id, "entry": entry_payload},
                     )
                 )
 
             async def _on_reasoning(text: str) -> None:
-                """Emit reasoning text so the frontend can show scout thinking."""
+                nonlocal seq_counter
+                seq_counter += 1
+                now = datetime.now(UTC)
+                entry_payload = {
+                    "seq": seq_counter,
+                    "kind": EntryKind.reasoning.value,
+                    "content": text,
+                }
+                await repo.add_entry(
+                    session_id=session_id,
+                    seq=seq_counter,
+                    timestamp=now,
+                    kind=EntryKind.reasoning.value,
+                    content=text,
+                )
                 await self._event_bus.publish(
                     DomainEvent(
                         event_id=DomainEvent.make_event_id(),
                         job_id=job.id,
-                        timestamp=datetime.now(UTC),
-                        kind=DomainEventKind.preflight_reasoning,
-                        payload={"content": text},
+                        timestamp=now,
+                        kind=DomainEventKind.secondary_session_entry,
+                        payload={"session_id": session_id, "entry": entry_payload},
                     )
                 )
 
@@ -2912,28 +2961,29 @@ class RuntimeService:
                 on_tool_call=_on_tool_call,
                 on_reasoning=_on_reasoning,
             )
-            # Emit structured preflight report event for the frontend
+
+            # Emit completed
+            completed_at = datetime.now(UTC)
+            await repo.complete_session(
+                session_id,
+                status=SecondarySessionStatus.completed.value,
+                completed_at=completed_at,
+                output=report.brief or None,
+            )
             await self._event_bus.publish(
                 DomainEvent(
                     event_id=DomainEvent.make_event_id(),
                     job_id=job.id,
-                    timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.preflight_report,
+                    timestamp=completed_at,
+                    kind=DomainEventKind.secondary_session_completed,
                     payload={
-                        "elapsed_ms": report.elapsed_ms,
-                        "tool_calls": [
-                            {
-                                "tool_name": tc.tool_name,
-                                "tool_args": tc.tool_args,
-                                "result_preview": tc.result_preview,
-                                "duration_ms": tc.duration_ms,
-                            }
-                            for tc in report.tool_calls
-                        ],
-                        "brief_length": len(report.brief),
+                        "session_id": session_id,
+                        "status": SecondarySessionStatus.completed.value,
+                        "output": report.brief or None,
                     },
                 )
             )
+
             if report.brief:
                 log.info(
                     "preflight_curator.curated",
@@ -2946,6 +2996,27 @@ class RuntimeService:
             log.debug("preflight_curator.nothing_relevant", job_id=job.id)
         except Exception:
             log.warning("preflight_curator.curation_failed", job_id=job.id, exc_info=True)
+            # Mark session failed if it was created
+            try:
+                await repo.complete_session(
+                    session_id,
+                    status=SecondarySessionStatus.failed.value,
+                    completed_at=datetime.now(UTC),
+                )
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=DomainEvent.make_event_id(),
+                        job_id=job.id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.secondary_session_completed,
+                        payload={
+                            "session_id": session_id,
+                            "status": SecondarySessionStatus.failed.value,
+                        },
+                    )
+                )
+            except Exception:
+                pass
 
         return session_config
 

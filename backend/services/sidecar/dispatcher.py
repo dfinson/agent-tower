@@ -37,6 +37,8 @@ from typing import TYPE_CHECKING, Any, cast
 import structlog
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     from backend.models.domain import SidecarLifetime, SidecarPhase
     from backend.models.events import DomainEvent
     from backend.services.events.event_bus import EventBus
@@ -496,11 +498,13 @@ class SidecarDispatcher:
         session_manager: SidecarSessionManager,
         event_bus: EventBus,
         *,
+        session_factory: "async_sessionmaker[AsyncSession] | None" = None,
         gate_handler: Callable[[str, str, str, str], Awaitable[None]] | None = None,
         agent_message_handler: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> None:
         self._session_manager = session_manager
         self._event_bus = event_bus
+        self._session_factory = session_factory
         self._gate_handler = gate_handler
         self._agent_message_handler = agent_message_handler
         self._jobs: dict[str, _JobState] = {}
@@ -1235,20 +1239,63 @@ class SidecarDispatcher:
             content = parsed if isinstance(parsed, str) else json.dumps(parsed)
             label_prefix = f"[{route.label or defn.name}] " if (route.label or defn.name) else ""
             full_message = f"{label_prefix}{content}"
-            # Publish event for visibility (transcript, other sidecars)
+            # Publish unified secondary session events for visibility
+            import uuid as _uuid
+
+            from backend.models.events import DomainEvent, DomainEventKind
+            from backend.models.secondary_session import EntryKind, SecondarySessionKind, SecondarySessionStatus
+
+            _sess_id = str(_uuid.uuid4())
+            _now = datetime.now(UTC)
+            if self._session_factory is not None:
+                from backend.persistence.secondary_session_repo import SecondarySessionRepository
+
+                _repo = SecondarySessionRepository(self._session_factory)
+                await _repo.create_session(
+                    session_id=_sess_id,
+                    job_id=job_id,
+                    kind=SecondarySessionKind.sidecar.value,
+                    name=defn.name,
+                    icon=defn.icon or "bot",
+                    started_at=_now,
+                )
+                await _repo.add_entry(
+                    session_id=_sess_id,
+                    seq=1,
+                    timestamp=_now,
+                    kind=EntryKind.output.value,
+                    content=full_message,
+                )
+                await _repo.complete_session(
+                    _sess_id,
+                    status=SecondarySessionStatus.completed.value,
+                    completed_at=_now,
+                    output=full_message,
+                )
             await self._event_bus.publish(
                 DomainEvent(
                     event_id=DomainEvent.make_event_id(),
                     job_id=job_id,
-                    timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.sidecar_agent_message,
+                    timestamp=_now,
+                    kind=DomainEventKind.secondary_session_started,
                     payload={
-                        "role": route.role,
-                        "content": full_message,
-                        "sidecar_name": defn.name,
-                        "sidecar_icon": defn.icon,
-                        "sidecar_description": defn.description,
-                        "sidecar_template_id": defn.template_id,
+                        "session_id": _sess_id,
+                        "kind": SecondarySessionKind.sidecar.value,
+                        "name": defn.name,
+                        "icon": defn.icon or "bot",
+                    },
+                )
+            )
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job_id,
+                    timestamp=_now,
+                    kind=DomainEventKind.secondary_session_completed,
+                    payload={
+                        "session_id": _sess_id,
+                        "status": SecondarySessionStatus.completed.value,
+                        "output": full_message,
                     },
                 )
             )
@@ -1304,22 +1351,68 @@ class SidecarDispatcher:
         defn: SidecarDefinition,
         parsed: Any,
     ) -> None:
-        """Publish a transcript event so the sidecar's output appears in the feed."""
+        """Publish secondary session events so the sidecar's output appears in the feed."""
+        import uuid
+
         from backend.models.events import DomainEvent, DomainEventKind
+        from backend.models.secondary_session import EntryKind, SecondarySessionKind, SecondarySessionStatus
 
         content = parsed if isinstance(parsed, str) else json.dumps(parsed)
+        session_id = str(uuid.uuid4())
+        now = datetime.now(UTC)
+
+        # Persist to DB if session_factory available
+        if self._session_factory is not None:
+            from backend.persistence.secondary_session_repo import SecondarySessionRepository
+
+            repo = SecondarySessionRepository(self._session_factory)
+            await repo.create_session(
+                session_id=session_id,
+                job_id=job_id,
+                kind=SecondarySessionKind.sidecar.value,
+                name=defn.name,
+                icon=defn.icon or "bot",
+                started_at=now,
+            )
+            await repo.add_entry(
+                session_id=session_id,
+                seq=1,
+                timestamp=now,
+                kind=EntryKind.output.value,
+                content=content,
+            )
+            await repo.complete_session(
+                session_id,
+                status=SecondarySessionStatus.completed.value,
+                completed_at=now,
+                output=content,
+            )
+
+        # Always emit SSE events for live frontend display
         await self._event_bus.publish(
             DomainEvent(
                 event_id=DomainEvent.make_event_id(),
                 job_id=job_id,
-                timestamp=datetime.now(UTC),
-                kind=DomainEventKind.sidecar_transcript,
+                timestamp=now,
+                kind=DomainEventKind.secondary_session_started,
                 payload={
-                    "sidecar_name": defn.name,
-                    "sidecar_icon": defn.icon,
-                    "sidecar_description": defn.description,
-                    "sidecar_template_id": defn.template_id,
-                    "content": content,
+                    "session_id": session_id,
+                    "kind": SecondarySessionKind.sidecar.value,
+                    "name": defn.name,
+                    "icon": defn.icon or "bot",
+                },
+            )
+        )
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=now,
+                kind=DomainEventKind.secondary_session_completed,
+                payload={
+                    "session_id": session_id,
+                    "status": SecondarySessionStatus.completed.value,
+                    "output": content,
                 },
             )
         )

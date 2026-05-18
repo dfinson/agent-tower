@@ -536,3 +536,46 @@ class TrustGrantRow(Base):
     expires_at: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+# ---------------------------------------------------------------------------
+# Secondary Sessions (preflight, sidecars, monitors)
+# ---------------------------------------------------------------------------
+
+
+class SecondarySessionRow(Base):
+    __tablename__ = "secondary_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    job_id: Mapped[str] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # preflight, sidecar, monitor
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    icon: Mapped[str] = mapped_column(String, nullable=False, server_default="bot")
+    status: Mapped[str] = mapped_column(String, nullable=False, server_default="running")
+    started_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
+    output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+
+    __table_args__ = (Index("ix_secondary_sessions_job_id", "job_id"),)
+
+
+class SecondarySessionEntryRow(Base):
+    __tablename__ = "secondary_session_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("secondary_sessions.id"), nullable=False)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # reasoning, tool_call, output, error
+    content: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    tool_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    tool_args: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    __table_args__ = (
+        Index("ix_ss_entries_session", "session_id"),
+    )

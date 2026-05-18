@@ -11,7 +11,7 @@ from typing import Annotated, Any, cast
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full
 from backend.models.api_schemas import (
@@ -462,6 +462,7 @@ async def get_job_snapshot(
     session: FromDishka[AsyncSession],
     diff_service: FromDishka[DiffService],
     approval_repo: FromDishka[ApprovalRepository],
+    session_factory: FromDishka[async_sessionmaker],
 ) -> JobSnapshotResponse:
     """Full state hydration for a single job.
 
@@ -498,6 +499,7 @@ async def get_job_snapshot(
         detect_plan_generations=True,
         exclude_pending_steps=False,
         deduplicate_turn_summaries=True,
+        session_factory=session_factory,
     )
 
 

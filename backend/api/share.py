@@ -145,6 +145,7 @@ async def get_shared_snapshot(
     svc: FromDishka[JobService],
     approval_repo: FromDishka[ApprovalRepository],
     diff_service: FromDishka[DiffService],
+    session_factory: FromDishka[async_sessionmaker],
 ) -> JobSnapshotResponse:
     """Full state hydration via share token — same shape as /jobs/{id}/snapshot."""
     from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full
@@ -167,6 +168,7 @@ async def get_shared_snapshot(
         detect_plan_generations=False,
         exclude_pending_steps=True,
         deduplicate_turn_summaries=False,
+        session_factory=session_factory,
     )
 
 

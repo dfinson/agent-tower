@@ -2,7 +2,7 @@
  * Transcript, tool group summary, and log line SSE event handlers.
  */
 
-import type { LogLine, TranscriptEntry } from "../types";
+import type { LogLine, SecondarySession, SecondarySessionEntry, TranscriptEntry } from "../types";
 import type { SSEHandler, AppState } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -160,26 +160,116 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
   };
 }
 
-export function handleSidecarTranscript(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+export function handleSidecarTranscript(_state: AppState, _payload: Record<string, unknown>): Partial<AppState> | null {
+  // Legacy — no longer emitted. Kept as no-op for backward compat with old SSE replays.
+  return null;
+}
+
+export function handleSecondarySessionStarted(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
   const jobId = payload.jobId as string;
-  const entry: TranscriptEntry = {
+  const sessionId = payload.sessionId as string;
+  if (!jobId || !sessionId) return null;
+  const jobSessions = state.secondarySessions[jobId] ?? {};
+  const existing = jobSessions[sessionId];
+  // Merge with placeholder if entries arrived before started (out-of-order)
+  const session: SecondarySession = {
+    id: sessionId,
     jobId,
-    seq: payload.seq as number,
-    timestamp: payload.timestamp as string,
-    role: "sidecar",
-    content: (payload.content as string) ?? "",
-    sidecarName: payload.name as string | undefined,
-    sidecarIcon: payload.icon as string | undefined,
-    sidecarDescription: payload.description as string | undefined,
-    sidecarTemplateId: payload.templateId as string | undefined,
+    kind: (payload.kind as SecondarySession["kind"]) ?? "sidecar",
+    name: (payload.name as string) ?? "",
+    icon: (payload.icon as string) ?? "bot",
+    status: "running",
+    startedAt: new Date().toISOString(),
+    entries: existing?.entries ?? [],
   };
-  const existing = state.transcript[jobId] ?? [];
-  if (existing.some((e) => e.timestamp === entry.timestamp && e.role === entry.role && e.content === entry.content)) {
-    return null;
-  }
-  const updated = [...existing, entry];
   return {
-    transcript: { ...state.transcript, [jobId]: updated.length > 10_000 ? updated.slice(-10_000) : updated },
+    secondarySessions: {
+      ...state.secondarySessions,
+      [jobId]: { ...jobSessions, [sessionId]: session },
+    },
+  };
+}
+
+export function handleSecondarySessionEntry(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const jobId = payload.jobId as string;
+  const sessionId = payload.sessionId as string;
+  if (!jobId || !sessionId) return null;
+  const entryData = payload.entry as Record<string, unknown> | undefined;
+  if (!entryData) return null;
+  const entry: SecondarySessionEntry = {
+    seq: (entryData.seq as number) ?? 0,
+    kind: (entryData.kind as SecondarySessionEntry["kind"]) ?? "output",
+    content: (entryData.content as string) ?? "",
+    toolName: (entryData.toolName as string | null) ?? null,
+    toolArgs: (entryData.toolArgs as string | null) ?? null,
+    durationMs: (entryData.durationMs as number | null) ?? null,
+  };
+  const jobSessions = state.secondarySessions[jobId] ?? {};
+  const existing = jobSessions[sessionId];
+  if (!existing) {
+    // Entry arrived before started (out-of-order SSE). Create a placeholder
+    // session so entries aren't lost — started event will fill in metadata.
+    const placeholder: SecondarySession = {
+      id: sessionId,
+      jobId,
+      kind: "sidecar",
+      name: "…",
+      icon: "bot",
+      status: "running",
+      startedAt: new Date().toISOString(),
+      entries: [entry],
+    };
+    return {
+      secondarySessions: {
+        ...state.secondarySessions,
+        [jobId]: { ...jobSessions, [sessionId]: placeholder },
+      },
+    };
+  }
+  return {
+    secondarySessions: {
+      ...state.secondarySessions,
+      [jobId]: {
+        ...jobSessions,
+        [sessionId]: { ...existing, entries: [...existing.entries, entry] },
+      },
+    },
+  };
+}
+
+export function handleSecondarySessionCompleted(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const jobId = payload.jobId as string;
+  const sessionId = payload.sessionId as string;
+  if (!jobId || !sessionId) return null;
+  const jobSessions = state.secondarySessions[jobId] ?? {};
+  const existing = jobSessions[sessionId];
+  // If completed arrives before started (out-of-order), create session from available data
+  const base: SecondarySession = existing ?? {
+    id: sessionId,
+    jobId,
+    kind: "sidecar",
+    name: "…",
+    icon: "bot",
+    status: "running",
+    startedAt: new Date().toISOString(),
+    entries: [],
+  };
+  return {
+    secondarySessions: {
+      ...state.secondarySessions,
+      [jobId]: {
+        ...jobSessions,
+        [sessionId]: {
+          ...base,
+          status: (payload.status as SecondarySession["status"]) ?? "completed",
+          completedAt: new Date().toISOString(),
+          output: (payload.output as string | null) ?? null,
+          inputTokens: (payload.inputTokens as number) ?? 0,
+          outputTokens: (payload.outputTokens as number) ?? 0,
+          costUsd: (payload.costUsd as number) ?? 0,
+        },
+      },
+    },
   };
 }
 
@@ -201,93 +291,12 @@ export function handleToolGroupSummary(state: AppState, payload: Record<string, 
   return { transcript: { ...state.transcript, [jobId]: patched } };
 }
 
-export function handlePreflightStarted(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
-  const jobId = payload.jobId as string;
-  if (!jobId) return null;
-  return {
-    preflightActive: { ...state.preflightActive, [jobId]: true },
-    // Initialize an empty partial report so the card renders immediately
-    preflightReports: {
-      ...state.preflightReports,
-      [jobId]: state.preflightReports[jobId] ?? {
-        elapsedMs: 0,
-        toolCalls: [],
-        briefLength: 0,
-      },
-    },
-  };
-}
-
-export function handlePreflightToolCall(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
-  const jobId = payload.jobId as string;
-  if (!jobId) return null;
-  const existing = state.preflightReports[jobId] ?? { elapsedMs: 0, toolCalls: [], briefLength: 0 };
-  return {
-    preflightReports: {
-      ...state.preflightReports,
-      [jobId]: {
-        ...existing,
-        toolCalls: [
-          ...existing.toolCalls,
-          {
-            toolName: (payload.toolName as string) ?? "",
-            toolArgs: (payload.toolArgs as string | null) ?? null,
-            resultPreview: (payload.resultPreview as string) ?? "",
-            durationMs: (payload.durationMs as number | null) ?? null,
-          },
-        ],
-      },
-    },
-  };
-}
-
-export function handlePreflightReport(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
-  const jobId = payload.jobId as string;
-  if (!jobId) return null;
-  const toolCalls = (payload.toolCalls as Array<Record<string, unknown>> | undefined) ?? [];
-  // Clear active flag + reasoning, replace with final report
-  const { [jobId]: _, ...remainingActive } = state.preflightActive;
-  const { [jobId]: _r, ...remainingReasoning } = state.preflightReasoning;
-  return {
-    preflightActive: remainingActive,
-    preflightReasoning: remainingReasoning,
-    preflightReports: {
-      ...state.preflightReports,
-      [jobId]: {
-        elapsedMs: (payload.elapsedMs as number) ?? 0,
-        toolCalls: toolCalls.map((tc) => ({
-          toolName: (tc.toolName as string) ?? "",
-          toolArgs: (tc.toolArgs as string | null) ?? null,
-          resultPreview: (tc.resultPreview as string) ?? "",
-          durationMs: (tc.durationMs as number | null) ?? null,
-        })),
-        briefLength: (payload.briefLength as number) ?? 0,
-      },
-    },
-  };
-}
-
-export function handlePreflightReasoning(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
-  const jobId = payload.jobId as string;
-  if (!jobId) return null;
-  const content = (payload.content as string) ?? "";
-  if (!content) return null;
-  const prev = state.preflightReasoning[jobId] ?? "";
-  return {
-    preflightReasoning: {
-      ...state.preflightReasoning,
-      [jobId]: prev ? content : content,  // replace with latest chunk (not accumulate entire session)
-    },
-  };
-}
-
 export const transcriptHandlers: Record<string, SSEHandler> = {
   log_line: handleLogLine,
   transcript_update: handleTranscriptUpdate,
   tool_group_summary: handleToolGroupSummary,
   sidecar_transcript: handleSidecarTranscript,
-  preflight_started: handlePreflightStarted,
-  preflight_tool_call: handlePreflightToolCall,
-  preflight_reasoning: handlePreflightReasoning,
-  preflight_report: handlePreflightReport,
+  secondary_session_started: handleSecondarySessionStarted,
+  secondary_session_entry: handleSecondarySessionEntry,
+  secondary_session_completed: handleSecondarySessionCompleted,
 };

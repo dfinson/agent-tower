@@ -126,13 +126,12 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "repo_index_complete",
         // Structural health warnings at step boundaries (§7.2)
         "structural_warning",
-        // Sidecar transcript entries
+        // Sidecar transcript entries (legacy — kept for replay compat)
         "sidecar_transcript",
-        // Preflight scout streaming events
-        "preflight_started",
-        "preflight_tool_call",
-        "preflight_reasoning",
-        "preflight_report",
+        // Unified secondary session events
+        "secondary_session_started",
+        "secondary_session_entry",
+        "secondary_session_completed",
       ];
 
       for (const eventType of eventTypes) {
