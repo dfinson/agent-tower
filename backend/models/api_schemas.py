@@ -1119,7 +1119,7 @@ class MultiSessionResponse(CamelModel):
     job_id: str
     available: bool = True
     sessions: list[SessionSegment] = []
-    direction_changes: list[dict[str, Any]] = Field(default_factory=dict)
+    direction_changes: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

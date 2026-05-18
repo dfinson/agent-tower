@@ -276,11 +276,12 @@ def build_coderecon_tools(
                 )
                 return _serialize_result(result)
             if tool_name == "blast_radius":
+                max_hops = min(args.get("max_hops", 2), 5)
                 result = await service.blast_radius(
                     repo,
                     args.get("changed_files", []),
                     worktree=worktree,
-                    max_hops=args.get("max_hops", 2),
+                    max_hops=max_hops,
                 )
                 return _serialize_result(result)
 

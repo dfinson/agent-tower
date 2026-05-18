@@ -1460,7 +1460,6 @@ async def get_job_blast_radius(
     job_id: str,
     svc: FromDishka[JobService],
     coderecon: FromDishka[CodeReconService],
-    step_repo: FromDishka[StepRepository],
 ) -> BlastRadiusResponse:
     """Return blast radius analysis for a job's changed files."""
     job = await svc.get_job(job_id)
