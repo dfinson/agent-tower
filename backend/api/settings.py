@@ -249,7 +249,7 @@ async def get_repo_summary(
             )
             active_job_count = len(active_count_result.scalars().all())
 
-            # Aggregate cost from telemetry summary table
+            # Aggregate cost from telemetry summary table (last 7 days)
             from sqlalchemy import text as sa_text
 
             cost_row = (
@@ -261,6 +261,7 @@ async def get_repo_summary(
                         " COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS total_tokens"
                         " FROM job_telemetry_summary"
                         " WHERE repo = :repo AND session_kind = 'job'"
+                        " AND created_at >= datetime('now', '-7 days')"
                     ),
                     {"repo": resolved},
                 )
