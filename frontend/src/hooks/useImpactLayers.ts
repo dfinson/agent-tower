@@ -1,14 +1,15 @@
 /**
  * Hook: useImpactLayers
  *
- * Fetches impact graph data for symbols in the active diff file and
- * injects Monaco view zones showing collapsed/expandable impact panels
- * below the relevant lines.
+ * Reads per-file symbol impact data embedded in DiffFileModel (populated by
+ * CodeRecon semantic_diff on the backend) and injects Monaco view zones
+ * showing collapsed/expandable impact panels below the relevant lines.
+ *
+ * No frontend heuristics — symbol resolution is fully deterministic via CodeRecon.
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { fetchImpactGraph } from "../api/client";
-import type { DiffFileModel, DiffHunkModel } from "../api/types";
+import type { DiffFileModel } from "../api/types";
 
 /** Escape HTML special characters to prevent XSS when inserting into innerHTML. */
 function escapeHtml(str: string): string {
@@ -35,6 +36,7 @@ export interface ImpactZoneData {
   totalReferences: number;
   callers: ImpactCaller[];
   expanded: boolean;
+  category: string;
 }
 
 interface UseImpactLayersOpts {
@@ -46,96 +48,73 @@ interface UseImpactLayersOpts {
   editorReady: boolean;
 }
 
-/** Extract symbol-like names from modified lines of a hunk (very simple heuristic). */
-function extractSymbolsFromHunks(hunks: DiffHunkModel[]): { name: string; afterLine: number }[] {
-  const symbols: { name: string; afterLine: number }[] = [];
-  const seen = new Set<string>();
-
-  for (const hunk of hunks) {
-    let currentLine = hunk.newStart;
-    for (const line of hunk.lines) {
-      if (line.type === "deletion") continue;
-      if (line.type === "addition" || line.type === "context") {
-        // Match function/method/class definitions
-        const match = line.content.match(
-          /^\s*(?:(?:async\s+)?def|function|class|export\s+(?:default\s+)?(?:function|class)|(?:public|private|protected)\s+(?:static\s+)?(?:async\s+)?)\s+(\w+)/,
-        );
-        const symName = match?.[1];
-        if (symName && !seen.has(symName)) {
-          seen.add(symName);
-          // The impact zone goes after the last line of this symbol's hunk
-          symbols.push({ name: symName, afterLine: hunk.newStart + hunk.newLines - 1 });
-        }
-        currentLine++;
-      }
-    }
-  }
-  return symbols;
-}
-
 export function useImpactLayers({
-  jobId,
+  jobId: _jobId,
   file,
   enabled,
   editorRef,
   monacoRef,
   editorReady,
 }: UseImpactLayersOpts) {
+  void _jobId; // reserved for future use (e.g. per-job cache key)
   const [zones, setZones] = useState<ImpactZoneData[]>([]);
   const viewZoneIdsRef = useRef<string[]>([]);
   const zoneDomsRef = useRef<Map<string, HTMLElement>>(new Map());
-  const fileRef = useRef(file);
-  fileRef.current = file;
 
-  // Fetch impact data for symbols detected in the file's hunks.
-  // Keyed on file?.path to avoid re-fetching on referential changes.
+  // Build impact zones directly from embedded symbol data (CodeRecon semantic_diff).
+  // No API calls needed — data arrives with the diff response.
   useEffect(() => {
-    const currentFile = fileRef.current;
-    if (!currentFile || !enabled) {
+    if (!file || !enabled) {
       setZones([]);
       return;
     }
 
-    const symbols = extractSymbolsFromHunks(currentFile.hunks);
-    if (symbols.length === 0) {
+    const symbols = file.symbols;
+    if (!symbols || symbols.length === 0) {
       setZones([]);
       return;
     }
 
-    let cancelled = false;
+    const newZones: ImpactZoneData[] = symbols
+      .filter((sym) => sym.refCount > 0)
+      .map((sym) => {
+        // Place view zone after the last line of the symbol
+        const afterLine = sym.lineRange?.[1] ?? 1;
 
-    Promise.all(
-      symbols.map(async (sym) => {
-        try {
-          const result = await fetchImpactGraph(jobId, sym.name);
-          if (cancelled || !result.available) return null;
-          const zone: ImpactZoneData = {
-            symbolName: sym.name,
-            afterLine: sym.afterLine,
-            summary: result.summary || `${result.totalReferences} reference(s)`,
-            totalReferences: result.totalReferences,
-            callers: (result.references || []).map((r) => ({
-              symbol: r.symbol,
-              file: r.file,
-              line: r.line ?? null,
-              tier: r.tier,
-              isTest: r.isTest,
-            })),
-            expanded: false,
-          };
-          return zone;
-        } catch {
-          return null;
+        // Build caller list from ref_tiers breakdown
+        const callers: ImpactCaller[] = [];
+        for (const testFile of sym.testFiles) {
+          callers.push({
+            symbol: "",
+            file: testFile,
+            line: null,
+            tier: "test",
+            isTest: true,
+          });
         }
-      }),
-    ).then((results) => {
-      if (!cancelled) {
-        setZones(results.filter((r): r is ImpactZoneData => r != null && r.totalReferences > 0));
-      }
-    });
 
-    return () => { cancelled = true; };
-  }, [jobId, file?.path, enabled]);
+        // Build summary with tier breakdown
+        const tierParts: string[] = [];
+        for (const [tier, count] of Object.entries(sym.refTiers)) {
+          if (count > 0) tierParts.push(`${count} ${tier}`);
+        }
+        const summary = tierParts.length > 0
+          ? `${sym.refCount} ref(s): ${tierParts.join(", ")}`
+          : `${sym.refCount} reference(s)`;
+
+        return {
+          symbolName: sym.symbol,
+          afterLine,
+          summary,
+          totalReferences: sym.refCount,
+          callers,
+          expanded: false,
+          category: sym.category,
+        };
+      });
+
+    setZones(newZones);
+  }, [file, enabled]);
 
   // Inject view zones into the modified editor
   useEffect(() => {
@@ -166,20 +145,23 @@ export function useImpactLayers({
           domNode.className = "impact-zone-container";
           domNode.dataset.symbol = zone.symbolName;
 
+          // Category badge color
+          const categoryClass = zone.category === "breaking" ? "impact-badge-breaking" : "";
+
           // Collapsed header
-          const failCount = zone.callers.filter((c) => c.isTest).length;
+          const testCount = zone.callers.filter((c) => c.isTest).length;
           domNode.innerHTML = `
             <div class="impact-zone-header" data-symbol="${escapeHtml(zone.symbolName)}">
               <span class="impact-chevron">▶</span>
-              <span class="impact-badge">IMPACT</span>
+              <span class="impact-badge ${categoryClass}">IMPACT</span>
               <span class="impact-summary">${escapeHtml(zone.summary)}</span>
-              ${failCount > 0 ? `<span class="impact-fail-pill">${failCount} test${failCount > 1 ? "s" : ""}</span>` : ""}
+              ${testCount > 0 ? `<span class="impact-test-pill">${testCount} test${testCount > 1 ? "s" : ""}</span>` : ""}
             </div>
             <div class="impact-zone-body" style="display: none;">
               ${zone.callers.slice(0, 10).map((c) => `
                 <div class="impact-caller-card">
                   <span class="impact-caller-dot ${c.isTest ? "test" : "source"}"></span>
-                  <span class="impact-caller-name">${escapeHtml(c.symbol)}</span>
+                  <span class="impact-caller-name">${escapeHtml(c.symbol || "(test)")}</span>
                   <span class="impact-caller-loc">${escapeHtml(c.file)}${c.line ? `:${c.line}` : ""}</span>
                 </div>
               `).join("")}

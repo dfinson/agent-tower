@@ -22,6 +22,7 @@ from backend.models.api_schemas import (
     CoveringTestCandidate,
     CoveringTestsResponse,
     DiffFileModel,
+    DiffFileSymbolImpact,
     DiffListResponse,
     FileMotivation,
     HunkMotivation,
@@ -120,6 +121,59 @@ async def _ensure_repo_and_worktree(
     return repo_name
 
 
+async def _enrich_files_with_symbols(
+    coderecon: CodeReconService,
+    files: list[DiffFileModel],
+    repo: str,
+    worktree_path: str,
+    base: str,
+    *,
+    target: str | None = None,
+) -> None:
+    """Attach per-file symbol impact data from CodeRecon semantic_diff.
+
+    Runs semantic_diff for the given range (base..target or base..worktree)
+    and groups structural changes by file path, attaching them to the
+    corresponding DiffFileModel entries.
+    """
+    try:
+        repo_name = await _ensure_repo_and_worktree(coderecon, repo, worktree_path)
+        diff_result = await coderecon.semantic_diff(
+            repo_name,
+            base=base,
+            target=target,
+            worktree=worktree_path,
+        )
+    except Exception:
+        log.debug("enrich_symbols_failed", repo=repo, base=base, target=target, exc_info=True)
+        return
+
+    # Group structural changes by file path
+    by_file: dict[str, list[DiffFileSymbolImpact]] = {}
+    for c in diff_result.structural_changes:
+        name = c.qualified_name or c.name
+        if not name:
+            continue
+        impact = c.impact
+        ref_tiers = _translate_ref_tiers(impact.ref_tiers) if impact and impact.ref_tiers else {}
+        sym = DiffFileSymbolImpact(
+            symbol=name,
+            kind=c.change,
+            category=_classify_category(c),
+            line_range=[c.start_line, c.end_line] if c.start_line else None,
+            ref_count=impact.reference_count if impact and impact.reference_count else 0,
+            ref_tiers=ref_tiers,
+            test_files=impact.affected_test_files if impact and impact.affected_test_files else [],
+        )
+        by_file.setdefault(c.path, []).append(sym)
+
+    # Attach to file models
+    for f in files:
+        symbols = by_file.get(f.path)
+        if symbols:
+            f.symbols = symbols
+
+
 async def _latest_end_sha(step_repo: StepRepository, job_id: str) -> str | None:
     """Get the latest end_sha from the job's steps — serves as cache version key."""
     all_steps = await step_repo.get_by_job(job_id)
@@ -181,6 +235,7 @@ async def get_job_diff(
     svc: FromDishka[JobService],
     diff_service: FromDishka[DiffService],
     spans_repo: FromDishka[TelemetrySpansRepository],
+    coderecon: FromDishka[CodeReconService],
 ) -> DiffListResponse:
     """Return the current diff for a job.
 
@@ -221,6 +276,14 @@ async def get_job_diff(
             if row:
                 f.write_count = row["write_count"]
                 f.retry_count = row["retry_count"]
+
+    # Enrich with per-file symbol impact from CodeRecon semantic_diff
+    # (backfill for historical events stored without symbols)
+    already_enriched = any(f.symbols for f in files)
+    if files and not already_enriched and coderecon.available and job.repo and job.worktree_path:
+        await _enrich_files_with_symbols(
+            coderecon, files, job.repo, job.worktree_path, job.base_ref or "HEAD",
+        )
 
     return DiffListResponse(items=files)
 
@@ -765,11 +828,10 @@ def _translate_ref_tiers(raw_tiers: Any) -> dict[str, int]:
     RefTierBreakdown has: proven, strong, anchored, unknown (all int).
     """
     result: dict[str, int] = {}
-    # Map coderecon tier fields to user-facing labels
-    proven = getattr(raw_tiers, "proven", 0) or 0
-    strong = getattr(raw_tiers, "strong", 0) or 0
-    anchored = getattr(raw_tiers, "anchored", 0) or 0
-    unknown = getattr(raw_tiers, "unknown", 0) or 0
+    proven = raw_tiers.proven or 0
+    strong = raw_tiers.strong or 0
+    anchored = raw_tiers.anchored or 0
+    unknown = raw_tiers.unknown or 0
     if proven:
         result["verified"] = proven
     if strong or anchored:

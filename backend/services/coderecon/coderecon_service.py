@@ -557,9 +557,10 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
+        wt_name = Path(worktree).name
         return await loop.run_in_executor(
             self._executor,
-            lambda: kit.blast_radius(changed_files, worktree=worktree, max_hops=max_hops),
+            lambda: kit.blast_radius(changed_files, worktree=wt_name, max_hops=max_hops),
         )
 
     async def covering_tests(
@@ -575,9 +576,10 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
+        wt_name = Path(worktree).name
         return await loop.run_in_executor(
             self._executor,
-            lambda: kit.covering_tests(file_path, worktree=worktree),
+            lambda: kit.covering_tests(file_path, worktree=wt_name),
         )
 
     async def line_coverage(
@@ -596,11 +598,12 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
+        wt_name = Path(worktree).name
         return await loop.run_in_executor(
             self._executor,
             lambda: kit.line_coverage(
                 file_path,
-                worktree=worktree,
+                worktree=wt_name,
                 line_range=line_range,
                 include_tests=include_tests,
             ),

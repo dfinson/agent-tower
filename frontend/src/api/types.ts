@@ -120,6 +120,16 @@ export interface DiffHunkModel {
   lines: DiffLineModel[];
 }
 
+export interface DiffFileSymbolImpact {
+  symbol: string;
+  kind: string;  // added | removed | modified | moved
+  category: string;  // breaking | body | additive | non-structural
+  lineRange: number[] | null;  // [start, end]
+  refCount: number;
+  refTiers: Record<string, number>;  // verified | inferred | unverified → count
+  testFiles: string[];
+}
+
 export interface DiffFileModel {
   path: string;
   status: DiffFileStatus;
@@ -128,6 +138,7 @@ export interface DiffFileModel {
   hunks: DiffHunkModel[];
   writeCount?: number | null;
   retryCount?: number | null;
+  symbols?: DiffFileSymbolImpact[];
 }
 
 // --- Motivation types for intent-annotated diff review ---

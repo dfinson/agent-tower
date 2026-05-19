@@ -95,8 +95,8 @@ class AppProvider(Provider):
         return GitService(config)
 
     @provide
-    def diff_service(self, git_service: GitService, event_bus: EventBus) -> DiffService:
-        return DiffService(git_service=git_service, event_bus=event_bus)
+    def diff_service(self, git_service: GitService, event_bus: EventBus, coderecon: CodeReconService) -> DiffService:
+        return DiffService(git_service=git_service, event_bus=event_bus, coderecon=coderecon)
 
     @provide
     def story_service(
@@ -246,5 +246,6 @@ class RequestProvider(Provider):
         step_repo: StepRepository,
         git_service: GitService,
         spans_repo: TelemetrySpansRepository,
+        coderecon: CodeReconService,
     ) -> StepDiffService:
-        return StepDiffService(job_svc, step_repo, git_service, spans_repo)
+        return StepDiffService(job_svc, step_repo, git_service, spans_repo, coderecon)

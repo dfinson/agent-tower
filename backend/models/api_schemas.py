@@ -547,6 +547,18 @@ class DiffHunkModel(CamelModel):
     lines: list[DiffLineModel]
 
 
+class DiffFileSymbolImpact(CamelModel):
+    """A symbol in a diff file with its impact data from CodeRecon semantic_diff."""
+
+    symbol: str
+    kind: str  # added | removed | modified | moved
+    category: str = "non-structural"  # breaking | body | additive | non-structural
+    line_range: list[int] | None = None  # [start, end]
+    ref_count: int = 0
+    ref_tiers: dict[str, int] = Field(default_factory=dict)
+    test_files: list[str] = Field(default_factory=list)
+
+
 class DiffFileModel(CamelModel):
     path: str
     status: DiffFileStatus
@@ -555,6 +567,7 @@ class DiffFileModel(CamelModel):
     hunks: list[DiffHunkModel]
     write_count: int | None = None
     retry_count: int | None = None
+    symbols: list[DiffFileSymbolImpact] = Field(default_factory=list)
 
 
 class JobStateChangedPayload(CamelModel):
