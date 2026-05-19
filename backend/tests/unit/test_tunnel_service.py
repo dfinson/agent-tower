@@ -563,6 +563,7 @@ class TestGiveupCooldown:
             proc=_as_popen(proc),
             label="test",
         )
+        watchdog._INITIAL_DELAY = 0
         watchdog._GIVEUP_COOLDOWN = 0.05
         watchdog._CHECK_INTERVAL = 0.05
 
