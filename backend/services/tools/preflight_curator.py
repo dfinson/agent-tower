@@ -61,10 +61,9 @@ _MAX_TURNS = 15
 _SESSION_TIMEOUT_S = 120  # 2 minutes
 
 # Built-in Claude Code / Copilot tools the curator must NOT use.
-# We block filesystem, shell, and web tools so the session is read-only
-# via CodeRecon MCP tools only.  Even without this list the policy router
-# would deny them (no job_id → deny), but disallowing them explicitly
-# tells the SDK to hide them, saving tokens and avoiding noisy error logs.
+# We block most filesystem, shell, and web tools so the session explores
+# via CodeRecon structural tools first.  View is allowed as a targeted
+# fallback for inspecting specific lines after structural analysis.
 _DISALLOWED_BUILTIN_TOOLS = [
     "Bash",
     "Edit",
@@ -73,10 +72,14 @@ _DISALLOWED_BUILTIN_TOOLS = [
     "Read",
     "Glob",
     "Grep",
+    "LS",
+    "Task",
     "WebFetch",
     "WebSearch",
     "TodoRead",
     "TodoWrite",
+    "NotebookRead",
+    "NotebookEdit",
 ]
 
 _PREFLIGHT_SYSTEM_PROMPT = """\
@@ -84,10 +87,12 @@ You are a preflight context curator for a coding agent control plane.
 Your job: produce a focused brief that will help a coding agent start working
 immediately without wasting time exploring.
 
-## Tools
+## Tools — use in this order
 
-You have read-only structural analysis tools for this repository.  Use them
-to understand the codebase before writing your brief.
+You have structural analysis tools for this repository.  **Always start with
+these** — they give you the full picture in one call.
+
+### Primary tools (use FIRST)
 
 - **recon_understand** — Codebase overview: languages, top files by PageRank,
   key symbols, dependency cycles, module communities.  Call with no arguments
@@ -99,10 +104,21 @@ to understand the codebase before writing your brief.
 - **recon_impact** — Reference/caller analysis for a specific symbol.
 - **scaffold** — File structural overview (imports + symbol hierarchy).
 
-Start with ``recon_understand`` for the broad view.  If the task targets a
-specific subsystem, zoom in with ``recon_understand(scope="path/to/module")``.
-Use ``recon``, ``scaffold``, and ``recon_impact`` for deeper detail on
-specific files or symbols you identify as task-relevant.
+### Fallback (use LAST, minimally)
+
+- **View** — Read specific file lines.  Use ONLY after structural tools have
+  identified the exact file and lines you need.  Never use View as your first
+  or primary exploration tool.
+
+## Strategy
+
+1. Start with ``recon_understand`` for the broad structural view.
+2. If the task targets a specific subsystem, zoom with
+   ``recon_understand(scope="path/to/module")``.
+3. Use ``recon``, ``scaffold``, and ``recon_impact`` for deeper structural
+   detail on specific files or symbols.
+4. Only if you need to verify exact syntax or a specific code pattern that
+   structural tools cannot answer, use View on the minimal line range needed.
 
 ## Workspace memory
 

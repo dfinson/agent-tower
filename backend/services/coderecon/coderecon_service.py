@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -48,6 +49,7 @@ class CodeReconService:
     def __init__(self) -> None:
         self._kits: dict[str, Any] = {}  # resolved_repo_path → ReviewKit
         self._index_locks: dict[str, asyncio.Lock] = {}
+        self._worktree_stats: dict[tuple[str, str], dict[str, Any]] = {}  # (repo, worktree) → {symbol_count, file_count}
         self._available = False
         self._event_bus: EventBus | None = None
         self._kit_class: type | None = None
@@ -93,6 +95,7 @@ class CodeReconService:
 
         Uses per-path locking so concurrent callers don't duplicate work.
         The indexing (tree-sitter parse) is offloaded to a thread.
+        Emits repo_index_progress / repo_index_complete SSE events.
         """
         if not self._available or self._kit_class is None:
             raise CodeReconUnavailableError
@@ -109,8 +112,18 @@ class CodeReconService:
 
             kit = self._kit_class(Path(resolved))
             try:
+                # Emit progress events via on_progress callback
+                def _on_progress(indexed: int, total: int) -> None:
+                    if self._event_bus is None:
+                        return
+                    asyncio.run_coroutine_threadsafe(
+                        self._emit_index_progress(resolved, indexed, total),
+                        loop,
+                    )
+
                 await loop.run_in_executor(
-                    self._executor, lambda: kit.ensure_indexed(worktree="main")
+                    self._executor,
+                    lambda: kit.ensure_indexed(worktree="main", on_progress=_on_progress),
                 )
             except Exception:
                 log.warning("coderecon_review.index_failed", repo=resolved, exc_info=True)
@@ -119,8 +132,68 @@ class CodeReconService:
                 raise
 
             self._kits[resolved] = kit
-            log.info("coderecon_review.repo_indexed", repo=resolved)
+
+            # Gather post-index stats for the "main" worktree
+            await self._refresh_stats(resolved, worktree="main")
+
+            # Emit completion event
+            await self._emit_index_complete(resolved)
+            log.info(
+                "coderecon_review.repo_indexed",
+                repo=resolved,
+                **self._worktree_stats.get((resolved, "main"), {}),
+            )
             return resolved
+
+    async def _emit_index_progress(self, repo: str, indexed: int, total: int) -> None:
+        """Publish a repo_index_progress event."""
+        if self._event_bus is None:
+            return
+        from backend.models.events import DomainEvent, DomainEventKind
+
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=None,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.repo_index_progress,
+                payload={"repo": repo, "indexed": indexed, "total": total, "phase": "indexing"},
+            )
+        )
+
+    async def _emit_index_complete(self, repo: str) -> None:
+        """Publish a repo_index_complete event."""
+        if self._event_bus is None:
+            return
+        from backend.models.events import DomainEvent, DomainEventKind
+
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=None,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.repo_index_complete,
+                payload={"repo": repo},
+            )
+        )
+
+    async def _refresh_stats(self, repo: str, *, worktree: str) -> None:
+        """Re-run scout() and update the cached stats for a (repo, worktree) pair."""
+        kit = self._kits.get(repo)
+        if kit is None:
+            return
+        loop = asyncio.get_running_loop()
+        wt_name = Path(worktree).name if "/" in worktree else worktree
+        try:
+            scout_result = await loop.run_in_executor(
+                self._executor, lambda: kit.scout(worktree=wt_name)
+            )
+            self._worktree_stats[(repo, wt_name)] = {
+                "symbol_count": scout_result.def_count,
+                "file_count": scout_result.file_count,
+            }
+        except Exception:
+            log.debug("coderecon_review.refresh_stats_failed", repo=repo, worktree=wt_name, exc_info=True)
 
     async def register_worktree(self, repo: str, worktree_path: str | Path) -> None:
         """Register a worktree with an already-indexed repo and index it."""
@@ -135,6 +208,7 @@ class CodeReconService:
             await loop.run_in_executor(
                 self._executor, lambda: kit.ensure_indexed(worktree=wt_name)
             )
+            await self._refresh_stats(repo, worktree=wt_name)
             log.info("coderecon_review.worktree_registered", repo=repo, worktree=wt)
         except Exception:
             log.debug("coderecon_review.worktree_register_failed", repo=repo, exc_info=True)
@@ -240,9 +314,12 @@ class CodeReconService:
         if not hasattr(kit, "reindex"):
             raise CodeReconUnavailableError
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.reindex(changed_paths, worktree=Path(worktree).name)
+        wt_name = Path(worktree).name
+        count = await loop.run_in_executor(
+            self._executor, lambda: kit.reindex(changed_paths, worktree=wt_name)
         )
+        await self._refresh_stats(repo, worktree=wt_name)
+        return count
 
     async def checkpoint(
         self,
@@ -300,9 +377,12 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.sync_from_git(worktree=Path(worktree).name)
+        wt_name = Path(worktree).name
+        count = await loop.run_in_executor(
+            self._executor, lambda: kit.sync_from_git(worktree=wt_name)
         )
+        await self._refresh_stats(repo, worktree=wt_name)
+        return count
 
     async def merge_index(self, repo: str, source: str, target: str = "main") -> dict[str, Any]:
         """Reconcile source worktree index into target, then drop source.
@@ -312,9 +392,11 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
+        result = await loop.run_in_executor(
             self._executor, lambda: kit.merge_index(source, target)
         )
+        await self._refresh_stats(repo, worktree=target)
+        return result
 
     async def drop_worktree(self, repo: str, name: str) -> int:
         """Remove all indexed data for a worktree.
@@ -323,9 +405,11 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
+        result = await loop.run_in_executor(
             self._executor, lambda: kit.drop_worktree(name)
         )
+        self._worktree_stats.pop((repo, name), None)
+        return result
 
     async def enrich_scip(self, repo: str, *, worktree: str) -> Any:
         """Run SCIP indexers and import compiler-grade cross-references.
@@ -338,15 +422,15 @@ class CodeReconService:
             self._executor, lambda: kit.enrich_scip(worktree=Path(worktree).name)
         )
 
-    async def repo_status(self, repo: str) -> dict[str, Any] | None:
-        """Return indexing status for a repo."""
-        kit = self._kits.get(repo)
-        if kit is None:
+    async def repo_status(self, repo: str, *, worktree: str = "main") -> dict[str, Any] | None:
+        """Return cached indexing stats for a (repo, worktree) pair.
+
+        Stats are gathered via scout() after every index mutation and
+        cached per-worktree.
+        """
+        if repo not in self._kits:
             return None
-        loop = asyncio.get_running_loop()
-        if hasattr(kit, "status"):
-            return await loop.run_in_executor(self._executor, kit.status)
-        return None
+        return self._worktree_stats.get((repo, worktree))
 
     # ── Step-Boundary Structural Feedback ──
 

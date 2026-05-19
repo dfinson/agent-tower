@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
-  GitBranch, Globe, Activity, DollarSign, Brain, Boxes,
+  GitBranch, Globe, Activity, DollarSign, Boxes,
   AlertTriangle, Briefcase,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -205,53 +205,6 @@ export function RepoOverview() {
               <StatBadge icon={Activity} label="Tokens" value={summary.cost.totalTokens.toLocaleString()} />
             </div>
           </div>
-        </div>
-
-        {/* Wisdom / Memory */}
-        <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold flex items-center gap-2">
-              <Brain size={14} className="text-muted-foreground" />
-              Wisdom
-            </span>
-            <Link
-              to={`/repos/${encodeURIComponent(decoded)}/wisdom`}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Edit →
-            </Link>
-          </div>
-          {!summary.memory.hasMemory ? (
-            <p className="text-xs text-muted-foreground py-3 text-center">
-              No wisdom recorded yet. The agent will accumulate patterns here as it works.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {summary.memory.decisionsPreview && (
-                <div>
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Decisions</p>
-                  <p className="text-xs text-foreground/80 line-clamp-3 font-mono">
-                    {summary.memory.decisionsPreview}
-                  </p>
-                </div>
-              )}
-              {summary.memory.wisdomPreview && (
-                <div>
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Wisdom</p>
-                  <p className="text-xs text-foreground/80 line-clamp-3 font-mono">
-                    {summary.memory.wisdomPreview}
-                  </p>
-                </div>
-              )}
-              <div className="flex gap-3 text-[10px] text-muted-foreground/60 pt-1">
-                <span>{summary.memory.decisionsChars.toLocaleString()} chars decisions</span>
-                <span>{summary.memory.wisdomChars.toLocaleString()} chars wisdom</span>
-                {summary.memory.archiveChars > 0 && (
-                  <span>{summary.memory.archiveChars.toLocaleString()} chars archive</span>
-                )}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Structural Health */}

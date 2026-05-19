@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Trash2, Plus, Save, Bell, Brain } from "lucide-react";
+import { Trash2, Plus, Save, Bell } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import {
@@ -236,19 +236,16 @@ export function SettingsScreen() {
                 className="flex items-center justify-between px-3 py-2 rounded-md hover:bg-accent group"
               >
               <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="text-sm font-mono text-muted-foreground truncate" title={r}>{r}</span>
+                <Link
+                  to={`/repos/${encodeURIComponent(r)}`}
+                  className="text-sm font-mono text-muted-foreground hover:text-foreground truncate transition-colors"
+                  title={r}
+                >
+                  {r}
+                </Link>
                 <RepoIndexIndicator repo={r} />
               </div>
                 <div className="flex items-center gap-1">
-                  <Tooltip content="View workspace memory">
-                    <Link
-                      to={`/repos/${encodeURIComponent(r)}/memory`}
-                      className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent"
-                      aria-label={`View memory for ${r}`}
-                    >
-                      <Brain size={14} aria-hidden="true" />
-                    </Link>
-                  </Tooltip>
                   <Tooltip content="Remove this repository from CodePlane">
                     <button
                       type="button"

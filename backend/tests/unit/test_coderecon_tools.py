@@ -116,7 +116,7 @@ class TestResolveTier:
 
     def test_preflight(self):
         names = _resolve_tier("preflight")
-        assert names == {"recon_understand", "recon_impact"}
+        assert names == {"recon_understand", "recon_impact", "recon", "recon_map", "scaffold"}
 
     def test_full(self):
         names = _resolve_tier("full")

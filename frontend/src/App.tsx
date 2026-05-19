@@ -27,9 +27,6 @@ const HistoryScreen = lazyRetry(() =>
 const AnalyticsScreen = lazyRetry(() =>
   import("./components/AnalyticsScreen").then((module) => ({ default: module.AnalyticsScreen })),
 );
-const MemoryScreen = lazyRetry(() =>
-  import("./components/MemoryScreen").then((module) => ({ default: module.MemoryScreen })),
-);
 const RepoLayout = lazyRetry(() =>
   import("./components/RepoLayout").then((module) => ({ default: module.RepoLayout })),
 );
@@ -38,9 +35,6 @@ const RepoOverview = lazyRetry(() =>
 );
 const RepoJobs = lazyRetry(() =>
   import("./components/RepoJobs").then((module) => ({ default: module.RepoJobs })),
-);
-const RepoWisdom = lazyRetry(() =>
-  import("./components/RepoWisdom").then((module) => ({ default: module.RepoWisdom })),
 );
 const RepoHealth = lazyRetry(() =>
   import("./components/RepoHealth").then((module) => ({ default: module.RepoHealth })),
@@ -212,11 +206,9 @@ export function App() {
               <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
               <Route path="/history" element={<HistoryScreen />} />
               <Route path="/analytics" element={<AnalyticsScreen />} />
-              <Route path="/repos/:repoPath/memory" element={<MemoryScreen />} />
               <Route path="/repos" element={<RepoLayout />}>
                 <Route path=":repoPath" element={<RepoOverview />} />
                 <Route path=":repoPath/jobs" element={<RepoJobs />} />
-                <Route path=":repoPath/wisdom" element={<RepoWisdom />} />
                 <Route path=":repoPath/health" element={<RepoHealth />} />
                 <Route path=":repoPath/cost" element={<RepoCost />} />
                 <Route path=":repoPath/settings" element={<RepoSettings />} />

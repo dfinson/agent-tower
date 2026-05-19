@@ -248,6 +248,29 @@ async def get_repo_summary(
                 .where(JobRow.state.in_(("running", "preparing", "paused")))
             )
             active_job_count = len(active_count_result.scalars().all())
+
+            # Aggregate cost from telemetry summary table
+            from sqlalchemy import text as sa_text
+
+            cost_row = (
+                await session.execute(
+                    sa_text(
+                        "SELECT"
+                        " COALESCE(SUM(total_cost_usd), 0) AS total_cost_usd,"
+                        " COUNT(*) AS total_jobs,"
+                        " COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS total_tokens"
+                        " FROM job_telemetry_summary"
+                        " WHERE repo = :repo AND session_kind = 'job'"
+                    ),
+                    {"repo": resolved},
+                )
+            ).mappings().first()
+            if cost_row:
+                cost_summary = RepoCostSummary(
+                    total_cost_usd=float(cost_row["total_cost_usd"]),
+                    total_jobs=int(cost_row["total_jobs"]),
+                    total_tokens=int(cost_row["total_tokens"]),
+                )
     except Exception:
         log.warning("repo_summary.jobs_query_failed", repo=resolved, exc_info=True)
 

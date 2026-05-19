@@ -204,8 +204,9 @@ def _resolve_tier(tier: str) -> set[str]:
     """Return tool names allowed for a tier."""
     minimal = {"recon_impact"}
     standard = minimal | {"checkpoint", "blast_radius"}
-    # Read-only structural tools for the preflight curator agent
-    preflight = {"recon_understand", "recon_impact"}
+    # Read-only structural tools for the preflight curator agent.
+    # Must match the tools listed in the preflight system prompt.
+    preflight = {"recon_understand", "recon_impact", "recon", "recon_map", "scaffold"}
     if tier == "minimal":
         return minimal
     if tier == "standard":

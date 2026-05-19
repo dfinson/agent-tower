@@ -7,9 +7,16 @@ doctor, down, restart) along with tunnel management and startup helpers.
 from __future__ import annotations
 
 import contextlib
+import multiprocessing
 import signal
 from pathlib import Path
 from typing import Any
+
+# Prevent libraries (e.g. coderecon) from fork-bombing the server process.
+# The default "fork" start method duplicates the entire parent address space
+# for each worker — on a 20-core host this creates 16× copies of a ~1 GB
+# process.  "spawn" starts fresh interpreters that only load what they need.
+multiprocessing.set_start_method("spawn", force=True)
 
 import click
 import structlog
