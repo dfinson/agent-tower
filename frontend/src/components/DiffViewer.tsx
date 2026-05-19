@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { FileCode, MessageSquare, Send, Lock, Filter, X, Lightbulb, FolderOpen } from "lucide-react";
+import { FileCode, MessageSquare, Send, Lock, Filter, X, Lightbulb, FolderOpen, Shield, Waypoints } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs } from "../store";
@@ -716,13 +716,6 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
           setSortByChurn={setSortByChurn}
           splitView={splitView}
           setSplitView={setSplitView}
-          showIntent={showIntent}
-          setShowIntent={setShowIntent}
-          showCoverage={showCoverage}
-          setShowCoverage={setShowCoverage}
-          showImpact={showImpact}
-          setShowImpact={setShowImpact}
-          hunkMotivations={hunkMotivations}
           fileMotivations={fileMotivations}
           viewedFiles={viewedFiles}
           contextFiles={contextFiles}
@@ -742,7 +735,47 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
         )}
 
         {/* Monaco Diff Editor */}
-        <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-card relative">
+        <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-card relative flex flex-col">
+          {/* V8: Layer toggles toolbar */}
+          <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border bg-card shrink-0">
+            <span className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider mr-1.5">Layers</span>
+            <Tooltip content={showCoverage ? "Hide coverage" : "Show coverage"}>
+              <button
+                onClick={() => setShowCoverage(!showCoverage)}
+                className={cn(
+                  "flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors",
+                  showCoverage ? "text-green-400 bg-green-400/10 hover:bg-green-400/20" : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/30",
+                )}
+              >
+                <Shield size={12} />
+                <span>Coverage</span>
+              </button>
+            </Tooltip>
+            <Tooltip content={showImpact ? "Hide impact" : "Show impact"}>
+              <button
+                onClick={() => setShowImpact(!showImpact)}
+                className={cn(
+                  "flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors",
+                  showImpact ? "text-purple-400 bg-purple-400/10 hover:bg-purple-400/20" : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/30",
+                )}
+              >
+                <Waypoints size={12} />
+                <span>Impact</span>
+              </button>
+            </Tooltip>
+            <Tooltip content={showIntent ? "Hide motivation" : "Show motivation"}>
+              <button
+                onClick={() => setShowIntent(!showIntent)}
+                className={cn(
+                  "flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors",
+                  showIntent ? "text-amber-400 bg-amber-400/10 hover:bg-amber-400/20" : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/30",
+                )}
+              >
+                <Lightbulb size={12} />
+                <span>Motivation</span>
+              </button>
+            </Tooltip>
+          </div>
           {loading ? (
             <div className="flex items-center justify-center h-full">
               <Spinner />
