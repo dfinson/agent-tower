@@ -522,6 +522,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     system_message=system_message,
                     model=config.model or None,
                     tools=copilot_custom_tools,
+                    excluded_tools=config.disallowed_tools or None,
                 )
         else:
             session = await client.create_session(
@@ -530,6 +531,7 @@ class CopilotAdapter(BaseAgentAdapter):
                 system_message=system_message,
                 model=config.model or None,
                 tools=copilot_custom_tools,
+                excluded_tools=config.disallowed_tools or None,
             )
 
         session_id = session.session_id  # Use SDK-assigned ID as CodePlane's session identifier

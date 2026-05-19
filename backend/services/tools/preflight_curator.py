@@ -5,9 +5,6 @@ agent can call ``recon_scout`` (with optional ``scope``), ``recon``,
 ``recon_map``, ``recon_impact``, and ``scaffold`` to explore the repository
 structure, then produces a curated brief for the main agent's system prompt.
 
-Workspace memory is injected as context in the prompt — the agent decides
-which entries are relevant to the task and preserves them verbatim.
-
 SDK-agnostic: uses ``create_session()`` + ``stream_events()`` through the
 adapter interface, so the same flow works with any underlying SDK.
 """
@@ -120,17 +117,13 @@ these** — they give you the full picture in one call.
 4. Only if you need to verify exact syntax or a specific code pattern that
    structural tools cannot answer, use View on the minimal line range needed.
 
-## Workspace memory
-
-If workspace memory entries are provided in the prompt below, select ONLY
-entries relevant to the task and include them VERBATIM with their ### heading
-format preserved.
-
 ## Output rules
 
+- **You are a SCOUT, not a solver.**  Do NOT implement, fix, edit, or commit
+  anything.  Your only output is an informational brief for the agent that will
+  do the actual work.
 - Err on the side of INCLUSION.  A few thousand extra tokens here saves tens
   of thousands in wasted exploration during the session.  When in doubt, keep it.
-- For memory entries, preserve them verbatim with their ### heading format.
 - For structural data, summarize freely but keep specifics: file paths, symbol
   names, module relationships, cycle members.  The agent needs concrete handles,
   not vague descriptions.
@@ -164,7 +157,6 @@ class PreflightCurator:
         self,
         task: str,
         *,
-        memory: str | None = None,
         repo: str,
         worktree: str,
         job_id: str = "",
@@ -173,9 +165,9 @@ class PreflightCurator:
     ) -> PreflightReport:
         """Run the preflight curator agent and return its structured report.
 
-        The agent is given the task description, optional workspace memory,
-        and CodeRecon tools.  It explores the repo structure and produces
-        a brief for the main agent's system prompt.
+        The agent is given the task description and CodeRecon tools.  It
+        explores the repo structure and produces a brief for the main
+        agent's system prompt.
 
         Returns a :class:`PreflightReport` with the curated brief, captured
         tool calls, and timing information.
@@ -192,11 +184,7 @@ class PreflightCurator:
         )
 
         # Assemble the prompt
-        sections = [f"## Task\n\n{task}"]
-        if memory:
-            sections.append(f"## Workspace Memory\n\n{memory}")
-
-        prompt = "\n\n".join(sections)
+        prompt = f"## Task\n\n{task}"
 
         # Build session config — SDK-agnostic
         config = SessionConfig(

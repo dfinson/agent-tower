@@ -546,6 +546,14 @@ class RuntimeService:
             # Preflight context curation — explore repo via CodeRecon and produce a brief
             session_config = await self._run_preflight_curator(job, session_config)
 
+            # If the job was canceled during preflight, don't start the main session.
+            async with self._session_factory() as session:
+                _job_check = await JobRepository(session).get(job.id)
+            if _job_check and _job_check.state in TERMINAL_STATES:
+                log.info("job_start_aborted_after_preflight", job_id=job.id, state=_job_check.state)
+                self._agent_sessions.pop(job.id, None)
+                return
+
             task = asyncio.create_task(
                 self._run_job_guarded(job.id, agent_session, session_config, session_number=job.session_count),
                 name=f"job-{job.id}",
@@ -1934,7 +1942,17 @@ class RuntimeService:
             task.cancel()
             log.info("job_cancel_requested", job_id=job_id)
         else:
-            log.info("job_cancel_no_running_task", job_id=job_id)
+            # No task yet — job may still be in preflight curation.
+            # Abort the agent session so the preflight curator's stream ends.
+            agent_session = self._agent_sessions.get(job_id)
+            if agent_session is not None:
+                try:
+                    await agent_session.abort()
+                except Exception:
+                    pass
+                log.info("job_cancel_preflight_aborted", job_id=job_id)
+            else:
+                log.info("job_cancel_no_running_task", job_id=job_id)
 
     async def interrupt(self, job_id: str) -> bool:
         """Interrupt the agent's current turn without destroying the session.
