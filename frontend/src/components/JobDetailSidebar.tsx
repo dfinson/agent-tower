@@ -4,7 +4,7 @@ import type { JobSummary } from "../store";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { JobActions } from "./JobActions";
 import { Tooltip } from "./ui/tooltip";
-import { cn } from "../lib/utils";
+import { cn, isActiveSetupStep, setupStepLabel } from "../lib/utils";
 
 // ── Tab definitions for the sidebar nav ──
 const TAB_ITEMS = [
@@ -294,11 +294,11 @@ export function JobDetailSidebar({
                       <p className="text-[11px] font-medium text-amber-500">Canceled</p>
                     </div>
                   )}
-                  {isPreparing && (
+                  {(isPreparing || isActiveSetupStep(job.setupStep)) && (
                     <div className="flex items-start gap-1.5 rounded border border-violet-500/30 bg-violet-500/10 p-1.5">
                       <Loader2 size={13} className="text-violet-400 shrink-0 mt-0.5 animate-spin" />
                       <p className="text-[11px] font-medium text-violet-400">
-                        {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
+                        {setupStepLabel(job.setupStep)}
                       </p>
                     </div>
                   )}

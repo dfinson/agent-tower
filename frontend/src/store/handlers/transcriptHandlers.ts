@@ -156,7 +156,15 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
     }
   }
 
+  // Clear setupStep once real transcript content arrives — setup is done.
+  let jobs = state.jobs;
+  const job = jobs[jobId];
+  if (job?.setupStep && entry.role !== "operator") {
+    jobs = { ...jobs, [jobId]: { ...job, setupStep: null } };
+  }
+
   return {
+    jobs: jobs !== state.jobs ? jobs : undefined,
     transcript: { ...state.transcript, [jobId]: updated.length > 10_000 ? updated.slice(-10_000) : updated },
     streamingMessages,
     streamingToolOutput,

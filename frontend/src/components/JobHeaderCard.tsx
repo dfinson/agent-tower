@@ -9,6 +9,7 @@ import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 import { NavMenuSlideout } from "./NavMenuSlideout";
 import { BottomSheet } from "./ui/bottom-sheet";
 import { Tooltip } from "./ui/tooltip";
+import { isActiveSetupStep, setupStepLabel } from "../lib/utils";
 
 /** States where the card should default to expanded (user needs context/actions). */
 const EXPAND_STATES = new Set(["review", "failed", "canceled", "completed"]);
@@ -106,10 +107,10 @@ export function JobHeaderCard({
           {job.progressHeadline && isActive && (
             <p className="text-sm italic text-primary/70">{job.progressHeadline}</p>
           )}
-          {isPreparing && (
+          {(isPreparing || isActiveSetupStep(job.setupStep)) && (
             <div className="flex items-center gap-2 text-sm text-violet-400 animate-pulse">
               <Loader2 size={14} className="animate-spin" />
-              {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
+              {setupStepLabel(job.setupStep)}
             </div>
           )}
 
@@ -167,8 +168,8 @@ export function JobHeaderCard({
             <span className="text-xs text-muted-foreground/70 truncate min-w-0">
               {job.progressHeadline && isActive
                 ? job.progressHeadline
-                : isPreparing
-                  ? (job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…")
+                : (isPreparing || isActiveSetupStep(job.setupStep))
+                  ? setupStepLabel(job.setupStep)
                   : job.branch
                     ? `${job.branch} → ${job.baseRef}`
                     : null}
@@ -190,10 +191,10 @@ export function JobHeaderCard({
                 ● {job.progressHeadline}
               </p>
             )}
-            {isPreparing && (
+            {(isPreparing || isActiveSetupStep(job.setupStep)) && (
               <p className="text-xs text-violet-400 animate-pulse flex items-center gap-1">
                 <Loader2 size={12} className="animate-spin" />
-                {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
+                {setupStepLabel(job.setupStep)}
               </p>
             )}
 

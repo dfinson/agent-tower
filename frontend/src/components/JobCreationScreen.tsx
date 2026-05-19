@@ -206,15 +206,28 @@ export function JobCreationScreen() {
     if (!repo || !prompt.trim() || voiceState !== "idle") return;
     setSubmitting(true);
     try {
-      const cached = suggestedNamesRef.current;
+      // Ensure LLM naming is available before submitting.
+      // If suggest-names hasn't returned yet, call it now and wait.
+      let cached = suggestedNamesRef.current;
+      if (!cached) {
+        try {
+          const names = await suggestNames(prompt);
+          cached = { title: names.title, description: names.description, worktreeName: names.worktreeName };
+          suggestedNamesRef.current = cached;
+          if (!branchEdited) setBranch(names.branchName);
+        } catch {
+          toast.error("Failed to generate job name — please try again");
+          return;
+        }
+      }
       const result = await createJob({
         repo,
         prompt: prompt.trim(),
         baseRef: baseRef || undefined,
         branch: branch || undefined,
-        title: cached?.title,
-        description: cached?.description,
-        worktreeName: cached?.worktreeName,
+        title: cached.title,
+        description: cached.description,
+        worktreeName: cached.worktreeName,
         preset: preset,
         model: model || undefined,
         sdk: activeSdk !== defaultSdk ? activeSdk : undefined,
@@ -229,7 +242,7 @@ export function JobCreationScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [repo, prompt, voiceState, baseRef, branch, model, navigate, preset, mode, activeSdk, defaultSdk]);
+  }, [repo, prompt, voiceState, baseRef, branch, branchEdited, model, navigate, preset, mode, activeSdk, defaultSdk]);
 
   const enabledSdks = sdks.filter((s) => s.enabled);
   const showSdkSelector = enabledSdks.length > 1;
@@ -454,7 +467,7 @@ export function JobCreationScreen() {
               onClick={handleSubmit}
             >
               <PlaneTakeoff size={16} />
-              Create Job
+              {submitting && !suggestedNamesRef.current ? "Naming…" : "Create Job"}
             </Button>
           </div>
         </div>

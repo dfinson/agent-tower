@@ -534,6 +534,7 @@ class RuntimeService:
             # --- Wire action policy router (mandatory) ---
             # Must run BEFORE any sessions (preflight, sidecar, main) so that
             # all tool-permission checks have the approval plumbing present.
+            await self._emit_setup_progress(job.id, "configuring_policy")
             await self._setup_action_policy(
                 job.id,
                 session_config,
@@ -544,6 +545,7 @@ class RuntimeService:
             )
 
             # Preflight context curation — explore repo via CodeRecon and produce a brief
+            await self._emit_setup_progress(job.id, "exploring_codebase")
             session_config = await self._run_preflight_curator(job, session_config)
 
             # If the job was canceled during preflight, don't start the main session.
@@ -553,6 +555,8 @@ class RuntimeService:
                 log.info("job_start_aborted_after_preflight", job_id=job.id, state=_job_check.state)
                 self._agent_sessions.pop(job.id, None)
                 return
+
+            await self._emit_setup_progress(job.id, "starting_agent")
 
             task = asyncio.create_task(
                 self._run_job_guarded(job.id, agent_session, session_config, session_number=job.session_count),
@@ -2423,6 +2427,18 @@ class RuntimeService:
                     "previous_state": previous_state,
                     "new_state": new_state,
                 },
+            )
+        )
+
+    async def _emit_setup_progress(self, job_id: str, step: str) -> None:
+        """Emit a job_setup_progress event so the frontend can show sub-step text."""
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.job_setup_progress,
+                payload={"step": step},
             )
         )
 

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { ExternalLink, AlertTriangle, ArrowDownCircle, Loader2, Coins, FolderGit2 } from "lucide-react";
 import type { JobSummary } from "../store";
 import { Tooltip } from "./ui/tooltip";
-import { cn } from "../lib/utils";
+import { cn, isActiveSetupStep, setupStepLabel } from "../lib/utils";
 
 interface MetadataChipStripProps {
   job: JobSummary;
@@ -172,10 +172,10 @@ export function MetadataChipStrip({ job, hasMergeConflict, className, onCostClic
           Failed{job.failureReason ? `: ${job.failureReason.slice(0, 40)}` : ""}
         </Chip>
       )}
-      {isPreparing && (
+      {(isPreparing || isActiveSetupStep(job.setupStep)) && (
         <Chip className="bg-violet-500/15 text-violet-400">
           <Loader2 size={10} className="animate-spin" />
-          {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
+          {setupStepLabel(job.setupStep)}
         </Chip>
       )}
     </div>

@@ -47,7 +47,6 @@ log = structlog.get_logger()
 
 _MAX_COUNT_LIMIT = 10_000  # upper bound for count queries that scan all jobs
 
-
 _MAX_NAMING_COLLISION_RETRIES = 2
 
 
