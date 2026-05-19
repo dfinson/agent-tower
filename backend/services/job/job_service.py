@@ -242,12 +242,18 @@ class JobService:
             assert worktree_name is not None
             existing_job_ids = await self._job_repo.list_ids()
             if worktree_name in existing_job_ids or (await self._job_repo.get(worktree_name) is not None):
-                # Collision — fall through to LLM naming below
-                log.info("pre_named_collision", worktree_name=worktree_name)
-                pre_named = False
-                title = None
-                description = None
-                worktree_name = None
+                # Collision — append a numeric suffix to preserve the LLM name.
+                # No need to re-run the LLM; the base name is already good.
+                counter = 2
+                while f"{worktree_name}-{counter}" in existing_job_ids:
+                    counter += 1
+                worktree_name = f"{worktree_name}-{counter}"
+                # Also deduplicate branch if provided
+                if branch:
+                    existing_branches = await self._git.list_branches(resolved_repo) if self._git else set()
+                    if branch in existing_branches:
+                        branch = f"{branch}-{counter}"
+                log.info("pre_named_collision_suffixed", worktree_name=worktree_name)
 
         if not pre_named and self._naming is not None:
             title, description, branch, worktree_name = await self._generate_names_with_retry(
