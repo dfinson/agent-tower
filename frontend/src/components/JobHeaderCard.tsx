@@ -9,7 +9,6 @@ import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 import { NavMenuSlideout } from "./NavMenuSlideout";
 import { BottomSheet } from "./ui/bottom-sheet";
 import { Tooltip } from "./ui/tooltip";
-import { IdleIndicator } from "./IdleIndicator";
 
 /** States where the card should default to expanded (user needs context/actions). */
 const EXPAND_STATES = new Set(["review", "failed", "canceled", "completed"]);
@@ -113,7 +112,6 @@ export function JobHeaderCard({
               {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
             </div>
           )}
-          {isActive && <IdleIndicator jobId={job.id} />}
 
           <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={() => { setSheetOpen(false); onCostClick(); }} />
 
@@ -176,8 +174,6 @@ export function JobHeaderCard({
                     : null}
             </span>
           )}
-          {!expanded && isActive && <IdleIndicator jobId={job.id} />}
-
           <div className="flex-1" />
           <JobActions {...actionProps} layout="bar" />
         </div>
@@ -200,7 +196,6 @@ export function JobHeaderCard({
                 {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
               </p>
             )}
-            {isActive && <IdleIndicator jobId={job.id} />}
 
             <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={onCostClick} />
           </div>

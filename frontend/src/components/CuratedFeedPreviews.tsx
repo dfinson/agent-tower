@@ -26,6 +26,7 @@ import {
   stripMcpPrefix,
   TruncatedPayload,
 } from "./ToolRenderers";
+import { RunningToolIndicator } from "./RunningToolIndicator";
 import { SyntaxBlock } from "./SyntaxBlock";
 import { detectLanguage } from "../lib/detectLanguage";
 import { useSearchHighlight } from "./CuratedFeed";
@@ -248,6 +249,10 @@ export function SubAgentBubble({
         )}
       </button>
 
+      {isRunning && (
+        <RunningToolIndicator jobId={entry.jobId} startedAt={entry.timestamp} />
+      )}
+
       {expanded && hasResult && (
         <div className="border-t border-border/20 px-3 py-2">
           <div className="flex gap-2.5">
@@ -395,6 +400,9 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
           <Ansi>{processTerminalOutput(liveOutput)}</Ansi>
           <span className="inline-block w-1.5 h-3 bg-primary/70 animate-pulse rounded-sm align-middle ml-0.5" />
         </pre>
+      )}
+      {isRunning && (
+        <RunningToolIndicator jobId={entry.jobId} startedAt={entry.timestamp} />
       )}
       {entry.toolResult && (
         <div className="px-3 py-1.5">

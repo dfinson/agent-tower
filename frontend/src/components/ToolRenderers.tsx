@@ -7,6 +7,7 @@ import { resolveToolIcon, type ToolIconDef } from "../lib/toolIcons";
 import { detectLanguage } from "../lib/detectLanguage";
 import { SyntaxBlock } from "./SyntaxBlock";
 import { stripAnsi } from "../lib/ansi";
+import { RunningToolIndicator } from "./RunningToolIndicator";
 import type { TranscriptEntry } from "../store";
 
 // ---------------------------------------------------------------------------
@@ -689,6 +690,9 @@ export function ToolStep({ entry, isActive }: {
         </div>
       </button>
       {expanded && !isRunning && <ToolDetail entry={entry} />}
+      {isRunning && (
+        <RunningToolIndicator jobId={entry.jobId} startedAt={entry.timestamp} />
+      )}
     </div>
   );
 }
