@@ -345,6 +345,12 @@ async def assemble_snapshot(
                         tool_name=er.tool_name,
                         tool_args=er.tool_args,
                         duration_ms=er.duration_ms,
+                        tool_result=er.tool_result,
+                        tool_display=er.tool_display,
+                        tool_display_full=er.tool_display_full,
+                        tool_success=er.tool_success,
+                        tool_issue=er.tool_issue,
+                        tool_visibility=er.tool_visibility,
                     )
                     for er in entries_rows
                 ]

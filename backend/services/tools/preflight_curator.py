@@ -36,11 +36,12 @@ log = structlog.get_logger()
 
 @dataclass
 class PreflightToolCall:
-    """A single CodeRecon tool invocation captured during the preflight session."""
+    """A single tool invocation captured during a preflight/secondary session."""
 
     tool_name: str
     tool_args: str | None = None
-    result_preview: str = ""
+    result_text: str = ""
+    success: bool = True
     duration_ms: float | None = None
 
 
@@ -231,11 +232,13 @@ class PreflightCurator:
                                         await on_reasoning(content)
                             elif role == "tool_call":
                                 raw_args = payload.get("tool_args")
-                                raw_content = payload.get("content", "")
+                                raw_result = payload.get("tool_result") or payload.get("content", "")
+                                sdk_success = payload.get("tool_success", True)
                                 tc = PreflightToolCall(
                                     tool_name=str(payload.get("tool_name", "")),
                                     tool_args=str(raw_args) if raw_args else None,
-                                    result_preview=str(raw_content)[:500] if raw_content else "",
+                                    result_text=str(raw_result) if raw_result else "",
+                                    success=bool(sdk_success),
                                     duration_ms=payload.get("duration_ms"),
                                 )
                                 tool_calls.append(tc)

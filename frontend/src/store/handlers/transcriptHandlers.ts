@@ -207,6 +207,12 @@ export function handleSecondarySessionEntry(state: AppState, payload: Record<str
     toolName: (entryData.toolName as string | null) ?? null,
     toolArgs: (entryData.toolArgs as string | null) ?? null,
     durationMs: (entryData.durationMs as number | null) ?? null,
+    toolResult: (entryData.toolResult as string | null) ?? null,
+    toolDisplay: (entryData.toolDisplay as string | null) ?? null,
+    toolDisplayFull: (entryData.toolDisplayFull as string | null) ?? null,
+    toolSuccess: (entryData.toolSuccess as boolean | null) ?? null,
+    toolIssue: (entryData.toolIssue as string | null) ?? null,
+    toolVisibility: (entryData.toolVisibility as string | null) ?? null,
   };
   const jobSessions = state.secondarySessions[jobId] ?? {};
   const existing = jobSessions[sessionId];

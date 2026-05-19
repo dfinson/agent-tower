@@ -322,6 +322,12 @@ def _build_secondary_session_entry(event: DomainEvent) -> str:
             "toolName": entry.get("tool_name"),
             "toolArgs": entry.get("tool_args"),
             "durationMs": entry.get("duration_ms"),
+            "toolResult": entry.get("tool_result"),
+            "toolDisplay": entry.get("tool_display"),
+            "toolDisplayFull": entry.get("tool_display_full"),
+            "toolSuccess": entry.get("tool_success"),
+            "toolIssue": entry.get("tool_issue"),
+            "toolVisibility": entry.get("tool_visibility"),
         },
     })
 

@@ -2884,23 +2884,47 @@ class RuntimeService:
                 nonlocal seq_counter
                 seq_counter += 1
                 now = datetime.now(UTC)
+
+                # Enrich via the shared pipeline (same as main transcript)
+                from backend.services.events.event_enricher import build_tool_call_payload
+                enriched = build_tool_call_payload(
+                    tool_name=tc.tool_name,
+                    tool_args=tc.tool_args,
+                    result_text=tc.result_text,
+                    sdk_success=tc.success,
+                    turn_id=None,
+                    duration_ms=tc.duration_ms,
+                )
+
                 entry_payload = {
                     "seq": seq_counter,
                     "kind": EntryKind.tool_call.value,
-                    "content": tc.result_preview or "",
+                    "content": tc.result_text[:500] if tc.result_text else "",
                     "tool_name": tc.tool_name,
                     "tool_args": tc.tool_args,
                     "duration_ms": tc.duration_ms,
+                    "tool_result": enriched.get("tool_result"),
+                    "tool_display": enriched.get("tool_display"),
+                    "tool_display_full": enriched.get("tool_display_full"),
+                    "tool_success": enriched.get("tool_success"),
+                    "tool_issue": enriched.get("tool_issue"),
+                    "tool_visibility": enriched.get("tool_visibility"),
                 }
                 await repo.add_entry(
                     session_id=session_id,
                     seq=seq_counter,
                     timestamp=now,
                     kind=EntryKind.tool_call.value,
-                    content=tc.result_preview or "",
+                    content=tc.result_text[:500] if tc.result_text else "",
                     tool_name=tc.tool_name,
                     tool_args=tc.tool_args,
                     duration_ms=tc.duration_ms,
+                    tool_result=enriched.get("tool_result"),
+                    tool_display=enriched.get("tool_display"),
+                    tool_display_full=enriched.get("tool_display_full"),
+                    tool_success=enriched.get("tool_success"),
+                    tool_issue=enriched.get("tool_issue"),
+                    tool_visibility=enriched.get("tool_visibility"),
                 )
                 await self._event_bus.publish(
                     DomainEvent(

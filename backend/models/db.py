@@ -575,6 +575,12 @@ class SecondarySessionEntryRow(Base):
     tool_name: Mapped[str | None] = mapped_column(String, nullable=True)
     tool_args: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tool_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_display: Mapped[str | None] = mapped_column(String, nullable=True)
+    tool_display_full: Mapped[str | None] = mapped_column(String, nullable=True)
+    tool_success: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    tool_issue: Mapped[str | None] = mapped_column(String, nullable=True)
+    tool_visibility: Mapped[str | None] = mapped_column(String, nullable=True)
 
     __table_args__ = (
         Index("ix_ss_entries_session", "session_id"),

@@ -176,6 +176,12 @@ export interface SecondarySessionEntry {
   toolName?: string | null;
   toolArgs?: string | null;
   durationMs?: number | null;
+  toolResult?: string | null;
+  toolDisplay?: string | null;
+  toolDisplayFull?: string | null;
+  toolSuccess?: boolean | null;
+  toolIssue?: string | null;
+  toolVisibility?: string | null;
 }
 
 /** A unified secondary session (preflight, sidecar, monitor, extractor). */
@@ -304,7 +310,7 @@ export interface AppState {
     timeline: TimelineEntry[];
     steps?: Array<{ planStepId?: string; label: string; status: string; summary?: string; toolCount?: number; filesWritten?: string[]; durationMs?: number }>;
     turnSummaries?: Array<Record<string, unknown>>;
-    secondarySessions?: Array<{ id: string; kind: string; name: string; icon: string; status: string; startedAt: string; completedAt?: string | null; output?: string | null; inputTokens?: number; outputTokens?: number; costUsd?: number; entries?: Array<{ seq: number; kind: string; content: string; toolName?: string | null; toolArgs?: string | null; durationMs?: number | null }> }>;
+    secondarySessions?: Array<{ id: string; kind: string; name: string; icon: string; status: string; startedAt: string; completedAt?: string | null; output?: string | null; inputTokens?: number; outputTokens?: number; costUsd?: number; entries?: Array<{ seq: number; kind: string; content: string; toolName?: string | null; toolArgs?: string | null; durationMs?: number | null; toolResult?: string | null; toolDisplay?: string | null; toolDisplayFull?: string | null; toolSuccess?: boolean | null; toolIssue?: string | null; toolVisibility?: string | null }> }>;
   }) => void;
 
   // Terminal actions

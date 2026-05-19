@@ -16,7 +16,8 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { AgentMarkdown } from "./AgentMarkdown";
-import type { SecondarySession, SecondarySessionEntry } from "../store/types";
+import { ToolStep } from "./ToolRenderers";
+import type { SecondarySession, SecondarySessionEntry, TranscriptEntry } from "../store/types";
 
 /** Map session kind → icon component. */
 const KIND_ICONS: Record<string, typeof Bot> = {
@@ -66,6 +67,26 @@ function formatToolArgs(toolName: string | null | undefined, rawArgs: string | n
   }
 }
 
+/** Map a SecondarySessionEntry (tool_call) to the TranscriptEntry shape used by ToolStep. */
+function toTranscriptEntry(entry: SecondarySessionEntry): TranscriptEntry {
+  return {
+    jobId: "",
+    seq: entry.seq,
+    timestamp: "",
+    role: "tool_call",
+    content: entry.content,
+    toolName: entry.toolName ?? undefined,
+    toolArgs: entry.toolArgs ?? undefined,
+    toolResult: entry.toolResult ?? undefined,
+    toolDisplay: entry.toolDisplay ?? undefined,
+    toolDisplayFull: entry.toolDisplayFull ?? undefined,
+    toolSuccess: entry.toolSuccess ?? undefined,
+    toolIssue: entry.toolIssue ?? undefined,
+    toolVisibility: entry.toolVisibility ?? undefined,
+    toolDurationMs: entry.durationMs ?? undefined,
+  };
+}
+
 /** Map backend icon name → lucide component (used when session.icon is set). */
 const ICON_MAP: Record<string, typeof Bot> = {
   bot: Bot,
@@ -112,24 +133,9 @@ const EntryTimeline = memo(function EntryTimeline({ entries }: { entries: Second
         }
 
         if (entry.kind === "tool_call") {
-          const name = entry.toolName ?? "tool";
-          const args = formatToolArgs(entry.toolName, entry.toolArgs);
-          const duration = entry.durationMs ? formatDuration(entry.durationMs) : null;
-
           return (
-            <div key={i} className="flex items-start gap-2 py-0.5">
-              <Wrench size={11} className="text-blue-400/70 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <span className="text-[12px] font-mono text-foreground/70">{name}</span>
-                {args && (
-                  <span className="text-[11px] text-muted-foreground/50 ml-1.5">
-                    {args}
-                  </span>
-                )}
-              </div>
-              {duration && (
-                <span className="text-[10px] text-muted-foreground/40 shrink-0 tabular-nums">{duration}</span>
-              )}
+            <div key={i} className="py-0.5">
+              <ToolStep entry={toTranscriptEntry(entry)} isActive={false} />
             </div>
           );
         }

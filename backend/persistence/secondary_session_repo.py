@@ -93,6 +93,12 @@ class SecondarySessionRepository:
         tool_name: str | None = None,
         tool_args: str | None = None,
         duration_ms: float | None = None,
+        tool_result: str | None = None,
+        tool_display: str | None = None,
+        tool_display_full: str | None = None,
+        tool_success: bool | None = None,
+        tool_issue: str | None = None,
+        tool_visibility: str | None = None,
     ) -> None:
         """Append a single entry (reasoning, tool_call, output, error)."""
         async with serialized_write(self._session_factory) as session:
@@ -105,6 +111,12 @@ class SecondarySessionRepository:
                 tool_name=tool_name,
                 tool_args=tool_args,
                 duration_ms=duration_ms,
+                tool_result=tool_result,
+                tool_display=tool_display,
+                tool_display_full=tool_display_full,
+                tool_success=tool_success,
+                tool_issue=tool_issue,
+                tool_visibility=tool_visibility,
             ))
 
     async def add_entries(
