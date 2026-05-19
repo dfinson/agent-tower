@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
-import { ChevronDown, ChevronRight, Plus, Zap } from "lucide-react";
+import { ChevronDown, ChevronRight, Info, Plus, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { fetchSidecarTemplates, createSidecarTemplate } from "../api/client";
 import type { SidecarTemplate } from "../api/types";
 import { SidecarDefinitionForm, type SidecarDefinitionFormData } from "./SidecarDefinitionForm";
+import { SidecarDetailModal } from "./SidecarDetailModal";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
@@ -30,6 +31,7 @@ export function SidecarPicker({
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [expandedInline, setExpandedInline] = useState<number | null>(null);
+  const [viewingTemplate, setViewingTemplate] = useState<SidecarTemplate | null>(null);
 
   useEffect(() => {
     fetchSidecarTemplates()
@@ -144,6 +146,15 @@ export function SidecarPicker({
                 <p className="text-[11px] text-muted-foreground truncate mt-0.5">{t.description}</p>
               </Tooltip>
             </div>
+            <Tooltip content="View details">
+              <button
+                type="button"
+                className="shrink-0 mt-0.5 p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setViewingTemplate(t); }}
+              >
+                <Info size={14} />
+              </button>
+            </Tooltip>
           </label>
         );
       })}
@@ -197,6 +208,12 @@ export function SidecarPicker({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* View detail modal */}
+      <SidecarDetailModal
+        template={viewingTemplate}
+        onClose={() => setViewingTemplate(null)}
+      />
     </div>
   );
 }
