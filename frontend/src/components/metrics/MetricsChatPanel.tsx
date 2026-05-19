@@ -9,7 +9,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   MessageSquare, Send, Pin, Loader2, ChevronDown, ChevronUp,
-  AlertCircle, Sparkles, Check,
+  AlertCircle, Sparkles,
 } from "lucide-react";
 import {
   sendMetricsChatMessage,
@@ -19,6 +19,7 @@ import {
 } from "../../api/client-metrics";
 import { MetricViz } from "./VizTemplates";
 import { MicButton } from "../VoiceButton";
+import { AgentMarkdown } from "../AgentMarkdown";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -100,9 +101,9 @@ export function MetricsChatPanel({ period, onMetricPinned }: MetricsChatPanelPro
     }
   };
 
-  const handlePin = async (msg: MetricsChatMessage, question: string): Promise<boolean> => {
+  const handlePin = async (msg: MetricsChatMessage, question: string) => {
     const firstSql = msg.sqlQueries?.[0];
-    if (!msg.vizData || !firstSql) return false;
+    if (!msg.vizData || !firstSql) return;
     const vizType = msg.viz ?? "table";
     try {
       await pinMetric({
@@ -114,9 +115,8 @@ export function MetricsChatPanel({ period, onMetricPinned }: MetricsChatPanelPro
         explanation: msg.narrative,
       });
       onMetricPinned?.();
-      return true;
     } catch {
-      return false;
+      // Swallow — pin failure is non-critical
     }
   };
 
@@ -250,12 +250,10 @@ function ChatBubble({
   onPin,
 }: {
   message: ChatMessage;
-  onPin?: () => Promise<boolean>;
+  onPin?: () => void;
 }) {
   const [sqlExpanded, setSqlExpanded] = useState(false);
   const [pinning, setPinning] = useState(false);
-  const [pinned, setPinned] = useState(false);
-  const [pinError, setPinError] = useState(false);
 
   if (message.role === "user") {
     return (
@@ -286,8 +284,8 @@ function ChatBubble({
             </div>
           </div>
         ) : (
-          <div className="rounded-lg bg-accent/30 border border-border px-3 py-2">
-            <p className="text-sm text-foreground">{message.content}</p>
+          <div className="rounded-lg bg-accent/30 border border-border px-3 py-2 text-sm text-foreground prose prose-sm prose-invert max-w-none">
+            <AgentMarkdown content={message.content} />
           </div>
         )}
       </div>
@@ -298,36 +296,20 @@ function ChatBubble({
           {resp.title && (
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-sm font-medium text-foreground">{resp.title}</h4>
-              {onPin && !pinned && (
+              {onPin && (
                 <button
                   onClick={async () => {
                     setPinning(true);
-                    setPinError(false);
-                    const ok = await onPin();
+                    await onPin();
                     setPinning(false);
-                    if (ok) {
-                      setPinned(true);
-                    } else {
-                      setPinError(true);
-                    }
                   }}
                   disabled={pinning}
-                  className={`flex items-center gap-1 text-xs transition-colors ${
-                    pinError
-                      ? "text-red-400 hover:text-red-300"
-                      : "text-muted-foreground hover:text-indigo-400"
-                  }`}
-                  title={pinError ? "Pin failed — click to retry" : "Pin to dashboard"}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-indigo-400 transition-colors"
+                  title="Pin to dashboard"
                 >
                   {pinning ? <Loader2 size={12} className="animate-spin" /> : <Pin size={12} />}
-                  {pinError ? "Retry" : "Pin"}
+                  Pin
                 </button>
-              )}
-              {pinned && (
-                <span className="flex items-center gap-1 text-xs text-emerald-400">
-                  <Check size={12} />
-                  Pinned
-                </span>
               )}
             </div>
           )}
