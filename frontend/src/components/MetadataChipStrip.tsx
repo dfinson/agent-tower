@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, forwardRef } from "react";
 import { createPortal } from "react-dom";
-import { ExternalLink, AlertTriangle, ArrowDownCircle, Loader2, Coins } from "lucide-react";
+import { ExternalLink, AlertTriangle, ArrowDownCircle, Loader2, Coins, FolderGit2 } from "lucide-react";
 import type { JobSummary } from "../store";
 import { Tooltip } from "./ui/tooltip";
 import { cn } from "../lib/utils";
@@ -131,9 +131,11 @@ function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => v
 
 export function MetadataChipStrip({ job, hasMergeConflict, className, onCostClick }: MetadataChipStripProps) {
   const isPreparing = job.state === "preparing";
+  const repoName = job.repo.split("/").pop() ?? job.repo;
 
   return (
     <div className={cn("flex items-center gap-1.5 overflow-x-auto scrollbar-none", className)}>
+      <Chip><FolderGit2 size={10} />{repoName}</Chip>
       {job.branch && (
         <Chip>{job.branch} → {job.baseRef}</Chip>
       )}
