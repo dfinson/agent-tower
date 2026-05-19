@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { ChevronDown, ChevronRight, Info, Plus, Zap } from "lucide-react";
 import { toast } from "sonner";
-import { fetchSidecarTemplates, createSidecarTemplate } from "../api/client";
+import { fetchSidecarTemplates, createSidecarTemplate, updateSidecarTemplate } from "../api/client";
 import type { SidecarTemplate } from "../api/types";
 import { SidecarDefinitionForm, type SidecarDefinitionFormData } from "./SidecarDefinitionForm";
 import { SidecarDetailModal } from "./SidecarDetailModal";
@@ -32,6 +32,7 @@ export function SidecarPicker({
   const [saving, setSaving] = useState(false);
   const [expandedInline, setExpandedInline] = useState<number | null>(null);
   const [viewingTemplate, setViewingTemplate] = useState<SidecarTemplate | null>(null);
+  const [editingTemplate, setEditingTemplate] = useState<SidecarTemplate | null>(null);
 
   useEffect(() => {
     fetchSidecarTemplates()
@@ -73,6 +74,26 @@ export function SidecarPicker({
   const removeInline = useCallback((index: number) => {
     onInlineDefinitions(inlineDefinitions.filter((_, i) => i !== index));
   }, [inlineDefinitions, onInlineDefinitions]);
+
+  const handleEditSave = useCallback(async (_data: SidecarDefinitionFormData, definitionJson: string) => {
+    if (!editingTemplate) return;
+    setSaving(true);
+    try {
+      const parsed = JSON.parse(definitionJson);
+      const updated = await updateSidecarTemplate(editingTemplate.id, {
+        name: parsed.name,
+        description: parsed.description,
+        definitionJson,
+      });
+      setTemplates((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      setEditingTemplate(null);
+      toast.success(`Template "${updated.name}" updated`);
+    } catch (e) {
+      toast.error(`Failed to update: ${e}`);
+    } finally {
+      setSaving(false);
+    }
+  }, [editingTemplate]);
 
   if (loading) {
     return <p className="text-xs text-muted-foreground py-1">Loading templates…</p>;
@@ -213,7 +234,45 @@ export function SidecarPicker({
       <SidecarDetailModal
         template={viewingTemplate}
         onClose={() => setViewingTemplate(null)}
+        onEdit={(t) => { setViewingTemplate(null); setEditingTemplate(t); }}
       />
+
+      {/* Edit modal */}
+      <Dialog open={!!editingTemplate} onOpenChange={(open) => { if (!open) setEditingTemplate(null); }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Sidecar</DialogTitle>
+          </DialogHeader>
+          <div className="px-5 pb-5">
+            {editingTemplate && (
+              <SidecarDefinitionForm
+                key={editingTemplate.id}
+                initial={(() => {
+                  try {
+                    const d = JSON.parse(editingTemplate.definitionJson);
+                    return {
+                      name: d.name ?? editingTemplate.name,
+                      description: d.description ?? editingTemplate.description,
+                      scope: d.scope ?? "global",
+                      phase: d.phase ?? "postflight",
+                      lifetime: d.lifetime ?? "ephemeral",
+                      model: d.model ?? "",
+                      systemPrompt: d.systemPrompt ?? "",
+                      triggers: JSON.stringify(d.triggers ?? []),
+                      maxTurns: typeof d.maxTurns === "number" ? d.maxTurns : undefined,
+                      timeoutS: typeof d.timeoutS === "number" ? d.timeoutS : undefined,
+                    };
+                  } catch { return undefined; }
+                })()}
+                onSave={handleEditSave}
+                onCancel={() => setEditingTemplate(null)}
+                saving={saving}
+                saveLabel="Save Changes"
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

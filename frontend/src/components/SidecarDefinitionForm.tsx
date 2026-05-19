@@ -79,6 +79,8 @@ interface SidecarDefinitionFormProps {
   saveLabel?: string;
   /** Hide the "job" scope option (used when creating from settings, not from a job). */
   hideJobScope?: boolean;
+  /** Render in read-only mode — all fields are visible but non-interactive. */
+  readOnly?: boolean;
 }
 
 export function SidecarDefinitionForm({
@@ -88,6 +90,7 @@ export function SidecarDefinitionForm({
   saving,
   saveLabel = "Save",
   hideJobScope,
+  readOnly,
 }: SidecarDefinitionFormProps) {
   const [nlInput, setNlInput] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -200,7 +203,7 @@ export function SidecarDefinitionForm({
   return (
     <div className="flex flex-col gap-5">
       {/* ── NL input with voice ── */}
-      {!initial?.name && (
+      {!initial?.name && !readOnly && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5">
             <Label className="text-sm">Describe what you want</Label>
@@ -256,9 +259,10 @@ export function SidecarDefinitionForm({
       )}
 
       {/* ── Config form ── */}
-      {(formPopulated || initial?.name) && (
+      {(formPopulated || initial?.name || readOnly) && (
         <>
-          {!initial?.name && <hr className="border-border" />}
+          {!initial?.name && !readOnly && <hr className="border-border" />}
+          <div className={readOnly ? "pointer-events-none select-none opacity-90" : undefined}>
 
           {/* Identity: name + description */}
           <div className="flex flex-col gap-4">
@@ -437,16 +441,19 @@ export function SidecarDefinitionForm({
                 <Label className="cursor-help w-fit">Triggers</Label>
               </Tooltip>
             </div>
-            <TriggerPipelineEditor value={triggers} onChange={setTriggers} />
+            <TriggerPipelineEditor value={triggers} onChange={setTriggers} readOnly={readOnly} />
           </div>
+          </div>{/* close pointer-events wrapper */}
 
           {/* Actions */}
-          <div className="flex justify-end gap-2 pt-1">
-            <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-            <Button onClick={handleSave} loading={saving} disabled={!name.trim()}>
-              {saveLabel}
-            </Button>
-          </div>
+          {!readOnly && (
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+              <Button onClick={handleSave} loading={saving} disabled={!name.trim()}>
+                {saveLabel}
+              </Button>
+            </div>
+          )}
         </>
       )}
     </div>

@@ -160,6 +160,7 @@ function makeDefaultRoute(kind: string): OutputRoute {
 interface TriggerPipelineEditorProps {
   value: TriggerPipeline[];
   onChange: (triggers: TriggerPipeline[]) => void;
+  readOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +169,7 @@ interface TriggerPipelineEditorProps {
 
 export type { TriggerPipeline };
 
-export function TriggerPipelineEditor({ value, onChange }: TriggerPipelineEditorProps) {
+export function TriggerPipelineEditor({ value, onChange, readOnly }: TriggerPipelineEditorProps) {
   const triggers = value;
 
   const update = useCallback(
@@ -214,7 +215,7 @@ export function TriggerPipelineEditor({ value, onChange }: TriggerPipelineEditor
   );
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className={`flex flex-col gap-3${readOnly ? " pointer-events-none" : ""}`}>
       {triggers.map((trigger, i) => (
         <TriggerCard
           key={i}
@@ -226,12 +227,15 @@ export function TriggerPipelineEditor({ value, onChange }: TriggerPipelineEditor
           onDuplicate={() => duplicate(i)}
           onMoveUp={() => move(i, -1)}
           onMoveDown={() => move(i, 1)}
+          readOnly={readOnly}
         />
       ))}
-      <Button variant="outline" size="sm" onClick={add} className="w-fit">
-        <Plus size={14} />
-        Add Trigger
-      </Button>
+      {!readOnly && (
+        <Button variant="outline" size="sm" onClick={add} className="w-fit">
+          <Plus size={14} />
+          Add Trigger
+        </Button>
+      )}
     </div>
   );
 }
@@ -249,6 +253,7 @@ interface TriggerCardProps {
   onDuplicate: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  readOnly?: boolean;
 }
 
 function TriggerCard({
@@ -260,6 +265,7 @@ function TriggerCard({
   onDuplicate,
   onMoveUp,
   onMoveDown,
+  readOnly,
 }: TriggerCardProps) {
   const cond = trigger.condition;
   const condLabel = CONDITION_OPTIONS.find((o) => o.value === cond.kind)?.label ?? cond.kind;
@@ -271,7 +277,8 @@ function TriggerCard({
         <span className="text-xs font-medium text-foreground">
           Trigger {total > 1 ? `${index + 1}` : ""} — {condLabel}
         </span>
-        <div className="flex items-center gap-0.5">
+        {!readOnly && (
+          <div className="flex items-center gap-0.5">
           {total > 1 && (
             <>
               <Tooltip content="Move up">
@@ -297,6 +304,7 @@ function TriggerCard({
             </Button>
           </Tooltip>
         </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-3 p-3">
@@ -404,22 +412,24 @@ function TriggerCard({
                 onRemove={() => {
                   onUpdate({ outputRoutes: trigger.outputRoutes.filter((_, j) => j !== ri) });
                 }}
-                removable={trigger.outputRoutes.length > 1}
+                removable={!readOnly && trigger.outputRoutes.length > 1}
               />
             ))}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                onUpdate({
-                  outputRoutes: [...trigger.outputRoutes, makeDefaultRoute("event_bus")],
-                })
-              }
-              className="w-fit text-xs h-7"
-            >
-              <Plus size={12} />
-              Add Route
-            </Button>
+            {!readOnly && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  onUpdate({
+                    outputRoutes: [...trigger.outputRoutes, makeDefaultRoute("event_bus")],
+                  })
+                }
+                className="w-fit text-xs h-7"
+              >
+                <Plus size={12} />
+                Add Route
+              </Button>
+            )}
           </div>
         </div>
       </div>
