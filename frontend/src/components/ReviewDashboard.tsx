@@ -11,7 +11,7 @@
  * the Story sub-view becomes default. Dashboard shows info banner. Timeline hidden.
  */
 import { Suspense, useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, Plus, Minus, Pencil, ShieldCheck, ShieldAlert, Shield, Info } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Plus, Minus, Pencil, ShieldCheck, Info } from "lucide-react";
 import { fetchStructuralDiff, fetchMultiSession, fetchBlastRadius, type StructuralChange, type StructuralDiffResponse, type BlastRadiusResponse } from "../api/client";
 import { useStore } from "../store";
 import { selectStructuralDiff, selectMultiSession } from "../store/selectors";
@@ -34,12 +34,6 @@ const CATEGORY_CONFIG: Record<string, { color: string; dot: string; label: strin
   body: { color: "text-yellow-400", dot: "bg-yellow-400", label: "body", tip: "Implementation changes within existing functions — behavior may shift" },
   additive: { color: "text-green-400", dot: "bg-green-400", label: "additive", tip: "New code that doesn't change existing interfaces — safest category" },
   "non-structural": { color: "text-zinc-400", dot: "bg-zinc-400", label: "non-structural", tip: "Formatting, comments, or whitespace — no functional impact" },
-};
-
-const CONFIDENCE_CONFIG: Record<string, { icon: typeof ShieldCheck; color: string; label: string; tip: string }> = {
-  HIGH: { icon: ShieldCheck, color: "text-green-400", label: "High Confidence", tip: "Changes are well-tested and low-risk — safe to merge" },
-  MEDIUM: { icon: Shield, color: "text-yellow-400", label: "Medium Confidence", tip: "Some changes may need closer review — moderate risk" },
-  LOW: { icon: ShieldAlert, color: "text-red-400", label: "Low Confidence", tip: "Significant risk detected — careful review recommended before merging" },
 };
 
 const KIND_ICONS: Record<string, typeof Plus> = {
@@ -82,23 +76,6 @@ function TriageBar({ triage, activeFilter, onFilter }: {
         );
       })}
     </div>
-  );
-}
-
-// -- Merge Confidence Badge --
-
-function MergeConfidenceBadge({ confidence }: { confidence: string }) {
-  const cfg = CONFIDENCE_CONFIG[confidence];
-  if (!cfg) return null;
-  const Icon = cfg.icon;
-
-  return (
-    <Tooltip content={cfg.tip}>
-      <div className={`flex items-center gap-1.5 text-xs font-medium ${cfg.color} cursor-help`}>
-        <Icon size={14} />
-        <span>{cfg.label}</span>
-      </div>
-    </Tooltip>
   );
 }
 
@@ -204,7 +181,6 @@ function DashboardSubView({ data, onSymbolClick }: { data: StructuralDiffRespons
       <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-semibold">Structural Review</h3>
-          {data.mergeConfidence && <MergeConfidenceBadge confidence={data.mergeConfidence} />}
         </div>
         {data.summary && (
           <p className="text-xs text-muted-foreground mb-3">{data.summary}</p>

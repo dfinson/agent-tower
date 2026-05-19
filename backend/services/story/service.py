@@ -1404,6 +1404,62 @@ class StoryService:
         except Exception:
             log.debug("story_prefetch_failed", job_id=job_id, verbosity=verbosity, exc_info=True)
 
+    # ------------------------------------------------------------------
+    # Background drain loop — pre-generates stories so the GET is instant
+    # ------------------------------------------------------------------
+
+    _DRAIN_INTERVAL = 8.0  # seconds between sweeps
+
+    async def drain_loop(self) -> None:
+        """Run forever, generating stories for jobs in review state.
+
+        Periodically scans for jobs that entered review but don't yet have
+        cached stories at all verbosity levels, then generates them in the
+        background.  This ensures the frontend GET is always a simple DB read.
+        """
+        from sqlalchemy import text
+
+        if not self._session_factory:
+            log.warning("story_drain_loop_no_session_factory")
+            return
+
+        while True:
+            try:
+                async with self._session_factory() as session:
+                    # Find jobs in review/completed state missing at least one verbosity cache
+                    rows = await session.execute(
+                        text(
+                            "SELECT id FROM jobs WHERE state IN ('review', 'completed') AND ("
+                            "  story_text IS NULL OR "
+                            "  story_text_summary IS NULL OR "
+                            "  story_text_detailed IS NULL"
+                            ") LIMIT 4"
+                        )
+                    )
+                    job_ids = [r[0] for r in rows.fetchall()]
+
+                for job_id in job_ids:
+                    for verbosity in ("summary", "standard", "detailed"):
+                        try:
+                            async with self._session_factory() as session:
+                                await self.get_or_generate(
+                                    session, job_id, verbosity=verbosity
+                                )
+                        except Exception:
+                            log.debug(
+                                "story_drain_generate_failed",
+                                job_id=job_id,
+                                verbosity=verbosity,
+                                exc_info=True,
+                            )
+
+                if job_ids:
+                    log.info("story_drain_batch", count=len(job_ids))
+            except Exception:
+                log.warning("story_drain_loop_error", exc_info=True)
+
+            await asyncio.sleep(self._DRAIN_INTERVAL)
+
     async def _generate_passes(
         self,
         *,

@@ -1126,6 +1126,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await model_pricing_service.refresh()
     model_pricing_service.start_background_refresh()
 
+    # --- Story pre-generation drain loop (background) ---
+    from backend.services.story.service import StoryService as _StoryServiceCls
+
+    story_drain_service = _StoryServiceCls(
+        completer=services.narrator_completer,
+        coderecon=coderecon_service,
+        session_factory=session_factory,
+        model_pricing=model_pricing_service,
+        git_service=services.git_service,
+    )
+    story_drain_task = asyncio.create_task(story_drain_service.drain_loop(), name="story-drain")
+
     # --- SessionStateWatcher (auto-discover Copilot --remote sessions) ---
     # Watchers feed events through RuntimeService so imported sessions get the
     # full pipeline: sidecar sessions, heartbeat, stall detection, plan

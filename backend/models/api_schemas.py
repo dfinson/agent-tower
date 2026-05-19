@@ -773,6 +773,12 @@ class SecondarySessionEntryResponse(CamelModel):
     tool_name: str | None = None
     tool_args: str | None = None
     duration_ms: float | None = None
+    tool_result: str | None = None
+    tool_display: str | None = None
+    tool_display_full: str | None = None
+    tool_success: bool | None = None
+    tool_issue: str | None = None
+    tool_visibility: str | None = None
 
 
 class SecondarySessionResponse(CamelModel):
@@ -1064,6 +1070,7 @@ class StoryResponse(CamelModel):
     beat_count: int = 0
     has_decisions: bool = False
     has_backtracks: bool = False
+    pending: bool = False  # True when story is being generated in background
 
 
 # ---------------------------------------------------------------------------

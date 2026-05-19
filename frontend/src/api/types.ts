@@ -213,6 +213,7 @@ export interface StoryResponse {
   beatCount: number;
   hasDecisions: boolean;
   hasBacktracks: boolean;
+  pending?: boolean;
 }
 
 // --- Review signal types ---

@@ -72,7 +72,6 @@ from backend.services.merge_service import MergeService
 from backend.services.runtime import RuntimeService
 from backend.services.steps.diff_service import StepDiffService
 from backend.services.story.review import _ADDITIVE_CAP, _ATTENTION_CAP, _BODY_CAP
-from backend.services.story.service import StoryService
 
 log = structlog.get_logger()
 
@@ -603,38 +602,64 @@ async def unarchive_job(
 async def get_job_story(
     job_id: str,
     session: FromDishka[AsyncSession],
-    story_service: FromDishka[StoryService],
     regenerate: bool = False,
     verbosity: str = Query(default="standard", pattern="^(summary|standard|detailed)$"),
 ) -> StoryResponse:
-    """Return a structured code-review story with validated change references
-    and agent cognitive beats.
+    """Return a cached code-review story for a job.
 
-    Generated on demand using a cheap LLM for connective prose, with change
-    references built directly from telemetry spans and trail beats woven in
-    as inline narrative turning points.  Cached on the jobs table.
-    Pass ?regenerate=true to force a fresh generation.
-    Verbosity: summary (one-sentence per file), standard (default), detailed (full rationale).
+    Stories are pre-generated in the background at all verbosity levels
+    as soon as a job enters review state.  This endpoint reads from the
+    DB cache only — it never blocks on LLM generation.
+
+    Pass ?regenerate=true to force a fresh generation (fire-and-forget;
+    returns empty immediately and the background loop will populate it).
     """
-    if regenerate:
-        payload = await story_service.regenerate(session, job_id, verbosity=verbosity)
-    else:
-        payload = await story_service.get_or_generate(session, job_id, verbosity=verbosity)
+    from sqlalchemy import text as sa_text
 
-    if not payload:
-        return StoryResponse(job_id=job_id, blocks=[], cached=False, verbosity=verbosity)
-
-    blocks = [StoryBlock(**b) for b in payload.get("blocks", [])]
-    cached = bool(payload.get("_from_cache", False))
-    return StoryResponse(
-        job_id=job_id,
-        blocks=blocks,
-        cached=cached,
-        verbosity=verbosity,
-        beat_count=payload.get("beat_count", 0),
-        has_decisions=payload.get("has_decisions", False),
-        has_backtracks=payload.get("has_backtracks", False),
+    # Verify job exists
+    exists = await session.execute(
+        sa_text("SELECT 1 FROM jobs WHERE id = :jid"),
+        {"jid": job_id},
     )
+    if exists.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if regenerate:
+        # Clear the cached column so the drain loop regenerates it
+        col = {"summary": "story_text_summary", "standard": "story_text", "detailed": "story_text_detailed"}[verbosity]
+        await session.execute(
+            sa_text(f"UPDATE jobs SET {col} = NULL WHERE id = :jid"),  # noqa: S608
+            {"jid": job_id},
+        )
+        await session.commit()
+        return StoryResponse(job_id=job_id, blocks=[], cached=False, verbosity=verbosity, pending=True)
+
+    # Read from cache only
+    col = {"summary": "story_text_summary", "standard": "story_text", "detailed": "story_text_detailed"}[verbosity]
+    row = await session.execute(
+        sa_text(f"SELECT {col} FROM jobs WHERE id = :jid"),  # noqa: S608
+        {"jid": job_id},
+    )
+    cached = row.scalar_one_or_none()
+    if cached:
+        import json
+        try:
+            payload = json.loads(cached)
+            blocks = [StoryBlock(**b) for b in payload.get("blocks", [])]
+            return StoryResponse(
+                job_id=job_id,
+                blocks=blocks,
+                cached=True,
+                verbosity=verbosity,
+                beat_count=payload.get("beat_count", 0),
+                has_decisions=payload.get("has_decisions", False),
+                has_backtracks=payload.get("has_backtracks", False),
+            )
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # Not yet generated — the background drain loop will produce it
+    return StoryResponse(job_id=job_id, blocks=[], cached=False, verbosity=verbosity, pending=True)
 
 
 @router.get("/jobs/{job_id}/structural-diff", response_model=StructuralDiffResponse)
@@ -1426,7 +1451,11 @@ async def get_job_motivations(
     spans_repo: FromDishka[TelemetrySpansRepository],
 ) -> JobMotivationsResponse:
     """Return all motivation annotations for a job's changed files."""
-    await svc.get_job(job_id)  # validate job exists
+    job = await svc.get_job(job_id)
+
+    # Telemetry stores absolute paths; the diff API uses repo-relative paths.
+    # Compute the prefix to strip so keys align with the diff contract.
+    wt_prefix = ((job.worktree_path or job.repo or "") + "/").replace("//", "/")
 
     spans = await spans_repo.motivated_spans_for_job(job_id=job_id)
     file_motivations: dict[str, FileMotivation] = {}
@@ -1438,6 +1467,9 @@ async def get_job_motivations(
         if not target or not summary:
             continue
 
+        # Normalize to relative path
+        rel_target = target[len(wt_prefix):] if target.startswith(wt_prefix) else target
+
         # Parse motivation_summary as "Title: rest" or just use as why
         if ": " in summary and len(summary.split(": ", 1)[0]) < 80:
             title, why = summary.split(": ", 1)
@@ -1445,7 +1477,7 @@ async def get_job_motivations(
             title = ""
             why = summary
 
-        file_motivations[target] = FileMotivation(title=title, why=why)
+        file_motivations[rel_target] = FileMotivation(title=title, why=why)
 
         # Parse edit_motivations JSON if present
         edit_motivations_raw = span.get("edit_motivations")
@@ -1454,7 +1486,7 @@ async def get_job_motivations(
             try:
                 edits = _json.loads(edit_motivations_raw) if isinstance(edit_motivations_raw, str) else edit_motivations_raw
                 for i, edit in enumerate(edits if isinstance(edits, list) else []):
-                    key = f"{target}:{i}"
+                    key = f"{rel_target}:{i}"
                     hunk_motivations[key] = HunkMotivation(
                         edit_key=edit.get("edit_key", key),
                         title=edit.get("title", ""),
