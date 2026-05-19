@@ -87,6 +87,9 @@ Available fields:
   - "repo": applies to all jobs in a specific repo — best for repo-specific conventions (migration reviewers, test coverage for a monorepo).
   - "job": applies to a single job — best for one-off or task-specific sidecars (review this PR, audit this refactor).
   Choose based on how broadly the sidecar's purpose applies. When in doubt, prefer "global".
+- "autoAttach": Whether this sidecar automatically activates on every new job. Default false.
+  Set to true only for critical observability sidecars (security gates, compliance).
+  When false, the sidecar must be explicitly attached to a job by the operator.
 - "phase": When the sidecar runs. One of: "preflight", "midflight", "postflight". Required.
 - "lifetime": How long the session lives. One of: "ephemeral", "windowed", "persistent". Required.
   - For "windowed": also include "maxTurns" (int, optional) and/or "timeoutS" (float, optional) to define window bounds.

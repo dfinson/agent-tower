@@ -461,9 +461,9 @@ class RuntimeService:
                 try:
                     raw = json.loads(tpl.definition_json)
                     defn = hydrate_definition(raw)
-                    # Activate global and repo-scoped templates automatically;
-                    # job-scoped templates require explicit attachment (not yet implemented)
-                    if defn.scope in ("global", "repo"):
+                    # Only auto-attach templates that explicitly opt in.
+                    # scope must be global/repo AND autoAttach must be true.
+                    if defn.scope in ("global", "repo") and defn.auto_attach:
                         defn_with_id = hydrate_definition({**raw, "templateId": tpl.id})
                         definitions.append(defn_with_id)
                 except Exception:

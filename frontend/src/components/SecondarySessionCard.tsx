@@ -11,7 +11,8 @@
 import { useState, useMemo, memo } from "react";
 import {
   ChevronDown, ChevronRight, CheckCircle2, Loader2, XCircle,
-  Wrench, Brain, Telescope, Bot, Eye, Sparkles,
+  Wrench, Brain, Telescope, Bot, Eye, Sparkles, MessageCircle,
+  Shield, Zap, Search, FileText, AlertTriangle, Bug,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -23,6 +24,63 @@ const KIND_ICONS: Record<string, typeof Bot> = {
   sidecar: Bot,
   monitor: Eye,
   extractor: Sparkles,
+};
+
+/** Format tool args for human-readable display instead of raw JSON. */
+function formatToolArgs(toolName: string | null | undefined, rawArgs: string | null | undefined): string | null {
+  if (!rawArgs) return null;
+  try {
+    const args = JSON.parse(rawArgs);
+    if (toolName === "view" || toolName === "Read") {
+      const path = args.path || args.file_path || "";
+      const short = path.split("/").slice(-2).join("/");
+      if (args.view_range) return `${short}:${args.view_range[0]}-${args.view_range[1]}`;
+      return short;
+    }
+    if (toolName === "bash" || toolName === "execute") {
+      const cmd = args.command || args.cmd || "";
+      return cmd.length > 80 ? cmd.slice(0, 77) + "…" : cmd;
+    }
+    if (toolName === "grep" || toolName === "search") {
+      const pattern = args.pattern || args.query || args.regex || "";
+      const path = args.path || args.include || "";
+      const short = path ? path.split("/").slice(-2).join("/") : "";
+      return short ? `"${pattern}" in ${short}` : `"${pattern}"`;
+    }
+    if (toolName === "write" || toolName === "Edit") {
+      const path = args.path || args.file_path || "";
+      return path.split("/").slice(-2).join("/");
+    }
+    // Fallback: show key=value pairs compactly
+    const pairs = Object.entries(args)
+      .map(([k, v]) => {
+        const val = typeof v === "string" ? v : JSON.stringify(v);
+        const short = (val as string).length > 30 ? (val as string).slice(0, 27) + "…" : val;
+        return `${k}=${short}`;
+      })
+      .join(" ");
+    return pairs.length > 80 ? pairs.slice(0, 77) + "…" : pairs;
+  } catch {
+    // Not JSON — return truncated raw string
+    return rawArgs.length > 60 ? rawArgs.slice(0, 57) + "…" : rawArgs;
+  }
+}
+
+/** Map backend icon name → lucide component (used when session.icon is set). */
+const ICON_MAP: Record<string, typeof Bot> = {
+  bot: Bot,
+  telescope: Telescope,
+  eye: Eye,
+  sparkles: Sparkles,
+  wrench: Wrench,
+  "message-circle": MessageCircle,
+  shield: Shield,
+  zap: Zap,
+  search: Search,
+  "file-text": FileText,
+  "alert-triangle": AlertTriangle,
+  bug: Bug,
+  brain: Brain,
 };
 
 function formatDuration(ms: number): string {
@@ -55,9 +113,7 @@ const EntryTimeline = memo(function EntryTimeline({ entries }: { entries: Second
 
         if (entry.kind === "tool_call") {
           const name = entry.toolName ?? "tool";
-          const args = entry.toolArgs
-            ? entry.toolArgs.length > 80 ? entry.toolArgs.slice(0, 80) + "…" : entry.toolArgs
-            : null;
+          const args = formatToolArgs(entry.toolName, entry.toolArgs);
           const duration = entry.durationMs ? formatDuration(entry.durationMs) : null;
 
           return (
@@ -104,6 +160,36 @@ const EntryTimeline = memo(function EntryTimeline({ entries }: { entries: Second
   );
 });
 
+/** Compact scouting summary for preflight sessions — shows examined files inline. */
+const PreflightScoutingSummary = memo(function PreflightScoutingSummary({
+  entries,
+}: {
+  entries: SecondarySessionEntry[];
+}) {
+  const examined = entries
+    .filter((e) => e.kind === "tool_call")
+    .map((e) => {
+      const label = formatToolArgs(e.toolName, e.toolArgs);
+      return { tool: e.toolName ?? "tool", label, duration: e.durationMs };
+    });
+
+  if (examined.length === 0) return null;
+
+  return (
+    <div className="mt-1.5 pl-[22px]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-[11px] text-muted-foreground/60 uppercase tracking-wide font-medium">Examined</span>
+        {examined.map((item, i) => (
+          <span key={i} className="inline-flex items-center gap-1 text-[12px] text-foreground/60 bg-muted/40 rounded px-1.5 py-0.5">
+            <FileText size={10} className="text-muted-foreground/50" />
+            <span className="font-mono text-[11px]">{item.label || item.tool}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+});
+
 /** Main SecondarySessionCard — inline feed block. */
 export const SecondarySessionCard = memo(function SecondarySessionCard({
   session,
@@ -111,7 +197,7 @@ export const SecondarySessionCard = memo(function SecondarySessionCard({
   session: SecondarySession;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const Icon = KIND_ICONS[session.kind] ?? Bot;
+  const Icon = ICON_MAP[session.icon] ?? KIND_ICONS[session.kind] ?? Bot;
   const toolCalls = session.entries.filter((e) => e.kind === "tool_call").length;
   const isRunning = session.status === "running";
   const isCompleted = session.status === "completed";
@@ -125,11 +211,18 @@ export const SecondarySessionCard = memo(function SecondarySessionCard({
     return undefined;
   }, [session.entries]);
 
+  // Detect if output duplicates the last reasoning (avoid showing same text twice)
+  const outputDuplicatesReasoning = !!(
+    session.output && latestReasoning?.content &&
+    session.output.trim() === latestReasoning.content.trim()
+  );
+
   return (
     <div className={cn(
       "rounded-lg border px-3 py-2.5 my-2",
       isRunning && "border-blue-500/30 bg-blue-500/[0.04]",
-      isCompleted && "border-border bg-muted/20",
+      isCompleted && session.kind === "preflight" && "border-purple-500/20 bg-purple-500/[0.03]",
+      isCompleted && session.kind !== "preflight" && "border-border bg-muted/20",
       isFailed && "border-red-500/30 bg-red-500/[0.04]",
     )}>
       {/* Header row */}
@@ -137,7 +230,8 @@ export const SecondarySessionCard = memo(function SecondarySessionCard({
         <Icon size={14} className={cn(
           "shrink-0",
           isRunning && "text-blue-400",
-          isCompleted && "text-muted-foreground",
+          isCompleted && session.kind === "preflight" && "text-purple-400/80",
+          isCompleted && session.kind !== "preflight" && "text-muted-foreground",
           isFailed && "text-red-400",
         )} />
         <span className={cn(
@@ -175,11 +269,16 @@ export const SecondarySessionCard = memo(function SecondarySessionCard({
         </span>
       </div>
 
-      {/* Latest reasoning preview (when collapsed & has reasoning) */}
-      {!expanded && latestReasoning && (
+      {/* Latest reasoning preview (when collapsed & not duplicating the output) */}
+      {!expanded && latestReasoning && !outputDuplicatesReasoning && (
         <p className="text-[12px] text-muted-foreground/60 mt-1.5 line-clamp-1 leading-relaxed pl-[22px]">
           {latestReasoning.content}
         </p>
+      )}
+
+      {/* Preflight: show compact scouting summary instead of generic expand */}
+      {session.kind === "preflight" && !expanded && toolCalls > 0 && (
+        <PreflightScoutingSummary entries={session.entries} />
       )}
 
       {/* Expand toggle */}
@@ -189,7 +288,7 @@ export const SecondarySessionCard = memo(function SecondarySessionCard({
           className="flex items-center gap-1 mt-1.5 text-[11px] text-primary/60 hover:text-primary transition-colors pl-[22px]"
         >
           {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-          {expanded ? "Collapse" : `Expand${toolCalls > 0 ? ` (${toolCalls} ${toolCalls === 1 ? "call" : "calls"})` : ""}`}
+          {expanded ? "Collapse" : session.kind === "preflight" ? "Details" : `Expand${toolCalls > 0 ? ` (${toolCalls} ${toolCalls === 1 ? "call" : "calls"})` : ""}`}
         </button>
       )}
 
@@ -200,8 +299,8 @@ export const SecondarySessionCard = memo(function SecondarySessionCard({
         </div>
       )}
 
-      {/* Output — always visible when completed */}
-      {isCompleted && session.output && (
+      {/* Output — always visible when completed (skip if expanded and duplicates reasoning) */}
+      {isCompleted && session.output && !(expanded && outputDuplicatesReasoning) && (
         <div className="mt-2 pt-2 border-t border-border/50 pl-[22px]">
           <div className="text-[13px] text-foreground/80 leading-relaxed max-h-48 overflow-y-auto">
             <AgentMarkdown content={session.output} />

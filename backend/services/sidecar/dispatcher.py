@@ -297,6 +297,9 @@ class SidecarDefinition:
     tool_policy: SidecarToolPolicy | None = None
     # Per-sidecar preset override — None inherits from the parent job.
     preset: str | None = None
+    # Whether this sidecar auto-attaches to every new job.
+    # False (default) means it's available but requires explicit attachment.
+    auto_attach: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +320,9 @@ class _JobState:
     gated_since: float | None = None  # monotonic time when agent was paused by a gate
     executing_depth: int = 0  # recursion guard: >0 means pipeline is running for this job
     queued: list[tuple[SidecarDefinition, int, dict[str, Any] | None]] = field(default_factory=list)
+    # Per-sidecar monotonic time of last agent message injection.
+    # Used to gate injections: skip if agent has had no activity since last inject.
+    last_agent_inject: dict[str, float] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -478,6 +484,7 @@ def hydrate_definition(raw: dict[str, Any]) -> SidecarDefinition:
         tool_access=raw.get("toolAccess", raw.get("tool_access", TOOL_ACCESS_NONE)),
         tool_policy=_hydrate_tool_policy(raw.get("toolPolicy") or raw.get("tool_policy")),
         preset=raw.get("preset"),
+        auto_attach=raw.get("autoAttach", raw.get("auto_attach", False)),
     )
 
 
@@ -1237,7 +1244,12 @@ class SidecarDispatcher:
 
         elif isinstance(route, AgentMessageRoute):
             content = parsed if isinstance(parsed, str) else json.dumps(parsed)
-            label_prefix = f"[{route.label or defn.name}] " if (route.label or defn.name) else ""
+            raw_label = route.label or defn.name or ""
+            # Strip stray brackets so user-authored labels like "[Foo]" don't
+            # get double-wrapped to "[[Foo]]".
+            raw_label = raw_label.strip("[]").strip()
+            label_prefix = f"[{raw_label}] " if raw_label else ""
+            # Message injected into the agent includes the label for context.
             full_message = f"{label_prefix}{content}"
             # Publish unified secondary session events for visibility
             import uuid as _uuid
@@ -1247,6 +1259,10 @@ class SidecarDispatcher:
 
             _sess_id = str(_uuid.uuid4())
             _now = datetime.now(UTC)
+            # Human-friendly display name: title-case the label/name for UI.
+            _display_name = raw_label.replace("-", " ").replace("_", " ").title() if raw_label else defn.name.replace("-", " ").replace("_", " ").title()
+            _icon = defn.icon or "bot"
+
             if self._session_factory is not None:
                 from backend.persistence.secondary_session_repo import SecondarySessionRepository
 
@@ -1255,8 +1271,8 @@ class SidecarDispatcher:
                     session_id=_sess_id,
                     job_id=job_id,
                     kind=SecondarySessionKind.sidecar.value,
-                    name=defn.name,
-                    icon=defn.icon or "bot",
+                    name=_display_name,
+                    icon=_icon,
                     started_at=_now,
                 )
                 await _repo.add_entry(
@@ -1264,13 +1280,13 @@ class SidecarDispatcher:
                     seq=1,
                     timestamp=_now,
                     kind=EntryKind.output.value,
-                    content=full_message,
+                    content=content,
                 )
                 await _repo.complete_session(
                     _sess_id,
                     status=SecondarySessionStatus.completed.value,
                     completed_at=_now,
-                    output=full_message,
+                    output=content,
                 )
             await self._event_bus.publish(
                 DomainEvent(
@@ -1281,8 +1297,8 @@ class SidecarDispatcher:
                     payload={
                         "session_id": _sess_id,
                         "kind": SecondarySessionKind.sidecar.value,
-                        "name": defn.name,
-                        "icon": defn.icon or "bot",
+                        "name": _display_name,
+                        "icon": _icon,
                     },
                 )
             )
@@ -1295,21 +1311,40 @@ class SidecarDispatcher:
                     payload={
                         "session_id": _sess_id,
                         "status": SecondarySessionStatus.completed.value,
-                        "output": full_message,
+                        "output": content,
                     },
                 )
             )
-            # Actually inject the message into the running agent session
+            # Activity-gated injection: skip if agent has had no activity
+            # since our last injection from this sidecar. This prevents
+            # timer-based sidecars from flooding a stalled agent with
+            # dozens of queued messages.
             if self._agent_message_handler is not None:
-                try:
-                    await self._agent_message_handler(job_id, full_message)
-                except Exception:
-                    log.warning(
-                        "dispatcher_agent_message_inject_failed",
-                        job_id=job_id,
-                        sidecar=defn.name,
-                        exc_info=True,
-                    )
+                state = self._jobs.get(job_id)
+                should_inject = True
+                if state is not None:
+                    last_inject = state.last_agent_inject.get(defn.name)
+                    if last_inject is not None and state.last_activity <= last_inject:
+                        # Agent hasn't produced any activity since our last
+                        # injection — skip to avoid message pile-up.
+                        should_inject = False
+                        log.debug(
+                            "dispatcher_agent_inject_skipped_no_activity",
+                            job_id=job_id,
+                            sidecar=defn.name,
+                        )
+                if should_inject:
+                    try:
+                        await self._agent_message_handler(job_id, full_message)
+                        if state is not None:
+                            state.last_agent_inject[defn.name] = time.monotonic()
+                    except Exception:
+                        log.warning(
+                            "dispatcher_agent_message_inject_failed",
+                            job_id=job_id,
+                            sidecar=defn.name,
+                            exc_info=True,
+                        )
 
         elif isinstance(route, GateRoute):
             if not isinstance(parsed, dict):
