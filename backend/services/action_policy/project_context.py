@@ -82,7 +82,7 @@ class ProjectContext:
         return self._built
 
     async def build(self, coderecon: CodeReconService | None = None) -> None:
-        """Scan manifest and config files, call recon_understand if available."""
+        """Scan manifest and config files, call recon_scout if available."""
         root = Path(self.worktree)
 
         # Read manifest files for dependencies

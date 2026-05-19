@@ -31,7 +31,7 @@ class TestConstants:
         assert "Glob" in _DISALLOWED_BUILTIN_TOOLS
 
     def test_system_prompt_mentions_tools(self):
-        assert "recon_understand" in _PREFLIGHT_SYSTEM_PROMPT
+        assert "recon_scout" in _PREFLIGHT_SYSTEM_PROMPT
         assert "recon" in _PREFLIGHT_SYSTEM_PROMPT
         assert "scaffold" in _PREFLIGHT_SYSTEM_PROMPT
         assert "recon_impact" in _PREFLIGHT_SYSTEM_PROMPT

@@ -18,7 +18,6 @@ vi.mock("../../api/client", () => ({
   resolveJob: vi.fn(),
   fetchArtifacts: vi.fn().mockResolvedValue({ items: [] }),
   createTerminalSession: vi.fn(),
-  fetchRepoMemory: vi.fn().mockResolvedValue({ entries: [] }),
   archiveJob: vi.fn(),
 }));
 

@@ -737,6 +737,21 @@ export function CuratedFeed({
     const text = msg.trim();
     setMsg("");
     setSending(true);
+
+    // Optimistic update: show the operator message immediately in the transcript
+    const optimisticEntry: TranscriptEntry = {
+      jobId,
+      seq: 0,
+      timestamp: new Date().toISOString(),
+      role: "operator",
+      content: text,
+    };
+    const state = useStore.getState();
+    const existing = state.transcript[jobId] ?? [];
+    useStore.setState({
+      transcript: { ...state.transcript, [jobId]: [...existing, optimisticEntry] },
+    });
+
     try {
       if (isTerminal) {
         const followup = await continueJob(jobId, text);
@@ -753,6 +768,12 @@ export function CuratedFeed({
         await sendOperatorMessage(jobId, text);
       }
     } catch (err) {
+      // Rollback optimistic entry on failure
+      const cur = useStore.getState();
+      const curEntries = cur.transcript[jobId] ?? [];
+      useStore.setState({
+        transcript: { ...cur.transcript, [jobId]: curEntries.filter((e) => e !== optimisticEntry) },
+      });
       setMsg(text);
       const detail =
         err instanceof ApiError

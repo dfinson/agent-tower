@@ -115,7 +115,11 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
 
   // Deduplicate: two SSE connections (global + job-scoped) may deliver
   // the same event; skip if identical role+content+timestamp already present.
-  if (existing.some((e) => e.timestamp === entry.timestamp && e.role === entry.role && e.content === entry.content)) {
+  // For operator messages, match on role+content only (ignore timestamp) to
+  // suppress the SSE echo when an optimistic entry was already inserted.
+  if (entry.role === "operator"
+    ? existing.some((e) => e.role === "operator" && e.content === entry.content)
+    : existing.some((e) => e.timestamp === entry.timestamp && e.role === entry.role && e.content === entry.content)) {
     return null;
   }
   const updated = [...existing, entry];

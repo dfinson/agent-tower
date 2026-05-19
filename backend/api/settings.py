@@ -37,7 +37,6 @@ from backend.models.api_schemas import (
     RepoHealthResponse,
     RepoJobSummary,
     RepoListResponse,
-    RepoMemoryPreview,
     RepoSummaryResponse,
     SDKInfoResponse,
     SDKListResponse,
@@ -191,10 +190,7 @@ async def get_repo_summary(
     coderecon: FromDishka[CodeReconService],
     sf: FromDishka[async_sessionmaker[AsyncSession]],
 ) -> RepoSummaryResponse:
-    """Aggregated dashboard overview for a single repository."""
-    from backend.services.memory.workspace import read_memory_detail
-
-    log = structlog.get_logger()
+    """Aggregated dashboard overview for a single repository.\"\"\"\n    log = structlog.get_logger()
 
     resolved = str(Path(repo_path).expanduser().resolve())
     if resolved not in config.repos:
@@ -275,24 +271,6 @@ async def get_repo_summary(
     except Exception:
         log.warning("repo_summary.jobs_query_failed", repo=resolved, exc_info=True)
 
-    # --- Memory preview (filesystem, no DB needed) ---
-    memory_preview = RepoMemoryPreview()
-    try:
-        detail = read_memory_detail(resolved)
-        decisions = detail.get("decisions", "")
-        wisdom_text = detail.get("wisdom", "")
-        archive_text = detail.get("archive", "")
-        memory_preview = RepoMemoryPreview(
-            has_memory=bool(decisions or wisdom_text),
-            decisions_chars=len(decisions),
-            wisdom_chars=len(wisdom_text),
-            archive_chars=len(archive_text),
-            decisions_preview=decisions[:200],
-            wisdom_preview=wisdom_text[:200],
-        )
-    except Exception:
-        log.warning("repo_summary.memory_read_failed", repo=resolved, exc_info=True)
-
     # --- Health (best-effort) ---
     health: RepoHealthResponse | None = None
     if coderecon.available:
@@ -351,7 +329,6 @@ async def get_repo_summary(
         recent_jobs=recent_jobs,
         active_job_count=active_job_count,
         cost=cost_summary,
-        memory=memory_preview,
         health=health,
     )
 

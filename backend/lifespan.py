@@ -39,7 +39,6 @@ from backend.services.events.sse_manager import SSEManager
 from backend.services.git.git_service import GitService
 from backend.services.job.approval_service import ApprovalService
 from backend.services.job.retention_service import RetentionService
-from backend.services.memory.compacter import MemoryCompacter
 from backend.services.merge_service import MergeService
 from backend.services.runtime import RuntimeService
 from backend.services.sharing.push_service import PushService
@@ -275,7 +274,6 @@ class _CoreServices:
     sidecar_sessions: SidecarSessionManager
     sidecar_dispatcher: SidecarDispatcher
     narrator_completer: NarratorCompleter
-    memory_compacter: MemoryCompacter
     runtime_service: RuntimeService
     git_service: GitService
     diff_service: DiffService
@@ -458,18 +456,10 @@ async def _wire_core_services(
     await sidecar_dispatcher.start()
     event_bus.subscribe(sidecar_dispatcher.handle_event)
 
-    # --- Memory compacter (dedicated workspace memory summarization) ---
-    memory_compacter = MemoryCompacter(adapter=utility_adapter)
-
     # --- Preflight curator (pre-job context curation: memory + structural) ---
     from backend.services.tools.preflight_curator import PreflightCurator
 
     preflight_curator = PreflightCurator(adapter=utility_adapter, coderecon=coderecon_service)
-
-    # --- Memory extractor (post-job knowledge extraction) ---
-    from backend.services.memory.extractor import MemoryExtractor
-
-    memory_extractor = MemoryExtractor(adapter=utility_adapter)
 
     # --- Narrator completer (dedicated long-form story generation) ---
     narrator_completer = NarratorCompleter(
@@ -505,10 +495,8 @@ async def _wire_core_services(
         sidecar_dispatcher=sidecar_dispatcher,
     )
 
-    # Wire the memory sessions
-    runtime_service.set_memory_compacter(memory_compacter)
+    # Wire the preflight curator
     runtime_service.set_preflight_curator(preflight_curator)
-    runtime_service.set_memory_extractor(memory_extractor)
 
     # Wire the sidecar gate handler — pauses agent tools on reject/hold verdicts.
     async def _gate_handler(job_id: str, sidecar_name: str, verdict: str, reason: str) -> None:
@@ -536,7 +524,6 @@ async def _wire_core_services(
         sidecar_sessions=sidecar_sessions,
         sidecar_dispatcher=sidecar_dispatcher,
         narrator_completer=narrator_completer,
-        memory_compacter=memory_compacter,
         runtime_service=runtime_service,
         git_service=git_service,
         diff_service=diff_service,
@@ -1197,7 +1184,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             SidecarSessionManager: services.sidecar_sessions,
             SidecarDispatcher: services.sidecar_dispatcher,
             NarratorCompleter: services.narrator_completer,
-            MemoryCompacter: services.memory_compacter,
             VoiceService: optional.voice_service,
             CachedModelsBySdk: CachedModelsBySdk(optional.cached_models_by_sdk),
             VoiceMaxBytes: VoiceMaxBytes(optional.voice_max_bytes),

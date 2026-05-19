@@ -41,7 +41,6 @@ from backend.services.events.sse_manager import SSEManager
 from backend.services.git.git_service import GitService
 from backend.services.job.approval_service import ApprovalService
 from backend.services.job.job_service import JobService
-from backend.services.memory.compacter import MemoryCompacter
 from backend.services.merge_service import MergeService
 from backend.services.runtime import RuntimeService
 from backend.services.sharing.push_service import PushService
@@ -87,7 +86,6 @@ class AppProvider(Provider):
     terminal_service = from_context(provides=TerminalService)
     coderecon_service = from_context(provides=CodeReconService)
     narrator_completer = from_context(provides=NarratorCompleter)
-    memory_compacter = from_context(provides=MemoryCompacter)
     ingest_service = from_context(provides=IngestService)
     model_pricing = from_context(provides=ModelPricingService)
     claude_session_watcher = from_context(provides=ClaudeSessionStateWatcher)

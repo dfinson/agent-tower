@@ -85,8 +85,6 @@ if TYPE_CHECKING:
 
     from backend.services.coderecon.coderecon_service import CodeReconService
     from backend.services.events.ingest_service import IngestService
-    from backend.services.memory.compacter import MemoryCompacter
-    from backend.services.memory.extractor import MemoryExtractor
     from backend.services.sidecar.dispatcher import SidecarDispatcher
     from backend.services.steps.tracker import StepTracker
     from backend.services.terminal.terminal_service import TerminalService
@@ -276,9 +274,7 @@ class RuntimeService:
         self._shutting_down = False
         self._snapshot_tasks: dict[str, asyncio.Task[None]] = {}
         self._pending_starts: dict[str, tuple[str | None, str | None]] = {}
-        self._memory_compacter: MemoryCompacter | None = None
         self._preflight_curator: PreflightCurator | None = None
-        self._memory_extractor: MemoryExtractor | None = None
         self._ingest_service: IngestService | None = None
         # Active sidecar gates per job: job_id → {sidecar_name: reason}
         self._active_gates: dict[str, dict[str, str]] = {}
@@ -313,17 +309,9 @@ class RuntimeService:
         """Wire the TerminalService for job terminals."""
         self._terminal_service = svc
 
-    def set_memory_compacter(self, compacter: MemoryCompacter) -> None:
-        """Wire the MemoryCompacter for workspace memory compaction."""
-        self._memory_compacter = compacter
-
     def set_preflight_curator(self, curator: PreflightCurator) -> None:
         """Wire the PreflightCurator for pre-job context curation."""
         self._preflight_curator = curator
-
-    def set_memory_extractor(self, extractor: MemoryExtractor) -> None:
-        """Wire the MemoryExtractor for post-job knowledge extraction."""
-        self._memory_extractor = extractor
 
     def set_ingest_service(self, svc: IngestService) -> None:
         """Wire the IngestService for operator message delivery to CLI sessions."""
@@ -555,8 +543,8 @@ class RuntimeService:
                 repo=job.repo,
             )
 
-            # Workspace memory — curate relevant entries via sidecar session
-            session_config = await self._curate_workspace_memory(job, session_config)
+            # Preflight context curation — explore repo via CodeRecon and produce a brief
+            session_config = await self._run_preflight_curator(job, session_config)
 
             task = asyncio.create_task(
                 self._run_job_guarded(job.id, agent_session, session_config, session_number=job.session_count),
@@ -790,12 +778,6 @@ class RuntimeService:
                 self._trail_service.stop_tracking(job_id)
                 succeeded = final_state in (JobState.completed, JobState.review)
                 await self._trail_service.finalize(job_id, succeeded=succeeded)
-            # Extract workspace memory before cleanup closes the sidecar session
-            if final_state in (JobState.completed, JobState.review) and job is not None:
-                try:
-                    await self._extract_workspace_memory(job_id, job.repo)
-                except Exception:
-                    log.debug("workspace_memory.post_job_failed", job_id=job_id, exc_info=True)
             await self._cleanup_job_state(job_id)
 
     async def _init_telemetry_row(self, job_id: str, config: SessionConfig) -> None:
@@ -1507,18 +1489,6 @@ class RuntimeService:
             self._trail_service.stop_tracking(job_id)
             await self._trail_service.finalize(job_id, succeeded=error_reason is None)
             self._trail_service.cleanup(job_id)
-
-        # Extract workspace memory before closing the sidecar session
-        # (the extractor uses it for LLM calls).  Look up the canonical repo
-        # path from the DB — worktree_path can differ from the repo root.
-        if error_reason is None:
-            try:
-                async with self._session_factory() as session:
-                    job = await JobRepository(session).get(job_id)
-                if job is not None and job.repo:
-                    await self._extract_workspace_memory(job_id, job.repo)
-            except Exception:
-                log.debug("workspace_memory.post_job_failed", job_id=job_id, exc_info=True)
 
         # Sidecar session cleanup (metrics snapshot + pool return)
         if self._sidecar_dispatcher is not None:
@@ -2836,9 +2806,9 @@ class RuntimeService:
         )
         return final_state
 
-    # -- Preflight context curation (continued) -------------------------------
+    # -- Preflight context curation -------------------------------------------
 
-    async def _curate_workspace_memory(
+    async def _run_preflight_curator(
         self,
         job: Job,
         session_config: SessionConfig,
@@ -2846,18 +2816,16 @@ class RuntimeService:
         """Run the preflight curator agent to produce curated context.
 
         The curator agent explores the repository structure via CodeRecon
-        tools and selects relevant workspace memory entries.  Returns
-        *session_config* with ``memory_context`` populated (or unchanged
-        on failure).
+        tools and produces a brief for the main agent's system prompt.
+        Returns *session_config* with ``memory_context`` populated (or
+        unchanged on failure).
         """
         from backend.models.secondary_session import EntryKind, SecondarySessionKind, SecondarySessionStatus
         from backend.persistence.secondary_session_repo import SecondarySessionRepository
-        from backend.services.memory.workspace import load_workspace_memory
 
-        raw_memory = load_workspace_memory(job.repo)
         worktree_path = job.worktree_path or job.repo
 
-        if not raw_memory and (self._coderecon_service is None or not self._coderecon_service.available):
+        if self._coderecon_service is None or not self._coderecon_service.available:
             return session_config
 
         if self._preflight_curator is None:
@@ -2954,7 +2922,6 @@ class RuntimeService:
 
             report = await self._preflight_curator.curate(
                 task=session_config.prompt,
-                memory=raw_memory or None,
                 repo=str(job.repo),
                 worktree=worktree_path,
                 job_id=job.id,
@@ -2988,7 +2955,6 @@ class RuntimeService:
                 log.info(
                     "preflight_curator.curated",
                     job_id=job.id,
-                    had_memory=bool(raw_memory),
                     curated_len=len(report.brief),
                     tool_call_count=len(report.tool_calls),
                 )
@@ -3019,51 +2985,6 @@ class RuntimeService:
                 pass
 
         return session_config
-
-    async def _extract_workspace_memory(
-        self,
-        job_id: str,
-        repo_path: str,
-    ) -> None:
-        """Post-job: extract memory entries from trail and write to inbox."""
-        if self._shutting_down:
-            return
-
-        from backend.services.memory.workspace import (
-            append_to_inbox,
-            merge_inbox,
-        )
-
-        if self._memory_extractor is None or self._trail_service is None:
-            return
-        if self._memory_compacter is None:
-            return
-
-        try:
-            summary = await self._trail_service.get_summary(job_id)
-        except Exception:
-            log.debug("workspace_memory.trail_summary_failed", job_id=job_id, exc_info=True)
-            return
-
-        decisions = summary.get("key_decisions", [])
-        if not decisions:
-            return
-
-        decisions_text = "\n".join(
-            f"- {d['decision']}" + (f" (reason: {d['rationale']})" if d.get("rationale") else "") for d in decisions
-        )
-
-        try:
-            extracted = await self._memory_extractor.extract(decisions_text)
-        except Exception:
-            log.warning("workspace_memory.extraction_failed", job_id=job_id, exc_info=True)
-            return
-
-        if not extracted:
-            return
-
-        append_to_inbox(repo_path, job_id, extracted)
-        await merge_inbox(repo_path, self._memory_compacter)
 
     @property
     def is_shutting_down(self) -> bool:

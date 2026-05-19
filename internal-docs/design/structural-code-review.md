@@ -245,7 +245,7 @@ they serve no CodePlane use case:
 
 * `describe(action)` — introspection helper for generating tool documentation
 * `graph_export(repo, output_path)` — writes a dependency graph file to disk
-* `recon_understand(repo)` — full codebase briefing (agents call this directly via provisioned tools when in Full tier)
+* `recon_scout(repo)` — full codebase briefing (agents call this directly via provisioned tools when in Full tier)
 
 ### 3.5 Session Model
 
@@ -569,7 +569,7 @@ subset to agents depending on tier (§8.3). The full inventory:
 | `recon` | Task-aware context retrieval — ranked code spans |
 | `recon_map` | Repository structure map with entry points |
 | `recon_impact` | Reference/caller analysis for a symbol |
-| `recon_understand` | Full codebase narrative briefing (structure, PageRank, communities) |
+| `recon_scout` | Full codebase narrative briefing (structure, PageRank, communities) |
 | `scaffold` | File structural overview — imports + symbols without bodies |
 | `graph_communities` | Module boundary detection (Louvain) |
 | `graph_cycles` | Circular dependency detection (Tarjan) |
@@ -598,7 +598,7 @@ per-repo:
 
 * **Minimal**: `recon` + `recon_map` + `scaffold` (read-only context gathering)
 * **Standard**: Minimal + `checkpoint` + `recon_impact` (structural awareness with verification)
-* **Full**: All 13 tools including `semantic_diff`, `graph_*`, `recon_understand`, and `refactor_*` (architectural work)
+* **Full**: All 13 tools including `semantic_diff`, `graph_*`, `recon_scout`, and `refactor_*` (architectural work)
 
 ### 8.4 Usage Tracking
 

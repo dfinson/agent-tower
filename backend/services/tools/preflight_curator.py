@@ -1,7 +1,7 @@
 """Preflight context curator — agent session that selects relevant context for a job.
 
 Runs as a proper agent session with read-only CodeRecon tools.  The curator
-agent can call ``recon_understand`` (with optional ``scope``), ``recon``,
+agent can call ``recon_scout`` (with optional ``scope``), ``recon``,
 ``recon_map``, ``recon_impact``, and ``scaffold`` to explore the repository
 structure, then produces a curated brief for the main agent's system prompt.
 
@@ -94,7 +94,7 @@ these** — they give you the full picture in one call.
 
 ### Primary tools (use FIRST)
 
-- **recon_understand** — Codebase overview: languages, top files by PageRank,
+- **recon_scout** — Codebase overview: languages, top files by PageRank,
   key symbols, dependency cycles, module communities.  Call with no arguments
   for the broad view, or pass ``scope`` (e.g. ``"backend/services"``) to zoom
   into a specific module or directory.
@@ -112,9 +112,9 @@ these** — they give you the full picture in one call.
 
 ## Strategy
 
-1. Start with ``recon_understand`` for the broad structural view.
+1. Start with ``recon_scout`` for the broad structural view.
 2. If the task targets a specific subsystem, zoom with
-   ``recon_understand(scope="path/to/module")``.
+   ``recon_scout(scope="path/to/module")``.
 3. Use ``recon``, ``scaffold``, and ``recon_impact`` for deeper structural
    detail on specific files or symbols.
 4. Only if you need to verify exact syntax or a specific code pattern that
@@ -147,7 +147,7 @@ class PreflightCurator:
 
     Runs a full agent session with read-only CodeRecon tools so the
     curator can explore the repository structure autonomously — calling
-    ``recon_understand`` (with scope), ``recon``, ``scaffold``, etc. as
+    ``recon_scout`` (with scope), ``recon``, ``scaffold``, etc. as
     many times as it needs before producing the final brief.
     """
 

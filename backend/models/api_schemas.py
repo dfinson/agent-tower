@@ -436,17 +436,6 @@ class RepoCostSummary(CamelModel):
     total_tokens: int = 0
 
 
-class RepoMemoryPreview(CamelModel):
-    """Short preview of workspace memory."""
-
-    has_memory: bool = False
-    decisions_chars: int = 0
-    wisdom_chars: int = 0
-    archive_chars: int = 0
-    decisions_preview: str = ""
-    wisdom_preview: str = ""
-
-
 class RepoSummaryResponse(CamelModel):
     """Aggregated overview for a single repo dashboard."""
 
@@ -458,7 +447,6 @@ class RepoSummaryResponse(CamelModel):
     recent_jobs: list[RepoJobSummary] = []
     active_job_count: int = 0
     cost: RepoCostSummary = RepoCostSummary()
-    memory: RepoMemoryPreview = RepoMemoryPreview()
     health: RepoHealthResponse | None = None
 
 

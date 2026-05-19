@@ -53,7 +53,7 @@ _TOOL_GUIDANCE_FULL = (
 - **graph_communities** — When working across modules. Shows which files
   cluster together.
 - **graph_cycles** — After adding new imports. Detects circular deps.
-- **recon_understand** — Full codebase narrative briefing.
+- **recon_scout** — Full codebase narrative briefing.
 - **semantic_diff** — Structural change summary between two states.
 """
 )
@@ -73,7 +73,7 @@ _TOOL_DEFS: dict[str, dict[str, Any]] = {
             "required": ["target", "justification"],
         },
     },
-    "recon_understand": {
+    "recon_scout": {
         "description": (
             "Full codebase narrative briefing \u2014 structure, PageRank, communities."
             " Use scope to zoom into a specific module/directory."
@@ -206,7 +206,7 @@ def _resolve_tier(tier: str) -> set[str]:
     standard = minimal | {"checkpoint", "blast_radius"}
     # Read-only structural tools for the preflight curator agent.
     # Must match the tools listed in the preflight system prompt.
-    preflight = {"recon_understand", "recon_impact", "recon", "recon_map", "scaffold"}
+    preflight = {"recon_scout", "recon_impact", "recon", "recon_map", "scaffold"}
     if tier == "minimal":
         return minimal
     if tier == "standard":
@@ -244,7 +244,7 @@ def build_coderecon_tools(
                     worktree=worktree,
                 )
                 return _serialize_result(result)
-            if tool_name == "recon_understand":
+            if tool_name == "recon_scout":
                 result = await service.scout(
                     repo,
                     scope=args.get("scope"),

@@ -116,7 +116,7 @@ class TestResolveTier:
 
     def test_preflight(self):
         names = _resolve_tier("preflight")
-        assert names == {"recon_understand", "recon_impact", "recon", "recon_map", "scaffold"}
+        assert names == {"recon_scout", "recon_impact", "recon", "recon_map", "scaffold"}
 
     def test_full(self):
         names = _resolve_tier("full")
@@ -162,7 +162,7 @@ class TestToolDefs:
     def test_required_tools_exist(self):
         assert "checkpoint" in _TOOL_DEFS
         assert "recon_impact" in _TOOL_DEFS
-        assert "recon_understand" in _TOOL_DEFS
+        assert "recon_scout" in _TOOL_DEFS
         assert "semantic_diff" in _TOOL_DEFS
         assert "graph_cycles" in _TOOL_DEFS
         assert "graph_communities" in _TOOL_DEFS
@@ -186,4 +186,4 @@ class TestGuidancePrompts:
         assert "semantic_diff" in _TOOL_GUIDANCE_FULL
 
     def test_full_mentions_understand(self):
-        assert "recon_understand" in _TOOL_GUIDANCE_FULL
+        assert "recon_scout" in _TOOL_GUIDANCE_FULL

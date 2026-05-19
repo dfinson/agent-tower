@@ -6,7 +6,7 @@ import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
 import { formatJobTerminalLabel } from "../lib/terminalLabels";
-import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot, fetchRepoMemory } from "../api/client";
+import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot } from "../api/client";
 import { CuratedFeed } from "./CuratedFeed";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { lazyRetry } from "../lib/lazyRetry";
@@ -30,7 +30,7 @@ import { MobileBottomNav, MobileFooterActions } from "./JobDetailMobile";
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
 const ArtifactViewer = lazyRetry(() => import("./ArtifactViewer"));
 const ReviewDashboard = lazyRetry(() => import("./ReviewDashboard"));
-const KnowledgePanel = lazyRetry(() => import("./KnowledgePanel").then((m) => ({ default: m.KnowledgePanel })));
+
 
 const SKELETON_DELAY_MS = 500;
 
@@ -98,7 +98,6 @@ export function JobDetailScreen() {
   const hasWorktree = !!job?.worktreePath && !job?.archivedAt;
   const [hasArtifacts, setHasArtifacts] = useState(false);
   const [artifactCount, setArtifactCount] = useState(0);
-  const [hasMemory, setHasMemory] = useState(false);
 
   // Map a transcript turnId to the nearest activity-timeline step turnId.
   // Many transcript turns have no corresponding step in the activity timeline;
@@ -148,9 +147,8 @@ export function JobDetailScreen() {
     if (hasChanges) tabs.push("review");
     tabs.push("files", "metrics");
     if (hasArtifacts) tabs.push("artifacts");
-    if (hasMemory) tabs.push("knowledge");
     return tabs;
-  }, [hasChanges, hasArtifacts, hasMemory]);
+  }, [hasChanges, hasArtifacts]);
   const touchRef = useRef<{ x: number; y: number; t: number; el: EventTarget | null } | null>(null);
   const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
 
@@ -246,12 +244,7 @@ export function JobDetailScreen() {
     if (!hasArtifacts && tab === "artifacts") setTab("live");
   }, [hasArtifacts, tab]);
 
-  useEffect(() => {
-    if (!job?.repo) return;
-    fetchRepoMemory(job.repo)
-      .then((res) => setHasMemory(res.hasMemory))
-      .catch(() => {});
-  }, [job?.repo]);
+
 
   // Open a new terminal session in the drawer, scoped to this job's worktree.
   // Each click intentionally creates a new session — multiple sessions per job are supported.
@@ -569,7 +562,6 @@ export function JobDetailScreen() {
         onTabChange={handleTabChange}
         hasChanges={hasChanges}
         hasArtifacts={hasArtifacts}
-        hasMemory={hasMemory}
         artifactCount={artifactCount}
         hasWorktree={hasWorktree}
         jobTerminalCount={jobTerminalCount}
@@ -706,13 +698,7 @@ export function JobDetailScreen() {
         </TabErrorBoundary>
       )}
 
-      {tab === "knowledge" && job?.repo && (
-        <TabErrorBoundary>
-          <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-            <KnowledgePanel jobId={jobId} repoPath={job.repo} />
-          </Suspense>
-        </TabErrorBoundary>
-      )}
+
       </div>{/* end content panel */}
       </div>{/* end activity + content flex wrapper */}
 
