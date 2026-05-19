@@ -82,6 +82,10 @@ def _shell_display_name(tool_name: str, tool_args_json: str | None) -> str:
             sub = parts[idx + 1]
             if not sub.startswith("-"):
                 return f"{base} {sub}"
+        # python -m <module> → show the module name (e.g. "pytest" not "python")
+        if base == "python" or base == "python3":
+            if idx + 2 < len(parts) and parts[idx + 1] == "-m":
+                return str(parts[idx + 2])
         return str(base)
     return str(tool_name)
 

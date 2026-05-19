@@ -117,6 +117,23 @@ TOOL_CATEGORIES: dict[str, str] = {
     "store_memory": "bookkeeping",
     "manage_todo_list": "bookkeeping",
     "memory": "bookkeeping",
+    # MCP coderecon — code reconnaissance and refactoring
+    "recon_scout": "file_read",
+    "recon": "file_search",
+    "recon_map": "file_search",
+    "recon_impact": "file_search",
+    "describe": "file_read",
+    "graph_communities": "file_search",
+    "graph_cycles": "file_search",
+    "graph_export": "file_search",
+    "semantic_diff": "file_read",
+    "checkpoint": "bookkeeping",
+    "refactor_move": "file_write",
+    "refactor_rename": "file_write",
+    "refactor_commit": "file_write",
+    "refactor_cancel": "bookkeeping",
+    # execution_subagent — delegation to execution-focused sub-agents
+    "execution_subagent": "agent",
 }
 
 
@@ -459,12 +476,22 @@ def classify_tool(tool_name: str) -> str:
 
     For MCP-style names like ``server/tool``, tries the full name first,
     then falls back to just the tool part after the slash.
+
+    For underscore-prefixed MCP names like ``mcp_server_tool``, strips the
+    ``mcp_<server>_`` prefix and looks up the remainder.
     """
     cat = TOOL_CATEGORIES.get(tool_name)
     if cat:
         return cat
     if "/" in tool_name:
         return TOOL_CATEGORIES.get(tool_name.rsplit("/", 1)[-1], "other")
+    if tool_name.startswith("mcp_"):
+        parts = tool_name.split("_", 2)
+        if len(parts) >= 3:
+            tool_part = parts[2]
+            cat = TOOL_CATEGORIES.get(tool_part)
+            if cat:
+                return cat
     return "other"
 
 
