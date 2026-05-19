@@ -689,15 +689,14 @@ class SessionConfig:
     resume_sdk_session_id: str | None = None
     # CodeRecon native tool kit (§8) — built by RuntimeService at job start
     coderecon_tools: Any | None = None
-    # Workspace memory — curated context injected via system_message (hidden from transcript)
+    # Curated context injected via system_message (hidden from transcript)
     memory_context: str | None = None
     # Maximum agent turns before the session is forcibly ended (None = SDK default)
     max_turns: int | None = None
     # Built-in tools to block (e.g. ["Bash", "Write", "Edit"] for read-only sessions)
     disallowed_tools: list[str] = field(default_factory=list)
     # Telemetry dimension — classifies this session for cost tracking.
-    # "job" for main agent sessions, or "preflight", "memory_extraction",
-    # "memory_compaction", "narrator", "sidecar" for sidecar sessions.
+    # "job" for main agent sessions, or "preflight", "narrator", "sidecar" for sidecar sessions.
     session_kind: SessionKind = "job"
 
 

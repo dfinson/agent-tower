@@ -996,48 +996,6 @@ export { ApiError };
 // Re-export analytics module for backward compatibility
 export * from "./client-analytics";
 
-// --- Memory ---
-
-export interface MemoryResponse {
-  memory: string;
-  hasMemory: boolean;
-}
-
-export interface MemoryDetailResponse {
-  decisions: string;
-  wisdom: string;
-  archive: string;
-  hasMemory: boolean;
-}
-
-export interface CompactResponse {
-  compacted: boolean;
-}
-
-export function fetchRepoMemory(repoPath: string): Promise<MemoryResponse> {
-  return request(`/repos/${encodeURIComponent(repoPath)}/memory`);
-}
-
-export function fetchRepoMemoryDetail(repoPath: string): Promise<MemoryDetailResponse> {
-  return request(`/repos/${encodeURIComponent(repoPath)}/memory/detail`);
-}
-
-export function updateRepoMemory(
-  repoPath: string,
-  body: { decisions?: string; wisdom?: string },
-): Promise<MemoryResponse> {
-  return request(`/repos/${encodeURIComponent(repoPath)}/memory`, {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
-}
-
-export function compactRepoMemory(repoPath: string): Promise<CompactResponse> {
-  return request(`/repos/${encodeURIComponent(repoPath)}/memory/compact`, {
-    method: "POST",
-  });
-}
-
 // --- Repo Summary (dashboard) ---
 
 export interface RepoJobSummary {
@@ -1054,15 +1012,6 @@ export interface RepoCostSummary {
   totalCostUsd: number;
   totalJobs: number;
   totalTokens: number;
-}
-
-export interface RepoMemoryPreview {
-  hasMemory: boolean;
-  decisionsChars: number;
-  wisdomChars: number;
-  archiveChars: number;
-  decisionsPreview: string;
-  wisdomPreview: string;
 }
 
 export interface RepoHealthSummary {
@@ -1086,7 +1035,6 @@ export interface RepoSummaryResponse {
   recentJobs: RepoJobSummary[];
   activeJobCount: number;
   cost: RepoCostSummary;
-  memory: RepoMemoryPreview;
   health: RepoHealthSummary | null;
 }
 

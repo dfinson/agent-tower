@@ -18,7 +18,6 @@ Sub-packages:
 * **events/** — Event bus, SSE, event processing pipeline.
 * **git/** — Git operations service.
 * **job/** — Job lifecycle, approval, retry, retention.
-* **memory/** — Workspace memory compaction, extraction, read/write.
 * **merge_service/** — Git merge orchestration.
 * **runtime/** — Job execution, queueing, heartbeat, resume, verify.
 * **setup/** — Preflight checks, dependency validation, setup wizard.

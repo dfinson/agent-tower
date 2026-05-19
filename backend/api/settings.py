@@ -190,7 +190,8 @@ async def get_repo_summary(
     coderecon: FromDishka[CodeReconService],
     sf: FromDishka[async_sessionmaker[AsyncSession]],
 ) -> RepoSummaryResponse:
-    """Aggregated dashboard overview for a single repository.\"\"\"\n    log = structlog.get_logger()
+    """Aggregated dashboard overview for a single repository."""
+    log = structlog.get_logger()
 
     resolved = str(Path(repo_path).expanduser().resolve())
     if resolved not in config.repos:
