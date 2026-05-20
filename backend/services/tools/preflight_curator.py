@@ -58,11 +58,15 @@ class PreflightReport:
 _MAX_TURNS = 15
 _SESSION_TIMEOUT_S = 120  # 2 minutes
 
-# Built-in Claude Code / Copilot tools the curator must NOT use.
-# We block most filesystem, shell, and web tools so the session explores
+# Built-in tools the curator must NOT use.
+# We block filesystem-write, shell, and web tools so the session explores
 # via CodeRecon structural tools first.  View is allowed as a targeted
 # fallback for inspecting specific lines after structural analysis.
+#
+# Claude Code uses PascalCase names; Copilot SDK uses snake_case.
+# Both sets must be listed for SDK-agnostic enforcement.
 _DISALLOWED_BUILTIN_TOOLS = [
+    # Claude Code names
     "Bash",
     "Edit",
     "MultiEdit",
@@ -78,6 +82,18 @@ _DISALLOWED_BUILTIN_TOOLS = [
     "TodoWrite",
     "NotebookRead",
     "NotebookEdit",
+    # Copilot SDK names
+    "bash",
+    "str_replace_editor",
+    "insert_edit_file",
+    "create_file",
+    "read_file",
+    "list_dir",
+    "file_search",
+    "grep_search",
+    "run_in_terminal",
+    "semantic_search",
+    "get_errors",
 ]
 
 _PREFLIGHT_SYSTEM_PROMPT = """\
@@ -184,16 +200,24 @@ class PreflightCurator:
             tier="preflight",
         )
 
-        # Assemble the prompt
-        prompt = f"## Task\n\n{task}"
+        # Assemble the prompt — reframe the task so the agent understands
+        # it's producing a BRIEF, not executing the task itself.
+        prompt = (
+            "Analyze the following task and produce a structural brief that will "
+            "help the coding agent that executes it. Do NOT execute, fix, or "
+            "implement anything yourself.\n\n"
+            f"## Task the agent will execute\n\n{task}"
+        )
 
-        # Build session config — SDK-agnostic
+        # Build session config — SDK-agnostic.
+        # system_prompt_override replaces the default CODEPLANE_SYSTEM_PROMPT
+        # so the curator gets its own identity (scout, not executor).
         config = SessionConfig(
             workspace_path=repo,
             prompt=prompt,
             job_id=job_id,
             coderecon_tools=toolkit,
-            memory_context=_PREFLIGHT_SYSTEM_PROMPT,
+            system_prompt_override=_PREFLIGHT_SYSTEM_PROMPT,
             max_turns=_MAX_TURNS,
             disallowed_tools=_DISALLOWED_BUILTIN_TOOLS,
             session_kind="preflight",

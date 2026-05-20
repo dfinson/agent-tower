@@ -29,6 +29,10 @@ class TestConstants:
         # Ensure security-critical tools are blocked
         assert "MultiEdit" in _DISALLOWED_BUILTIN_TOOLS
         assert "Glob" in _DISALLOWED_BUILTIN_TOOLS
+        # Copilot SDK equivalents (lowercase/snake_case)
+        assert "bash" in _DISALLOWED_BUILTIN_TOOLS
+        assert "str_replace_editor" in _DISALLOWED_BUILTIN_TOOLS
+        assert "run_in_terminal" in _DISALLOWED_BUILTIN_TOOLS
 
     def test_system_prompt_mentions_tools(self):
         assert "recon_scout" in _PREFLIGHT_SYSTEM_PROMPT
@@ -38,7 +42,7 @@ class TestConstants:
 
     def test_system_prompt_output_rules(self):
         assert "INCLUSION" in _PREFLIGHT_SYSTEM_PROMPT
-        assert "VERBATIM" in _PREFLIGHT_SYSTEM_PROMPT
+        assert "SCOUT, not a solver" in _PREFLIGHT_SYSTEM_PROMPT
 
 
 class TestPreflightCuratorInit:

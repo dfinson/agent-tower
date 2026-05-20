@@ -221,6 +221,7 @@ class AgenticSidecarSession:
             max_turns=self._max_turns,
             disallowed_tools=config.disallowed_tools,
             session_kind=config.session_kind,
+            system_prompt_override=config.system_prompt_override,
         )
 
         try:

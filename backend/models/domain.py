@@ -691,6 +691,10 @@ class SessionConfig:
     coderecon_tools: Any | None = None
     # Curated context injected via system_message (hidden from transcript)
     memory_context: str | None = None
+    # When set, REPLACES the default CODEPLANE_SYSTEM_PROMPT entirely.
+    # Used by sidecars and preflight to define their own identity instead of
+    # inheriting the main agent's "proceed with task execution" framing.
+    system_prompt_override: str | None = None
     # Maximum agent turns before the session is forcibly ended (None = SDK default)
     max_turns: int | None = None
     # Built-in tools to block (e.g. ["Bash", "Write", "Edit"] for read-only sessions)

@@ -1125,6 +1125,8 @@ class SidecarDispatcher:
             blocking_permission_handler=_permission_handler,
             max_turns=defn.max_turns,
             session_kind="sidecar",
+            # Sidecar's own identity — not the main-agent CODEPLANE_SYSTEM_PROMPT
+            system_prompt_override=defn.system_prompt or None,
         )
 
         agentic = AgenticSidecarSession(

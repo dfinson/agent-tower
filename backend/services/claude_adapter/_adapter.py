@@ -549,7 +549,12 @@ class ClaudeAdapter(BaseAgentAdapter):
         self._stderr_file_objects[session_id] = stderr_file
 
         # Build system prompt — append CodeRecon tool guidance when tools are provisioned (§8.5)
-        system_prompt = CODEPLANE_SYSTEM_PROMPT
+        if config.system_prompt_override:
+            # Sidecar/preflight sessions define their own identity — skip the
+            # main-agent CODEPLANE_SYSTEM_PROMPT entirely.
+            system_prompt = config.system_prompt_override
+        else:
+            system_prompt = CODEPLANE_SYSTEM_PROMPT
         if config.coderecon_tools is not None and config.coderecon_tools.system_prompt:
             system_prompt = system_prompt + "\n\n" + config.coderecon_tools.system_prompt
 
