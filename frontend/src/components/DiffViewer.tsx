@@ -104,9 +104,9 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   // Split (side-by-side) vs unified (single) diff view
   const [splitView, setSplitView] = useState(false);
 
-  // V8: Layered diff toggles
-  const [showCoverage, setShowCoverage] = useState(false);
-  const [showImpact, setShowImpact] = useState(false);
+  // V8: Layered diff toggles — all ON by default (mockup default state)
+  const [showCoverage, setShowCoverage] = useState(true);
+  const [showImpact, setShowImpact] = useState(true);
 
   // Fetch step-specific diff from API when filter has a turnId
   useEffect(() => {
@@ -486,7 +486,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   useMotivationLayers({
     jobId,
     file: selectedFile,
-    enabled: showIntent && !Object.keys(hunkMotivations).length,
+    enabled: showIntent,
     editorRef: diffEditorRef,
     editorReady,
     stepFileMotivations: Object.keys(fileMotivations).length > 0 ? fileMotivations : undefined,
@@ -792,7 +792,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                 readOnly: true,
                 domReadOnly: true,
                 minimap: { enabled: !isMobile },
-                renderSideBySide: (splitView || showImpact || showCoverage) && !isMobile,
+                renderSideBySide: splitView && !isMobile,
                 scrollBeyondLastLine: false,
                 fontSize: isMobile ? 12 : 13,
                 lineNumbersMinChars: 3,

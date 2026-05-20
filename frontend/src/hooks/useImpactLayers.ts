@@ -119,91 +119,77 @@ export function useImpactLayers({
   // Inject view zones into the modified editor
   useEffect(() => {
     const editor = editorRef.current;
-    if (!editor || !editorReady || !enabled) return;
+    if (!editor || !editorReady) return;
     const modifiedEditor = editor.getModifiedEditor();
     if (!modifiedEditor) return;
 
-    // Clear existing zones
+    // Clear existing zones first
     modifiedEditor.changeViewZones((accessor: any) => {
       viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
       viewZoneIdsRef.current = [];
     });
     zoneDomsRef.current.clear();
 
-    if (zones.length === 0) return;
+    if (!enabled || zones.length === 0) return;
 
-    const timer = setTimeout(() => {
-      const ed = editorRef.current?.getModifiedEditor();
-      if (!ed) return;
+    const ed = editorRef.current?.getModifiedEditor();
+    if (!ed) return;
 
-      // Force layout before injecting zones to ensure editor dimensions are computed
-      ed.layout();
+    ed.changeViewZones((accessor: any) => {
+      viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
+      const newIds: string[] = [];
 
-      ed.changeViewZones((accessor: any) => {
-        viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
-        const newIds: string[] = [];
+      for (const zone of zones) {
+        const domNode = document.createElement("div");
+        domNode.className = "impact-zone-container";
+        domNode.dataset.symbol = zone.symbolName;
 
-        for (const zone of zones) {
-          const domNode = document.createElement("div");
-          domNode.className = "impact-zone-container";
-          domNode.dataset.symbol = zone.symbolName;
+        // Category badge color
+        const categoryClass = zone.category === "breaking" ? "impact-badge-breaking" : "";
 
-          // Category badge color
-          const categoryClass = zone.category === "breaking" ? "impact-badge-breaking" : "";
+        // Collapsed header
+        const testCount = zone.callers.filter((c) => c.isTest).length;
+        domNode.innerHTML = `
+          <div class="impact-zone-header" data-symbol="${escapeHtml(zone.symbolName)}">
+            <span class="impact-chevron">▶</span>
+            <span class="impact-badge ${categoryClass}">IMPACT</span>
+            <span class="impact-summary">${escapeHtml(zone.summary)}</span>
+            ${testCount > 0 ? `<span class="impact-test-pill">${testCount} test${testCount > 1 ? "s" : ""}</span>` : ""}
+          </div>
+          <div class="impact-zone-body" style="display: none;">
+            ${zone.callers.slice(0, 10).map((c) => `
+              <div class="impact-caller-card">
+                <span class="impact-caller-dot ${c.isTest ? "test" : "source"}"></span>
+                <span class="impact-caller-name">${escapeHtml(c.symbol || "(test)")}</span>
+                <span class="impact-caller-loc">${escapeHtml(c.file)}${c.line ? `:${c.line}` : ""}</span>
+              </div>
+            `).join("")}
+            ${zone.callers.length > 10 ? `<div class="impact-more">+${zone.callers.length - 10} more</div>` : ""}
+          </div>
+        `;
 
-          // Collapsed header
-          const testCount = zone.callers.filter((c) => c.isTest).length;
-          domNode.innerHTML = `
-            <div class="impact-zone-header" data-symbol="${escapeHtml(zone.symbolName)}">
-              <span class="impact-chevron">▶</span>
-              <span class="impact-badge ${categoryClass}">IMPACT</span>
-              <span class="impact-summary">${escapeHtml(zone.summary)}</span>
-              ${testCount > 0 ? `<span class="impact-test-pill">${testCount} test${testCount > 1 ? "s" : ""}</span>` : ""}
-            </div>
-            <div class="impact-zone-body" style="display: none;">
-              ${zone.callers.slice(0, 10).map((c) => `
-                <div class="impact-caller-card">
-                  <span class="impact-caller-dot ${c.isTest ? "test" : "source"}"></span>
-                  <span class="impact-caller-name">${escapeHtml(c.symbol || "(test)")}</span>
-                  <span class="impact-caller-loc">${escapeHtml(c.file)}${c.line ? `:${c.line}` : ""}</span>
-                </div>
-              `).join("")}
-              ${zone.callers.length > 10 ? `<div class="impact-more">+${zone.callers.length - 10} more</div>` : ""}
-            </div>
-          `;
+        // Toggle expand/collapse on header click
+        const header = domNode.querySelector(".impact-zone-header");
+        const body = domNode.querySelector(".impact-zone-body") as HTMLElement;
+        const chevron = domNode.querySelector(".impact-chevron");
+        header?.addEventListener("click", () => {
+          const isExpanded = body.style.display !== "none";
+          body.style.display = isExpanded ? "none" : "block";
+          if (chevron) chevron.textContent = isExpanded ? "▶" : "▼";
+        });
 
-          // Toggle expand/collapse on header click
-          const header = domNode.querySelector(".impact-zone-header");
-          const body = domNode.querySelector(".impact-zone-body") as HTMLElement;
-          const chevron = domNode.querySelector(".impact-chevron");
-          header?.addEventListener("click", () => {
-            const isExpanded = body.style.display !== "none";
-            body.style.display = isExpanded ? "none" : "block";
-            if (chevron) chevron.textContent = isExpanded ? "▶" : "▼";
-            // Relayout view zone height
-            ed.changeViewZones((_: any) => {
-              // Force re-layout by removing and re-adding
-            });
-          });
+        zoneDomsRef.current.set(zone.symbolName, domNode);
 
-          zoneDomsRef.current.set(zone.symbolName, domNode);
-
-          const id = accessor.addZone({
-            afterLineNumber: zone.afterLine,
-            heightInPx: 28,
-            domNode,
-            suppressMouseDown: false,
-          });
-          newIds.push(id);
-        }
-        viewZoneIdsRef.current = newIds;
-      });
-
-      // Force Monaco to re-compute layout so zones render with correct dimensions
-      requestAnimationFrame(() => ed.layout());
-    }, 200);
-
-    return () => clearTimeout(timer);
+        const id = accessor.addZone({
+          afterLineNumber: zone.afterLine,
+          heightInPx: 28,
+          domNode,
+          suppressMouseDown: false,
+        });
+        newIds.push(id);
+      }
+      viewZoneIdsRef.current = newIds;
+    });
   }, [zones, enabled, editorReady, editorRef, monacoRef]);
 
   const toggleZone = useCallback((symbolName: string) => {

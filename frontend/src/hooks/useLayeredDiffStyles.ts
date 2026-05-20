@@ -23,71 +23,108 @@ export function useLayeredDiffStyles() {
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='4' fill='%23f14c4c'/%3E%3C/svg%3E") center center / 10px no-repeat;
 }
 
-/* Impact view zones */
+/* Motivation view zone — matches mockup: light background, label + text inline */
+.motivation-zone {
+  padding: 5px 12px 5px 68px;
+  background: rgba(156, 220, 254, 0.03);
+  border-top: 1px solid #2a2a3a;
+  border-bottom: 1px solid #2a2a3a;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.motivation-zone .motivation-label {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #569cd6;
+  margin-right: 8px;
+}
+.motivation-zone .motivation-text {
+  color: #9cdcfe;
+  font-style: italic;
+}
+
+/* Impact zone — collapsible panel matching mockup */
 .impact-zone-container {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 12px;
   line-height: 1.4;
-  padding: 0 12px;
+  border-top: 1px solid #2a2a4a;
+  border-bottom: 1px solid #2a2a4a;
+  background: #1b1b28;
 }
 .impact-zone-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  gap: 8px;
+  padding: 5px 12px 5px 68px;
   cursor: pointer;
-  border: 1px solid rgba(100, 100, 140, 0.2);
-  border-radius: 4px;
-  background: rgba(100, 100, 140, 0.05);
   user-select: none;
   transition: background 0.1s;
 }
 .impact-zone-header:hover {
-  background: rgba(100, 100, 140, 0.1);
+  background: rgba(86, 156, 214, 0.06);
 }
 .impact-chevron {
-  font-size: 10px;
-  color: #888;
-  width: 12px;
+  font-size: 9px;
+  color: #569cd6;
+  width: 10px;
   text-align: center;
+  transition: transform 0.15s;
 }
 .impact-badge {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.5px;
+  text-transform: uppercase;
   padding: 1px 5px;
-  border: 1px solid rgba(100, 100, 140, 0.3);
+  border: 1px solid #3a4a6a;
   border-radius: 3px;
-  color: #aaa;
+  color: #569cd6;
+}
+.impact-badge-breaking {
+  border-color: rgba(241, 76, 76, 0.4);
+  color: #f48771;
 }
 .impact-summary {
   flex: 1;
-  color: #ccc;
+  color: #a0a0a0;
   font-size: 11px;
 }
+.impact-test-pill {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(78, 201, 176, 0.12);
+  color: #4ec9b0;
+  font-weight: 600;
+}
 .impact-fail-pill {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 8px;
-  background: rgba(241, 76, 76, 0.15);
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #3d1515;
   color: #f48771;
-  font-weight: 500;
+  font-weight: 600;
 }
 .impact-zone-body {
-  margin-top: 4px;
-  padding-left: 20px;
+  padding: 0;
 }
 .impact-caller-card {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border-radius: 3px;
+  gap: 8px;
+  padding: 5px 12px 5px 88px;
   cursor: pointer;
   transition: background 0.1s;
 }
 .impact-caller-card:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.02);
 }
 .impact-caller-dot {
   width: 7px;
@@ -97,41 +134,22 @@ export function useLayeredDiffStyles() {
 }
 .impact-caller-dot.test { background: #4ec9b0; }
 .impact-caller-dot.source { background: #569cd6; }
+.impact-caller-dot.fail { background: #f14c4c; box-shadow: 0 0 3px #f48771; }
 .impact-caller-name {
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
-  font-size: 11px;
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-size: 12px;
   color: #dcdcaa;
 }
 .impact-caller-loc {
   font-size: 10px;
-  color: #666;
+  color: #6a6a6a;
   margin-left: auto;
 }
 .impact-more {
-  padding: 2px 8px;
+  padding: 4px 12px 4px 88px;
   font-size: 10px;
-  color: #666;
+  color: #6a6a6a;
   font-style: italic;
-}
-
-/* Motivation view zone styling */
-.motivation-zone {
-  padding: 4px 12px;
-  border-left: 2px solid rgba(200, 150, 50, 0.5);
-  background: rgba(200, 150, 50, 0.05);
-  font-size: 12px;
-  line-height: 1.4;
-  overflow: hidden;
-}
-.motivation-zone .motivation-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  color: rgba(200, 150, 50, 0.8);
-  margin-right: 8px;
-}
-.motivation-zone .motivation-text {
-  color: var(--vscode-descriptionForeground, #999);
 }
 `;
     document.head.appendChild(style);

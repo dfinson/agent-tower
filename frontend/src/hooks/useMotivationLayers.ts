@@ -55,9 +55,17 @@ export function useMotivationLayers({
   // Inject view zones
   useEffect(() => {
     const editor = editorRef.current;
-    if (!editor || !editorReady || !enabled || !file) return;
+    if (!editor || !editorReady) return;
     const modifiedEditor = editor.getModifiedEditor();
     if (!modifiedEditor) return;
+
+    // Clear existing zones first
+    modifiedEditor.changeViewZones((accessor: any) => {
+      viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
+      viewZoneIdsRef.current = [];
+    });
+
+    if (!enabled || !file) return;
 
     // Determine which motivation source to use
     const fileMotivations = stepFileMotivations || jobMotivations?.fileMotivations || {};
@@ -67,67 +75,57 @@ export function useMotivationLayers({
     const filePath = file.path;
     const zones: { afterLine: number; title: string; why: string }[] = [];
 
-    // File-level motivation
+    // File-level motivation — place AFTER the last line of the first hunk
     const fileMot = fileMotivations[filePath];
     if (fileMot && fileMot.why) {
-      // Place after the last hunk's last line
       const lastHunk = file.hunks[file.hunks.length - 1];
       if (lastHunk) {
         zones.push({
           afterLine: lastHunk.newStart + lastHunk.newLines - 1,
-          title: fileMot.title || "WHY THIS CHANGED",
+          title: fileMot.title || "Why this changed",
           why: fileMot.why,
         });
       }
     }
 
-    // Hunk-level motivations
+    // Hunk-level motivations — place AFTER the hunk's last added line
     file.hunks.forEach((hunk, hi) => {
       const mot = hunkMotivations[`${filePath}:${hi}`];
       if (mot && mot.why) {
         zones.push({
           afterLine: hunk.newStart + hunk.newLines - 1,
-          title: mot.title || "WHY THIS CHANGED",
+          title: mot.title || "Why this changed",
           why: mot.why,
         });
       }
     });
 
-    // Clear existing
-    modifiedEditor.changeViewZones((accessor: any) => {
-      viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
-      viewZoneIdsRef.current = [];
-    });
-
     if (zones.length === 0) return;
 
-    const timer = setTimeout(() => {
-      const ed = editorRef.current?.getModifiedEditor();
-      if (!ed) return;
-      ed.changeViewZones((accessor: any) => {
-        viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
-        const newIds: string[] = [];
+    const ed = editorRef.current?.getModifiedEditor();
+    if (!ed) return;
 
-        for (const z of zones) {
-          const domNode = document.createElement("div");
-          domNode.className = "motivation-zone";
-          domNode.innerHTML = `
-            <span class="motivation-label">${escapeHtml(z.title)}</span>
-            <span class="motivation-text">${escapeHtml(z.why)}</span>
-          `;
+    ed.changeViewZones((accessor: any) => {
+      viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
+      const newIds: string[] = [];
 
-          const id = accessor.addZone({
-            afterLineNumber: z.afterLine,
-            heightInPx: 28,
-            domNode,
-            suppressMouseDown: true,
-          });
-          newIds.push(id);
-        }
-        viewZoneIdsRef.current = newIds;
-      });
-    }, 200);
+      for (const z of zones) {
+        const domNode = document.createElement("div");
+        domNode.className = "motivation-zone";
+        domNode.innerHTML = `
+          <span class="motivation-label">${escapeHtml(z.title)}</span>
+          <span class="motivation-text">${escapeHtml(z.why)}</span>
+        `;
 
-    return () => clearTimeout(timer);
+        const id = accessor.addZone({
+          afterLineNumber: z.afterLine,
+          heightInPx: 28,
+          domNode,
+          suppressMouseDown: true,
+        });
+        newIds.push(id);
+      }
+      viewZoneIdsRef.current = newIds;
+    });
   }, [file, enabled, editorReady, editorRef, jobMotivations, stepFileMotivations, stepHunkMotivations]);
 }
