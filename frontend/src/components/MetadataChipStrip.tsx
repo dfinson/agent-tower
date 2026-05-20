@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, forwardRef } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import { ExternalLink, AlertTriangle, ArrowDownCircle, Loader2, Coins, FolderGit2 } from "lucide-react";
 import type { JobSummary } from "../store";
 import { Tooltip } from "./ui/tooltip";
@@ -12,10 +13,10 @@ interface MetadataChipStripProps {
   onCostClick?: () => void;
 }
 
-const Chip = forwardRef<HTMLSpanElement, { children: React.ReactNode; className?: string }>(
-  function Chip({ children, className }, ref) {
+const Chip = forwardRef<HTMLSpanElement, { children: React.ReactNode; className?: string; onClick?: (e: React.MouseEvent) => void }>(
+  function Chip({ children, className, onClick }, ref) {
     return (
-      <span ref={ref} className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium bg-muted text-muted-foreground whitespace-nowrap", className)}>
+      <span ref={ref} onClick={onClick} className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium bg-muted text-muted-foreground whitespace-nowrap", className)}>
         {children}
       </span>
     );
@@ -132,10 +133,14 @@ function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => v
 export function MetadataChipStrip({ job, hasMergeConflict, className, onCostClick }: MetadataChipStripProps) {
   const isPreparing = job.state === "preparing";
   const repoName = job.repo.split("/").pop() ?? job.repo;
+  const navigate = useNavigate();
 
   return (
     <div className={cn("flex items-center gap-1.5 overflow-x-auto scrollbar-none", className)}>
-      <Chip><FolderGit2 size={10} />{repoName}</Chip>
+      <Chip
+        className="cursor-pointer hover:bg-muted/80"
+        onClick={(e: React.MouseEvent) => { e.stopPropagation(); navigate(`/repos/${encodeURIComponent(job.repo)}`); }}
+      ><FolderGit2 size={10} />{repoName}</Chip>
       {job.branch && (
         <Chip>{job.branch} → {job.baseRef}</Chip>
       )}
