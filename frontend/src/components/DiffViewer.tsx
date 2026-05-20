@@ -792,7 +792,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                 readOnly: true,
                 domReadOnly: true,
                 minimap: { enabled: !isMobile },
-                renderSideBySide: splitView && !isMobile,
+                renderSideBySide: (splitView || showImpact || showCoverage) && !isMobile,
                 scrollBeyondLastLine: false,
                 fontSize: isMobile ? 12 : 13,
                 lineNumbersMinChars: 3,

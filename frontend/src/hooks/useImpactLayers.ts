@@ -136,6 +136,9 @@ export function useImpactLayers({
       const ed = editorRef.current?.getModifiedEditor();
       if (!ed) return;
 
+      // Force layout before injecting zones to ensure editor dimensions are computed
+      ed.layout();
+
       ed.changeViewZones((accessor: any) => {
         viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
         const newIds: string[] = [];
@@ -195,6 +198,9 @@ export function useImpactLayers({
         }
         viewZoneIdsRef.current = newIds;
       });
+
+      // Force Monaco to re-compute layout so zones render with correct dimensions
+      requestAnimationFrame(() => ed.layout());
     }, 200);
 
     return () => clearTimeout(timer);
