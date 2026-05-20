@@ -805,6 +805,7 @@ class TestClassifyAndEmit:
         )
         # Should not raise
         await builder.handle_event(event)
+        await builder.flush_background_tasks()
         nodes = await trail_repo.get_by_job("job-1")
         assert len(nodes) == 1
 
@@ -837,6 +838,7 @@ class TestClassifyAndEmit:
             },
         )
         await builder.handle_event(event)
+        await builder.flush_background_tasks()
         activity_tracker.emit_activity_step.assert_awaited_once()
         call_kwargs = activity_tracker.emit_activity_step.call_args
         assert call_kwargs[1]["turn_id"] == "turn-1" or call_kwargs[0][2] is not None
@@ -1179,6 +1181,7 @@ class TestStepCompletedIntegration:
             payload={"step_id": "s1", "files_read": ["a.py"]},
         )
         await builder.handle_event(event)
+        await builder.flush_background_tasks()
 
         # Verify snapshot was saved
         async with session_factory() as session:

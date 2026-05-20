@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING, Any, cast
 
@@ -110,6 +111,13 @@ class TrailNodeBuilder:
         self._repo = repo
         self._plan_manager = plan_manager
         self._activity_tracker = activity_tracker
+        # Background tasks for non-blocking title generation / plan classification
+        self._background_tasks: set[asyncio.Task[None]] = set()
+
+    async def flush_background_tasks(self) -> None:
+        """Await all pending background enrichment tasks.  Used by tests and shutdown."""
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
 
     async def handle_event(self, event: DomainEvent) -> None:
         """Domain event subscriber — builds deterministic trail nodes."""
@@ -398,11 +406,16 @@ class TrailNodeBuilder:
             for pending_event in pending:
                 await self._emit_pending_event(pending_event, state, anchor_seq=seq)
 
-        # --- Plan classification + title + SSE (awaited, §13.4) ---
-        await self._classify_and_emit(job_id, node_id, payload)
-
-        # §13.5: Periodic snapshot (every step_completed is a natural checkpoint)
-        await self._save_snapshot(job_id, state)
+        # --- Plan classification + title + SSE (fire-and-forget, §13.4) ---
+        # Spawn as a background task so LLM calls for title generation and plan
+        # classification don't block the event bus (and therefore the agent event
+        # processing loop).  The trail node is already persisted above.
+        task = asyncio.create_task(
+            self._classify_and_snapshot(job_id, node_id, payload, state),
+            name=f"trail-enrich-{job_id}-{node_id[:8]}",
+        )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _create_write_sub_nodes(
         self,
@@ -489,6 +502,18 @@ class TrailNodeBuilder:
                 parent_id=parent_node_id,
                 exc_info=True,
             )
+
+    async def _classify_and_snapshot(
+        self,
+        job_id: str,
+        node_id: str,
+        payload: dict[str, Any],
+        state: TrailJobState,
+    ) -> None:
+        """Background wrapper: classify + emit title, then save snapshot."""
+        await self._classify_and_emit(job_id, node_id, payload)
+        # §13.5: Periodic snapshot (every step_completed is a natural checkpoint)
+        await self._save_snapshot(job_id, state)
 
     async def _classify_and_emit(
         self,
