@@ -21,7 +21,7 @@ function makeEditorRef() {
   };
 }
 
-function makeFile(hunks?: DiffFileModel["hunks"]): DiffFileModel {
+function makeFile(hunks?: DiffFileModel["hunks"], symbols?: DiffFileModel["symbols"]): DiffFileModel {
   return {
     path: "src/service.py",
     status: "modified",
@@ -41,6 +41,7 @@ function makeFile(hunks?: DiffFileModel["hunks"]): DiffFileModel {
         ],
       },
     ],
+    symbols: symbols,
   };
 }
 
@@ -92,7 +93,9 @@ describe("useImpactLayers", () => {
       ],
     });
 
-    const file = makeFile();
+    const file = makeFile(undefined, [
+      { symbol: "my_function", kind: "added", category: "breaking", lineRange: [10, 12], refCount: 2, refTiers: { verified: 1, inferred: 1 }, testFiles: [] },
+    ]);
     const { result } = renderHook(() =>
       useImpactLayers({
         jobId: "j",
@@ -124,7 +127,9 @@ describe("useImpactLayers", () => {
       references: [],
     });
 
-    const file = makeFile();
+    const file = makeFile(undefined, [
+      { symbol: "my_function", kind: "modified", category: "breaking", lineRange: [10, 12], refCount: 2, refTiers: { verified: 2 }, testFiles: [] },
+    ]);
     const { result } = renderHook(() =>
       useImpactLayers({
         jobId: "j",
@@ -153,7 +158,9 @@ describe("useImpactLayers", () => {
       references: [],
     });
 
-    const file = makeFile();
+    const file = makeFile(undefined, [
+      { symbol: "my_function", kind: "modified", category: "body", lineRange: [10, 12], refCount: 1, refTiers: { inferred: 1 }, testFiles: [] },
+    ]);
     const { result } = renderHook(() =>
       useImpactLayers({
         jobId: "j",

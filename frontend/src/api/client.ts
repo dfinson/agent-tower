@@ -184,6 +184,11 @@ export function fetchJobDiff(jobId: string): Promise<DiffFileModel[]> {
   return request<{ items: DiffFileModel[] }>(`/jobs/${encodeURIComponent(jobId)}/diff`).then((r) => r.items);
 }
 
+/** Fetch the full (non-truncated) diff for a single file within a job. */
+export function fetchDiffFile(jobId: string, filePath: string): Promise<DiffFileModel> {
+  return request<DiffFileModel>(`/jobs/${encodeURIComponent(jobId)}/diff-file?path=${encodeURIComponent(filePath)}`);
+}
+
 /** Fetch the diff for a single step/turn (uses turn_id as the step lookup key). */
 export function fetchStepDiff(jobId: string, turnId: string): Promise<import("../api/types").StepDiffResponse> {
   return request(`/jobs/${encodeURIComponent(jobId)}/steps/${encodeURIComponent(turnId)}/diff`);
@@ -837,6 +842,10 @@ export interface ImpactReference {
   tier: string;  // verified | inferred | unverified
   isTest: boolean;
   rawTier: string;
+  covered: boolean | null;
+  testPassed: boolean | null;
+  coveringTestIds: string[];
+  stale: boolean | null;
 }
 
 export interface ImpactGraphResponse {
@@ -847,30 +856,25 @@ export interface ImpactGraphResponse {
   filesAffected: number;
   summary: string;
   references: ImpactReference[];
+  failCount: number;
+  uncoveredCount: number;
 }
 
 export function fetchImpactGraph(jobId: string, symbol: string): Promise<ImpactGraphResponse> {
   return request(`/jobs/${encodeURIComponent(jobId)}/impact-graph/${encodeURIComponent(symbol)}`);
 }
 
-// Communities
-// ---------------------------------------------------------------------------
-
-export interface CommunityGroup {
-  name: string;
-  changes: Array<Record<string, unknown>>;
-  totalRisk: number;
-}
-
-export interface CommunitiesResponse {
+export interface ImpactGraphBatchResponse {
   jobId: string;
-  available: boolean;
-  communities: CommunityGroup[];
-  unclustered: Array<Record<string, unknown>>;
+  results: Record<string, ImpactGraphResponse>;
 }
 
-export function fetchCommunities(jobId: string): Promise<CommunitiesResponse> {
-  return request(`/jobs/${encodeURIComponent(jobId)}/communities`);
+export function fetchImpactGraphBatch(jobId: string, symbols: string[]): Promise<ImpactGraphBatchResponse> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/impact-graph-batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbols }),
+  });
 }
 
 // Coverage / Blast Radius

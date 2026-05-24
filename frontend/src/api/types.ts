@@ -136,6 +136,8 @@ export interface DiffFileModel {
   additions: number;
   deletions: number;
   hunks: DiffHunkModel[];
+  truncated?: boolean;
+  rawSize?: number | null;
   writeCount?: number | null;
   retryCount?: number | null;
   symbols?: DiffFileSymbolImpact[];

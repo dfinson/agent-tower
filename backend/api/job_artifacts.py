@@ -26,6 +26,8 @@ from backend.models.api_schemas import (
     DiffListResponse,
     FileMotivation,
     HunkMotivation,
+    ImpactGraphBatchRequest,
+    ImpactGraphBatchResponse,
     ImpactGraphResponse,
     ImpactReference,
     JobMotivationsResponse,
@@ -285,7 +287,47 @@ async def get_job_diff(
             coderecon, files, job.repo, job.worktree_path, job.base_ref or "HEAD",
         )
 
-    return DiffListResponse(items=files)
+    return DiffListResponse(items=DiffService.truncate_large_files(files))
+
+
+@router.get("/jobs/{job_id}/diff-file", response_model=DiffFileModel)
+async def get_job_diff_file(
+    job_id: str,
+    path: Annotated[str, Query(description="Relative file path within the diff")],
+    svc: FromDishka[JobService],
+    diff_service: FromDishka[DiffService],
+) -> DiffFileModel:
+    """Return the full (non-truncated) diff for a single file.
+
+    Used by the frontend to lazily load large file diffs on demand.
+    """
+    job = await svc.get_job(job_id)
+
+    file: DiffFileModel | None = None
+
+    if job.state in (JobState.running, JobState.waiting_for_approval) and job.worktree_path:
+        try:
+            file = await diff_service.calculate_diff_single_file(
+                job.worktree_path, job.base_ref, path
+            )
+        except (GitError, OSError):
+            log.warning("get_job_diff_file_failed", job_id=job_id, path=path, exc_info=True)
+
+    if file is None:
+        # Fallback: read from event store
+        events = await svc.list_events_by_job(job_id, [DomainEventKind.diff_updated])
+        if events:
+            raw_files = cast("list[dict[str, Any]]", events[-1].payload.get("changed_files", []))
+            for raw in raw_files:
+                candidate = DiffFileModel.model_validate(raw)
+                if candidate.path == path:
+                    file = candidate
+                    break
+
+    if file is None:
+        raise HTTPException(status_code=404, detail=f"File not found in diff: {path}")
+
+    return file
 
 
 @router.get("/jobs/{job_id}/transcript", response_model=TranscriptListResponse)
@@ -1133,6 +1175,10 @@ async def get_impact_graph(
                 tier="verified",
                 is_test="test" in getattr(defn, "file", "").lower(),
                 raw_tier="definition",
+                covered=getattr(defn, "covered", None),
+                test_passed=getattr(defn, "test_passed", None),
+                covering_test_ids=getattr(defn, "covering_test_ids", None) or [],
+                stale=getattr(defn, "stale", None),
             )
         )
     for ref in getattr(result, "references", []):
@@ -1144,6 +1190,10 @@ async def get_impact_graph(
                 tier=_map_impact_tier(getattr(ref, "certainty", "unknown")),
                 is_test="test" in getattr(ref, "file", "").lower(),
                 raw_tier=getattr(ref, "certainty", "unknown"),
+                covered=getattr(ref, "covered", None),
+                test_passed=getattr(ref, "test_passed", None),
+                covering_test_ids=getattr(ref, "covering_test_ids", None) or [],
+                stale=getattr(ref, "stale", None),
             )
         )
     for imp in getattr(result, "import_sites", []):
@@ -1155,10 +1205,17 @@ async def get_impact_graph(
                 tier="inferred",
                 is_test="test" in getattr(imp, "file", "").lower(),
                 raw_tier="import",
+                covered=getattr(imp, "covered", None),
+                test_passed=getattr(imp, "test_passed", None),
+                covering_test_ids=getattr(imp, "covering_test_ids", None) or [],
+                stale=getattr(imp, "stale", None),
             )
         )
 
     files_affected = len({r.file for r in refs})
+
+    fail_count = getattr(result, "fail_count", 0) or 0
+    uncovered_count = getattr(result, "uncovered_count", 0) or 0
 
     response = ImpactGraphResponse(
         job_id=job_id,
@@ -1168,9 +1225,115 @@ async def get_impact_graph(
         files_affected=files_affected,
         summary=f"{len(refs)} references across {files_affected} files",
         references=refs,
+        fail_count=fail_count,
+        uncovered_count=uncovered_count,
     )
     _cache_put(job_id, cache_key, sha, response)
     return response
+
+
+@router.post("/jobs/{job_id}/impact-graph-batch", response_model=ImpactGraphBatchResponse)
+async def get_impact_graph_batch(
+    job_id: str,
+    body: ImpactGraphBatchRequest,
+    svc: FromDishka[JobService],
+    coderecon: FromDishka[CodeReconService],
+    step_repo: FromDishka[StepRepository],
+) -> ImpactGraphBatchResponse:
+    """Return impact graphs for multiple symbols in a single request."""
+    job = await svc.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    results: dict[str, ImpactGraphResponse] = {}
+
+    if not coderecon.available or not job.repo:
+        for symbol in body.symbols:
+            results[symbol] = ImpactGraphResponse(job_id=job_id, target=symbol, available=False)
+        return ImpactGraphBatchResponse(job_id=job_id, results=results)
+
+    sha = await _latest_end_sha(step_repo, job_id)
+
+    for symbol in body.symbols:
+        cache_key = f"impact:{symbol}"
+        cached: ImpactGraphResponse | None = _cache_get(job_id, cache_key, sha)
+        if cached is not None:
+            results[symbol] = cached
+            continue
+
+        try:
+            repo_name = await _ensure_repo_and_worktree(coderecon, job.repo, job.worktree_path or job.repo)
+            result = await coderecon.impact(repo_name, target=symbol, worktree=job.worktree_path or job.repo)
+        except Exception:
+            results[symbol] = ImpactGraphResponse(job_id=job_id, target=symbol, available=False)
+            continue
+
+        refs: list[ImpactReference] = []
+        for defn in getattr(result, "definition_sites", []):
+            refs.append(
+                ImpactReference(
+                    symbol=getattr(defn, "name", ""),
+                    file=getattr(defn, "file", ""),
+                    line=getattr(defn, "line", None),
+                    tier="verified",
+                    is_test="test" in getattr(defn, "file", "").lower(),
+                    raw_tier="definition",
+                    covered=getattr(defn, "covered", None),
+                    test_passed=getattr(defn, "test_passed", None),
+                    covering_test_ids=getattr(defn, "covering_test_ids", None) or [],
+                    stale=getattr(defn, "stale", None),
+                )
+            )
+        for ref in getattr(result, "references", []):
+            refs.append(
+                ImpactReference(
+                    symbol=getattr(ref, "name", ""),
+                    file=getattr(ref, "file", ""),
+                    line=getattr(ref, "line", None),
+                    tier=_map_impact_tier(getattr(ref, "certainty", "unknown")),
+                    is_test="test" in getattr(ref, "file", "").lower(),
+                    raw_tier=getattr(ref, "certainty", "unknown"),
+                    covered=getattr(ref, "covered", None),
+                    test_passed=getattr(ref, "test_passed", None),
+                    covering_test_ids=getattr(ref, "covering_test_ids", None) or [],
+                    stale=getattr(ref, "stale", None),
+                )
+            )
+        for imp in getattr(result, "import_sites", []):
+            refs.append(
+                ImpactReference(
+                    symbol=getattr(imp, "name", ""),
+                    file=getattr(imp, "file", ""),
+                    line=getattr(imp, "line", None),
+                    tier="inferred",
+                    is_test="test" in getattr(imp, "file", "").lower(),
+                    raw_tier="import",
+                    covered=getattr(imp, "covered", None),
+                    test_passed=getattr(imp, "test_passed", None),
+                    covering_test_ids=getattr(imp, "covering_test_ids", None) or [],
+                    stale=getattr(imp, "stale", None),
+                )
+            )
+
+        files_affected = len({r.file for r in refs})
+        fail_count = getattr(result, "fail_count", 0) or 0
+        uncovered_count = getattr(result, "uncovered_count", 0) or 0
+
+        resp = ImpactGraphResponse(
+            job_id=job_id,
+            target=symbol,
+            available=True,
+            total_references=len(refs),
+            files_affected=files_affected,
+            summary=f"{len(refs)} references across {files_affected} files",
+            references=refs,
+            fail_count=fail_count,
+            uncovered_count=uncovered_count,
+        )
+        _cache_put(job_id, cache_key, sha, resp)
+        results[symbol] = resp
+
+    return ImpactGraphBatchResponse(job_id=job_id, results=results)
 
 
 # -- Community clustering view (§9.7) -----------------------------------------
@@ -1518,6 +1681,7 @@ async def get_job_motivations(
     # Telemetry stores absolute paths; the diff API uses repo-relative paths.
     # Compute the prefix to strip so keys align with the diff contract.
     wt_prefix = ((job.worktree_path or job.repo or "") + "/").replace("//", "/")
+    repo_prefix = ((job.repo or "") + "/").replace("//", "/")
 
     spans = await spans_repo.motivated_spans_for_job(job_id=job_id)
     file_motivations: dict[str, FileMotivation] = {}
@@ -1529,8 +1693,14 @@ async def get_job_motivations(
         if not target or not summary:
             continue
 
-        # Normalize to relative path
-        rel_target = target[len(wt_prefix):] if target.startswith(wt_prefix) else target
+        # Normalize to relative path — spans created before the worktree existed
+        # store repo-absolute paths, so try both prefixes.
+        if target.startswith(wt_prefix):
+            rel_target = target[len(wt_prefix):]
+        elif target.startswith(repo_prefix):
+            rel_target = target[len(repo_prefix):]
+        else:
+            rel_target = target
 
         # Parse motivation_summary as "Title: rest" or just use as why
         if ": " in summary and len(summary.split(": ", 1)[0]) < 80:

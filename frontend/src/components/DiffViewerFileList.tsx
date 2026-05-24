@@ -246,7 +246,7 @@ export function DiffViewerFileList({
                     </Tooltip>
                   )}
                   <span className={cn("text-xs border rounded px-1 hidden md:inline", STATUS_BADGE[file.status])}>
-                    +{file.additions} -{file.deletions}
+                    {file.truncated ? "…" : `+${file.additions} -${file.deletions}`}
                   </span>
                 </button>
               </div>

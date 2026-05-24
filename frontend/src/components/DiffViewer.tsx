@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { FileCode, MessageSquare, Send, Lock, Filter, X, Lightbulb, FolderOpen, Shield, Waypoints } from "lucide-react";
+import { FileCode, MessageSquare, Send, Lock, Filter, X, Lightbulb, FolderOpen, Download } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs } from "../store";
-import { sendOperatorMessage, resumeJob, continueJob, fetchStepDiff, fetchJobTelemetry } from "../api/client";
+import { sendOperatorMessage, resumeJob, continueJob, fetchStepDiff, fetchJobTelemetry, fetchDiffFile } from "../api/client";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Spinner } from "./ui/spinner";
 import { Tooltip } from "./ui/tooltip";
@@ -107,6 +107,22 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   // V8: Layered diff toggles — all ON by default (mockup default state)
   const [showCoverage, setShowCoverage] = useState(true);
   const [showImpact, setShowImpact] = useState(true);
+
+  // Lazy-loaded truncated file diffs (keyed by file path)
+  const [loadedTruncatedFiles, setLoadedTruncatedFiles] = useState<Record<string, import("../api/types").DiffFileModel>>({});
+  const [truncatedFileLoading, setTruncatedFileLoading] = useState<string | null>(null);
+
+  const loadTruncatedFile = useCallback(async (filePath: string) => {
+    setTruncatedFileLoading(filePath);
+    try {
+      const full = await fetchDiffFile(jobId, filePath);
+      setLoadedTruncatedFiles((prev) => ({ ...prev, [filePath]: full }));
+    } catch {
+      toast.error(`Failed to load diff for ${filePath}`);
+    } finally {
+      setTruncatedFileLoading(null);
+    }
+  }, [jobId]);
 
   // Fetch step-specific diff from API when filter has a turnId
   useEffect(() => {
@@ -270,7 +286,11 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   // NOTE: diff data is fetched by JobDetailScreen and stored in the Zustand
   // store — no need to duplicate the fetch here.
 
-  const selectedFile = diffs[selectedIdx];
+  const rawSelectedFile = diffs[selectedIdx];
+  // Use the lazily-loaded full version if available for truncated files
+  const selectedFile = rawSelectedFile?.truncated && loadedTruncatedFiles[rawSelectedFile.path]
+    ? loadedTruncatedFiles[rawSelectedFile.path]
+    : rawSelectedFile;
 
   useEffect(() => {
     if (!selectedFile) return;
@@ -393,71 +413,6 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
     const timer = setTimeout(applyDecorations, 100);
     return () => clearTimeout(timer);
   }, [selectedIdx, checkedHunks, hunkLineRanges, canAsk, modified, editorReady]);
-
-  // Inject viewZones for hunk-level motivation banners in the modified editor
-  const viewZoneIdsRef = useRef<string[]>([]);
-  useEffect(() => {
-    const editor = diffEditorRef.current;
-    if (!editor || !showIntent) return;
-    const modifiedEditor = editor.getModifiedEditor();
-    if (!modifiedEditor) return;
-
-    const filePath = selectedFile?.path;
-    if (!filePath || hunkLineRanges.length === 0) return;
-
-    // Collect motivations for this file's hunks
-    const zones: { line: number; title: string; why: string }[] = [];
-    hunkLineRanges.forEach((range, hi) => {
-      const mot = hunkMotivations[`${filePath}:${hi}`];
-      if (mot && (mot.title || mot.why)) {
-        zones.push({ line: range.startLine, title: mot.title, why: mot.why });
-      }
-    });
-
-    if (zones.length === 0) {
-      // Clear any existing zones
-      modifiedEditor.changeViewZones((accessor: { removeZone: (id: string) => void }) => {
-        viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
-        viewZoneIdsRef.current = [];
-      });
-      return;
-    }
-
-    // Apply after a short delay so Monaco has processed the models
-    const timer = setTimeout(() => {
-      const ed = diffEditorRef.current?.getModifiedEditor();
-      if (!ed) return;
-      ed.changeViewZones((accessor: { removeZone: (id: string) => void; addZone: (zone: { afterLineNumber: number; heightInPx: number; domNode: HTMLElement }) => string }) => {
-        // Remove old zones
-        viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
-        const newIds: string[] = [];
-        for (const z of zones) {
-          const domNode = document.createElement("div");
-          domNode.className = "intent-banner";
-          domNode.style.cssText = "padding: 4px 12px; border-left: 2px solid rgba(14,99,156,0.5); background: rgba(14,99,156,0.06); font-size: 12px; line-height: 1.4; overflow: hidden;";
-          const titleSpan = document.createElement("span");
-          titleSpan.style.cssText = "font-weight: 500; color: var(--vscode-foreground, #ccc);";
-          titleSpan.textContent = z.title;
-          domNode.appendChild(titleSpan);
-          if (z.why) {
-            const whySpan = document.createElement("span");
-            whySpan.style.cssText = "margin-left: 8px; color: var(--vscode-descriptionForeground, #999);";
-            whySpan.textContent = z.why;
-            domNode.appendChild(whySpan);
-          }
-          const id = accessor.addZone({
-            afterLineNumber: z.line - 1,
-            heightInPx: 26,
-            domNode,
-          });
-          newIds.push(id);
-        }
-        viewZoneIdsRef.current = newIds;
-      });
-    }, 150);
-
-    return () => clearTimeout(timer);
-  }, [selectedFile?.path, hunkLineRanges, hunkMotivations, showIntent, modified]);
 
   // V8: Inject layered diff CSS
   useLayeredDiffStyles();
@@ -736,49 +691,50 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
 
         {/* Monaco Diff Editor */}
         <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-card relative flex flex-col">
-          {/* V8: Layer toggles toolbar */}
-          <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border bg-card shrink-0">
-            <span className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider mr-1.5">Layers</span>
-            <Tooltip content={showCoverage ? "Hide coverage" : "Show coverage"}>
-              <button
-                onClick={() => setShowCoverage(!showCoverage)}
-                className={cn(
-                  "flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors",
-                  showCoverage ? "text-green-400 bg-green-400/10 hover:bg-green-400/20" : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/30",
-                )}
-              >
-                <Shield size={12} />
-                <span>Coverage</span>
-              </button>
-            </Tooltip>
-            <Tooltip content={showImpact ? "Hide impact" : "Show impact"}>
-              <button
-                onClick={() => setShowImpact(!showImpact)}
-                className={cn(
-                  "flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors",
-                  showImpact ? "text-purple-400 bg-purple-400/10 hover:bg-purple-400/20" : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/30",
-                )}
-              >
-                <Waypoints size={12} />
-                <span>Impact</span>
-              </button>
-            </Tooltip>
-            <Tooltip content={showIntent ? "Hide motivation" : "Show motivation"}>
-              <button
-                onClick={() => setShowIntent(!showIntent)}
-                className={cn(
-                  "flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors",
-                  showIntent ? "text-amber-400 bg-amber-400/10 hover:bg-amber-400/20" : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/30",
-                )}
-              >
-                <Lightbulb size={12} />
-                <span>Motivation</span>
-              </button>
-            </Tooltip>
+          {/* V8: Layer toggles toolbar — sliding switches matching mockup */}
+          <div className="flex items-center gap-4 px-3 py-1.5 border-b border-border bg-[#2d2d2d] shrink-0">
+            <button onClick={() => setShowImpact(!showImpact)} className="flex items-center gap-[5px] text-[11px] text-[#a0a0a0] hover:text-[#d4d4d4] cursor-pointer select-none">
+              <span className={cn("relative w-6 h-[13px] rounded-[7px] transition-colors", showImpact ? "bg-[#569cd6]" : "bg-[#555]")}>
+                <span className={cn("absolute top-[2px] w-[9px] h-[9px] bg-[#e0e0e0] rounded-full transition-[left]", showImpact ? "left-[13px]" : "left-[2px]")} />
+              </span>
+              <span>Impact</span>
+            </button>
+            <button onClick={() => setShowCoverage(!showCoverage)} className="flex items-center gap-[5px] text-[11px] text-[#a0a0a0] hover:text-[#d4d4d4] cursor-pointer select-none">
+              <span className={cn("relative w-6 h-[13px] rounded-[7px] transition-colors", showCoverage ? "bg-[#569cd6]" : "bg-[#555]")}>
+                <span className={cn("absolute top-[2px] w-[9px] h-[9px] bg-[#e0e0e0] rounded-full transition-[left]", showCoverage ? "left-[13px]" : "left-[2px]")} />
+              </span>
+              <span>Coverage</span>
+            </button>
+            <button onClick={() => setShowIntent(!showIntent)} className="flex items-center gap-[5px] text-[11px] text-[#a0a0a0] hover:text-[#d4d4d4] cursor-pointer select-none">
+              <span className={cn("relative w-6 h-[13px] rounded-[7px] transition-colors", showIntent ? "bg-[#569cd6]" : "bg-[#555]")}>
+                <span className={cn("absolute top-[2px] w-[9px] h-[9px] bg-[#e0e0e0] rounded-full transition-[left]", showIntent ? "left-[13px]" : "left-[2px]")} />
+              </span>
+              <span>Motivation</span>
+            </button>
+            <span className="flex-1" />
+            <span className="text-[11px] text-[#808080]">{selectedFile?.path}</span>
           </div>
           {loading ? (
             <div className="flex items-center justify-center h-full">
               <Spinner />
+            </div>
+          ) : selectedFile?.truncated && !loadedTruncatedFiles[selectedFile.path] ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
+              <FileCode size={32} className="opacity-50" />
+              <p className="text-sm">Large file diff not loaded</p>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={truncatedFileLoading === selectedFile.path}
+                onClick={() => loadTruncatedFile(selectedFile.path)}
+              >
+                {truncatedFileLoading === selectedFile.path ? (
+                  <Spinner className="mr-2 h-3 w-3" />
+                ) : (
+                  <Download size={13} className="mr-2" />
+                )}
+                Load diff ({selectedFile.rawSize ? `${Math.round(selectedFile.rawSize / 1024)} KB` : "large"})
+              </Button>
             </div>
           ) : selectedFile ? (
             <>
@@ -796,7 +752,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                 scrollBeyondLastLine: false,
                 fontSize: isMobile ? 12 : 13,
                 lineNumbersMinChars: 3,
-                glyphMargin: canAsk || showCoverage,
+                glyphMargin: true,
                 lineDecorationsWidth: 4,
                 folding: true,
               }}

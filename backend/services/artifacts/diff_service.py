@@ -34,6 +34,15 @@ log = structlog.get_logger()
 # Per-job throttle window in seconds
 _THROTTLE_WINDOW_S = 5.0
 
+# Maximum hunk content size (bytes) before a file's hunks are truncated from the list response
+DIFF_TRUNCATION_THRESHOLD_BYTES = 20_000
+
+# File patterns that are always truncated regardless of size (generated/binary artifacts)
+_GENERATED_FILE_PATTERNS = re.compile(
+    r"(\.lock$|[\-_]lock\.json$|\.tsbuildinfo$|\.min\.js$|\.min\.css$)",
+    re.IGNORECASE,
+)
+
 # Regex patterns for unified diff parsing
 _DIFF_HEADER_RE = re.compile(r"^diff --git a/(.*) b/(.*)$")
 _HUNK_HEADER_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
@@ -107,6 +116,37 @@ class DiffService:
         """Remove throttle tracking for a completed/failed job."""
         self._last_diff_at.pop(job_id, None)
         self._locks.pop(job_id, None)
+
+    @staticmethod
+    def truncate_large_files(files: list[DiffFileModel]) -> list[DiffFileModel]:
+        """Replace hunks with empty list for files exceeding the size threshold.
+
+        Files matching generated-file patterns are always truncated.
+        Sets truncated=True and raw_size to the original hunk content size.
+        """
+        for f in files:
+            hunk_size = sum(
+                len(line.content) for h in f.hunks for line in h.lines
+            )
+            is_generated = bool(_GENERATED_FILE_PATTERNS.search(f.path))
+            if is_generated or hunk_size > DIFF_TRUNCATION_THRESHOLD_BYTES:
+                f.truncated = True
+                f.raw_size = hunk_size
+                f.hunks = []
+        return files
+
+    async def calculate_diff_single_file(
+        self,
+        worktree_path: str,
+        base_ref: str,
+        file_path: str,
+    ) -> DiffFileModel | None:
+        """Calculate the diff for a single file and return it with full hunks."""
+        files = await self.calculate_diff(worktree_path, base_ref)
+        for f in files:
+            if f.path == file_path:
+                return f
+        return None
 
     async def calculate_diff(
         self,

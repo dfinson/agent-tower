@@ -565,6 +565,8 @@ class DiffFileModel(CamelModel):
     additions: int
     deletions: int
     hunks: list[DiffHunkModel]
+    truncated: bool = False
+    raw_size: int | None = None
     write_count: int | None = None
     retry_count: int | None = None
     symbols: list[DiffFileSymbolImpact] = Field(default_factory=list)
@@ -1213,6 +1215,10 @@ class ImpactReference(CamelModel):
     tier: str = "unverified"  # verified | inferred | unverified
     is_test: bool = False
     raw_tier: str = "UNKNOWN"
+    covered: bool | None = None
+    test_passed: bool | None = None
+    covering_test_ids: list[str] = Field(default_factory=list)
+    stale: bool | None = None
 
 
 class ImpactGraphResponse(CamelModel):
@@ -1225,6 +1231,21 @@ class ImpactGraphResponse(CamelModel):
     files_affected: int = 0
     summary: str = ""
     references: list[ImpactReference] = Field(default_factory=list)
+    fail_count: int = 0
+    uncovered_count: int = 0
+
+
+class ImpactGraphBatchRequest(CamelModel):
+    """Request body for batch impact graph queries."""
+
+    symbols: list[str]
+
+
+class ImpactGraphBatchResponse(CamelModel):
+    """Batch impact graph results keyed by symbol name."""
+
+    job_id: str
+    results: dict[str, ImpactGraphResponse] = Field(default_factory=dict)
 
 
 class CommunityGroup(CamelModel):
