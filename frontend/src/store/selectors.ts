@@ -9,7 +9,6 @@ import type { DiffFileModel, StoryResponse } from "../api/types";
 import type {
   StructuralDiffResponse,
   MultiSessionResponse,
-  CommunitiesResponse,
   ReviewStoryResponse as StructuralReviewStoryResponse,
 } from "../api/client";
 import type {
@@ -53,8 +52,6 @@ export const selectStructuralDiff = (jobId: string) => (state: AppState): Struct
   state.structuralDiffs[jobId] ?? null;
 export const selectMultiSession = (jobId: string) => (state: AppState): MultiSessionResponse | null =>
   state.multiSessions[jobId] ?? null;
-export const selectCommunities = (jobId: string) => (state: AppState): CommunitiesResponse | null =>
-  state.communities[jobId] ?? null;
 export const selectReviewStory = (jobId: string) => (state: AppState): StructuralReviewStoryResponse | null =>
   state.reviewStories[jobId] ?? null;
 

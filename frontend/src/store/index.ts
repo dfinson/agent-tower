@@ -59,7 +59,6 @@ export {
   selectSecondarySessions,
   selectStructuralDiff,
   selectMultiSession,
-  selectCommunities,
   selectReviewStory,
 } from "./selectors";
 
@@ -108,7 +107,7 @@ function touchJob(jobId: string): string[] {
 
 /** Evict per-job data for stale jobs from a state snapshot. */
 function evictStaleJobs(
-  state: Pick<AppState, "logs" | "transcript" | "diffs" | "stories" | "plans" | "timelines" | "activityTimelines" | "secondarySessions" | "streamingMessages" | "streamingToolOutput" | "structuralDiffs" | "multiSessions" | "communities" | "reviewStories">,
+  state: Pick<AppState, "logs" | "transcript" | "diffs" | "stories" | "plans" | "timelines" | "activityTimelines" | "secondarySessions" | "streamingMessages" | "streamingToolOutput" | "structuralDiffs" | "multiSessions" | "reviewStories">,
   evictIds: string[],
 ): Partial<AppState> | null {
   if (evictIds.length === 0) return null;
@@ -122,7 +121,6 @@ function evictStaleJobs(
   const secondarySessions = { ...state.secondarySessions };
   const structuralDiffs = { ...state.structuralDiffs };
   const multiSessions = { ...state.multiSessions };
-  const communities = { ...state.communities };
   const reviewStories = { ...state.reviewStories };
   let streamingMessages = state.streamingMessages;
   let streamingToolOutput = state.streamingToolOutput;
@@ -139,7 +137,6 @@ function evictStaleJobs(
     delete secondarySessions[id];
     delete structuralDiffs[id];
     delete multiSessions[id];
-    delete communities[id];
     delete reviewStories[id];
     // Clean streaming messages for evicted jobs
     for (const key of Object.keys(streamingMessages)) {
@@ -155,7 +152,7 @@ function evictStaleJobs(
       }
     }
   }
-  return { logs, transcript, diffs, stories, plans, timelines, activityTimelines, secondarySessions, streamingMessages, streamingToolOutput, structuralDiffs, multiSessions, communities, reviewStories };
+  return { logs, transcript, diffs, stories, plans, timelines, activityTimelines, secondarySessions, streamingMessages, streamingToolOutput, structuralDiffs, multiSessions, reviewStories };
 }
 
 /** Rebuild activity timeline state from a flat list of turn summary payloads (hydration). */
@@ -250,7 +247,6 @@ export const useStore = create<AppState>((set, get) => ({
   repoIndexState: {},
   structuralDiffs: {},
   multiSessions: {},
-  communities: {},
   reviewStories: {},
   structuralWarnings: {},
   connectionStatus: "reconnecting",
@@ -563,14 +559,6 @@ export const useStore = create<AppState>((set, get) => ({
     }));
   },
 
-  setCommunities: (jobId, data) => {
-    const evictIds = touchJob(jobId);
-    set((state) => ({
-      ...evictStaleJobs(state, evictIds),
-      communities: { ...state.communities, [jobId]: data },
-    }));
-  },
-
   setReviewStory: (jobId, data) => {
     const evictIds = touchJob(jobId);
     set((state) => ({
@@ -581,11 +569,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   prefetchReviewData: (jobId) => {
     // Fire-and-forget — fetch structural data into cache
-    import("../api/client").then(({ fetchStructuralDiff, fetchMultiSession, fetchReviewStory, fetchCommunities }) => {
+    import("../api/client").then(({ fetchStructuralDiff, fetchMultiSession, fetchReviewStory }) => {
       fetchStructuralDiff(jobId).then((d) => get().setStructuralDiff(jobId, d)).catch(() => {});
       fetchMultiSession(jobId).then((d) => get().setMultiSession(jobId, d)).catch(() => {});
       fetchReviewStory(jobId).then((d) => get().setReviewStory(jobId, d)).catch(() => {});
-      fetchCommunities(jobId).then((d) => get().setCommunities(jobId, d)).catch(() => {});
     });
   },
 }));

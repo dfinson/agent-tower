@@ -20,7 +20,6 @@ import { Tooltip } from "./ui/tooltip";
 import { ReviewSubTabs, type ReviewSubView } from "./review/ReviewSubTabs";
 import { TimelineSubView } from "./review/TimelineSubView";
 import { StorySubView } from "./review/StorySubView";
-import { CommunitiesSubView } from "./review/CommunitiesSubView";
 import { ImpactGraphModal } from "./review/ImpactGraphModal";
 import { lazyRetry } from "../lib/lazyRetry";
 import type { StepFilter } from "./DiffViewer";
@@ -376,9 +375,8 @@ export function ReviewDashboard({
   }
 
   const available = structData?.available ?? false;
-  // In degraded mode: hide timeline/communities, dashboard shows info banner
+  // In degraded mode: hide timeline, dashboard shows info banner
   const showTimeline = available && hasMultiSession;
-  const showCommunities = available;
 
   return (
     <div className="flex flex-col h-full">
@@ -389,7 +387,6 @@ export function ReviewDashboard({
         showChanges={hasChanges}
         showDashboard={available}
         showTimeline={showTimeline}
-        showCommunities={showCommunities}
       />
 
       {/* Sub-view content */}
@@ -415,9 +412,6 @@ export function ReviewDashboard({
         )}
         {subView === "timeline" && showTimeline && (
           <TimelineSubView jobId={jobId} />
-        )}
-        {subView === "communities" && showCommunities && (
-          <CommunitiesSubView jobId={jobId} />
         )}
         {subView === "story" && (
           <StorySubView jobId={jobId} />
