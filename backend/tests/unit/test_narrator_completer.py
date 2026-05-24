@@ -1,9 +1,8 @@
-"""Tests for backend.services.completers.narrator_completer — provider detection, token lookup, helpers."""
+"""Tests for backend.services.completers.narrator_completer — token lookup and delegation."""
 
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path  # noqa: TC003
 from unittest.mock import AsyncMock, patch
 
@@ -64,130 +63,42 @@ class TestLookupMaxOutputTokens:
         assert result is None
 
 
-# ── NarratorCompleter._is_anthropic_model ──
+# ── NarratorCompleter ──
 
 
-class TestIsAnthropicModel:
-    def test_claude_model(self):
-        assert NarratorCompleter._is_anthropic_model("claude-sonnet-4-20250514") is True
-        assert NarratorCompleter._is_anthropic_model("claude-haiku-4-5") is True
-
-    def test_case_insensitive(self):
-        assert NarratorCompleter._is_anthropic_model("Claude-Sonnet-4") is True
-        assert NarratorCompleter._is_anthropic_model("CLAUDE-haiku") is True
-
-    def test_non_claude_model(self):
-        assert NarratorCompleter._is_anthropic_model("gpt-4o") is False
-        assert NarratorCompleter._is_anthropic_model("gemini-pro") is False
-
-
-# ── NarratorCompleter._detect_provider ──
-
-
-class TestDetectProvider:
-    def test_anthropic_provider(self):
+class TestNarratorCompleter:
+    def test_always_available(self):
         adapter = AsyncMock()
-        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}, clear=False):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
-        assert completer._provider == "anthropic"
-        assert completer._api_key == "sk-test"
-
-    def test_openai_provider(self):
-        adapter = AsyncMock()
-        env = {"OPENAI_API_KEY": "sk-openai"}
-        with patch.dict(os.environ, env, clear=False), patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("ANTHROPIC_API_KEY", None)
-            completer = NarratorCompleter(adapter, model="gpt-4o")
-        assert completer._provider == "openai"
-
-    def test_no_provider(self):
-        adapter = AsyncMock()
-        with patch.dict(os.environ, {}, clear=True):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
-        assert completer._provider is None
-
-    def test_available_property(self):
-        adapter = AsyncMock()
-        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}, clear=False):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
+        completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
         assert completer.available is True
 
-    def test_not_available(self):
-        adapter = AsyncMock()
-        with patch.dict(os.environ, {}, clear=True):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
-        assert completer.available is False
-
-
-# ── NarratorCompleter._effective_max_tokens ──
-
-
-class TestEffectiveMaxTokens:
-    def test_uses_pricing_data(self):
-        adapter = AsyncMock()
-        with patch.dict(os.environ, {}, clear=True):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
-        completer._max_output_tokens = 4096
-        assert completer._effective_max_tokens() == 4096
-
-    def test_fallback_anthropic(self):
-        adapter = AsyncMock()
-        with patch.dict(os.environ, {}, clear=True):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
-        completer._max_output_tokens = None
-        assert completer._effective_max_tokens() == 8192
-
-    def test_fallback_openai(self):
-        adapter = AsyncMock()
-        with patch.dict(os.environ, {}, clear=True):
-            completer = NarratorCompleter(adapter, model="gpt-4o")
-        completer._max_output_tokens = None
-        assert completer._effective_max_tokens() == 16384
-
-    def test_model_property(self):
-        adapter = AsyncMock()
-        with patch.dict(os.environ, {}, clear=True):
-            completer = NarratorCompleter(adapter, model="test-model")
-        assert completer.model == "test-model"
-
-
-# ── NarratorCompleter.complete fallback ──
-
-
-class TestComplete:
     @pytest.mark.asyncio()
-    async def test_fallback_to_adapter(self):
-        """When no direct provider, falls back to adapter.complete()."""
+    async def test_complete_delegates_to_adapter(self):
         from backend.services.adapters.agent_adapter import CompletionResult
 
         adapter = AsyncMock()
         adapter.complete.return_value = CompletionResult(
-            text="adapter response",
-            input_tokens=10,
-            output_tokens=5,
-            model="test",
+            text="narrative text", input_tokens=50, output_tokens=200, model="claude-haiku-4-5"
         )
-        with patch.dict(os.environ, {}, clear=True):
-            completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
-        assert completer._provider is None
-
-        result = await completer.complete("test prompt")
-        assert result == "adapter response"
-        adapter.complete.assert_awaited_once_with("test prompt")
+        completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
+        result = await completer.complete("Write a story")
+        assert result == "narrative text"
+        adapter.complete.assert_awaited_once_with("Write a story")
 
     @pytest.mark.asyncio()
-    async def test_fallback_empty_text(self):
+    async def test_complete_returns_empty_on_none(self):
         from backend.services.adapters.agent_adapter import CompletionResult
 
         adapter = AsyncMock()
         adapter.complete.return_value = CompletionResult(
-            text=None,
-            input_tokens=0,
-            output_tokens=0,
-            model="test",
+            text=None, input_tokens=10, output_tokens=0, model="test"
         )
-        with patch.dict(os.environ, {}, clear=True):
-            completer = NarratorCompleter(adapter, model="test-model")
-
-        result = await completer.complete("test prompt")
+        completer = NarratorCompleter(adapter, model="test")
+        result = await completer.complete("prompt")
         assert result == ""
+
+    @pytest.mark.asyncio()
+    async def test_close_is_noop(self):
+        adapter = AsyncMock()
+        completer = NarratorCompleter(adapter, model="test")
+        await completer.close()  # should not raise

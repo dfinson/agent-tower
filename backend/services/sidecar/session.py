@@ -288,8 +288,8 @@ class SidecarSessionManager:
         self._model = model
         self._pool_size = pool_size
 
-        # Fast-path completer — direct HTTP to LLM API, bypasses SDK subprocess
-        self._fast_completer = LightweightCompleter(adapter, model=model)
+        # Completer — delegates to adapter (SDK)
+        self._completer = LightweightCompleter(adapter, model=model)
 
         # Standby pool — ready-to-use SidecarSession instances
         self._pool: deque[SidecarSession] = deque()
@@ -337,7 +337,7 @@ class SidecarSessionManager:
         self._warm.clear()
         self._warm_created_at.clear()
         self._jobs.clear()
-        await self._fast_completer.close()
+        await self._completer.close()
         log.debug("sidecar_session_manager_shutdown")
 
     # -- Standby pool --------------------------------------------------------
@@ -550,27 +550,8 @@ class SidecarSessionManager:
     async def complete(self, prompt: str, timeout: float = 30.0) -> str:
         """One-shot completion for callers without a job context.
 
-        Uses the fast-path direct HTTP completer when available (bypasses
-        the SDK subprocess entirely).  Falls back to a pooled SidecarSession.
+        Routes through the SDK adapter via a pooled SidecarSession.
         """
-        if self._fast_completer.available:
-            try:
-                t0 = time.monotonic()
-                result = await asyncio.wait_for(
-                    self._fast_completer.complete(f"{_DEFAULT_SYSTEM_PROMPT}\n\n{prompt}"),
-                    timeout=timeout,
-                )
-                elapsed_ms = (time.monotonic() - t0) * 1000
-                self._global_call_count += 1
-                self._global_latency_ms += elapsed_ms
-                self._global_input_tokens += result.input_tokens
-                self._global_output_tokens += result.output_tokens
-                self._global_cost_usd += result.cost_usd
-                log.debug("fast_complete_ok", elapsed_ms=round(elapsed_ms, 1), model=self._model)
-                return result.text or ""
-            except (OSError, RuntimeError, TimeoutError):
-                log.warning("fast_complete_failed_falling_back", exc_info=True)
-
         session = self._pop_or_create()
         try:
             for attempt in range(_TIMEOUT_RETRIES + 1):
@@ -581,7 +562,7 @@ class SidecarSessionManager:
                         raise
                     session._primed = False  # noqa: SLF001
             return ""
-        except (OSError, RuntimeError):
+        except (OSError, RuntimeError, TimeoutError):
             log.warning("sidecar_oneshot_failed", exc_info=True)
             return ""
         finally:

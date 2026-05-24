@@ -430,7 +430,7 @@ class TestShutdown:
     async def test_shutdown_clears_state(self) -> None:
         adapter = _mock_adapter()
         mgr = _make_manager(adapter=adapter)
-        mgr._fast_completer.close = AsyncMock()
+        mgr._completer.close = AsyncMock()
         mgr._fill_pool()
         mgr.open("j1", "arbiter")
         _token = mgr.warm()
@@ -440,7 +440,7 @@ class TestShutdown:
         assert len(mgr._pool) == 0
         assert len(mgr._warm) == 0
         assert len(mgr._jobs) == 0
-        mgr._fast_completer.close.assert_awaited_once()
+        mgr._completer.close.assert_awaited_once()
 
 
 # ===================================================================
