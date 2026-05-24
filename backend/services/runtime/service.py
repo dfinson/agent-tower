@@ -344,6 +344,95 @@ class RuntimeService:
         except (Exception, asyncio.CancelledError):
             log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
 
+    async def _finalize_naming(self, job_id: str) -> None:
+        """Retry title generation and produce description for untitled/undescribed jobs."""
+        if self._sidecar_sessions is None:
+            return
+        try:
+            from backend.persistence.job_repo import JobRepository
+
+            # Read current job state
+            async with self._session_factory() as session:
+                repo = JobRepository(session)
+                job = await repo.get(job_id)
+                if not job:
+                    return
+
+                needs_title = job.title is None
+                needs_description = job.description is None
+
+            if not needs_title and not needs_description:
+                return
+
+            # Build context from the job prompt (first 2000 chars)
+            context = (job.prompt or "")[:2000]
+            if not context:
+                return
+
+            if needs_title:
+                title = await self._generate_title_safe(context)
+                if title:
+                    from backend.persistence.database import serialized_write
+
+                    async with serialized_write(self._session_factory) as ws:
+                        await JobRepository(ws).update_title_and_branch(job_id, title=title)
+                    await self._event_bus.publish(
+                        DomainEvent(
+                            event_id=DomainEvent.make_event_id(),
+                            job_id=job_id,
+                            timestamp=datetime.now(UTC),
+                            kind=DomainEventKind.job_title_updated,
+                            payload={"title": title},
+                        )
+                    )
+                    log.info("finalize_title_generated", job_id=job_id, title=title)
+
+            if needs_description:
+                desc = await self._generate_description_safe(context)
+                if desc:
+                    from backend.persistence.database import serialized_write
+
+                    async with serialized_write(self._session_factory) as ws:
+                        from sqlalchemy import update as sa_update
+
+                        from backend.models.db import JobRow
+
+                        await ws.execute(
+                            sa_update(JobRow).where(JobRow.id == job_id).values(description=desc)
+                        )
+                    log.info("finalize_description_generated", job_id=job_id)
+        except Exception:
+            log.debug("finalize_naming_failed", job_id=job_id, exc_info=True)
+
+    async def _generate_title_safe(self, context: str) -> str | None:
+        """One-shot title generation via sidecar. Returns None on failure."""
+        try:
+            prompt = (
+                "Given this coding task prompt, generate a concise 3-8 word title. "
+                "Respond with ONLY the title text, no quotes, no punctuation at the end.\n\n"
+                f"Task:\n{context}"
+            )
+            title = await self._sidecar_sessions.complete(prompt, timeout=10.0)
+            title = str(title).strip().strip('"').strip("'")
+            return title if title and len(title) >= 3 else None
+        except Exception:
+            return None
+
+    async def _generate_description_safe(self, context: str) -> str | None:
+        """One-shot description generation via sidecar. Returns None on failure."""
+        try:
+            prompt = (
+                "Given this coding task prompt, generate a 1-2 sentence description "
+                "of the work being done. Be specific and concise. "
+                "Respond with ONLY the description text.\n\n"
+                f"Task:\n{context}"
+            )
+            desc = await self._sidecar_sessions.complete(prompt, timeout=10.0)
+            desc = str(desc).strip()
+            return desc if desc and len(desc) >= 10 else None
+        except Exception:
+            return None
+
     @property
     def running_count(self) -> int:
         """Number of currently running job tasks."""
@@ -1500,6 +1589,21 @@ class RuntimeService:
         if self._step_tracker is not None:
             await self._step_tracker.on_job_terminal(job_id, outcome)
 
+        # Sweep any steps still stuck in "running" in the DB
+        # (handles steps that lost in-memory tracking after restarts)
+        try:
+            from backend.persistence.step_repo import StepRepository
+
+            step_repo = StepRepository(self._session_factory)
+            status = "completed" if not error_reason else "failed"
+            closed = await step_repo.close_running_by_job(
+                job_id, status=status, completed_at=datetime.now(UTC)
+            )
+            if closed:
+                log.info("finalize_swept_stuck_steps", job_id=job_id, count=closed)
+        except Exception:
+            log.warning("finalize_step_sweep_failed", job_id=job_id, exc_info=True)
+
         # Final diff snapshot — capture the worktree end-state before cleanup
         await self._finalize_diff_safe(job_id, worktree_path, base_ref)
 
@@ -1508,6 +1612,9 @@ class RuntimeService:
             self._trail_service.stop_tracking(job_id)
             await self._trail_service.finalize(job_id, succeeded=error_reason is None)
             self._trail_service.cleanup(job_id)
+
+        # Retry title + generate description while sidecar is still alive
+        await self._finalize_naming(job_id)
 
         # Sidecar session cleanup (metrics snapshot + pool return)
         if self._sidecar_dispatcher is not None:

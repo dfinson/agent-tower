@@ -48,6 +48,13 @@ class StepPersistenceSubscriber:
         p = cast("StepCompletedPayloadDict", event.payload)
         step_id = p["step_id"]
         assert step_id is not None
+
+        # Derive title from files_written or agent_message
+        title = _derive_step_title(
+            p.get("files_written", []),
+            p.get("agent_message"),
+        )
+
         await self._step_repo.complete(
             step_id=step_id,
             status=p["status"],
@@ -61,3 +68,27 @@ class StepPersistenceSubscriber:
             files_written=json.dumps(p.get("files_written", [])),
             preceding_context=p.get("preceding_context"),
         )
+        if title:
+            await self._step_repo.set_title(step_id, title)
+
+
+def _derive_step_title(
+    files_written: list[str],
+    agent_message: str | None,
+) -> str | None:
+    """Best-effort title from step completion data."""
+    if files_written:
+        # Use basename of first few files
+        from pathlib import PurePosixPath
+
+        names = [PurePosixPath(f).name for f in files_written[:3]]
+        prefix = "Edit " if len(names) == 1 else "Edit "
+        title = prefix + ", ".join(names)
+        if len(files_written) > 3:
+            title += f" (+{len(files_written) - 3} more)"
+        return title[:60]
+    if agent_message:
+        # First line, truncated
+        first_line = agent_message.strip().split("\n")[0]
+        return first_line[:60] if first_line else None
+    return None

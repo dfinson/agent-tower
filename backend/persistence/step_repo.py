@@ -87,3 +87,14 @@ class StepRepository:
         async with self._session_factory() as session:
             result = await session.execute(select(StepRow).where(StepRow.job_id == job_id, StepRow.turn_id == turn_id))
             return result.scalar_one_or_none()
+
+    async def close_running_by_job(self, job_id: str, status: str, completed_at: datetime) -> int:
+        """Force-close all still-running steps for a job. Returns count updated."""
+        async with serialized_write(self._session_factory) as session:
+            stmt = (
+                update(StepRow)
+                .where(StepRow.job_id == job_id, StepRow.status == "running")
+                .values(status=status, completed_at=completed_at)
+            )
+            result = await session.execute(stmt)
+            return result.rowcount  # type: ignore[return-value]
