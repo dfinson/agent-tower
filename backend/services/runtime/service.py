@@ -546,6 +546,13 @@ class RuntimeService:
 
             # Preflight context curation — explore repo via CodeRecon and produce a brief
             await self._emit_setup_progress(job.id, "exploring_codebase")
+            # Ensure the repo is indexed before preflight — the curator agent
+            # calls coderecon tools which require a populated index.
+            if self._coderecon_service is not None and self._coderecon_service.available:
+                try:
+                    await self._coderecon_service.ensure_repo_indexed(job.repo)
+                except Exception:
+                    log.debug("preflight_index_failed", job_id=job.id, exc_info=True)
             session_config = await self._run_preflight_curator(job, session_config)
 
             # If the job was canceled during preflight, don't start the main session.

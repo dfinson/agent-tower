@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -64,6 +65,7 @@ class TrailEnricher:
         self._repo = TrailNodeRepository(session_factory)
         self._job_state = job_state if job_state is not None else {}
         self._coderecon = coderecon
+        self._coverage_ingested: set[tuple[str, str, float]] = set()
 
     async def drain_enrichment(self) -> int:
         """Process a batch of nodes needing enrichment. Returns count processed."""
@@ -186,7 +188,7 @@ class TrailEnricher:
                     await self._repo.create(s_node)
                     processed += 1
 
-            except (SQLAlchemyError, KeyError, ValueError, OSError):
+            except Exception:
                 log.debug("trail_enrichment_failed", job_id=job_id, exc_info=True)
                 for node in job_nodes:
                     try:
@@ -557,6 +559,88 @@ class TrailEnricher:
 
         return processed
 
+    # ── Coverage report scanning ──
+
+    # Common locations where coverage tools write reports
+    _COVERAGE_REPORT_CANDIDATES: tuple[str, ...] = (
+        "coverage.json",
+        "coverage/coverage.json",
+        "coverage/lcov.info",
+        "lcov.info",
+        "coverage.xml",
+        ".coverage/coverage.json",
+        "htmlcov/coverage.json",
+    )
+
+    async def drain_coverage_scan(self) -> int:
+        """Scan active job worktrees for coverage reports and ingest them.
+
+        Runs each cycle — checks all jobs with worktree_path for freshly-written
+        coverage files.  Ingests any found files that haven't been ingested yet
+        (tracked by mtime in _coverage_ingested).
+        """
+        if not self._coderecon:
+            return 0
+
+        from sqlalchemy import text
+
+        ingested = 0
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                text("SELECT id, repo, worktree_path FROM jobs WHERE state IN ('running', 'paused') AND worktree_path IS NOT NULL"),
+            )
+            jobs = rows.mappings().all()
+
+        for job in jobs:
+            worktree_path = str(job["worktree_path"])
+            repo = str(job["repo"])
+            job_id = str(job["id"])
+
+            report_path = await self._find_coverage_report(worktree_path)
+            if not report_path:
+                continue
+
+            # Track ingested files by (job_id, path, mtime) to avoid re-ingestion
+            mtime = report_path.stat().st_mtime
+            cache_key = (job_id, str(report_path), mtime)
+            if cache_key in self._coverage_ingested:
+                continue
+
+            try:
+                repo_name = await self._coderecon.ensure_repo_indexed(repo)
+                await self._coderecon.register_worktree(repo_name, worktree_path)
+
+                result = await self._coderecon.ingest_coverage(
+                    repo_name,
+                    str(report_path),
+                    worktree=worktree_path,
+                )
+                # Only mark as ingested if at least 1 file was covered
+                if result and getattr(result, "files_covered", 0) > 0:
+                    self._coverage_ingested.add(cache_key)
+                    ingested += 1
+                    log.info(
+                        "coverage_ingested",
+                        job_id=job_id,
+                        report=str(report_path),
+                        files_covered=getattr(result, "files_covered", 0),
+                    )
+            except Exception:
+                log.debug("coverage_ingest_failed", job_id=job_id, report=str(report_path), exc_info=True)
+
+        return ingested
+
+    async def _find_coverage_report(self, worktree_path: str) -> Path | None:
+        """Find the first existing coverage report in the worktree."""
+        wt = Path(worktree_path)
+        if not wt.is_dir():
+            return None
+        for candidate in self._COVERAGE_REPORT_CANDIDATES:
+            p = wt / candidate
+            if p.is_file() and p.stat().st_size > 0:
+                return p
+        return None
+
     async def drain_loop(self) -> None:
         """Run forever, periodically processing enrichment, titles, and motivations."""
         while True:
@@ -578,6 +662,10 @@ class TrailEnricher:
                 semantic_count = await self.drain_semantic_targets()
                 if semantic_count:
                     log.info("semantic_targets_batch_processed", count=semantic_count)
+                # Coverage report auto-ingestion
+                cov_count = await self.drain_coverage_scan()
+                if cov_count:
+                    log.info("coverage_scan_batch_ingested", count=cov_count)
             except Exception:  # Safety-net: drain loop must not crash
                 log.warning("trail_enrichment_drain_error", exc_info=True)
             await asyncio.sleep(self._config.enrich_interval_seconds)

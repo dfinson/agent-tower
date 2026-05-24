@@ -80,12 +80,16 @@ class TitleGenerator:
         else:
             recent_window = "  (first turn)"
 
+        # First step title — lets the LLM detect drift from the original scope
+        first_step_title = steps_in_activity[0].title if steps_in_activity else "(first turn)"
+
         # Build the NOW line: prefer agent message first-line, fall back to intent/tools
         now_line = self._build_now_line(agent_msg, preceding_context, state.recent_tool_names)
 
         prompt = TITLE_PROMPT.format(
             current_label=current_label,
             turns_in_section=turns_in_section,
+            first_step_title=first_step_title,
             plan_step_label=plan_step_label,
             done_count=done_count,
             total_count=total_count,
