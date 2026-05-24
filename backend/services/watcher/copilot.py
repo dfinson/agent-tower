@@ -572,7 +572,10 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                         elif kind_str == "session.shutdown":
                             shutdown_seen = True
                             self._schedule_offset_persist(job_id, offset)
-                            await self._finalize_session(job_id, error_reason=error_reason)
+                            shutdown_metrics = self._extract_shutdown_metrics(raw.get("data") or {})
+                            await self._finalize_session(
+                                job_id, error_reason=error_reason, shutdown_metrics=shutdown_metrics
+                            )
                     except json.JSONDecodeError:
                         log.debug("session_watcher_invalid_json", line=line[:200])
                     except Exception:
@@ -780,11 +783,89 @@ class SessionStateWatcher(WatcherTelemetryMixin):
     # Session finalization
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _extract_shutdown_metrics(data: dict[str, Any]) -> dict[str, Any]:
+        """Extract telemetry counters from a session.shutdown event payload.
+
+        The Copilot CLI writes cumulative token/cost totals only once, in
+        the session.shutdown event's ``modelMetrics`` field.  This method
+        normalizes them into the shape expected by TelemetrySummaryRepository.
+        """
+        metrics: dict[str, Any] = {}
+
+        # Aggregate across all models (usually just one)
+        model_metrics = data.get("modelMetrics") or {}
+        input_tokens = 0
+        output_tokens = 0
+        cache_read_tokens = 0
+        cache_write_tokens = 0
+        llm_call_count = 0
+        premium_requests: float = 0
+        last_model = ""
+
+        for model_name, model_data in model_metrics.items():
+            last_model = model_name
+            usage = model_data.get("usage") or {}
+            input_tokens += int(usage.get("inputTokens") or 0)
+            output_tokens += int(usage.get("outputTokens") or 0)
+            cache_read_tokens += int(usage.get("cacheReadTokens") or 0)
+            cache_write_tokens += int(usage.get("cacheWriteTokens") or 0)
+            requests = model_data.get("requests") or {}
+            llm_call_count += int(requests.get("count") or 0)
+            premium_requests += float(requests.get("cost") or 0)
+
+        counters: dict[str, int | float] = {}
+        if input_tokens or output_tokens or cache_read_tokens or cache_write_tokens:
+            counters["input_tokens"] = input_tokens
+            counters["output_tokens"] = output_tokens
+            counters["cache_read_tokens"] = cache_read_tokens
+            counters["cache_write_tokens"] = cache_write_tokens
+        if llm_call_count:
+            counters["llm_call_count"] = llm_call_count
+        if premium_requests:
+            counters["premium_requests"] = premium_requests
+
+        # Total API duration → total_llm_duration_ms
+        total_api_ms = int(data.get("totalApiDurationMs") or 0)
+        if total_api_ms:
+            counters["total_llm_duration_ms"] = total_api_ms
+
+        # Total turns from the session
+        total_premium = int(data.get("totalPremiumRequests") or 0)
+        if total_premium and not premium_requests:
+            counters["premium_requests"] = float(total_premium)
+
+        if counters:
+            metrics["counters"] = counters
+
+        # Session duration (sessionStartTime is epoch ms)
+        session_start_ms = int(data.get("sessionStartTime") or 0)
+        if session_start_ms:
+            import time
+
+            duration_ms = int(time.time() * 1000) - session_start_ms
+            metrics["duration_ms"] = max(duration_ms, 0)
+        else:
+            metrics["duration_ms"] = total_api_ms
+
+        # Context window info
+        current_tokens = int(data.get("currentTokens") or 0)
+        if current_tokens:
+            metrics["current_context_tokens"] = current_tokens
+
+        # Model
+        model_from_data = data.get("currentModel") or last_model
+        if model_from_data:
+            metrics["model"] = model_from_data
+
+        return metrics
+
     async def _finalize_session(
         self,
         job_id: str,
         *,
         error_reason: str | None = None,
+        shutdown_metrics: dict[str, Any] | None = None,
     ) -> None:
         """Transition job to review (clean shutdown) or failed (error/orphan)."""
         now = datetime.now(UTC)
@@ -795,6 +876,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
 
             async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
                 repo = JobRepository(session)
                 await repo.update_state(
@@ -804,6 +886,23 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                     completed_at=now,
                     failure_reason=error_reason,
                 )
+
+                # Flush shutdown metrics into telemetry summary
+                if shutdown_metrics:
+                    tele_repo = TelemetrySummaryRepository(session)
+                    counters = shutdown_metrics.get("counters")
+                    if counters:
+                        await tele_repo.increment(job_id=job_id, **counters)
+                    duration_ms = shutdown_metrics.get("duration_ms", 0)
+                    await tele_repo.finalize(
+                        job_id, status=new_state, duration_ms=duration_ms
+                    )
+                    ctx_tokens = shutdown_metrics.get("current_context_tokens")
+                    if ctx_tokens:
+                        await tele_repo.set_context(job_id, current_tokens=ctx_tokens)
+                    model = shutdown_metrics.get("model")
+                    if model:
+                        await tele_repo.set_model(job_id, model=model)
         except Exception:
             log.warning("session_watcher_finalize_failed", job_id=job_id, exc_info=True)
             return

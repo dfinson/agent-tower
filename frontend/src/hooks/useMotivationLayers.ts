@@ -42,15 +42,15 @@ export function useMotivationLayers({
   const [jobMotivations, setJobMotivations] = useState<JobMotivationsResponse | null>(null);
   const viewZoneIdsRef = useRef<string[]>([]);
 
-  // Fetch job-level motivations (only if step-level not provided)
+  // Fetch job-level motivations once (only if step-level not provided)
   useEffect(() => {
-    if (!enabled || stepFileMotivations) return;
+    if (stepFileMotivations) return;
     let cancelled = false;
     fetchJobMotivations(jobId)
       .then((res) => { if (!cancelled) setJobMotivations(res); })
       .catch(() => { if (!cancelled) setJobMotivations(null); });
     return () => { cancelled = true; };
-  }, [jobId, enabled, stepFileMotivations]);
+  }, [jobId, stepFileMotivations]);
 
   // Inject view zones
   useEffect(() => {
@@ -59,67 +59,62 @@ export function useMotivationLayers({
     const modifiedEditor = editor.getModifiedEditor();
     if (!modifiedEditor) return;
 
-    // Clear existing zones first
     modifiedEditor.changeViewZones((accessor: any) => {
       viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
       viewZoneIdsRef.current = [];
-    });
 
-    if (!enabled || !file) return;
+      if (!enabled || !file) return;
 
-    // Determine which motivation source to use
-    const fileMotivations = stepFileMotivations || jobMotivations?.fileMotivations || {};
-    const hunkMotivations = stepHunkMotivations || jobMotivations?.hunkMotivations || {};
+      // Determine which motivation source to use
+      const fileMots = stepFileMotivations || jobMotivations?.fileMotivations || {};
+      const hunkMots = stepHunkMotivations || jobMotivations?.hunkMotivations || {};
 
-    // Collect motivation zones for this file
-    const filePath = file.path;
-    const zones: { afterLine: number; title: string; why: string }[] = [];
+      // Collect motivation zones for this file
+      const filePath = file.path;
+      const zones: { afterLine: number; title: string; why: string }[] = [];
 
-    // File-level motivation — place AFTER the last line of the first hunk
-    const fileMot = fileMotivations[filePath];
-    if (fileMot && fileMot.why) {
-      const lastHunk = file.hunks[file.hunks.length - 1];
-      if (lastHunk) {
-        zones.push({
-          afterLine: lastHunk.newStart + lastHunk.newLines - 1,
-          title: fileMot.title || "Why this changed",
-          why: fileMot.why,
-        });
+      // File-level motivation — place AFTER the last line of the first hunk
+      const fileMot = fileMots[filePath];
+      if (fileMot && fileMot.why) {
+        const lastHunk = file.hunks[file.hunks.length - 1];
+        if (lastHunk) {
+          zones.push({
+            afterLine: lastHunk.newStart + lastHunk.newLines - 1,
+            title: fileMot.title || "Why this changed",
+            why: fileMot.why,
+          });
+        }
       }
-    }
 
-    // Hunk-level motivations — place AFTER the hunk's last added line
-    file.hunks.forEach((hunk, hi) => {
-      const mot = hunkMotivations[`${filePath}:${hi}`];
-      if (mot && mot.why) {
-        zones.push({
-          afterLine: hunk.newStart + hunk.newLines - 1,
-          title: mot.title || "Why this changed",
-          why: mot.why,
-        });
-      }
-    });
+      // Hunk-level motivations — place AFTER the hunk's last added line
+      file.hunks.forEach((hunk, hi) => {
+        const mot = hunkMots[`${filePath}:${hi}`];
+        if (mot && mot.why) {
+          zones.push({
+            afterLine: hunk.newStart + hunk.newLines - 1,
+            title: mot.title || "Why this changed",
+            why: mot.why,
+          });
+        }
+      });
 
-    if (zones.length === 0) return;
+      if (zones.length === 0) return;
 
-    const ed = editorRef.current?.getModifiedEditor();
-    if (!ed) return;
-
-    ed.changeViewZones((accessor: any) => {
-      viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
       const newIds: string[] = [];
-
       for (const z of zones) {
         const domNode = document.createElement("div");
         domNode.className = "motivation-zone";
         domNode.innerHTML = `
-          <span class="motivation-label">${escapeHtml(z.title)}</span>
-          <span class="motivation-text">${escapeHtml(z.why)}</span>
+          <div class="mot-label">${escapeHtml(z.title)}</div>
+          <div class="mot-text">${escapeHtml(z.why)}</div>
         `;
+
+        const textLines = Math.max(1, Math.ceil(z.why.length / 90));
+        const heightInPx = 14 + (textLines * 16) + 12;
 
         const id = accessor.addZone({
           afterLineNumber: z.afterLine,
-          heightInPx: 28,
+          heightInPx,
           domNode,
           suppressMouseDown: true,
         });

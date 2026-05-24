@@ -23,9 +23,9 @@ export function useLayeredDiffStyles() {
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='4' fill='%23f14c4c'/%3E%3C/svg%3E") center center / 10px no-repeat;
 }
 
-/* Motivation view zone — matches mockup: light background, label + text inline */
+/* Motivation view zone — matches mockup: label on own line, wrapping text below */
 .motivation-zone {
-  padding: 5px 12px 5px 68px;
+  padding: 5px 12px 5px 8px;
   background: rgba(156, 220, 254, 0.03);
   border-top: 1px solid #2a2a3a;
   border-bottom: 1px solid #2a2a3a;
@@ -33,20 +33,20 @@ export function useLayeredDiffStyles() {
   font-size: 11px;
   line-height: 1.4;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  pointer-events: auto;
 }
-.motivation-zone .motivation-label {
+.motivation-zone .mot-label {
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.5px;
   text-transform: uppercase;
   color: #569cd6;
-  margin-right: 8px;
+  margin-bottom: 2px;
 }
-.motivation-zone .motivation-text {
+.motivation-zone .mot-text {
   color: #9cdcfe;
   font-style: italic;
+  line-height: 1.4;
 }
 
 /* Impact zone — collapsible panel matching mockup */
@@ -57,12 +57,14 @@ export function useLayeredDiffStyles() {
   border-top: 1px solid #2a2a4a;
   border-bottom: 1px solid #2a2a4a;
   background: #1b1b28;
+  pointer-events: auto;
+  overflow: visible;
 }
 .impact-zone-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 12px 5px 68px;
+  padding: 5px 12px 5px 8px;
   cursor: pointer;
   user-select: none;
   transition: background 0.1s;
@@ -119,9 +121,13 @@ export function useLayeredDiffStyles() {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 12px 5px 88px;
+  padding: 5px 12px 5px 28px;
   cursor: pointer;
   transition: background 0.1s;
+  border-top: 1px solid #252535;
+}
+.impact-caller-card:first-child {
+  border-top: none;
 }
 .impact-caller-card:hover {
   background: rgba(255, 255, 255, 0.02);
@@ -134,6 +140,8 @@ export function useLayeredDiffStyles() {
 }
 .impact-caller-dot.test { background: #4ec9b0; }
 .impact-caller-dot.source { background: #569cd6; }
+.impact-caller-dot.covered { background: #4ec9b0; }
+.impact-caller-dot.uncovered { background: #f14c4c; }
 .impact-caller-dot.fail { background: #f14c4c; box-shadow: 0 0 3px #f48771; }
 .impact-caller-name {
   font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;

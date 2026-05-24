@@ -277,7 +277,7 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
         <div className="flex flex-col items-center justify-center h-48 gap-2">
           <Spinner size="md" />
           {pending[verbosity] && (
-            <span className="text-xs text-muted-foreground">Generating story\u2026</span>
+            <span className="text-xs text-muted-foreground">Generating story…</span>
           )}
         </div>
         {controls}

@@ -41,9 +41,9 @@ export function useCoverageLayers({
   const decorationIdsRef = useRef<string[]>([]);
   const disposableRef = useRef<any>(null);
 
-  // Fetch coverage when file changes
+  // Fetch coverage when file changes (always fetch, toggle only controls display)
   useEffect(() => {
-    if (!filePath || !enabled) {
+    if (!filePath) {
       setCoverage(null);
       return;
     }
@@ -55,19 +55,19 @@ export function useCoverageLayers({
       })
       .catch(() => { if (!cancelled) setCoverage(null); });
     return () => { cancelled = true; };
-  }, [jobId, filePath, enabled]);
+  }, [jobId, filePath]);
 
   // Apply decorations to modified editor
   useEffect(() => {
     const editor = editorRef.current;
     const m = monacoRef.current;
-    if (!editor || !m || !editorReady || !enabled) {
+    if (!editor || !m || !editorReady) {
       return;
     }
     const modifiedEditor = editor.getModifiedEditor();
     if (!modifiedEditor) return;
 
-    if (!coverage) {
+    if (!enabled || !coverage) {
       decorationIdsRef.current = modifiedEditor.deltaDecorations(decorationIdsRef.current, []);
       return;
     }

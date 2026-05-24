@@ -47,6 +47,12 @@ CodePlane is a control plane for running and supervising coding agents. It has a
 - Keep changes minimal and focused — don't refactor surrounding code or add speculative features.
 - Use conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `chore:`.
 
+### Data / Database
+
+- Runtime database: `~/.codeplane/data.db` (SQLite). Contains jobs, trail_nodes, events, steps, spans, etc.
+- Query with `uv run python -c "import sqlite3; ..."` — `sqlite3` CLI is not installed.
+- Alembic migrations in `alembic/versions/`. Schema matches SQLAlchemy models in `backend/models/db.py`.
+
 ---
 name: desloppify
 description: >
