@@ -100,6 +100,8 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         self._pending_telemetry: dict[str, dict[str, float | int]] = {}
         # Track which job_ids have had their prompt captured
         self._prompt_captured: set[str] = set()
+        # Jobs that received per-turn assistant.usage events (streaming tokens)
+        self._jobs_with_streaming_usage: set[str] = set()
         # ISO timestamp of when this watcher started — sessions created before
         # this are ignored unless they already have a job in the DB (handled by
         # _load_existing_sessions).  Prevents importing thousands of stale
@@ -721,6 +723,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
 
         # --- Usage / telemetry ---
         elif kind_str == "assistant.usage":
+            self._jobs_with_streaming_usage.add(job_id)
             input_toks = int(getattr(data, "input_tokens", 0) or 0)
             output_toks = int(getattr(data, "output_tokens", 0) or 0)
             cache_read = int(getattr(data, "cache_read_tokens", 0) or 0)
@@ -791,6 +794,15 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         the session.shutdown event's ``modelMetrics`` field.  This method
         normalizes them into the shape expected by TelemetrySummaryRepository.
         """
+        try:
+            return SessionStateWatcher._parse_shutdown_data(data)
+        except (TypeError, ValueError, AttributeError):
+            log.warning("session_watcher_shutdown_metrics_malformed", exc_info=True)
+            return {}
+
+    @staticmethod
+    def _parse_shutdown_data(data: dict[str, Any]) -> dict[str, Any]:
+        """Inner parser — separated so malformed payloads don't crash the caller."""
         metrics: dict[str, Any] = {}
 
         # Aggregate across all models (usually just one)
@@ -804,6 +816,8 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         last_model = ""
 
         for model_name, model_data in model_metrics.items():
+            if not isinstance(model_data, dict):
+                continue
             last_model = model_name
             usage = model_data.get("usage") or {}
             input_tokens += int(usage.get("inputTokens") or 0)
@@ -891,11 +905,13 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 if shutdown_metrics:
                     tele_repo = TelemetrySummaryRepository(session)
                     counters = shutdown_metrics.get("counters")
-                    if counters:
+                    # Skip token counters if per-turn usage was already streamed
+                    # (modelMetrics contains cumulative totals, not deltas)
+                    if counters and job_id not in self._jobs_with_streaming_usage:
                         await tele_repo.increment(job_id=job_id, **counters)
                     duration_ms = shutdown_metrics.get("duration_ms", 0)
                     await tele_repo.finalize(
-                        job_id, status=new_state, duration_ms=duration_ms
+                        job_id, status=str(new_state), duration_ms=duration_ms
                     )
                     ctx_tokens = shutdown_metrics.get("current_context_tokens")
                     if ctx_tokens:
@@ -906,6 +922,8 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         except Exception:
             log.warning("session_watcher_finalize_failed", job_id=job_id, exc_info=True)
             return
+        finally:
+            self._jobs_with_streaming_usage.discard(job_id)
 
         await self._event_bus.publish(
             DomainEvent(
