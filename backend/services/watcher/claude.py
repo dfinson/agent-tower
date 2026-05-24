@@ -992,14 +992,29 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
             async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
                 repo = JobRepository(session)
+                job = await repo.get(job_id)
                 await repo.update_state(
                     job_id,
                     new_state,
                     updated_at=now,
                     completed_at=now,
                     failure_reason=error_reason,
+                )
+
+                # Finalize telemetry summary with status and duration
+                duration_ms = 0
+                if job and job.created_at:
+                    created = job.created_at
+                    if created.tzinfo is None:
+                        from datetime import timezone
+                        created = created.replace(tzinfo=timezone.utc)
+                    duration_ms = max(int((now - created).total_seconds() * 1000), 0)
+                tele_repo = TelemetrySummaryRepository(session)
+                await tele_repo.finalize(
+                    job_id, status=str(new_state), duration_ms=duration_ms
                 )
         except Exception:
             log.warning("claude_watcher_finalize_failed", job_id=job_id, exc_info=True)
