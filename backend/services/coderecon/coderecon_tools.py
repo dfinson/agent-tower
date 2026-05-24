@@ -200,6 +200,56 @@ def _item_to_dict(obj: Any) -> Any:
     return str(obj)
 
 
+# Common locations where coverage tools write reports
+_COVERAGE_REPORT_CANDIDATES: tuple[str, ...] = (
+    "coverage.json",
+    "coverage/coverage.json",
+    "coverage/lcov.info",
+    "lcov.info",
+    "coverage.xml",
+    ".coverage/coverage.json",
+    "htmlcov/coverage.json",
+)
+
+
+async def _try_ingest_coverage(
+    service: CodeReconService,
+    repo: str,
+    worktree: str,
+) -> None:
+    """Best-effort coverage ingestion after checkpoint tests.
+
+    Scans the worktree for common coverage report files and ingests the first
+    one found.  Failures are silently logged — coverage is non-blocking.
+    """
+    from pathlib import Path as _Path
+
+    wt_path = _Path(worktree)
+    if not wt_path.is_dir():
+        return
+
+    for candidate in _COVERAGE_REPORT_CANDIDATES:
+        report = wt_path / candidate
+        if report.is_file() and report.stat().st_size > 0:
+            try:
+                result = await service.ingest_coverage(
+                    repo,
+                    str(report),
+                    worktree=worktree,
+                )
+                if result and getattr(result, "files_covered", 0) > 0:
+                    log.info(
+                        "checkpoint_coverage_ingested",
+                        repo=repo,
+                        report=str(report),
+                        files_covered=getattr(result, "files_covered", 0),
+                    )
+                return  # Only ingest the first found report
+            except Exception:
+                log.debug("checkpoint_coverage_ingest_failed", report=str(report), exc_info=True)
+                return
+
+
 def _resolve_tier(tier: str) -> set[str]:
     """Return tool names allowed for a tier."""
     minimal = {"recon_impact"}
@@ -260,6 +310,9 @@ def build_coderecon_tools(
                     tests=args.get("tests", True),
                     worktree=worktree,
                 )
+                # Auto-ingest coverage if tests ran and produced a report
+                if args.get("tests", True):
+                    await _try_ingest_coverage(service, repo, worktree)
                 return _serialize_result(result)
             if tool_name == "graph_communities":
                 result = await service.graph_communities(repo, worktree=worktree)
