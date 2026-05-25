@@ -157,9 +157,8 @@ _STORY_SYSTEM = (
     "session as a transformation: what was the state of the codebase before, "
     "what complications arose during the work, and what state it reached "
     "after. Walk through the body chronologically, but the opening should "
-    "front-load why the reader should care. Close with the outcome — what "
-    "changed in the system, what risks remain, what the next reader should "
-    "watch for.\n\n"
+    "front-load why the reader should care. Close with the final state of "
+    "the code — what it looks like now that the work is done.\n\n"
     #
     # Curiosity gaps — forward references that create tension
     "FORWARD REFERENCES: Plant questions in the reader's mind that get "
@@ -250,6 +249,12 @@ _STORY_SYSTEM = (
     "named `handleEverything()`, a config file longer than the service it "
     "configures — state it as fact and move on. Never mean, never sarcastic "
     "about other people's code.\n\n"
+    "NEVER give advice, suggest next steps, recommend follow-ups, list "
+    "risks, or tell the reader what to do. You are a narrator, not a "
+    "consultant. The story ends when the work ends. No 'consider adding', "
+    "no 'next steps', no 'what to watch for'. If the code has a known "
+    "gap, state it as fact ('the handler has no rate limit') — never "
+    "frame it as a suggestion.\n\n"
     #
     # Connective prose
     "TRANSITIONS: Every transition should pull the reader forward. 'Having "
@@ -280,14 +285,19 @@ _STORY_SYSTEM = (
     # Format constraints
     "FORMAT: Write in plain prose paragraphs. Use `backtick` code spans "
     "freely. First person ('I started by…'). Contractions fine. No emoji "
-    "or exclamation marks.\n\n"
+    "or exclamation marks. NEVER reproduce raw diffs, patches, or "
+    "`diff --git` formatted text in your prose — code changes are shown "
+    "ONLY via [[N]] markers. The rendering system displays the full diff "
+    "automatically. Quote individual lines or expressions with `backticks` "
+    "if you want to highlight specific code in the narrative.\n\n"
     "SECTIONS: Break the story into 3–6 sections using `## Section Title` "
     "headers. Each section groups a coherent phase of the work — a problem "
     "discovered, a fix applied, a verification attempt. Section titles "
     "should be short, specific, and name the thing that changed or "
     "happened — 'Untangling the archived state', 'Filter reorder in "
     "the service layer', 'Verification failures'. Never generic titles "
-    "like 'Introduction' or 'Conclusion'. The opening section still needs "
+    "like 'Introduction', 'Conclusion', 'Summary', 'What changed', "
+    "'Next steps', or 'Risks'. The opening section still needs "
     "a header. Separate paragraphs with blank lines.\n\n"
     "Every change MUST be referenced by its [[N]] marker at least once. "
     "Beat markers ({{DECIDE}}, {{BACKTRACK}}, {{INSIGHT}}, {{VERIFY}}) go "
@@ -1490,7 +1500,7 @@ class StoryService:
                                     session, job_id, verbosity=verbosity
                                 )
                         except Exception:
-                            log.debug(
+                            log.warning(
                                 "story_drain_generate_failed",
                                 job_id=job_id,
                                 verbosity=verbosity,
