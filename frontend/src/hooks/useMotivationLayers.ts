@@ -109,8 +109,8 @@ export function useMotivationLayers({
           <div class="mot-text">${escapeHtml(z.why)}</div>
         `;
 
-        const textLines = Math.max(1, Math.ceil(z.why.length / 90));
-        const heightInPx = 14 + (textLines * 16) + 12;
+        const textLines = Math.max(1, Math.ceil(z.why.length / 80));
+        const heightInPx = 10 + (textLines * 19) + 14;
 
         const id = accessor.addZone({
           afterLineNumber: z.afterLine,

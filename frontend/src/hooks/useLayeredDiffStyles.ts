@@ -25,20 +25,20 @@ export function useLayeredDiffStyles() {
 
 /* Motivation view zone — matches mockup: label on own line, wrapping text below */
 .motivation-zone {
-  padding: 5px 12px 5px 8px;
+  padding: 6px 12px 4px 8px;
   background: rgba(156, 220, 254, 0.03);
   border-top: 1px solid #2a2a3a;
   border-bottom: 1px solid #2a2a3a;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.45;
   overflow: hidden;
   pointer-events: auto;
 }
 .motivation-zone .mot-label {
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
   text-transform: uppercase;
   color: #569cd6;
   margin-bottom: 2px;
@@ -46,7 +46,7 @@ export function useLayeredDiffStyles() {
 .motivation-zone .mot-text {
   color: #9cdcfe;
   font-style: italic;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 /* Impact zone — collapsible panel matching mockup */

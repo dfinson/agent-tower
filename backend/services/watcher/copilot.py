@@ -386,7 +386,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             log.warning("session_state_watcher_no_git_service")
             return None
 
-        # Resolve git root
+        # Resolve git root — for worktrees, resolve to the parent repo
         try:
             repo_root = await self._git._run_git(  # noqa: SLF001
                 "rev-parse",
@@ -394,6 +394,22 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 cwd=cwd,
             )
             repo_path = repo_root.strip()
+            # If cwd is inside a git worktree, --show-toplevel returns the
+            # worktree dir (not the parent repo).  Resolve via --git-common-dir
+            # to find the actual repository root.
+            git_common = await self._git._run_git(  # noqa: SLF001
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+                cwd=cwd,
+            )
+            git_common = git_common.strip()
+            # --git-common-dir returns the shared .git directory (e.g. /repo/.git)
+            # For worktrees it differs from the local .git dir.
+            if git_common.endswith("/.git"):
+                parent_repo = git_common[: -len("/.git")]
+                if parent_repo != repo_path:
+                    repo_path = parent_repo
         except Exception:
             repo_path = cwd
 

@@ -1719,10 +1719,16 @@ async def get_job_motivations(
                 edits = _json.loads(edit_motivations_raw) if isinstance(edit_motivations_raw, str) else edit_motivations_raw
                 for i, edit in enumerate(edits if isinstance(edits, list) else []):
                     key = f"{rel_target}:{i}"
+                    # The stored JSON uses "summary" (not "title"/"why").
+                    # Split first line as title, remainder as why.
+                    em_summary = edit.get("summary", "")
+                    em_lines = em_summary.strip().split("\n", 1)
+                    em_title = em_lines[0].strip()
+                    em_why = em_lines[1].strip() if len(em_lines) > 1 else em_summary
                     hunk_motivations[key] = HunkMotivation(
                         edit_key=edit.get("edit_key", key),
-                        title=edit.get("title", ""),
-                        why=edit.get("why", ""),
+                        title=em_title,
+                        why=em_why,
                     )
             except (ValueError, TypeError):
                 pass
