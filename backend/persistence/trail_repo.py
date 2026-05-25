@@ -70,7 +70,7 @@ class TrailNodeRepository:
     ) -> list[TrailNodeRow]:
         """Fetch nodes needing enrichment, oldest first."""
         async with self._session_factory() as session:
-            stmt = select(TrailNodeRow).where(TrailNodeRow.enrichment.in_(["pending", "failed"]))
+            stmt = select(TrailNodeRow).where(TrailNodeRow.enrichment == "pending")
             if job_id:
                 stmt = stmt.where(TrailNodeRow.job_id == job_id)
             stmt = stmt.order_by(TrailNodeRow.seq).limit(limit)

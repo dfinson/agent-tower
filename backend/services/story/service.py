@@ -1001,6 +1001,46 @@ def _build_prompt_for_chunk(
 
 
 # ---------------------------------------------------------------------------
+# Story cache invalidation
+# ---------------------------------------------------------------------------
+
+
+async def invalidate_story_cache_for_jobs(
+    session_factory: Any,
+    job_ids: set[str],
+) -> None:
+    """NULL story cache columns for jobs whose trail data has changed.
+
+    Only affects jobs in review/completed state that currently have cached
+    stories.  The drain loop will regenerate them on next sweep.
+    """
+    if not job_ids:
+        return
+
+    from sqlalchemy import text
+
+    # Build positional placeholders for IN clause (SQLite-safe)
+    placeholders = ", ".join(f":id_{i}" for i in range(len(job_ids)))
+    params = {f"id_{i}": jid for i, jid in enumerate(job_ids)}
+
+    async with session_factory() as session:
+        result = await session.execute(
+            text(
+                f"UPDATE jobs "  # noqa: S608
+                f"SET story_text = NULL, story_text_summary = NULL, story_text_detailed = NULL "
+                f"WHERE id IN ({placeholders}) "
+                f"AND state IN ('review', 'completed') "
+                f"AND (story_text IS NOT NULL OR story_text_summary IS NOT NULL "
+                f"     OR story_text_detailed IS NOT NULL)"
+            ),
+            params,
+        )
+        await session.commit()
+        if result.rowcount:  # type: ignore[union-attr]
+            log.info("story_cache_invalidated", count=result.rowcount, job_ids=sorted(job_ids))
+
+
+# ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
 

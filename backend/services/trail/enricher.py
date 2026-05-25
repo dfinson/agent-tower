@@ -66,6 +66,9 @@ class TrailEnricher:
         self._job_state = job_state if job_state is not None else {}
         self._coderecon = coderecon
         self._coverage_ingested: set[tuple[str, str, float]] = set()
+        # Jobs whose trail data changed this drain iteration — story cache
+        # will be invalidated at the end of each loop sweep.
+        self._dirty_job_ids: set[str] = set()
 
     async def drain_enrichment(self) -> int:
         """Process a batch of nodes needing enrichment. Returns count processed."""
@@ -188,6 +191,14 @@ class TrailEnricher:
                     await self._repo.create(s_node)
                     processed += 1
 
+                # Nodes not in the response have no further enrichment path —
+                # mark complete to prevent infinite pending loop.
+                annotated_ids = {a.get("node_id") for a in enrichment_data.get("annotations", [])}
+                for node in job_nodes:
+                    if node.id not in annotated_ids:
+                        await self._repo.update_enrichment(node.id, enrichment="complete")
+                        processed += 1
+
             except Exception:
                 log.debug("trail_enrichment_failed", job_id=job_id, exc_info=True)
                 for node in job_nodes:
@@ -196,6 +207,8 @@ class TrailEnricher:
                     except SQLAlchemyError:
                         log.debug("enrichment_status_update_failed", node_id=node.id, exc_info=True)
 
+        if processed:
+            self._dirty_job_ids.update(by_job.keys())
         return processed
 
     async def drain_titles(self) -> int:
@@ -353,6 +366,8 @@ class TrailEnricher:
             except (SQLAlchemyError, OSError, ValueError):
                 log.debug("write_summary_failed", node_id=node.id, exc_info=True)
 
+        if processed:
+            self._dirty_job_ids.update(n.job_id for n in nodes)
         return processed
 
     async def drain_edit_motivations(self) -> int:
@@ -433,6 +448,8 @@ class TrailEnricher:
             except (SQLAlchemyError, OSError, ValueError):
                 log.debug("edit_motivation_failed", node_id=node.id, exc_info=True)
 
+        if processed:
+            self._dirty_job_ids.update(n.job_id for n in nodes)
         return processed
 
     # ------------------------------------------------------------------
@@ -557,6 +574,8 @@ class TrailEnricher:
                 )
                 # Leave semantic_targets NULL so the node is retried next cycle.
 
+        if processed:
+            self._dirty_job_ids.update(n.job_id for n in modify_nodes)
         return processed
 
     # ── Coverage report scanning ──
@@ -666,6 +685,18 @@ class TrailEnricher:
                 cov_count = await self.drain_coverage_scan()
                 if cov_count:
                     log.info("coverage_scan_batch_ingested", count=cov_count)
+
+                # Invalidate story cache for jobs whose trail data changed
+                if self._dirty_job_ids:
+                    from backend.services.story.service import invalidate_story_cache_for_jobs
+
+                    try:
+                        await invalidate_story_cache_for_jobs(
+                            self._session_factory, self._dirty_job_ids
+                        )
+                    except Exception:
+                        log.debug("story_cache_invalidation_failed", exc_info=True)
+                    self._dirty_job_ids = set()
             except Exception:  # Safety-net: drain loop must not crash
                 log.warning("trail_enrichment_drain_error", exc_info=True)
             await asyncio.sleep(self._config.enrich_interval_seconds)
