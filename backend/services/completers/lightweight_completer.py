@@ -41,7 +41,7 @@ class LightweightCompleter:
 
     async def complete(self, prompt: str) -> CompletionResult:
         """Complete via the SDK adapter."""
-        return await self._adapter.complete(prompt)
+        return await self._adapter.complete(prompt, model=self._model)
 
     async def complete_messages(
         self,

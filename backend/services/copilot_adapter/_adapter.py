@@ -635,7 +635,14 @@ class CopilotAdapter(BaseAgentAdapter):
         finally:
             self._cleanup_session(session_id)
 
-    async def complete(self, prompt: str) -> CompletionResult:
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        system_message: str | None = None,
+        excluded_tools: list[str] | None = None,
+    ) -> CompletionResult:
         """Create a minimal session for single-turn completion, collect the response."""
         from copilot import CopilotClient
         from copilot._jsonrpc import JsonRpcError, ProcessExitedError
@@ -655,9 +662,20 @@ class CopilotAdapter(BaseAgentAdapter):
         try:
             import tempfile
 
+            # Build system message config if caller provided one
+            sys_msg_config = None
+            if system_message:
+                sys_msg_config: SystemMessageAppendConfig = {
+                    "mode": "append",
+                    "content": system_message,
+                }
+
             session = await client.create_session(
                 working_directory=tempfile.gettempdir(),
                 on_permission_request=_noop_permission,
+                model=model or None,
+                system_message=sys_msg_config,
+                excluded_tools=excluded_tools,
             )
             self._sessions[tmp_session_id] = session
 
@@ -695,6 +713,7 @@ class CopilotAdapter(BaseAgentAdapter):
                         session_id=tmp_session_id,
                         reason=str(payload.get("reason", "")),
                     )
+                    done_event.set()
                 elif kind_str in ("session.task_complete", "session.idle", "session.error", "session.shutdown"):
                     if kind_str == "session.error":
                         log.warning("complete_sdk_session_error", session_id=tmp_session_id, payload=payload)

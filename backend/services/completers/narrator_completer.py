@@ -67,7 +67,17 @@ class NarratorCompleter:
 
     async def complete(self, prompt: str, timeout: float = 120.0) -> str:
         """Generate long-form narrative text via the SDK adapter."""
-        result = await self._adapter.complete(prompt)
+        system_msg = (
+            "You are a technical writer. Respond ONLY with the requested text content. "
+            "Do not use any tools, do not read or write files, do not run commands. "
+            "Just produce the written content directly."
+        )
+        result = await self._adapter.complete(
+            prompt,
+            model=self._model,
+            system_message=system_msg,
+            excluded_tools=["*"],
+        )
         return result.text or ""
 
     async def close(self) -> None:

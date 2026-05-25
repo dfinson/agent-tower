@@ -341,17 +341,20 @@ def _col_for_verbosity(verbosity: str) -> str:
 # Token estimation and model-context lookup
 # ---------------------------------------------------------------------------
 
+try:
+    import tiktoken as _tiktoken
 
-def _estimate_tokens(text: str) -> int:
-    """Rough token count estimate.
+    _tok_enc = _tiktoken.get_encoding("cl100k_base")
 
-    OpenAI and Anthropic tokenisers average ~4 characters per token for
-    mixed English/code text.  This is a *standard approximation*, not a
-    tuning knob — the real safety margin comes from the 75% headroom
-    factor applied by the caller.
-    """
-    _CHARS_PER_TOKEN = 4  # noqa: N806  # industry-standard estimate (OpenAI tokenizer docs)
-    return len(text) // _CHARS_PER_TOKEN
+    def _estimate_tokens(text: str) -> int:
+        """Count tokens using tiktoken (accurate for OpenAI and Claude models)."""
+        return len(_tok_enc.encode(text))
+
+except ImportError:
+
+    def _estimate_tokens(text: str) -> int:  # type: ignore[misc]
+        """Fallback: rough token count (~4 chars/token)."""
+        return len(text) // 4
 
 
 def _truncate(s: str | None, max_len: int) -> str:
@@ -1433,7 +1436,8 @@ class StoryService:
                             "  story_text IS NULL OR "
                             "  story_text_summary IS NULL OR "
                             "  story_text_detailed IS NULL"
-                            ") LIMIT 4"
+                            ") AND EXISTS (SELECT 1 FROM trail_nodes WHERE trail_nodes.job_id = jobs.id)"
+                            " LIMIT 4"
                         )
                     )
                     job_ids = [r[0] for r in rows.fetchall()]

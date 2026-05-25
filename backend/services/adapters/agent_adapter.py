@@ -135,7 +135,14 @@ class AgentAdapterInterface(ABC):
         """Lift the tool block set by ``pause_tools``."""
 
     @abstractmethod
-    async def complete(self, prompt: str) -> CompletionResult:
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        system_message: str | None = None,
+        excluded_tools: list[str] | None = None,
+    ) -> CompletionResult:
         """Non-agentic single-turn completion.
 
         Returns a ``CompletionResult`` with the response text and any

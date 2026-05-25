@@ -84,11 +84,15 @@ class SidecarSession:
         system_prompt: str | None = None,
         max_turns: int | None = None,
         timeout_s: float | None = None,
+        model: str | None = None,
+        excluded_tools: list[str] | None = None,
     ) -> None:
         self._adapter = adapter
         self._system_prompt = system_prompt or _DEFAULT_SYSTEM_PROMPT
         self._prime_lock = asyncio.Lock()
         self._primed = False
+        self._model = model
+        self._excluded_tools = excluded_tools if excluded_tools is not None else ["*"]
         self.created_at: float = time.monotonic()
         # Windowed lifetime limits
         self._max_turns = max_turns
@@ -139,7 +143,12 @@ class SidecarSession:
             t0 = time.monotonic()
             try:
                 result = await asyncio.wait_for(
-                    self._adapter.complete(effective),
+                    self._adapter.complete(
+                        effective,
+                        model=self._model,
+                        system_message=self._system_prompt,
+                        excluded_tools=self._excluded_tools,
+                    ),
                     timeout=timeout,
                 )
             except TimeoutError:
@@ -348,6 +357,8 @@ class SidecarSessionManager:
         system_prompt: str | None = None,
         max_turns: int | None = None,
         timeout_s: float | None = None,
+        model: str | None = None,
+        excluded_tools: list[str] | None = None,
     ) -> SidecarSession:
         """Create a new SidecarSession wrapper (cheap — no I/O)."""
         return SidecarSession(
@@ -355,6 +366,8 @@ class SidecarSessionManager:
             system_prompt=system_prompt,
             max_turns=max_turns,
             timeout_s=timeout_s,
+            model=model,
+            excluded_tools=excluded_tools,
         )
 
     def _fill_pool(self) -> None:
@@ -368,6 +381,8 @@ class SidecarSessionManager:
         system_prompt: str | None = None,
         max_turns: int | None = None,
         timeout_s: float | None = None,
+        model: str | None = None,
+        excluded_tools: list[str] | None = None,
     ) -> SidecarSession:
         """Pop a session from the pool, or create one with the given config.
 
@@ -375,12 +390,14 @@ class SidecarSessionManager:
         lifetime is requested, a fresh session is always created (pool
         sessions are generic).
         """
-        if system_prompt is not None or max_turns is not None or timeout_s is not None:
+        if system_prompt is not None or max_turns is not None or timeout_s is not None or model is not None or excluded_tools is not None:
             self._fill_pool()
             return self._make_session(
                 system_prompt=system_prompt,
                 max_turns=max_turns,
                 timeout_s=timeout_s,
+                model=model,
+                excluded_tools=excluded_tools,
             )
         session = self._pool.popleft() if self._pool else self._make_session()
         self._fill_pool()
@@ -393,9 +410,16 @@ class SidecarSessionManager:
         *,
         system_prompt: str | None = None,
         max_turns: int | None = None,
+        model: str | None = None,
+        excluded_tools: list[str] | None = None,
     ) -> SidecarSession:
         """Create a disposable one-shot session (not tracked per-job)."""
-        return self._make_session(system_prompt=system_prompt, max_turns=max_turns)
+        return self._make_session(
+            system_prompt=system_prompt,
+            max_turns=max_turns,
+            model=model,
+            excluded_tools=excluded_tools,
+        )
 
     # -- Pre-warm (new-job panel) -------------------------------------------
 

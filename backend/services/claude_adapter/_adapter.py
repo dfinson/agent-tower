@@ -718,7 +718,14 @@ class ClaudeAdapter(BaseAgentAdapter):
         _kill_sdk_subprocess(client)
         self._cleanup_session(session_id)
 
-    async def complete(self, prompt: str) -> CompletionResult:
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        system_message: str | None = None,
+        excluded_tools: list[str] | None = None,
+    ) -> CompletionResult:
         """Single-turn completion using the Claude Agent SDK."""
         from claude_code_sdk import (
             AssistantMessage,
@@ -732,7 +739,7 @@ class ClaudeAdapter(BaseAgentAdapter):
 
         options = ClaudeCodeOptions(
             max_turns=1,
-            model="claude-haiku-4-5",
+            model=model or "claude-haiku-4-5",
             permission_mode="bypassPermissions",
             allowed_tools=[],
         )

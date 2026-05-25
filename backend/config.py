@@ -114,10 +114,16 @@ class ServerConfig:
 class RuntimeConfig:
     max_concurrent_jobs: int = 2
     worktrees_dirname: str = ".codeplane-worktrees"
-    utility_model: str = "gpt-4o-mini"  # cheap/fast model for naming, summaries, etc.
+    utility_model: str = ""  # cheap/fast model for naming, summaries, etc. Auto-set from default_sdk if empty.
     default_sdk: str = "copilot"  # copilot | claude
     suppressed_preflight_agent_prompts: list[str] = field(default_factory=list)
     cli_sidecars: list[str] | None = None  # sidecar names for CLI sessions; None = built-in defaults
+
+    def __post_init__(self) -> None:
+        if not self.utility_model:
+            self.utility_model = (
+                "claude-haiku-4.5" if self.default_sdk == "claude" else "gpt-5-mini"
+            )
 
 
 @dataclass
