@@ -82,8 +82,7 @@ def _derive_step_title(
         from pathlib import PurePosixPath
 
         names = [PurePosixPath(f).name for f in files_written[:3]]
-        prefix = "Edit " if len(names) == 1 else "Edit "
-        title = prefix + ", ".join(names)
+        title = "Edit " + ", ".join(names)
         if len(files_written) > 3:
             title += f" (+{len(files_written) - 3} more)"
         return title[:60]
