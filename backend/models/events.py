@@ -72,6 +72,8 @@ class DomainEventKind(StrEnum):
     secondary_session_started = "SecondarySessionStarted"
     secondary_session_entry = "SecondarySessionEntry"
     secondary_session_completed = "SecondarySessionCompleted"
+    # Context handoff — emitted when context crosses a session boundary
+    context_handoff = "ContextHandoff"
     job_mode_changed = "JobModeChanged"
 
 

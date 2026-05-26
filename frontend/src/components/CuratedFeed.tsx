@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useStore, selectJobTranscript, selectApprovals, selectBatchApprovals, selectJobPlan, selectSecondarySessions } from "../store";
+import { useStore, selectJobTranscript, selectApprovals, selectBatchApprovals, selectJobPlan, selectSecondarySessions, selectContextHandoffs } from "../store";
 import type { TranscriptEntry, ApprovalRequest, BatchApproval, PlanStep } from "../store";
 import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval, resolveBatch, trustJob, ApiError } from "../api/client";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -37,6 +37,7 @@ import type { ActionCluster, AgentTurn, FeedItem } from "./CuratedFeedLogic";
 import { buildFeedItems } from "./CuratedFeedLogic";
 import { PhaseBox, SubAgentBubble } from "./CuratedFeedPreviews";
 import { SecondarySessionCard } from "./SecondarySessionCard";
+import { HandoffCard } from "./HandoffCard";
 
 // ---------------------------------------------------------------------------
 // Search highlight context — provides the active search query to children
@@ -570,6 +571,7 @@ export function CuratedFeed({
 
   const sessions = useStore(selectSecondarySessions(jobId));
   const sessionList = useMemo(() => Object.values(sessions), [sessions]);
+  const handoffs = useStore(selectContextHandoffs(jobId));
 
   const baseFeedItems = useMemo(
     () => buildFeedItems(entries, jobApprovals, jobBatchApprovals),
@@ -577,11 +579,12 @@ export function CuratedFeed({
   );
 
   const feedItems = useMemo(() => {
-    if (sessionList.length === 0) return baseFeedItems;
+    if (sessionList.length === 0 && handoffs.length === 0) return baseFeedItems;
 
-    // Interleave secondary sessions by startedAt timestamp.
+    // Interleave secondary sessions and context handoffs by timestamp.
     const merged: FeedItem[] = [];
     let sessionIdx = 0;
+    let handoffIdx = 0;
     const sorted = [...sessionList].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 
     for (const item of baseFeedItems) {
@@ -600,6 +603,11 @@ export function CuratedFeed({
         merged.push({ type: "secondary_session", session: sorted[sessionIdx]! });
         sessionIdx++;
       }
+      // Insert handoffs that occurred before this feed item
+      while (handoffIdx < handoffs.length && handoffs[handoffIdx]!.timestamp <= itemTs) {
+        merged.push({ type: "context_handoff", handoff: handoffs[handoffIdx]! });
+        handoffIdx++;
+      }
       merged.push(item);
     }
     // Append remaining sessions at the end
@@ -607,8 +615,13 @@ export function CuratedFeed({
       merged.push({ type: "secondary_session", session: sorted[sessionIdx]! });
       sessionIdx++;
     }
+    // Append remaining handoffs at the end
+    while (handoffIdx < handoffs.length) {
+      merged.push({ type: "context_handoff", handoff: handoffs[handoffIdx]! });
+      handoffIdx++;
+    }
     return merged;
-  }, [baseFeedItems, sessionList]);
+  }, [baseFeedItems, sessionList, handoffs]);
 
   // Virtualizer — auto-scroll only when user is at the bottom.
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -1151,6 +1164,8 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
       return <InlineBatchApprovalCard batch={item.batch} />;
     case "secondary_session":
       return <SecondarySessionCard session={item.session} />;
+    case "context_handoff":
+      return <HandoffCard handoff={item.handoff} />;
 
     case "divider":
       return <DividerLine entry={item.entry} />;

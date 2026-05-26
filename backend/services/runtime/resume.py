@@ -436,6 +436,39 @@ async def resume_job(host: RuntimeService, job_id: str, instruction: str | None 
             },
         )
     )
+
+    # Emit context_handoff so the UI shows what was carried forward
+    if resume_sdk_session_id is None:
+        # Summarization-based resume — context was compiled from prior session
+        await host._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=now,
+                kind=DomainEventKind.context_handoff,
+                payload={
+                    "source": "resume",
+                    "summary": f"Carried forward context from session {previous_session_count}",
+                    "content": override_prompt,
+                },
+            )
+        )
+    else:
+        # Native SDK resume — full conversation history intact
+        await host._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=now,
+                kind=DomainEventKind.context_handoff,
+                payload={
+                    "source": "resume_native",
+                    "summary": f"Resumed SDK session (full history from session {previous_session_count})",
+                    "content": None,
+                },
+            )
+        )
+
     await host._event_bus.publish(
         DomainEvent(
             event_id=DomainEvent.make_event_id(),
@@ -516,6 +549,22 @@ async def create_followup_job(host: RuntimeService, job_id: str, instruction: st
 
     if followup.state != JobState.failed:
         await host.start_or_enqueue(followup, override_prompt=override_prompt)
+
+        # Emit context_handoff for the new follow-up job
+        await host._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=followup.id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.context_handoff,
+                payload={
+                    "source": "followup",
+                    "summary": f"Continuing from parent job '{parent_label}'",
+                    "content": override_prompt,
+                },
+            )
+        )
+
         async with host._session_factory() as session:
             followup = await host._make_job_service(session).get_job(followup.id)
 

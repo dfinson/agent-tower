@@ -776,6 +776,15 @@ class StallDetectedPayload(CamelModel):
     reason: str = ""
 
 
+class ContextHandoffPayload(CamelModel):
+    job_id: str = ""
+    source: str = ""  # "preflight" | "resume" | "resume_native" | "followup"
+    source_session_id: str | None = None
+    summary: str = ""
+    content: str | None = None
+    timestamp: datetime = datetime.min
+
+
 class SnapshotPayload(CamelModel):
     jobs: list[JobResponse]
     pending_approvals: list[ApprovalResponse]
@@ -823,6 +832,7 @@ class JobSnapshotResponse(CamelModel):
     steps: list[PlanStepPayload] = []
     turn_summaries: list[TurnSummaryPayload] = []
     secondary_sessions: list[SecondarySessionResponse] = []
+    context_handoffs: list[ContextHandoffPayload] = []
 
 
 class SDKInfoResponse(CamelModel):

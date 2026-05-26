@@ -18,6 +18,7 @@ from backend.models.api_schemas import (
     ApprovalRequestedPayload,
     ApprovalResolvedPayload,
     ApprovalResponse,
+    ContextHandoffPayload,
     DiffUpdatePayload,
     JobArchivedPayload,
     JobCompletedPayload,
@@ -109,6 +110,8 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.secondary_session_started: "secondary_session_started",
     DomainEventKind.secondary_session_entry: "secondary_session_entry",
     DomainEventKind.secondary_session_completed: "secondary_session_completed",
+    # Context handoff visibility
+    DomainEventKind.context_handoff: "context_handoff",
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)
@@ -579,6 +582,16 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
             "tool_name": ("tool_name", ""),
             "elapsed": ("elapsed", ""),
             "reason": ("reason", ""),
+        },
+    ),
+    "context_handoff": (
+        ContextHandoffPayload,
+        {
+            "source": ("source", ""),
+            "source_session_id": ("source_session_id", None),
+            "summary": ("summary", ""),
+            "content": ("content", None),
+            "timestamp": ("timestamp", _TS_EVENT),
         },
     ),
 }

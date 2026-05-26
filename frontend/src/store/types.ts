@@ -224,6 +224,16 @@ export interface StructuralWarning {
   timestamp: number;
 }
 
+/** Context handoff — emitted when context crosses a session boundary. */
+export interface ContextHandoff {
+  jobId: string;
+  source: "preflight" | "resume" | "resume_native" | "followup";
+  sourceSessionId?: string | null;
+  summary: string;
+  content?: string | null;
+  timestamp: string;
+}
+
 export interface AppState {
   // Data slices
   jobs: Record<string, JobSummary>;
@@ -264,6 +274,9 @@ export interface AppState {
 
   // Structural warnings accumulated during execution (keyed by jobId)
   structuralWarnings: Record<string, StructuralWarning[]>;
+
+  /** Context handoffs per job — shows what was passed between sessions. */
+  contextHandoffs: Record<string, ContextHandoff[]>;
 
   // Terminal state
   terminalDrawerOpen: boolean;
@@ -309,6 +322,7 @@ export interface AppState {
     steps?: Array<{ planStepId?: string; label: string; status: string; summary?: string; toolCount?: number; filesWritten?: string[]; durationMs?: number }>;
     turnSummaries?: Array<Record<string, unknown>>;
     secondarySessions?: Array<{ id: string; kind: string; name: string; icon: string; status: string; startedAt: string; completedAt?: string | null; output?: string | null; inputTokens?: number; outputTokens?: number; costUsd?: number; entries?: Array<{ seq: number; kind: string; content: string; toolName?: string | null; toolArgs?: string | null; durationMs?: number | null; toolResult?: string | null; toolDisplay?: string | null; toolDisplayFull?: string | null; toolSuccess?: boolean | null; toolIssue?: string | null; toolVisibility?: string | null }> }>;
+    contextHandoffs?: Array<{ source: string; sourceSessionId?: string | null; summary: string; content?: string | null; timestamp: string }>;
   }) => void;
 
   // Terminal actions

@@ -2,7 +2,7 @@
  * Miscellaneous SSE event handlers: snapshot, heartbeat, diff, session, telemetry.
  */
 
-import type { JobSummary, ApprovalRequest, TranscriptEntry, ConnectionStatus } from "../types";
+import type { JobSummary, ApprovalRequest, TranscriptEntry, ConnectionStatus, ContextHandoff } from "../types";
 import type { DiffFileModel } from "../../api/types";
 import type { SSEHandler, AppState } from "./types";
 import { enrichJob } from "./jobHandlers";
@@ -159,6 +159,26 @@ export function handleRepoIndexComplete(state: AppState, payload: Record<string,
   return { repoIndexState: rest };
 }
 
+export function handleContextHandoff(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const jobId = payload.jobId as string | undefined;
+  if (!jobId) return null;
+  const handoff: ContextHandoff = {
+    jobId,
+    source: (payload.source as ContextHandoff["source"]) || "preflight",
+    sourceSessionId: (payload.sourceSessionId as string | null) ?? null,
+    summary: (payload.summary as string) || "",
+    content: (payload.content as string | null) ?? null,
+    timestamp: (payload.timestamp as string) || new Date().toISOString(),
+  };
+  const existing = state.contextHandoffs[jobId] ?? [];
+  return {
+    contextHandoffs: {
+      ...state.contextHandoffs,
+      [jobId]: [...existing, handoff],
+    },
+  };
+}
+
 export const miscHandlers: Record<string, SSEHandler> = {
   snapshot: handleSnapshot,
   session_heartbeat: handleSessionHeartbeat,
@@ -168,6 +188,7 @@ export const miscHandlers: Record<string, SSEHandler> = {
   policy_settings_changed: handlePolicySettingsChanged,
   repo_index_progress: handleRepoIndexProgress,
   repo_index_complete: handleRepoIndexComplete,
+  context_handoff: handleContextHandoff,
   structural_warning: (state, payload) => {
     const jobId = payload.jobId as string | undefined;
     if (!jobId) return {};

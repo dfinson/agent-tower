@@ -132,6 +132,8 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "secondary_session_started",
         "secondary_session_entry",
         "secondary_session_completed",
+        // Context handoff visibility
+        "context_handoff",
       ];
 
       for (const eventType of eventTypes) {

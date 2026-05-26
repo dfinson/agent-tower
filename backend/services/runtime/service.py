@@ -3135,6 +3135,21 @@ class RuntimeService:
                     curated_len=len(report.brief),
                     tool_call_count=len(report.tool_calls),
                 )
+                # Emit context_handoff so the frontend can show what was passed
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=DomainEvent.make_event_id(),
+                        job_id=job.id,
+                        timestamp=completed_at,
+                        kind=DomainEventKind.context_handoff,
+                        payload={
+                            "source": "preflight",
+                            "source_session_id": session_id,
+                            "summary": f"Briefed agent on repository structure ({len(report.tool_calls)} explorations)",
+                            "content": report.brief,
+                        },
+                    )
+                )
                 return dataclass_replace(session_config, memory_context=report.brief)
             log.debug("preflight_curator.nothing_relevant", job_id=job.id)
         except Exception:

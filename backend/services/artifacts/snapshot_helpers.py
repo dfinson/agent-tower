@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from backend.models.api_schemas import (
     ApprovalResponse,
+    ContextHandoffPayload,
     DiffFileModel,
     JobSnapshotResponse,
     LogLinePayload,
@@ -284,6 +285,7 @@ async def assemble_snapshot(
         step_events,
         reassign_events,
         turn_summary_events,
+        handoff_events,
     ) = await asyncio.gather(
         svc.list_events_by_job(job_id, [DomainEventKind.log_line_emitted], limit=EVENT_QUERY_DEFAULT),
         svc.list_events_by_job(job_id, [DomainEventKind.transcript_updated], limit=EVENT_QUERY_DEFAULT),
@@ -292,6 +294,7 @@ async def assemble_snapshot(
         svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=EVENT_QUERY_CEILING),
         svc.list_events_by_job(job_id, [DomainEventKind.step_entries_reassigned], limit=EVENT_QUERY_CEILING),
         svc.list_events_by_job(job_id, [DomainEventKind.turn_summary], limit=EVENT_QUERY_CEILING),
+        svc.list_events_by_job(job_id, [DomainEventKind.context_handoff], limit=EVENT_QUERY_CEILING),
     )
 
     logs = _build_logs(log_events)
@@ -383,4 +386,15 @@ async def assemble_snapshot(
         steps=plan_steps,
         turn_summaries=turn_summaries,
         secondary_sessions=secondary_sessions,
+        context_handoffs=[
+            ContextHandoffPayload(
+                job_id=job_id,
+                source=e.payload.get("source", ""),
+                source_session_id=e.payload.get("source_session_id"),
+                summary=e.payload.get("summary", ""),
+                content=e.payload.get("content"),
+                timestamp=e.timestamp,
+            )
+            for e in handoff_events
+        ],
     )

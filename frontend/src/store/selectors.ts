@@ -144,3 +144,7 @@ export const selectHoveredPlanItemId = (state: AppState) => state.hoveredPlanIte
 const EMPTY_SECONDARY_SESSIONS: Record<string, import("./types").SecondarySession> = {};
 export const selectSecondarySessions = (jobId: string) => (state: AppState) =>
   state.secondarySessions[jobId] ?? EMPTY_SECONDARY_SESSIONS;
+
+const EMPTY_CONTEXT_HANDOFFS: import("./types").ContextHandoff[] = [];
+export const selectContextHandoffs = (jobId: string) => (state: AppState) =>
+  state.contextHandoffs[jobId] ?? EMPTY_CONTEXT_HANDOFFS;

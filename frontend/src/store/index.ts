@@ -26,6 +26,7 @@ export type {
   PlanStep,
   SecondarySession,
   SecondarySessionEntry,
+  ContextHandoff,
   TimelineEntry,
   ActivityTimelineStep,
   ActivityTimelineActivity,
@@ -57,6 +58,7 @@ export {
   selectActivityTimeline,
   selectHoveredPlanItemId,
   selectSecondarySessions,
+  selectContextHandoffs,
   selectStructuralDiff,
   selectMultiSession,
   selectReviewStory,
@@ -107,7 +109,7 @@ function touchJob(jobId: string): string[] {
 
 /** Evict per-job data for stale jobs from a state snapshot. */
 function evictStaleJobs(
-  state: Pick<AppState, "logs" | "transcript" | "diffs" | "stories" | "plans" | "timelines" | "activityTimelines" | "secondarySessions" | "streamingMessages" | "streamingToolOutput" | "structuralDiffs" | "multiSessions" | "reviewStories">,
+  state: Pick<AppState, "logs" | "transcript" | "diffs" | "stories" | "plans" | "timelines" | "activityTimelines" | "secondarySessions" | "streamingMessages" | "streamingToolOutput" | "structuralDiffs" | "multiSessions" | "reviewStories" | "contextHandoffs">,
   evictIds: string[],
 ): Partial<AppState> | null {
   if (evictIds.length === 0) return null;
@@ -122,6 +124,7 @@ function evictStaleJobs(
   const structuralDiffs = { ...state.structuralDiffs };
   const multiSessions = { ...state.multiSessions };
   const reviewStories = { ...state.reviewStories };
+  const contextHandoffs = { ...state.contextHandoffs };
   let streamingMessages = state.streamingMessages;
   let streamingToolOutput = state.streamingToolOutput;
   let streamingChanged = false;
@@ -138,6 +141,7 @@ function evictStaleJobs(
     delete structuralDiffs[id];
     delete multiSessions[id];
     delete reviewStories[id];
+    delete contextHandoffs[id];
     // Clean streaming messages for evicted jobs
     for (const key of Object.keys(streamingMessages)) {
       if (key.startsWith(`${id}:`)) {
@@ -152,7 +156,7 @@ function evictStaleJobs(
       }
     }
   }
-  return { logs, transcript, diffs, stories, plans, timelines, activityTimelines, secondarySessions, streamingMessages, streamingToolOutput, structuralDiffs, multiSessions, reviewStories };
+  return { logs, transcript, diffs, stories, plans, timelines, activityTimelines, secondarySessions, streamingMessages, streamingToolOutput, structuralDiffs, multiSessions, reviewStories, contextHandoffs };
 }
 
 /** Rebuild activity timeline state from a flat list of turn summary payloads (hydration). */
@@ -249,6 +253,7 @@ export const useStore = create<AppState>((set, get) => ({
   multiSessions: {},
   reviewStories: {},
   structuralWarnings: {},
+  contextHandoffs: {},
   connectionStatus: "reconnecting",
   reconnectAttempt: 0,
   hoveredPlanItemId: null,
@@ -436,6 +441,18 @@ export const useStore = create<AppState>((set, get) => ({
               })),
             }]),
           ),
+        },
+        // Hydrate context handoffs
+        contextHandoffs: {
+          ...s.contextHandoffs,
+          [jobId]: (snapshot.contextHandoffs ?? []).map((h: any) => ({
+            jobId,
+            source: h.source ?? "preflight",
+            sourceSessionId: h.sourceSessionId ?? null,
+            summary: h.summary ?? "",
+            content: h.content ?? null,
+            timestamp: h.timestamp ?? "",
+          })),
         },
       };
     });
