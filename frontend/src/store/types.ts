@@ -7,7 +7,6 @@
 
 import type { DiffFileModel, SDKInfo, StoryResponse } from "../api/types";
 import type {
-  StructuralDiffResponse,
   MultiSessionResponse,
   ReviewStoryResponse as StructuralReviewStoryResponse,
 } from "../api/client";
@@ -268,7 +267,6 @@ export interface AppState {
   repoIndexState: Record<string, RepoIndexProgress>;
 
   // Structural analysis (keyed by jobId) — populated by Review tab
-  structuralDiffs: Record<string, StructuralDiffResponse | null>;
   multiSessions: Record<string, MultiSessionResponse | null>;
   reviewStories: Record<string, StructuralReviewStoryResponse | null>;
 
@@ -336,7 +334,6 @@ export interface AppState {
   setStory: (jobId: string, story: StoryResponse) => void;
 
   // Structural review cache actions
-  setStructuralDiff: (jobId: string, data: StructuralDiffResponse) => void;
   setMultiSession: (jobId: string, data: MultiSessionResponse) => void;
   setReviewStory: (jobId: string, data: StructuralReviewStoryResponse) => void;
   /** Prefetch structural review data for a job (called on job_review SSE). */

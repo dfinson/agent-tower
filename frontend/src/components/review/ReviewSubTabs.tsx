@@ -1,31 +1,28 @@
 /**
- * Sub-tab bar for the Review tab — switches between Changes, Dashboard, Timeline, and Story.
+ * Sub-tab bar for the Review tab — switches between Changes, Timeline, and Story.
  */
-import { LayoutDashboard, Clock, BookOpen, GitBranch } from "lucide-react";
+import { Clock, BookOpen, GitBranch } from "lucide-react";
 
-export type ReviewSubView = "changes" | "dashboard" | "timeline" | "story";
+export type ReviewSubView = "changes" | "timeline" | "story";
 
 interface ReviewSubTabsProps {
   active: ReviewSubView;
   onChange: (view: ReviewSubView) => void;
   showChanges?: boolean;
-  showDashboard?: boolean;
   showTimeline: boolean;
 }
 
-const TABS: Array<{ id: ReviewSubView; icon: typeof LayoutDashboard; label: string }> = [
+const TABS: Array<{ id: ReviewSubView; icon: typeof Clock; label: string }> = [
   { id: "changes", icon: GitBranch, label: "Changes" },
-  { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { id: "timeline", icon: Clock, label: "Timeline" },
   { id: "story", icon: BookOpen, label: "Story" },
 ];
 
-export function ReviewSubTabs({ active, onChange, showChanges = true, showDashboard = true, showTimeline }: ReviewSubTabsProps) {
+export function ReviewSubTabs({ active, onChange, showChanges = true, showTimeline }: ReviewSubTabsProps) {
   return (
     <div className="flex items-center gap-1 px-4 pt-3 pb-1">
       {TABS.map(({ id, icon: Icon, label }) => {
         if (id === "changes" && !showChanges) return null;
-        if (id === "dashboard" && !showDashboard) return null;
         if (id === "timeline" && !showTimeline) return null;
         const isActive = active === id;
         return (

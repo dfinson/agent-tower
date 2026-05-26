@@ -770,16 +770,14 @@ export function fetchSharedTelemetry(token: string): Promise<Record<string, unkn
 export function fetchJobStory(
   jobId: string,
   regenerate = false,
-  verbosity: "summary" | "standard" | "detailed" = "standard",
 ): Promise<import("./types").StoryResponse> {
   const params = new URLSearchParams();
   if (regenerate) params.set("regenerate", "true");
-  if (verbosity !== "standard") params.set("verbosity", verbosity);
   const qs = params.toString() ? `?${params.toString()}` : "";
   return request(`/jobs/${encodeURIComponent(jobId)}/story${qs}`);
 }
 
-// Structural Diff
+// Structural Changes
 // ---------------------------------------------------------------------------
 
 export interface StructuralChange {
@@ -794,19 +792,6 @@ export interface StructuralChange {
   risk: number;
   lineRange: number[] | null;
   coverageConfidence: string | null;  // high | medium | low | null
-}
-
-export interface StructuralDiffResponse {
-  jobId: string;
-  summary: string;
-  changes: StructuralChange[];
-  available: boolean;
-  mergeConfidence: string | null;  // HIGH | MEDIUM | LOW
-  triage: Record<string, number>;  // category → count
-}
-
-export function fetchStructuralDiff(jobId: string): Promise<StructuralDiffResponse> {
-  return request(`/jobs/${encodeURIComponent(jobId)}/structural-diff`);
 }
 
 // Multi-Session
@@ -895,22 +880,6 @@ export interface CoveringTestsResponse {
   symbols: Record<string, CoveringTestCandidate[]>;
 }
 
-export interface BlastRadiusCandidate {
-  testId: string;
-  source: string;
-  distance: number;
-  confidence: number;
-  reason: string;
-}
-
-export interface BlastRadiusResponse {
-  jobId: string;
-  available: boolean;
-  hasCoverageData: boolean;
-  candidates: BlastRadiusCandidate[];
-  coverageGaps: string[];
-}
-
 export function fetchCoveringTests(jobId: string, filePath: string): Promise<CoveringTestsResponse> {
   return request(`/jobs/${encodeURIComponent(jobId)}/covering-tests?file_path=${encodeURIComponent(filePath)}`);
 }
@@ -929,10 +898,6 @@ export function fetchLineCoverage(
 
 export function fetchJobMotivations(jobId: string): Promise<import("./types").JobMotivationsResponse> {
   return request(`/jobs/${encodeURIComponent(jobId)}/motivations`);
-}
-
-export function fetchBlastRadius(jobId: string): Promise<BlastRadiusResponse> {
-  return request(`/jobs/${encodeURIComponent(jobId)}/blast-radius`);
 }
 
 // Review Story

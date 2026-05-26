@@ -59,7 +59,6 @@ export {
   selectHoveredPlanItemId,
   selectSecondarySessions,
   selectContextHandoffs,
-  selectStructuralDiff,
   selectMultiSession,
   selectReviewStory,
 } from "./selectors";
@@ -109,7 +108,7 @@ function touchJob(jobId: string): string[] {
 
 /** Evict per-job data for stale jobs from a state snapshot. */
 function evictStaleJobs(
-  state: Pick<AppState, "logs" | "transcript" | "diffs" | "stories" | "plans" | "timelines" | "activityTimelines" | "secondarySessions" | "streamingMessages" | "streamingToolOutput" | "structuralDiffs" | "multiSessions" | "reviewStories" | "contextHandoffs">,
+  state: Pick<AppState, "logs" | "transcript" | "diffs" | "stories" | "plans" | "timelines" | "activityTimelines" | "secondarySessions" | "streamingMessages" | "streamingToolOutput" | "multiSessions" | "reviewStories" | "contextHandoffs">,
   evictIds: string[],
 ): Partial<AppState> | null {
   if (evictIds.length === 0) return null;
@@ -121,7 +120,6 @@ function evictStaleJobs(
   const timelines = { ...state.timelines };
   const activityTimelines = { ...state.activityTimelines };
   const secondarySessions = { ...state.secondarySessions };
-  const structuralDiffs = { ...state.structuralDiffs };
   const multiSessions = { ...state.multiSessions };
   const reviewStories = { ...state.reviewStories };
   const contextHandoffs = { ...state.contextHandoffs };
@@ -138,7 +136,6 @@ function evictStaleJobs(
     delete timelines[id];
     delete activityTimelines[id];
     delete secondarySessions[id];
-    delete structuralDiffs[id];
     delete multiSessions[id];
     delete reviewStories[id];
     delete contextHandoffs[id];
@@ -156,7 +153,7 @@ function evictStaleJobs(
       }
     }
   }
-  return { logs, transcript, diffs, stories, plans, timelines, activityTimelines, secondarySessions, streamingMessages, streamingToolOutput, structuralDiffs, multiSessions, reviewStories, contextHandoffs };
+  return { logs, transcript, diffs, stories, plans, timelines, activityTimelines, secondarySessions, streamingMessages, streamingToolOutput, multiSessions, reviewStories, contextHandoffs };
 }
 
 /** Rebuild activity timeline state from a flat list of turn summary payloads (hydration). */
@@ -249,7 +246,6 @@ export const useStore = create<AppState>((set, get) => ({
   streamingReasoning: {},
   telemetryVersions: {},
   repoIndexState: {},
-  structuralDiffs: {},
   multiSessions: {},
   reviewStories: {},
   structuralWarnings: {},
@@ -556,18 +552,10 @@ export const useStore = create<AppState>((set, get) => ({
   setHoveredPlanItemId: (id) => set({ hoveredPlanItemId: id }),
 
   setStory: (jobId, story) => set((state) => ({
-    stories: { ...state.stories, [`${jobId}:${story.verbosity || "standard"}`]: story },
+    stories: { ...state.stories, [jobId]: story },
   })),
 
   // Structural review cache actions
-  setStructuralDiff: (jobId, data) => {
-    const evictIds = touchJob(jobId);
-    set((state) => ({
-      ...evictStaleJobs(state, evictIds),
-      structuralDiffs: { ...state.structuralDiffs, [jobId]: data },
-    }));
-  },
-
   setMultiSession: (jobId, data) => {
     const evictIds = touchJob(jobId);
     set((state) => ({
@@ -585,9 +573,8 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   prefetchReviewData: (jobId) => {
-    // Fire-and-forget — fetch structural data into cache
-    import("../api/client").then(({ fetchStructuralDiff, fetchMultiSession, fetchReviewStory }) => {
-      fetchStructuralDiff(jobId).then((d) => get().setStructuralDiff(jobId, d)).catch(() => {});
+    // Fire-and-forget — fetch review data into cache
+    import("../api/client").then(({ fetchMultiSession, fetchReviewStory }) => {
       fetchMultiSession(jobId).then((d) => get().setMultiSession(jobId, d)).catch(() => {});
       fetchReviewStory(jobId).then((d) => get().setReviewStory(jobId, d)).catch(() => {});
     });
