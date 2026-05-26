@@ -257,71 +257,90 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden min-w-0 h-full flex flex-col">
-      <StoryProgressBar blocks={story.blocks} scrollRef={scrollRef} />
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
-        <div className="max-w-3xl mx-auto">
-          <StoryTOC blocks={story.blocks} />
-          <div className="text-sm text-foreground/80 leading-relaxed flex flex-col gap-3 min-w-0 break-words">
-            {story.blocks.map((block: StoryBlock, i: number) => {
-              if (block.type === "heading" && block.text) {
-                const level = block.level ?? 2;
-                return (
-                  <div key={`h-${i}`} id={`story-heading-${i}`}>
-                    {level <= 2 ? (
-                      <h4
-                        className={cn(
-                          "text-sm font-semibold text-foreground/90 pt-4 pb-1",
-                          i > 0 && "border-t border-border/20 mt-2",
-                        )}
-                      >
-                        {block.text}
-                      </h4>
-                    ) : (
-                      <h5 className="text-[13px] font-medium text-foreground/80 pt-2 pb-0.5">
-                        {block.text}
-                      </h5>
-                    )}
-                  </div>
-                );
-              }
-              if ((block.type === "narrative" || block.type === "beat") && block.text) {
-                return (
-                  <React.Fragment key={`t-${i}`}>
-                    {renderParagraphs(block.text, `t-${i}`)}
-                  </React.Fragment>
-                );
-              }
-              if (block.type === "reference" && block.file && block.snippet) {
-                return <DiffCard key={`r-${i}`} file={block.file} snippet={block.snippet} />;
-              }
-              return null;
-            })}
-          </div>
-          {controls}
+    <div className="overflow-hidden min-w-0 h-full flex">
+      {/* Sidebar — timeline-style navigation */}
+      <StoryTimelineSidebar blocks={story.blocks} scrollRef={scrollRef} />
+      {/* Story content */}
+      <div ref={scrollRef} className="flex-1 min-w-0 overflow-y-auto px-6 py-4">
+        <StoryTOC blocks={story.blocks} />
+        <div className="text-sm text-foreground/80 leading-relaxed flex flex-col gap-3 min-w-0 break-words">
+          {story.blocks.map((block: StoryBlock, i: number) => {
+            if (block.type === "heading" && block.text) {
+              const level = block.level ?? 2;
+              return (
+                <div key={`h-${i}`} id={`story-heading-${i}`}>
+                  {level <= 2 ? (
+                    <h4
+                      className={cn(
+                        "text-sm font-semibold text-foreground/90 pt-4 pb-1",
+                        i > 0 && "border-t border-border/20 mt-2",
+                      )}
+                    >
+                      {block.text}
+                    </h4>
+                  ) : (
+                    <h5 className="text-[13px] font-medium text-foreground/80 pt-2 pb-0.5">
+                      {block.text}
+                    </h5>
+                  )}
+                </div>
+              );
+            }
+            if ((block.type === "narrative" || block.type === "beat") && block.text) {
+              return (
+                <React.Fragment key={`t-${i}`}>
+                  {renderParagraphs(block.text, `t-${i}`)}
+                </React.Fragment>
+              );
+            }
+            if (block.type === "reference" && block.file && block.snippet) {
+              return <DiffCard key={`r-${i}`} file={block.file} snippet={block.snippet} />;
+            }
+            return null;
+          })}
         </div>
+        {controls}
       </div>
     </div>
   );
 }
 
-/** Compact progress bar — shows sections as clickable segments along the top. */
-function StoryProgressBar({
+/** Timeline-style sidebar — mirrors the ActivityTimeline visual language. */
+function StoryTimelineSidebar({
   blocks,
   scrollRef,
 }: {
   blocks: StoryBlock[];
   scrollRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const headings = blocks
-    .map((b, i) => ({ ...b, idx: i }))
-    .filter((b) => b.type === "heading" && b.text && (b.level ?? 2) <= 2);
+  // Build hierarchy: ## sections with ### children
+  const sections: Array<{
+    idx: number;
+    text: string;
+    children: Array<{ idx: number; text: string }>;
+  }> = [];
+  for (const [i, b] of blocks.entries()) {
+    if (b.type !== "heading" || !b.text) continue;
+    const text = b.text;
+    const level = b.level ?? 2;
+    if (level <= 2) {
+      sections.push({ idx: i, text, children: [] });
+    } else {
+      const last = sections[sections.length - 1];
+      if (last) last.children.push({ idx: i, text });
+    }
+  }
 
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
 
   useEffect(() => {
     const container = scrollRef.current;
-    if (!container || headings.length === 0) return;
+    if (!container || sections.length === 0) return;
+
+    const allHeadingIds = sections.flatMap((s) => [
+      s.idx,
+      ...s.children.map((c) => c.idx),
+    ]);
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -329,8 +348,7 @@ function StoryProgressBar({
           if (entry.isIntersecting) {
             const id = entry.target.getAttribute("id");
             if (id) {
-              const idx = parseInt(id.replace("story-heading-", ""), 10);
-              setActiveIdx(idx);
+              setActiveIdx(parseInt(id.replace("story-heading-", ""), 10));
             }
             break;
           }
@@ -339,45 +357,106 @@ function StoryProgressBar({
       { root: container, rootMargin: "-10% 0px -80% 0px", threshold: 0 },
     );
 
-    for (const h of headings) {
-      const el = container.querySelector(`#story-heading-${h.idx}`);
+    for (const idx of allHeadingIds) {
+      const el = container.querySelector(`#story-heading-${idx}`);
       if (el) observer.observe(el);
     }
 
     return () => observer.disconnect();
-  }, [headings, scrollRef]);
+  }, [sections, scrollRef]);
 
-  if (headings.length < 2) return null;
+  if (sections.length < 2) return null;
 
   const scrollTo = (idx: number) => {
     const el = scrollRef.current?.querySelector(`#story-heading-${idx}`);
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  // Determine which section is "active" (contains the active heading)
+  const activeSectionIdx = sections.findIndex((s) =>
+    s.idx === activeIdx || s.children.some((c) => c.idx === activeIdx),
+  );
+
   return (
-    <div className="shrink-0 border-b border-border/30 px-4 py-2 flex items-center gap-1 overflow-x-auto">
-      <BookOpen size={12} className="text-muted-foreground shrink-0 mr-1" />
-      {headings.map((h, i) => {
-        const isActive = activeIdx === h.idx;
-        return (
-          <React.Fragment key={h.idx}>
-            {i > 0 && <span className="text-border/50 text-[10px]">›</span>}
-            <button
-              type="button"
-              onClick={() => scrollTo(h.idx)}
-              className={cn(
-                "text-[11px] leading-tight rounded px-1.5 py-0.5 whitespace-nowrap transition-colors",
-                isActive
-                  ? "bg-primary/10 text-primary font-medium"
-                  : "text-muted-foreground/70 hover:text-foreground/80 hover:bg-muted/40",
+    <nav className="w-52 shrink-0 border-r border-border/30 overflow-y-auto py-3 px-3 hidden lg:block">
+      <div className="flex items-center gap-1.5 mb-3 px-1">
+        <BookOpen size={13} className="text-muted-foreground" />
+        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Story</span>
+      </div>
+      <div className="space-y-0.5">
+        {sections.map((section, si) => {
+          const isSectionActive = si === activeSectionIdx;
+          return (
+            <div key={section.idx}>
+              {/* Section header — like an ActivitySection */}
+              <button
+                type="button"
+                onClick={() => scrollTo(section.idx)}
+                className={cn(
+                  "flex items-center gap-2 w-full text-left py-1.5 px-1 rounded-sm transition-colors",
+                  isSectionActive
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground/80 hover:bg-accent/50",
+                )}
+              >
+                <span
+                  className={cn(
+                    "w-2 h-2 rounded-full shrink-0",
+                    isSectionActive ? "bg-blue-400" : "bg-muted-foreground/40",
+                  )}
+                />
+                <span
+                  className={cn(
+                    "text-[12px] leading-snug truncate",
+                    isSectionActive ? "font-semibold" : "font-medium",
+                  )}
+                  title={section.text}
+                >
+                  {section.text}
+                </span>
+              </button>
+              {/* Sub-headings — like steps within an activity */}
+              {section.children.length > 0 && isSectionActive && (
+                <div className="ml-[11px] pl-2 border-l-2 border-border space-y-0.5 pb-1">
+                  {section.children.map((child) => {
+                    const isChildActive = child.idx === activeIdx;
+                    return (
+                      <button
+                        key={child.idx}
+                        type="button"
+                        onClick={() => scrollTo(child.idx)}
+                        className={cn(
+                          "flex items-start gap-1.5 w-full text-left py-1 px-1 rounded-sm transition-colors",
+                          isChildActive
+                            ? "text-foreground bg-primary/5"
+                            : "text-muted-foreground/70 hover:text-foreground/70 hover:bg-accent/50",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "w-1.5 h-1.5 rounded-full shrink-0 mt-[5px]",
+                            isChildActive ? "bg-blue-400" : "bg-muted-foreground/30",
+                          )}
+                        />
+                        <span
+                          className={cn(
+                            "text-[11px] leading-snug",
+                            isChildActive && "font-medium text-foreground/80",
+                          )}
+                          title={child.text}
+                        >
+                          {child.text}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
-            >
-              {h.text}
-            </button>
-          </React.Fragment>
-        );
-      })}
-    </div>
+            </div>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 

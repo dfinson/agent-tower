@@ -110,7 +110,7 @@ export function useMotivationLayers({
         `;
 
         const textLines = Math.max(1, Math.ceil(z.why.length / 80));
-        const heightInPx = 6 + (textLines * 19);
+        const heightInPx = 3 + (textLines * 20);
 
         const id = accessor.addZone({
           afterLineNumber: z.afterLine,

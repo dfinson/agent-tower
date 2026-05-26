@@ -25,13 +25,10 @@ export function useLayeredDiffStyles() {
 
 /* Motivation view zone */
 .motivation-zone {
-  padding: 4px 12px 2px 8px;
+  padding: 3px 12px 0 8px;
   background: rgba(156, 220, 254, 0.03);
   border-top: 1px solid #2a2a3a;
-  border-bottom: 1px solid #2a2a3a;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 13px;
-  line-height: 1.45;
   overflow: hidden;
   pointer-events: auto;
 }
@@ -41,7 +38,8 @@ export function useLayeredDiffStyles() {
 .motivation-zone .mot-text {
   color: #9cdcfe;
   font-style: italic;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 /* Impact zone — collapsible panel matching mockup */
