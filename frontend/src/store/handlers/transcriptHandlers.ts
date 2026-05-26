@@ -164,7 +164,7 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
   }
 
   return {
-    jobs: jobs !== state.jobs ? jobs : undefined,
+    ...(jobs !== state.jobs ? { jobs } : {}),
     transcript: { ...state.transcript, [jobId]: updated.length > 10_000 ? updated.slice(-10_000) : updated },
     streamingMessages,
     streamingToolOutput,
