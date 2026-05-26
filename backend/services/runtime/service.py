@@ -639,7 +639,12 @@ class RuntimeService:
             # calls coderecon tools which require a populated index.
             if self._coderecon_service is not None and self._coderecon_service.available:
                 try:
-                    await self._coderecon_service.ensure_repo_indexed(job.repo)
+                    repo_name = await self._coderecon_service.ensure_repo_indexed(job.repo)
+                    # Also register the job worktree — the kit only has "main"
+                    # after a fresh index (e.g. server restart). Without this,
+                    # preflight scout fails with "Worktree not found in index".
+                    if job.worktree_path and job.worktree_path != job.repo:
+                        await self._coderecon_service.register_worktree(repo_name, job.worktree_path)
                 except Exception:
                     log.debug("preflight_index_failed", job_id=job.id, exc_info=True)
             session_config = await self._run_preflight_curator(job, session_config)
