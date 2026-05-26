@@ -267,6 +267,7 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
         <StoryNavSidebar blocks={story.blocks} scrollRef={scrollRef} />
         {/* Story content */}
         <div ref={scrollRef} className="flex-1 min-w-0 overflow-y-auto p-4">
+          <div className="max-w-prose mx-auto">
           <StoryTOC blocks={story.blocks} />
           <div className="text-sm text-foreground/80 leading-relaxed flex flex-col gap-3 min-w-0 break-words">
             {story.blocks.map((block: StoryBlock, i: number) => {
@@ -305,6 +306,7 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
             })}
           </div>
           {controls}
+          </div>
         </div>
       </div>
     </div>
