@@ -5,19 +5,21 @@
  * - Header: icon, name, status badge, elapsed time
  * - When running: latest reasoning line (live-updating)
  * - When completed: output always visible (markdown)
- * - Expandable: full interleaved entry timeline (reasoning → tool_call → ...)
+ * - Expandable: full turn-based feed (identical to the main chat transcript)
  */
 
 import { useState, useMemo, memo } from "react";
 import {
   ChevronDown, ChevronRight, CheckCircle2, Loader2, XCircle,
-  Wrench, Brain, Telescope, Bot, Eye, Sparkles, MessageCircle,
+  Brain, Telescope, Bot, Eye, Sparkles, Wrench, MessageCircle,
   Shield, Zap, Search, FileText, AlertTriangle, Bug,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { AgentMarkdown } from "./AgentMarkdown";
-import { ToolStep } from "./ToolRenderers";
 import type { SecondarySession, SecondarySessionEntry, TranscriptEntry } from "../store/types";
+import { buildFeedItems } from "./CuratedFeedLogic";
+import type { FeedItem } from "./CuratedFeedLogic";
+import { PhaseBox, SubAgentBubble } from "./CuratedFeedPreviews";
 
 /** Map session kind → icon component. */
 const KIND_ICONS: Record<string, typeof Bot> = {
@@ -27,64 +29,54 @@ const KIND_ICONS: Record<string, typeof Bot> = {
   extractor: Sparkles,
 };
 
-/** Format tool args for human-readable display instead of raw JSON. */
-function formatToolArgs(toolName: string | null | undefined, rawArgs: string | null | undefined): string | null {
-  if (!rawArgs) return null;
-  try {
-    const args = JSON.parse(rawArgs);
-    if (toolName === "view" || toolName === "Read") {
-      const path = args.path || args.file_path || "";
-      const short = path.split("/").slice(-2).join("/");
-      if (args.view_range) return `${short}:${args.view_range[0]}-${args.view_range[1]}`;
-      return short;
+/** Convert all SecondarySessionEntries to TranscriptEntries for the feed builder. */
+function entriesToTranscript(entries: SecondarySessionEntry[]): TranscriptEntry[] {
+  return entries.map((entry) => {
+    if (entry.kind === "reasoning") {
+      return {
+        jobId: "",
+        seq: entry.seq,
+        timestamp: "",
+        role: "thinking",
+        content: entry.content,
+      };
     }
-    if (toolName === "bash" || toolName === "execute") {
-      const cmd = args.command || args.cmd || "";
-      return cmd.length > 80 ? cmd.slice(0, 77) + "…" : cmd;
+    if (entry.kind === "tool_call") {
+      return {
+        jobId: "",
+        seq: entry.seq,
+        timestamp: "",
+        role: "tool_call",
+        content: entry.content,
+        toolName: entry.toolName ?? undefined,
+        toolArgs: entry.toolArgs ?? undefined,
+        toolResult: entry.toolResult ?? undefined,
+        toolDisplay: entry.toolDisplay ?? undefined,
+        toolDisplayFull: entry.toolDisplayFull ?? undefined,
+        toolSuccess: entry.toolSuccess ?? undefined,
+        toolIssue: entry.toolIssue ?? undefined,
+        toolVisibility: entry.toolVisibility ?? undefined,
+        toolDurationMs: entry.durationMs ?? undefined,
+      };
     }
-    if (toolName === "grep" || toolName === "search") {
-      const pattern = args.pattern || args.query || args.regex || "";
-      const path = args.path || args.include || "";
-      const short = path ? path.split("/").slice(-2).join("/") : "";
-      return short ? `"${pattern}" in ${short}` : `"${pattern}"`;
+    if (entry.kind === "output") {
+      return {
+        jobId: "",
+        seq: entry.seq,
+        timestamp: "",
+        role: "agent",
+        content: entry.content,
+      };
     }
-    if (toolName === "write" || toolName === "Edit") {
-      const path = args.path || args.file_path || "";
-      return path.split("/").slice(-2).join("/");
-    }
-    // Fallback: show key=value pairs compactly
-    const pairs = Object.entries(args)
-      .map(([k, v]) => {
-        const val = typeof v === "string" ? v : JSON.stringify(v);
-        const short = (val as string).length > 30 ? (val as string).slice(0, 27) + "…" : val;
-        return `${k}=${short}`;
-      })
-      .join(" ");
-    return pairs.length > 80 ? pairs.slice(0, 77) + "…" : pairs;
-  } catch {
-    // Not JSON — return truncated raw string
-    return rawArgs.length > 60 ? rawArgs.slice(0, 57) + "…" : rawArgs;
-  }
-}
-
-/** Map a SecondarySessionEntry (tool_call) to the TranscriptEntry shape used by ToolStep. */
-function toTranscriptEntry(entry: SecondarySessionEntry): TranscriptEntry {
-  return {
-    jobId: "",
-    seq: entry.seq,
-    timestamp: "",
-    role: "tool_call",
-    content: entry.content,
-    toolName: entry.toolName ?? undefined,
-    toolArgs: entry.toolArgs ?? undefined,
-    toolResult: entry.toolResult ?? undefined,
-    toolDisplay: entry.toolDisplay ?? undefined,
-    toolDisplayFull: entry.toolDisplayFull ?? undefined,
-    toolSuccess: entry.toolSuccess ?? undefined,
-    toolIssue: entry.toolIssue ?? undefined,
-    toolVisibility: entry.toolVisibility ?? undefined,
-    toolDurationMs: entry.durationMs ?? undefined,
-  };
+    // error
+    return {
+      jobId: "",
+      seq: entry.seq,
+      timestamp: "",
+      role: "agent",
+      content: entry.content,
+    };
+  });
 }
 
 /** Map backend icon name → lucide component (used when session.icon is set). */
@@ -116,85 +108,87 @@ function elapsedSince(startedAt: string, completedAt?: string | null): string {
   return formatDuration(end - start);
 }
 
-/** The interleaved entry timeline (the expandable part). */
-const EntryTimeline = memo(function EntryTimeline({ entries }: { entries: SecondarySessionEntry[] }) {
+/** Mini-feed renderer — uses the same turn/cluster logic as the main chat. */
+const MiniFeed = memo(function MiniFeed({ entries }: { entries: SecondarySessionEntry[] }) {
+  const feedItems = useMemo(() => {
+    const transcript = entriesToTranscript(entries);
+    return buildFeedItems(transcript, []);
+  }, [entries]);
+
   return (
-    <div className="space-y-0.5 py-1.5">
-      {entries.map((entry, i) => {
-        if (entry.kind === "reasoning") {
-          return (
-            <div key={i} className="flex items-start gap-2 py-0.5">
-              <Brain size={11} className="text-muted-foreground/50 shrink-0 mt-0.5" />
-              <p className="text-[12px] text-muted-foreground/80 whitespace-pre-wrap leading-relaxed">
-                {entry.content}
-              </p>
-            </div>
-          );
-        }
-
-        if (entry.kind === "tool_call") {
-          return (
-            <div key={i} className="py-0.5">
-              <ToolStep entry={toTranscriptEntry(entry)} isActive={false} />
-            </div>
-          );
-        }
-
-        if (entry.kind === "output") {
-          return (
-            <div key={i} className="flex items-start gap-2 py-0.5">
-              <CheckCircle2 size={11} className="text-emerald-400/70 shrink-0 mt-0.5" />
-              <p className="text-[12px] text-muted-foreground whitespace-pre-wrap leading-relaxed line-clamp-4">
-                {entry.content}
-              </p>
-            </div>
-          );
-        }
-
-        if (entry.kind === "error") {
-          return (
-            <div key={i} className="flex items-start gap-2 py-0.5">
-              <XCircle size={11} className="text-red-400/70 shrink-0 mt-0.5" />
-              <p className="text-[12px] text-red-400/80 whitespace-pre-wrap">{entry.content}</p>
-            </div>
-          );
-        }
-
-        return null;
-      })}
+    <div className="space-y-1">
+      {feedItems.map((item, i) => (
+        <MiniFeedItem key={i} item={item} />
+      ))}
     </div>
   );
 });
 
-/** Compact scouting summary for preflight sessions — shows examined files inline. */
-const PreflightScoutingSummary = memo(function PreflightScoutingSummary({
-  entries,
-}: {
-  entries: SecondarySessionEntry[];
-}) {
-  const examined = entries
-    .filter((e) => e.kind === "tool_call")
-    .map((e) => {
-      const label = formatToolArgs(e.toolName, e.toolArgs);
-      return { tool: e.toolName ?? "tool", label, duration: e.durationMs };
-    });
+/** Render a single feed item — mirrors AgentTurnBlock/CondensedTurnBlock from the main feed. */
+function MiniFeedItem({ item }: { item: FeedItem }) {
+  if (item.type === "turn" || item.type === "condensed") {
+    const { turn, clusters } = item;
+    const hasTools = clusters.length > 0;
+    const messageContent = turn.message?.content?.trim() ?? "";
+    const hasMessage = !!messageContent;
+    const hasReasoning = !!turn.reasoning?.content;
 
-  if (examined.length === 0) return null;
+    return (
+      <div className="py-2 space-y-1.5">
+        {hasTools && (
+          <div className="space-y-1.5">
+            {clusters.map((c, ci) => {
+              if (c.kind === "agent") {
+                return <SubAgentBubble key={ci} cluster={c} />;
+              }
+              return (
+                <PhaseBox
+                  key={ci}
+                  cluster={c}
+                  defaultExpanded={ci === clusters.length - 1}
+                  hasSubsequentActivity={ci < clusters.length - 1 || hasMessage}
+                />
+              );
+            })}
+          </div>
+        )}
 
-  return (
-    <div className="mt-1.5 pl-[22px]">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="text-[11px] text-muted-foreground/60 uppercase tracking-wide font-medium">Examined</span>
-        {examined.map((item, i) => (
-          <span key={i} className="inline-flex items-center gap-1 text-[12px] text-foreground/60 bg-muted/40 rounded px-1.5 py-0.5">
-            <FileText size={10} className="text-muted-foreground/50" />
-            <span className="font-mono text-[11px]">{item.label || item.tool}</span>
-          </span>
-        ))}
+        {(hasMessage || (hasReasoning && !hasTools)) && (
+          <div className="min-w-0 rounded-lg bg-card/60 px-2.5 py-2 space-y-1.5">
+            {hasReasoning && (
+              <div className="text-xs text-foreground/60 leading-snug border-l-2 border-primary/30 pl-2.5">
+                <div className="flex items-start gap-1.5">
+                  <Brain size={12} className="shrink-0 text-primary/50 mt-0.5" />
+                  <p className="whitespace-pre-wrap italic max-h-32 overflow-y-auto">
+                    {turn.reasoning!.content}
+                  </p>
+                </div>
+              </div>
+            )}
+            {hasMessage && (
+              <div className="text-[14px] text-foreground leading-relaxed">
+                <AgentMarkdown content={messageContent} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {hasReasoning && hasTools && !hasMessage && (
+          <div className="text-xs text-foreground/60 leading-snug border-l-2 border-primary/30 pl-2.5">
+            <div className="flex items-start gap-1.5">
+              <Brain size={12} className="shrink-0 text-primary/50 mt-0.5" />
+              <p className="whitespace-pre-wrap italic max-h-32 overflow-y-auto">
+                {turn.reasoning!.content}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
-    </div>
-  );
-});
+    );
+  }
+
+  return null;
+}
 
 /** Main SecondarySessionCard — inline feed block. */
 export const SecondarySessionCard = memo(function SecondarySessionCard({
@@ -282,11 +276,6 @@ export const SecondarySessionCard = memo(function SecondarySessionCard({
         </p>
       )}
 
-      {/* Preflight: show compact scouting summary instead of generic expand */}
-      {session.kind === "preflight" && !expanded && toolCalls > 0 && (
-        <PreflightScoutingSummary entries={session.entries} />
-      )}
-
       {/* Expand toggle */}
       {session.entries.length > 0 && (
         <button
@@ -294,14 +283,14 @@ export const SecondarySessionCard = memo(function SecondarySessionCard({
           className="flex items-center gap-1 mt-1.5 text-[11px] text-primary/60 hover:text-primary transition-colors pl-[22px]"
         >
           {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-          {expanded ? "Collapse" : session.kind === "preflight" ? "Details" : `Expand${toolCalls > 0 ? ` (${toolCalls} ${toolCalls === 1 ? "call" : "calls"})` : ""}`}
+          {expanded ? "Collapse" : `Details${toolCalls > 0 ? ` (${toolCalls} ${toolCalls === 1 ? "call" : "calls"})` : ""}`}
         </button>
       )}
 
-      {/* Expanded: full entry timeline */}
+      {/* Expanded: full turn-based feed (same rendering as main chat) */}
       {expanded && (
-        <div className="mt-1.5 pl-[22px] border-l-2 border-border/50 ml-[6px]">
-          <EntryTimeline entries={session.entries} />
+        <div className="mt-2 pl-1">
+          <MiniFeed entries={session.entries} />
         </div>
       )}
 
