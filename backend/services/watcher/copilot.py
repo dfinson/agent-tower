@@ -1,7 +1,8 @@
 """SessionStateWatcher — discovers and tails Copilot CLI sessions.
 
-Polls ``~/.copilot/session-store.db`` for sessions matching CodePlane-managed
-workspaces (by ``cwd``) with ``host_type='github'`` (started with ``--remote``).
+Polls ``~/.copilot/session-store.db`` for sessions whose ``cwd`` matches a
+CodePlane-managed repo **and** whose ``events.jsonl`` contains
+``remoteSteerable: true`` (i.e. started with ``--remote``).
 
 For each discovered session, tails ``events.jsonl`` using the same
 ``session_event_from_dict()`` parser that the SDK uses internally, then feeds
@@ -307,11 +308,9 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             db = sqlite3.connect(str(_SESSION_STORE_PATH), timeout=2.0)
             db.execute("PRAGMA journal_mode=WAL")
             try:
-                # Query sessions with host_type='github' (--remote flag).
-                # Only consider sessions created after this watcher started —
-                # older sessions are either already tracked via _load_existing_sessions
-                # or are stale and should not be imported.
-                query = "SELECT id, cwd, summary FROM sessions WHERE host_type = 'github'"
+                # Query all recent sessions — we filter by cwd and
+                # remoteSteerable below instead of relying on host_type.
+                query = "SELECT id, cwd, summary FROM sessions WHERE 1=1"
                 params: tuple[Any, ...] = ()
                 if self._started_at:
                     query += " AND created_at >= ?"
@@ -326,15 +325,34 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                         continue
                     # Match cwd against managed repo paths
                     # cwd may be a subdirectory of the repo path
-                    for repo_path in managed_paths:
-                        if cwd == repo_path or cwd.startswith(repo_path + "/"):
-                            results.append((sid, cwd, summary))
-                            break
+                    cwd_matches = any(
+                        cwd == repo_path or cwd.startswith(repo_path + "/")
+                        for repo_path in managed_paths
+                    )
+                    if not cwd_matches:
+                        continue
+                    # Check events.jsonl for remoteSteerable: true (--remote flag)
+                    if not self._is_remote_steerable(sid):
+                        continue
+                    results.append((sid, cwd, summary))
             finally:
                 db.close()
         except (sqlite3.Error, OSError):
             log.debug("session_state_watcher_db_error", exc_info=True)
         return results
+
+    def _is_remote_steerable(self, session_id: str) -> bool:
+        """Read the first line of events.jsonl and check remoteSteerable."""
+        events_path = _SESSION_STATE_DIR / session_id / "events.jsonl"
+        try:
+            with events_path.open("r") as f:
+                first_line = f.readline()
+            if not first_line:
+                return False
+            event = json.loads(first_line)
+            return bool(event.get("data", {}).get("remoteSteerable"))
+        except (OSError, json.JSONDecodeError):
+            return False
 
     # ------------------------------------------------------------------
     # Session attachment (job creation + tail start)
