@@ -23,9 +23,9 @@ export function useLayeredDiffStyles() {
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='4' fill='%23f14c4c'/%3E%3C/svg%3E") center center / 10px no-repeat;
 }
 
-/* Motivation view zone — matches mockup: label on own line, wrapping text below */
+/* Motivation view zone */
 .motivation-zone {
-  padding: 6px 12px 4px 8px;
+  padding: 4px 12px 2px 8px;
   background: rgba(156, 220, 254, 0.03);
   border-top: 1px solid #2a2a3a;
   border-bottom: 1px solid #2a2a3a;
@@ -36,12 +36,7 @@ export function useLayeredDiffStyles() {
   pointer-events: auto;
 }
 .motivation-zone .mot-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  color: #569cd6;
-  margin-bottom: 2px;
+  display: none;
 }
 .motivation-zone .mot-text {
   color: #9cdcfe;
