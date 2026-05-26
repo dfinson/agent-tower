@@ -1179,7 +1179,7 @@ class LineCoverageTestInfo(CamelModel):
     name: str
     file: str
     line: int = 0
-    status: str = "pass"  # pass | fail | notrun
+    status: str = "notrun"  # pass | fail | notrun
 
 
 class LineCoverageResponse(CamelModel):
