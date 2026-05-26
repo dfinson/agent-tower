@@ -1091,7 +1091,6 @@ class StoryResponse(CamelModel):
     job_id: str
     blocks: list[StoryBlock] = []
     cached: bool = False
-    verbosity: str = "standard"  # summary | standard | detailed
     beat_count: int = 0
     has_decisions: bool = False
     has_backtracks: bool = False

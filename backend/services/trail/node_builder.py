@@ -811,6 +811,14 @@ class TrailNodeBuilder:
         if not state:
             return
 
+        # Flush pending background tasks for this job before cleanup.
+        # Without this, fast event streams (e.g. tailed JSONL) can reach
+        # terminal before title-generation tasks run — they'd find job_state
+        # deleted and silently skip activity tracking.
+        job_tasks = [t for t in self._background_tasks if t.get_name().startswith(f"trail-enrich-{job_id}")]
+        if job_tasks:
+            await asyncio.gather(*job_tasks, return_exceptions=True)
+
         node_id = make_node_id()
         seq = state.next_seq
         state.next_seq += 1

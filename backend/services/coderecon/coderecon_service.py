@@ -55,6 +55,23 @@ class CodeReconService:
         self._kit_class: type | None = None
         self._executor = ThreadPoolExecutor(thread_name_prefix="coderecon")
 
+    # ── Helpers ──
+
+    def _resolve_worktree_name(self, repo: str, worktree: str) -> str:
+        """Resolve a worktree path to the name CodeRecon expects.
+
+        When the worktree path resolves to the same directory as the repo
+        root, the correct name is "main" — that's the primary working copy.
+        Otherwise use the directory basename (e.g. "feature-branch" from
+        "/repo/.codeplane-worktrees/feature-branch").
+        """
+        try:
+            if str(Path(worktree).resolve()) == str(Path(repo).resolve()):
+                return "main"
+        except (OSError, ValueError):
+            pass
+        return Path(worktree).name
+
     # ── Properties ──
 
     @property
@@ -200,9 +217,12 @@ class CodeReconService:
         kit = self._kits.get(repo)
         if kit is None:
             return
+        wt_name = self._resolve_worktree_name(repo, str(worktree_path))
+        if wt_name == "main":
+            # Worktree is the repo root itself — already indexed as "main".
+            return
         loop = asyncio.get_running_loop()
         try:
-            wt_name = Path(worktree_path).name
             wt = str(Path(worktree_path).resolve())
             await loop.run_in_executor(self._executor, kit.register_worktree, wt_name, Path(wt))
             await loop.run_in_executor(
@@ -230,7 +250,8 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {"base": base, "worktree": Path(worktree).name}
+        wt_name = self._resolve_worktree_name(repo, worktree)
+        kwargs: dict[str, Any] = {"base": base, "worktree": wt_name}
         if target is not None:
             kwargs["target"] = target
         if paths is not None:
@@ -246,7 +267,8 @@ class CodeReconService:
         """Circular dependency detection."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, lambda: kit.graph_cycles(worktree=Path(worktree).name))
+        wt_name = self._resolve_worktree_name(repo, worktree)
+        return await loop.run_in_executor(self._executor, lambda: kit.graph_cycles(worktree=wt_name))
 
     async def graph_communities(
         self,
@@ -257,7 +279,8 @@ class CodeReconService:
         """Module community detection."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, lambda: kit.graph_communities(worktree=Path(worktree).name))
+        wt_name = self._resolve_worktree_name(repo, worktree)
+        return await loop.run_in_executor(self._executor, lambda: kit.graph_communities(worktree=wt_name))
 
     async def check_structural_health(
         self,
@@ -268,8 +291,9 @@ class CodeReconService:
         """Composite structural health assessment."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
+        wt_name = self._resolve_worktree_name(repo, worktree)
         return await loop.run_in_executor(
-            self._executor, lambda: kit.check_structural_health(worktree=Path(worktree).name)
+            self._executor, lambda: kit.check_structural_health(worktree=wt_name)
         )
 
     async def impact(self, repo: str, target: str, *, worktree: str) -> Any:
@@ -282,7 +306,8 @@ class CodeReconService:
         if not hasattr(kit, "impact"):
             raise CodeReconUnavailableError
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, lambda: kit.impact(target, worktree=Path(worktree).name))
+        wt_name = self._resolve_worktree_name(repo, worktree)
+        return await loop.run_in_executor(self._executor, lambda: kit.impact(target, worktree=wt_name))
 
     async def scout(
         self,
@@ -297,7 +322,8 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {"worktree": Path(worktree).name}
+        wt_name = self._resolve_worktree_name(repo, worktree)
+        kwargs: dict[str, Any] = {"worktree": wt_name}
         if scope is not None:
             kwargs["scope"] = scope
         return await loop.run_in_executor(self._executor, lambda: kit.scout(**kwargs))
@@ -314,7 +340,7 @@ class CodeReconService:
         if not hasattr(kit, "reindex"):
             raise CodeReconUnavailableError
         loop = asyncio.get_running_loop()
-        wt_name = Path(worktree).name
+        wt_name = self._resolve_worktree_name(repo, worktree)
         count = await loop.run_in_executor(
             self._executor, lambda: kit.reindex(changed_paths, worktree=wt_name)
         )
@@ -340,6 +366,7 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
+        wt_name = self._resolve_worktree_name(repo, worktree)
         return await loop.run_in_executor(
             self._executor,
             lambda: kit.checkpoint(
@@ -350,7 +377,7 @@ class CodeReconService:
                 tests=tests,
                 test_filter=test_filter,
                 max_test_hops=max_test_hops,
-                worktree=Path(worktree).name,
+                worktree=wt_name,
             ),
         )
 
@@ -365,9 +392,10 @@ class CodeReconService:
         """Run coderecon recon_impact."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
+        wt_name = self._resolve_worktree_name(repo, worktree)
         return await loop.run_in_executor(
             self._executor,
-            lambda: kit.impact(target=target, worktree=Path(worktree).name),
+            lambda: kit.impact(target=target, worktree=wt_name),
         )
 
     async def sync_from_git(self, repo: str, *, worktree: str) -> int:
@@ -377,7 +405,7 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        wt_name = Path(worktree).name
+        wt_name = self._resolve_worktree_name(repo, worktree)
         count = await loop.run_in_executor(
             self._executor, lambda: kit.sync_from_git(worktree=wt_name)
         )
@@ -418,8 +446,9 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
+        wt_name = self._resolve_worktree_name(repo, worktree)
         return await loop.run_in_executor(
-            self._executor, lambda: kit.enrich_scip(worktree=Path(worktree).name)
+            self._executor, lambda: kit.enrich_scip(worktree=wt_name)
         )
 
     async def repo_status(self, repo: str, *, worktree: str = "main") -> dict[str, Any] | None:
@@ -557,7 +586,7 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        wt_name = Path(worktree).name
+        wt_name = self._resolve_worktree_name(repo, worktree)
         return await loop.run_in_executor(
             self._executor,
             lambda: kit.blast_radius(changed_files, worktree=wt_name, max_hops=max_hops),
@@ -576,7 +605,7 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        wt_name = Path(worktree).name
+        wt_name = self._resolve_worktree_name(repo, worktree)
         return await loop.run_in_executor(
             self._executor,
             lambda: kit.covering_tests(file_path, worktree=wt_name),
@@ -598,7 +627,7 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        wt_name = Path(worktree).name
+        wt_name = self._resolve_worktree_name(repo, worktree)
         return await loop.run_in_executor(
             self._executor,
             lambda: kit.line_coverage(

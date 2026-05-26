@@ -204,6 +204,8 @@ export interface StoryBlock {
   type: "narrative" | "reference" | "beat" | "heading";
   // narrative / beat fields
   text?: string | null;
+  // heading fields
+  level?: number | null;
   // beat fields
   beatKind?: "decide" | "backtrack" | "insight" | "verify" | null;
   // reference fields
@@ -222,7 +224,6 @@ export interface StoryResponse {
   jobId: string;
   blocks: StoryBlock[];
   cached: boolean;
-  verbosity: "summary" | "standard" | "detailed";
   beatCount: number;
   hasDecisions: boolean;
   hasBacktracks: boolean;

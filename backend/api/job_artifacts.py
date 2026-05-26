@@ -708,13 +708,12 @@ async def get_job_story(
     job_id: str,
     session: FromDishka[AsyncSession],
     regenerate: bool = False,
-    verbosity: str = Query(default="standard", pattern="^(summary|standard|detailed)$"),
 ) -> StoryResponse:
     """Return a cached code-review story for a job.
 
-    Stories are pre-generated in the background at all verbosity levels
-    as soon as a job enters review state.  This endpoint reads from the
-    DB cache only — it never blocks on LLM generation.
+    Stories are pre-generated in the background as soon as a job enters
+    review state.  This endpoint reads from the DB cache only — it never
+    blocks on LLM generation.
 
     Pass ?regenerate=true to force a fresh generation (fire-and-forget;
     returns empty immediately and the background loop will populate it).
@@ -731,18 +730,16 @@ async def get_job_story(
 
     if regenerate:
         # Clear the cached column so the drain loop regenerates it
-        col = {"summary": "story_text_summary", "standard": "story_text", "detailed": "story_text_detailed"}[verbosity]
         await session.execute(
-            sa_text(f"UPDATE jobs SET {col} = NULL WHERE id = :jid"),  # noqa: S608
+            sa_text("UPDATE jobs SET story_text = NULL WHERE id = :jid"),
             {"jid": job_id},
         )
         await session.commit()
-        return StoryResponse(job_id=job_id, blocks=[], cached=False, verbosity=verbosity, pending=True)
+        return StoryResponse(job_id=job_id, blocks=[], cached=False, pending=True)
 
     # Read from cache only
-    col = {"summary": "story_text_summary", "standard": "story_text", "detailed": "story_text_detailed"}[verbosity]
     row = await session.execute(
-        sa_text(f"SELECT {col} FROM jobs WHERE id = :jid"),  # noqa: S608
+        sa_text("SELECT story_text FROM jobs WHERE id = :jid"),
         {"jid": job_id},
     )
     cached = row.scalar_one_or_none()
@@ -755,7 +752,6 @@ async def get_job_story(
                 job_id=job_id,
                 blocks=blocks,
                 cached=True,
-                verbosity=verbosity,
                 beat_count=payload.get("beat_count", 0),
                 has_decisions=payload.get("has_decisions", False),
                 has_backtracks=payload.get("has_backtracks", False),
@@ -764,7 +760,7 @@ async def get_job_story(
             pass
 
     # Not yet generated — the background drain loop will produce it
-    return StoryResponse(job_id=job_id, blocks=[], cached=False, verbosity=verbosity, pending=True)
+    return StoryResponse(job_id=job_id, blocks=[], cached=False, pending=True)
 
 
 @router.get("/jobs/{job_id}/structural-diff", response_model=StructuralDiffResponse)

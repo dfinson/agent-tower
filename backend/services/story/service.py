@@ -90,6 +90,7 @@ class StoryContext(TypedDict, total=False):
 class StoryBlock(TypedDict, total=False):
     type: str
     text: str
+    level: int
     beatKind: str
     spanId: str
     file: str
@@ -158,7 +159,23 @@ _STORY_SYSTEM = (
     "what complications arose during the work, and what state it reached "
     "after. Walk through the body chronologically, but the opening should "
     "front-load why the reader should care. Close with the final state of "
-    "the code — what it looks like now that the work is done.\n\n"
+    "the code — what it looks like now that the work is done. The ending "
+    "should read as prose, not as a summary section or diff dump. Do NOT "
+    "end with a bulleted list of files/changes, a 'what changed' recap, "
+    "or raw diffs. The narrative should land on a concrete observation — "
+    "what the system can do now that it couldn't before, what invariant "
+    "holds, or what the tests prove. If the story ends with a verification "
+    "step, let the test result be the last beat.\n\n"
+    #
+    # Depth — thorough technical narrative
+    "DEPTH: Write a thorough technical narrative — the kind of thing you'd "
+    "post on an engineering blog. For each change, explain what the existing "
+    "code looked like before, what problem that created, what the new code "
+    "does (quote key lines from the snippets), what alternatives were "
+    "considered, and what tradeoffs were made. The reader should understand "
+    "not just what changed but the full technical context — the shape of "
+    "the codebase before the change, the constraint that made the change "
+    "necessary, and exactly what the new code looks like.\n\n"
     #
     # Curiosity gaps — forward references that create tension
     "FORWARD REFERENCES: Plant questions in the reader's mind that get "
@@ -291,11 +308,17 @@ _STORY_SYSTEM = (
     "automatically. Quote individual lines or expressions with `backticks` "
     "if you want to highlight specific code in the narrative.\n\n"
     "SECTIONS: Break the story into 3–6 sections using `## Section Title` "
-    "headers. Each section groups a coherent phase of the work — a problem "
-    "discovered, a fix applied, a verification attempt. Section titles "
-    "should be short, specific, and name the thing that changed or "
+    "headers. Within each section, use `### Sub-heading` markers to signal "
+    "distinct beats or phases — a decision point, a complication, a "
+    "verification step. Sub-headings let the reader scan the story like a "
+    "table of contents: the `##` is the chapter, each `###` is a scene "
+    "within it. Aim for 1–3 sub-headings per section; not every paragraph "
+    "needs one, but every major turning point deserves its own. Section "
+    "titles should be short, specific, and name the thing that changed or "
     "happened — 'Untangling the archived state', 'Filter reorder in "
-    "the service layer', 'Verification failures'. Never generic titles "
+    "the service layer', 'Verification failures'. Sub-headings can be "
+    "shorter and punchier — 'The null check', 'Retry logic bites back'. "
+    "Never generic titles "
     "like 'Introduction', 'Conclusion', 'Summary', 'What changed', "
     "'Next steps', or 'Risks'. The opening section still needs "
     "a header. Separate paragraphs with blank lines.\n\n"
@@ -305,46 +328,11 @@ _STORY_SYSTEM = (
 )
 
 
-_STORY_VERBOSITY_SUFFIX = {
-    "summary": (
-        "\n\nVERBOSITY=summary: Write a short executive summary — a few "
-        "sentences that name the key symbols and decisions. Reference each "
-        "change by [[N]]. Even in summary mode, set minimal context — what "
-        "system was involved, what changed, what risk remains."
-    ),
-    "standard": "",
-    "detailed": (
-        "\n\nVERBOSITY=detailed: Write a thorough technical narrative — the "
-        "kind of thing you'd post on an engineering blog. For each change, "
-        "explain what the existing code looked like before, what problem that "
-        "created, what the new code does (quote key lines from the snippets), "
-        "what alternatives you considered, and what tradeoffs you made. "
-        "The reader should understand not just what changed but the full "
-        "technical context — the shape of the codebase before the change, "
-        "the constraint that made the change necessary, and exactly what "
-        "the new code looks like. This is a technical document for "
-        "reviewers, not a summary for managers."
-    ),
-}
 
 
-# ---------------------------------------------------------------------------
-# Verbosity → column mapping (whitelist — prevents SQL injection)
-# ---------------------------------------------------------------------------
 
-_VERBOSITY_COLUMNS: dict[str, str] = {
-    "summary": "story_text_summary",
-    "standard": "story_text",
-    "detailed": "story_text_detailed",
-}
-
-
-def _col_for_verbosity(verbosity: str) -> str:
-    """Return the DB column name for a verbosity level, or raise."""
-    col = _VERBOSITY_COLUMNS.get(verbosity)
-    if col is None:
-        raise ValueError(f"Invalid verbosity: {verbosity!r}")
-    return col
+# DB column for cached story text
+_STORY_COLUMN = "story_text"
 
 
 # ---------------------------------------------------------------------------
@@ -721,7 +709,7 @@ def _build_prompt(
 
 _MARKER_RE = re.compile(r"\[\[(\d+)\]\]")
 _BEAT_RE = re.compile(r"\{\{(DECIDE|BACKTRACK|INSIGHT|VERIFY)\}\}", re.IGNORECASE)
-_HEADING_RE = re.compile(r"^#{1,3}\s+(.+)$", re.MULTILINE)
+_HEADING_RE = re.compile(r"^(#{1,3})\s+(.+)$", re.MULTILINE)
 _SPLIT_RE = re.compile(
     r"(\[\[\d+\]\]|\{\{(?:DECIDE|BACKTRACK|INSIGHT|VERIFY)\}\})",
     re.IGNORECASE,
@@ -787,7 +775,7 @@ def _parse_blocks(
             before = text[last_end : hm.start()].strip()
             if before:
                 sub_blocks.append({"type": "narrative", "text": before})
-            sub_blocks.append({"type": "heading", "text": hm.group(1).strip()})
+            sub_blocks.append({"type": "heading", "text": hm.group(2).strip(), "level": len(hm.group(1))})
             last_end = hm.end()
         trailing = text[last_end:].strip()
         if trailing:
@@ -1037,11 +1025,10 @@ async def invalidate_story_cache_for_jobs(
         result = await session.execute(
             text(
                 f"UPDATE jobs "  # noqa: S608
-                f"SET story_text = NULL, story_text_summary = NULL, story_text_detailed = NULL "
+                f"SET story_text = NULL "
                 f"WHERE id IN ({placeholders}) "
                 f"AND state IN ('review', 'completed') "
-                f"AND (story_text IS NOT NULL OR story_text_summary IS NOT NULL "
-                f"     OR story_text_detailed IS NOT NULL)"
+                f"AND story_text IS NOT NULL"
             ),
             params,
         )
@@ -1077,13 +1064,11 @@ class StoryService:
         self,
         session: AsyncSession,
         job_id: str,
-        *,
-        verbosity: str = "standard",
     ) -> dict[str, Any] | None:
         """Return cached story blocks, or generate and cache them."""
         from sqlalchemy import text
 
-        col = _col_for_verbosity(verbosity)
+        col = _STORY_COLUMN
 
         # Check cache
         row = await session.execute(
@@ -1102,7 +1087,7 @@ class StoryService:
                 log.debug("story_cache_decode_failed", job_id=job_id)  # stale plain-text → regenerate
 
         # Serialize generation per job to avoid duplicate LLM calls.
-        lock_key = f"{job_id}:{verbosity}"
+        lock_key = job_id
         lock = self._gen_locks.setdefault(lock_key, asyncio.Lock())
         async with lock:
             # Re-check cache — another coroutine may have populated it.
@@ -1121,7 +1106,7 @@ class StoryService:
                     log.debug("story_cache_parse_failed", job_id=job_id)
                     pass
             try:
-                return await self._generate(session, job_id, verbosity=verbosity)
+                return await self._generate(session, job_id)
             finally:
                 self._gen_locks.pop(lock_key, None)
 
@@ -1129,16 +1114,14 @@ class StoryService:
         self,
         session: AsyncSession,
         job_id: str,
-        *,
-        verbosity: str = "standard",
     ) -> dict[str, Any] | None:
         """Force regeneration, ignoring cache."""
         from sqlalchemy import text
 
-        col = _col_for_verbosity(verbosity)
+        col = _STORY_COLUMN
 
         # Acquire the same lock as get_or_generate to prevent races (#3)
-        lock_key = f"{job_id}:{verbosity}"
+        lock_key = job_id
         lock = self._gen_locks.setdefault(lock_key, asyncio.Lock())
         async with lock:
             await session.execute(
@@ -1148,7 +1131,7 @@ class StoryService:
             # Don't commit the NULL separately — _generate will commit
             # with the new value, or we commit below on failure (#14)
             try:
-                return await self._generate(session, job_id, verbosity=verbosity)
+                return await self._generate(session, job_id)
             except Exception:
                 await session.commit()  # persist the NULL on failure
                 raise
@@ -1318,14 +1301,8 @@ class StoryService:
         self,
         session: AsyncSession,
         job_id: str,
-        *,
-        verbosity: str = "standard",
     ) -> dict[str, Any] | None:
         from sqlalchemy import text
-
-        # Validate verbosity early (#1)
-        if verbosity not in _STORY_VERBOSITY_SUFFIX:
-            raise ValueError(f"Unknown story verbosity {verbosity!r}")
 
         # Fetch job row once and share with sub-queries (#8)
         job_result = await session.execute(
@@ -1376,7 +1353,7 @@ class StoryService:
             job_row=job_row,
         )
 
-        system = _STORY_SYSTEM + _STORY_VERBOSITY_SUFFIX.get(verbosity, "")
+        system = _STORY_SYSTEM
 
         # Determine whether multi-pass is needed (#7)
         # Look up the model's context window from pricing service.
@@ -1395,7 +1372,7 @@ class StoryService:
         )
 
         if not blocks:
-            log.warning("story_generate_empty_blocks", job_id=job_id, verbosity=verbosity, ref_count=len(refs), beat_count=len(beats))
+            log.warning("story_generate_empty_blocks", job_id=job_id, ref_count=len(refs), beat_count=len(beats))
             return None
 
         # Enrich reference blocks with actual git diffs for rendering.
@@ -1417,16 +1394,12 @@ class StoryService:
         # Only cache when all enrichment is ready — otherwise the next
         # request will regenerate with richer trail and motivation data.
         if pending_motivations == 0 and pending_enrichment == 0:
-            col = _col_for_verbosity(verbosity)
+            col = _STORY_COLUMN
             await session.execute(
                 text(f"UPDATE jobs SET {col} = :story WHERE id = :jid"),  # noqa: S608
                 {"jid": job_id, "story": json.dumps(payload)},
             )
             await session.commit()
-
-            # Pre-generate other verbosity levels in the background so
-            # switching verbosity in the UI is instant (no spinner).
-            self._prefetch_other_verbosities(job_id, verbosity)
         else:
             log.info(
                 "story_skip_cache",
@@ -1436,26 +1409,6 @@ class StoryService:
             )
 
         return payload
-
-    def _prefetch_other_verbosities(self, job_id: str, completed_verbosity: str) -> None:
-        """Fire-and-forget generation of the other two verbosity levels."""
-        if not self._session_factory:
-            return
-        all_levels = ["summary", "standard", "detailed"]
-        remaining = [v for v in all_levels if v != completed_verbosity]
-
-        for v in remaining:
-            asyncio.ensure_future(self._prefetch_one(job_id, v))
-
-    async def _prefetch_one(self, job_id: str, verbosity: str) -> None:
-        """Background task: generate and cache one verbosity level if not already cached."""
-        if not self._session_factory:
-            return
-        try:
-            async with self._session_factory() as session:
-                await self.get_or_generate(session, job_id, verbosity=verbosity)
-        except Exception:
-            log.debug("story_prefetch_failed", job_id=job_id, verbosity=verbosity, exc_info=True)
 
     # ------------------------------------------------------------------
     # Background drain loop — pre-generates stories so the GET is instant
@@ -1467,8 +1420,8 @@ class StoryService:
         """Run forever, generating stories for jobs in review state.
 
         Periodically scans for jobs that entered review but don't yet have
-        cached stories at all verbosity levels, then generates them in the
-        background.  This ensures the frontend GET is always a simple DB read.
+        a cached story, then generates them in the background.  This ensures
+        the frontend GET is always a simple DB read.
         """
         from sqlalchemy import text
 
@@ -1479,33 +1432,27 @@ class StoryService:
         while True:
             try:
                 async with self._session_factory() as session:
-                    # Find jobs in review/completed state missing at least one verbosity cache
+                    # Find jobs in review/completed state missing cached story
                     rows = await session.execute(
                         text(
-                            "SELECT id FROM jobs WHERE state IN ('review', 'completed') AND ("
-                            "  story_text IS NULL OR "
-                            "  story_text_summary IS NULL OR "
-                            "  story_text_detailed IS NULL"
-                            ") AND EXISTS (SELECT 1 FROM trail_nodes WHERE trail_nodes.job_id = jobs.id)"
+                            "SELECT id FROM jobs WHERE state IN ('review', 'completed') AND "
+                            "  story_text IS NULL "
+                            "AND EXISTS (SELECT 1 FROM trail_nodes WHERE trail_nodes.job_id = jobs.id)"
                             " LIMIT 4"
                         )
                     )
                     job_ids = [r[0] for r in rows.fetchall()]
 
                 for job_id in job_ids:
-                    for verbosity in ("summary", "standard", "detailed"):
-                        try:
-                            async with self._session_factory() as session:
-                                await self.get_or_generate(
-                                    session, job_id, verbosity=verbosity
-                                )
-                        except Exception:
-                            log.warning(
-                                "story_drain_generate_failed",
-                                job_id=job_id,
-                                verbosity=verbosity,
-                                exc_info=True,
-                            )
+                    try:
+                        async with self._session_factory() as session:
+                            await self.get_or_generate(session, job_id)
+                    except Exception:
+                        log.warning(
+                            "story_drain_generate_failed",
+                            job_id=job_id,
+                            exc_info=True,
+                        )
 
                 if job_ids:
                     log.info("story_drain_batch", count=len(job_ids))

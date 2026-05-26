@@ -1,8 +1,8 @@
 /**
  * Story sub-view — trail-based narrative code review story.
  *
- * Stories are pre-generated in the background at all verbosity levels.
- * This component polls until the story is ready, then renders it.
+ * Stories are pre-generated in the background. This component polls
+ * until the story is ready, then renders it.
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { AlertTriangle, BookOpen, RefreshCw } from "lucide-react";
@@ -135,130 +135,69 @@ function StoryTOC({ blocks }: { blocks: StoryBlock[] }) {
   );
 }
 
-type Verbosity = "summary" | "standard" | "detailed";
-
 /** Trail-based story fallback when CodeRecon is unavailable. */
 function TrailStoryFallback({ jobId }: { jobId: string }) {
   const setStory = useStore((s) => s.setStory);
 
-  const [verbosity, setVerbosity] = useState<Verbosity>("standard");
   const [regenerating, setRegenerating] = useState(false);
-  const [errors, setErrors] = useState<Record<Verbosity, string | null>>({
-    summary: null, standard: null, detailed: null,
-  });
+  const [fetching, setFetching] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  // Per-verbosity cache from store
-  const cachedSummary = useStore(selectJobStory(jobId, "summary"));
-  const cachedStandard = useStore(selectJobStory(jobId, "standard"));
-  const cachedDetailed = useStore(selectJobStory(jobId, "detailed"));
+  const story = useStore(selectJobStory(jobId));
 
-  const storyForVerbosity = (v: Verbosity) => {
-    if (v === "summary") return cachedSummary;
-    if (v === "detailed") return cachedDetailed;
-    return cachedStandard;
-  };
-
-  const story = storyForVerbosity(verbosity);
-
-  // Track which levels are being fetched
-  const [fetching, setFetching] = useState<Record<Verbosity, boolean>>({
-    summary: false, standard: false, detailed: false,
-  });
-
-  // Track which verbosity levels are pending (generating in background)
-  const [pending, setPending] = useState<Record<Verbosity, boolean>>({
-    summary: false, standard: false, detailed: false,
-  });
-  const pollTimers = useRef<Record<Verbosity, ReturnType<typeof setTimeout> | null>>({
-    summary: null, standard: null, detailed: null,
-  });
-
-  const fetchLevel = useCallback(
-    async (v: Verbosity, regen = false) => {
-      setFetching((prev) => ({ ...prev, [v]: true }));
+  const fetchStory = useCallback(
+    async (regen = false) => {
+      setFetching(true);
+      setError(null);
       try {
-        const res = await fetchJobStory(jobId, regen, v);
+        const res = await fetchJobStory(jobId, regen);
         if (res.blocks && res.blocks.length > 0) {
           setStory(jobId, res);
-          setPending((prev) => ({ ...prev, [v]: false }));
+          setPending(false);
         } else if (res.pending) {
           // Story is being generated — poll again shortly
-          setPending((prev) => ({ ...prev, [v]: true }));
-          if (pollTimers.current[v]) clearTimeout(pollTimers.current[v]!);
-          pollTimers.current[v] = setTimeout(() => fetchLevel(v), 4000);
+          setPending(true);
+          if (pollTimer.current) clearTimeout(pollTimer.current);
+          pollTimer.current = setTimeout(() => fetchStory(), 4000);
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Failed to load story";
-        setErrors((prev) => ({ ...prev, [v]: msg }));
+        setError(msg);
       } finally {
-        setFetching((prev) => ({ ...prev, [v]: false }));
+        setFetching(false);
       }
     },
     [jobId, setStory],
   );
 
-  // Cleanup poll timers on unmount
+  // Cleanup poll timer on unmount
   useEffect(() => {
     return () => {
-      Object.values(pollTimers.current).forEach((t) => t && clearTimeout(t));
+      if (pollTimer.current) clearTimeout(pollTimer.current);
     };
   }, []);
 
-  // Eagerly fetch all verbosity levels on mount
+  // Fetch story on mount
   useEffect(() => {
-    const levels: Verbosity[] = ["summary", "standard", "detailed"];
-    for (const v of levels) {
-      if (!storyForVerbosity(v)) {
-        fetchLevel(v);
-      }
+    if (!story) {
+      fetchStory();
     }
   }, [jobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleVerbosityChange = useCallback(
-    (v: Verbosity) => {
-      setVerbosity(v);
-      setErrors((prev) => ({ ...prev, [v]: null }));
-      // If this verbosity level isn't cached, trigger a fetch
-      const cached = v === "summary" ? cachedSummary : v === "detailed" ? cachedDetailed : cachedStandard;
-      if (!cached) {
-        fetchLevel(v);
-      }
-    },
-    [fetchLevel, cachedSummary, cachedStandard, cachedDetailed],
-  );
-
   const handleRegenerate = useCallback(() => {
     setRegenerating(true);
-    setErrors((prev) => ({ ...prev, [verbosity]: null }));
-    fetchLevel(verbosity, true).finally(() => setRegenerating(false));
-  }, [fetchLevel, verbosity]);
+    setError(null);
+    fetchStory(true).finally(() => setRegenerating(false));
+  }, [fetchStory]);
 
-  // Show loading only if the currently selected verbosity is being fetched
-  const loading = (fetching[verbosity] || pending[verbosity]) && !story;
+  const loading = (fetching || pending) && !story;
   const hasStory = story && story.blocks.length > 0;
-  const error = errors[verbosity];
 
-  // Wrap the verbosity toggle + regenerate so they're always visible,
-  // even when the story content area shows loading/error/empty.
   const controls = (
-    <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/30">
-      <div className="flex items-center gap-0.5 bg-muted/30 rounded p-0.5">
-        {(["summary", "standard", "detailed"] as const).map((v) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => handleVerbosityChange(v)}
-            className={cn(
-              "px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors",
-              verbosity === v
-                ? "bg-primary/20 text-primary"
-                : "text-muted-foreground/50 hover:text-muted-foreground",
-            )}
-          >
-            {v === "summary" ? "Brief" : v === "standard" ? "Standard" : "Detailed"}
-          </button>
-        ))}
-      </div>
+    <div className="flex items-center justify-end mt-3 pt-2 border-t border-border/30">
       <button
         type="button"
         disabled={regenerating}
@@ -273,10 +212,10 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-border bg-card p-4">
-        <div className="flex flex-col items-center justify-center h-48 gap-2">
+      <div className="rounded-lg border border-border bg-card p-4 h-full flex flex-col justify-center">
+        <div className="flex flex-col items-center justify-center gap-2">
           <Spinner size="md" />
-          {pending[verbosity] && (
+          {pending && (
             <span className="text-xs text-muted-foreground">Generating story…</span>
           )}
         </div>
@@ -287,8 +226,8 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-border bg-card p-4">
-        <div className="flex items-center gap-2 justify-center h-48 text-sm text-muted-foreground">
+      <div className="rounded-lg border border-border bg-card p-4 h-full flex flex-col justify-center">
+        <div className="flex items-center gap-2 justify-center text-sm text-muted-foreground">
           <AlertTriangle size={16} className="text-yellow-400" />
           <span>{error}</span>
         </div>
@@ -299,9 +238,9 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
 
   if (!hasStory) {
     return (
-      <div className="rounded-lg border border-border bg-card p-4">
-        <div className="flex flex-col items-center justify-center h-48 gap-3 text-sm text-muted-foreground">
-          <p>Story generation returned no content for this level.</p>
+      <div className="rounded-lg border border-border bg-card p-4 h-full flex flex-col justify-center">
+        <div className="flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+          <p>No story available yet.</p>
           <button
             type="button"
             disabled={regenerating}
@@ -318,51 +257,146 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 overflow-hidden min-w-0">
-      <div className="flex items-center gap-2 mb-3">
+    <div className="rounded-lg border border-border bg-card overflow-hidden min-w-0 h-full flex flex-col">
+      <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-border/30 shrink-0">
         <BookOpen size={14} className="text-muted-foreground" />
         <h3 className="text-sm font-semibold">Code Review Story</h3>
       </div>
-        <StoryTOC blocks={story.blocks} />
-        <div className="text-sm text-foreground/80 leading-relaxed flex flex-col gap-3 min-w-0 break-words">
-          {story.blocks.map((block: StoryBlock, i: number) => {
-            if (block.type === "heading" && block.text) {
-              return (
-                <h4
-                  key={`h-${i}`}
-                  className={cn(
-                    "text-sm font-semibold text-foreground/90 pt-4 pb-1",
-                    i > 0 && "border-t border-border/20 mt-2",
-                  )}
-                >
-                  {block.text}
-                </h4>
-              );
-            }
-            if ((block.type === "narrative" || block.type === "beat") && block.text) {
-              return (
-                <React.Fragment key={`t-${i}`}>
-                  {renderParagraphs(block.text, `t-${i}`)}
-                </React.Fragment>
-              );
-            }
-            if (block.type === "reference" && block.file && block.snippet) {
-              return <DiffCard key={`r-${i}`} file={block.file} snippet={block.snippet} />;
-            }
-            return null;
-          })}
+      <div className="flex-1 min-h-0 flex">
+        {/* TOC sidebar */}
+        <StoryNavSidebar blocks={story.blocks} scrollRef={scrollRef} />
+        {/* Story content */}
+        <div ref={scrollRef} className="flex-1 min-w-0 overflow-y-auto p-4">
+          <StoryTOC blocks={story.blocks} />
+          <div className="text-sm text-foreground/80 leading-relaxed flex flex-col gap-3 min-w-0 break-words">
+            {story.blocks.map((block: StoryBlock, i: number) => {
+              if (block.type === "heading" && block.text) {
+                const level = block.level ?? 2;
+                return (
+                  <div key={`h-${i}`} id={`story-heading-${i}`}>
+                    {level <= 2 ? (
+                      <h4
+                        className={cn(
+                          "text-sm font-semibold text-foreground/90 pt-4 pb-1",
+                          i > 0 && "border-t border-border/20 mt-2",
+                        )}
+                      >
+                        {block.text}
+                      </h4>
+                    ) : (
+                      <h5 className="text-[13px] font-medium text-foreground/80 pt-2 pb-0.5">
+                        {block.text}
+                      </h5>
+                    )}
+                  </div>
+                );
+              }
+              if ((block.type === "narrative" || block.type === "beat") && block.text) {
+                return (
+                  <React.Fragment key={`t-${i}`}>
+                    {renderParagraphs(block.text, `t-${i}`)}
+                  </React.Fragment>
+                );
+              }
+              if (block.type === "reference" && block.file && block.snippet) {
+                return <DiffCard key={`r-${i}`} file={block.file} snippet={block.snippet} />;
+              }
+              return null;
+            })}
+          </div>
+          {controls}
         </div>
-        {controls}
       </div>
+    </div>
+  );
+}
+
+/** TOC sidebar — activity timeline from headings. */
+function StoryNavSidebar({
+  blocks,
+  scrollRef,
+}: {
+  blocks: StoryBlock[];
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const headings = blocks
+    .map((b, i) => ({ ...b, idx: i }))
+    .filter((b) => b.type === "heading" && b.text);
+
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
+
+  // Track which heading is in view via IntersectionObserver
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container || headings.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Pick the first visible heading
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const id = entry.target.getAttribute("id");
+            if (id) {
+              const idx = parseInt(id.replace("story-heading-", ""), 10);
+              setActiveIdx(idx);
+            }
+            break;
+          }
+        }
+      },
+      { root: container, rootMargin: "-10% 0px -80% 0px", threshold: 0 },
+    );
+
+    for (const h of headings) {
+      const el = container.querySelector(`#story-heading-${h.idx}`);
+      if (el) observer.observe(el);
+    }
+
+    return () => observer.disconnect();
+  }, [headings, scrollRef]);
+
+  if (headings.length < 2) return null;
+
+  const scrollTo = (idx: number) => {
+    const el = scrollRef.current?.querySelector(`#story-heading-${idx}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  return (
+    <nav className="w-48 shrink-0 border-r border-border/30 overflow-y-auto py-3 px-2 hidden lg:block">
+      <ul className="flex flex-col gap-0.5">
+        {headings.map((h) => {
+          const level = h.level ?? 2;
+          const isActive = activeIdx === h.idx;
+          return (
+            <li key={h.idx}>
+              <button
+                type="button"
+                onClick={() => scrollTo(h.idx)}
+                className={cn(
+                  "text-left w-full text-[11px] leading-tight rounded px-2 py-1 truncate transition-colors",
+                  level <= 2
+                    ? "font-medium text-foreground/70"
+                    : "pl-4 text-muted-foreground/70",
+                  isActive && "bg-primary/10 text-primary font-semibold",
+                  !isActive && "hover:bg-muted/40",
+                )}
+                title={h.text ?? ""}
+              >
+                {h.text}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
   );
 }
 
 export function StorySubView({ jobId }: StorySubViewProps) {
   return (
-    <div className="flex flex-col gap-4 p-4 h-full overflow-y-auto">
-      <div className="max-w-3xl mx-auto w-full flex flex-col gap-4">
-        <TrailStoryFallback jobId={jobId} />
-      </div>
+    <div className="h-full overflow-hidden">
+      <TrailStoryFallback jobId={jobId} />
     </div>
   );
 }

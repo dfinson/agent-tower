@@ -32,8 +32,6 @@ function renderInlineCode(text: string): React.ReactNode[] {
   });
 }
 
-type Verbosity = "summary" | "standard" | "detailed";
-
 const BEAT_CONFIG: Record<string, { icon: typeof Lightbulb; color: string; border: string; label: string }> = {
   decide: { icon: GitBranch, color: "text-blue-400", border: "border-blue-400/40", label: "Decision" },
   backtrack: { icon: RotateCcw, color: "text-amber-400", border: "border-amber-400/40", label: "Course Correction" },
@@ -75,13 +73,6 @@ function findFileIdx(diffs: DiffFileModel[], file: string): number {
   return diffs.findIndex((d) => d.path.split("/").pop() === basename);
 }
 
-/** Smart default verbosity based on file count. */
-function defaultVerbosity(fileCount: number): Verbosity {
-  if (fileCount <= 3) return "detailed";
-  if (fileCount >= 10) return "summary";
-  return "standard";
-}
-
 // ---------------------------------------------------------------------------
 // Banner
 // ---------------------------------------------------------------------------
@@ -90,66 +81,34 @@ export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
   const setStory = useStore((s) => s.setStory);
   const [open, setOpen] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
-  const [verbosity, setVerbosity] = useState<Verbosity>(() => defaultVerbosity(diffs.length));
+  const [loading, setLoading] = useState(false);
 
-  // Per-verbosity cached stories from store
-  const cachedSummary = useStore(selectJobStory(jobId, "summary"));
-  const cachedStandard = useStore(selectJobStory(jobId, "standard"));
-  const cachedDetailed = useStore(selectJobStory(jobId, "detailed"));
+  const story = useStore(selectJobStory(jobId));
 
-  const storyForVerbosity = (v: Verbosity) => {
-    if (v === "summary") return cachedSummary;
-    if (v === "detailed") return cachedDetailed;
-    return cachedStandard;
-  };
-
-  const story = storyForVerbosity(verbosity);
-
-  // Track which levels are being fetched
-  const [fetching, setFetching] = useState<Record<Verbosity, boolean>>({
-    summary: false, standard: false, detailed: false,
-  });
-
-  const fetchLevel = useCallback(
-    async (v: Verbosity, regen = false) => {
-      setFetching((prev) => ({ ...prev, [v]: true }));
+  const fetchStory = useCallback(
+    async (regen = false) => {
+      setLoading(true);
       try {
-        const data = await fetchJobStory(jobId, regen, v);
+        const data = await fetchJobStory(jobId, regen);
         if (data.blocks && data.blocks.length > 0) {
           setStory(jobId, data);
         }
       } catch {
         // Silently ignore background fetch failures
       } finally {
-        setFetching((prev) => ({ ...prev, [v]: false }));
+        setLoading(false);
       }
     },
     [jobId, setStory],
   );
 
-  // Eagerly fetch all verbosity levels when banner is opened
+  // Fetch story when banner is opened
   useEffect(() => {
     if (!open) return;
-    const levels: Verbosity[] = ["summary", "standard", "detailed"];
-    for (const v of levels) {
-      if (!storyForVerbosity(v)) {
-        fetchLevel(v);
-      }
+    if (!story) {
+      fetchStory();
     }
   }, [open, jobId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleVerbosityChange = useCallback(
-    (v: Verbosity) => {
-      setVerbosity(v);
-      const cached = v === "summary" ? cachedSummary : v === "detailed" ? cachedDetailed : cachedStandard;
-      if (!cached) {
-        fetchLevel(v);
-      }
-    },
-    [fetchLevel, cachedSummary, cachedStandard, cachedDetailed],
-  );
-
-  const loading = fetching[verbosity] && !story;
 
   const hasStory = story && story.blocks.length > 0;
 
@@ -191,7 +150,7 @@ export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
           )}
 
           {!hasStory && !loading && (
-            <p className="text-xs text-muted-foreground py-1">Story not available for this verbosity level. Try regenerating.</p>
+            <p className="text-xs text-muted-foreground py-1">No story available yet. Try regenerating.</p>
           )}
 
           {hasStory && (
@@ -235,32 +194,14 @@ export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
                   return null;
                 })}
               </div>
-              <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border/30">
-                {/* Verbosity toggle */}
-                <div className="flex items-center gap-0.5 bg-muted/30 rounded p-0.5">
-                  {(["summary", "standard", "detailed"] as const).map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); handleVerbosityChange(v); }}
-                      className={cn(
-                        "px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors",
-                        verbosity === v
-                          ? "bg-primary/20 text-primary"
-                          : "text-muted-foreground/50 hover:text-muted-foreground",
-                      )}
-                    >
-                      {v === "summary" ? "Brief" : v === "standard" ? "Standard" : "Detailed"}
-                    </button>
-                  ))}
-                </div>
+              <div className="flex items-center justify-end mt-2 pt-1.5 border-t border-border/30">
                 <button
                   type="button"
                   disabled={regenerating}
                   onClick={(e) => {
                     e.stopPropagation();
                     setRegenerating(true);
-                    fetchLevel(verbosity, true).finally(() => setRegenerating(false));
+                    fetchStory(true).finally(() => setRegenerating(false));
                   }}
                   className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
                 >
