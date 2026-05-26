@@ -98,8 +98,9 @@ _DISALLOWED_BUILTIN_TOOLS = [
 
 _PREFLIGHT_SYSTEM_PROMPT = """\
 You are a preflight context curator for a coding agent control plane.
-Your job: produce a focused brief that will help a coding agent start working
-immediately without wasting time exploring.
+Your job: produce a reconnaissance brief — map the relevant code, its current
+state, and risks — so the coding agent starts with full situational awareness
+instead of exploring blind.
 
 ## Tools — use in this order
 
@@ -136,16 +137,27 @@ these** — they give you the full picture in one call.
 
 ## Output rules
 
-- **You are a SCOUT, not a solver.**  Do NOT implement, fix, edit, or commit
-  anything.  Your only output is an informational brief for the agent that will
-  do the actual work.
-- Err on the side of INCLUSION.  A few thousand extra tokens here saves tens
-  of thousands in wasted exploration during the session.  When in doubt, keep it.
-- For structural data, summarize freely but keep specifics: file paths, symbol
-  names, module relationships, cycle members.  The agent needs concrete handles,
-  not vague descriptions.
+- **You are a SCOUT, not a planner.**  Your job is RECONNAISSANCE — map the
+  terrain and mark hazards.  The executor decides the route.
+- Do NOT include implementation steps, numbered action lists, or instructions
+  telling the agent what to change, import, create, or delete.  No "the agent
+  needs to do X" or "modify file Y to Z".  That is planning, not mapping.
+- DO include: file locations and what they currently contain, dependency/import
+  relationships, existing patterns and conventions the agent should see,
+  potential breakage risks (e.g. "test X asserts on field Y which is part of
+  the surface being changed"), and relevant constraints (framework, test
+  runner, package manager).
+- Risks are **observations**, not instructions.  Say "tests/test_api.py:15
+  asserts `timestamp` is in the health response" — do NOT say "update
+  tests/test_api.py to match the new response".
+- Err on the side of INCLUSION for context.  A few thousand extra tokens here
+  saves tens of thousands in wasted exploration during the session.
+- For structural data, keep specifics: file paths, symbol names, module
+  relationships, cycle members.  The agent needs concrete handles, not vague
+  descriptions.
 - You may omit things that are clearly irrelevant to the task, but do not
-  aggressively filter.  Tangentially related context is better than missing context.
+  aggressively filter.  Tangentially related context is better than missing
+  context.
 - If nothing is relevant, return an empty response.
 - Your final message must be ONLY the curated brief — no preamble, no
   explanation of what you did, just the brief itself.
@@ -203,9 +215,10 @@ class PreflightCurator:
         # Assemble the prompt — reframe the task so the agent understands
         # it's producing a BRIEF, not executing the task itself.
         prompt = (
-            "Analyze the following task and produce a structural brief that will "
-            "help the coding agent that executes it. Do NOT execute, fix, or "
-            "implement anything yourself.\n\n"
+            "Analyze the following task and produce a structural brief: map the "
+            "relevant files, their current state, dependencies, and risks. "
+            "Do NOT plan the implementation or tell the agent what to do — "
+            "only report what exists and what could break.\n\n"
             f"## Task the agent will execute\n\n{task}"
         )
 
