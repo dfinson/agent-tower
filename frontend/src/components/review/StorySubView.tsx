@@ -258,16 +258,9 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden min-w-0 h-full flex flex-col">
-      <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-border/30 shrink-0">
-        <BookOpen size={14} className="text-muted-foreground" />
-        <h3 className="text-sm font-semibold">Code Review Story</h3>
-      </div>
-      <div className="flex-1 min-h-0 flex">
-        {/* TOC sidebar */}
-        <StoryNavSidebar blocks={story.blocks} scrollRef={scrollRef} />
-        {/* Story content */}
-        <div ref={scrollRef} className="flex-1 min-w-0 overflow-y-auto p-4">
-          <div className="max-w-prose mx-auto">
+      <StoryProgressBar blocks={story.blocks} scrollRef={scrollRef} />
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+        <div className="max-w-3xl mx-auto">
           <StoryTOC blocks={story.blocks} />
           <div className="text-sm text-foreground/80 leading-relaxed flex flex-col gap-3 min-w-0 break-words">
             {story.blocks.map((block: StoryBlock, i: number) => {
@@ -306,15 +299,14 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
             })}
           </div>
           {controls}
-          </div>
         </div>
       </div>
     </div>
   );
 }
 
-/** TOC sidebar — activity timeline from headings. */
-function StoryNavSidebar({
+/** Compact progress bar — shows sections as clickable segments along the top. */
+function StoryProgressBar({
   blocks,
   scrollRef,
 }: {
@@ -323,18 +315,16 @@ function StoryNavSidebar({
 }) {
   const headings = blocks
     .map((b, i) => ({ ...b, idx: i }))
-    .filter((b) => b.type === "heading" && b.text);
+    .filter((b) => b.type === "heading" && b.text && (b.level ?? 2) <= 2);
 
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
 
-  // Track which heading is in view via IntersectionObserver
   useEffect(() => {
     const container = scrollRef.current;
     if (!container || headings.length === 0) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        // Pick the first visible heading
         for (const entry of entries) {
           if (entry.isIntersecting) {
             const id = entry.target.getAttribute("id");
@@ -365,33 +355,29 @@ function StoryNavSidebar({
   };
 
   return (
-    <nav className="w-48 shrink-0 border-r border-border/30 overflow-y-auto py-3 px-2 hidden lg:block">
-      <ul className="flex flex-col gap-0.5">
-        {headings.map((h) => {
-          const level = h.level ?? 2;
-          const isActive = activeIdx === h.idx;
-          return (
-            <li key={h.idx}>
-              <button
-                type="button"
-                onClick={() => scrollTo(h.idx)}
-                className={cn(
-                  "text-left w-full text-[11px] leading-tight rounded px-2 py-1 truncate transition-colors",
-                  level <= 2
-                    ? "font-medium text-foreground/70"
-                    : "pl-4 text-muted-foreground/70",
-                  isActive && "bg-primary/10 text-primary font-semibold",
-                  !isActive && "hover:bg-muted/40",
-                )}
-                title={h.text ?? ""}
-              >
-                {h.text}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+    <div className="shrink-0 border-b border-border/30 px-4 py-2 flex items-center gap-1 overflow-x-auto">
+      <BookOpen size={12} className="text-muted-foreground shrink-0 mr-1" />
+      {headings.map((h, i) => {
+        const isActive = activeIdx === h.idx;
+        return (
+          <React.Fragment key={h.idx}>
+            {i > 0 && <span className="text-border/50 text-[10px]">›</span>}
+            <button
+              type="button"
+              onClick={() => scrollTo(h.idx)}
+              className={cn(
+                "text-[11px] leading-tight rounded px-1.5 py-0.5 whitespace-nowrap transition-colors",
+                isActive
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "text-muted-foreground/70 hover:text-foreground/80 hover:bg-muted/40",
+              )}
+            >
+              {h.text}
+            </button>
+          </React.Fragment>
+        );
+      })}
+    </div>
   );
 }
 
