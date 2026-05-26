@@ -212,15 +212,18 @@ class CodeReconService:
         except Exception:
             log.debug("coderecon_review.refresh_stats_failed", repo=repo, worktree=wt_name, exc_info=True)
 
-    async def register_worktree(self, repo: str, worktree_path: str | Path) -> None:
-        """Register a worktree with an already-indexed repo and index it."""
+    async def register_worktree(self, repo: str, worktree_path: str | Path) -> bool:
+        """Register a worktree with an already-indexed repo and index it.
+
+        Returns True if registration succeeded, False otherwise.
+        """
         kit = self._kits.get(repo)
         if kit is None:
-            return
+            return False
         wt_name = self._resolve_worktree_name(repo, str(worktree_path))
         if wt_name == "main":
             # Worktree is the repo root itself — already indexed as "main".
-            return
+            return True
         loop = asyncio.get_running_loop()
         try:
             wt = str(Path(worktree_path).resolve())
@@ -230,8 +233,10 @@ class CodeReconService:
             )
             await self._refresh_stats(repo, worktree=wt_name)
             log.info("coderecon_review.worktree_registered", repo=repo, worktree=wt)
+            return True
         except Exception:
-            log.debug("coderecon_review.worktree_register_failed", repo=repo, exc_info=True)
+            log.warning("coderecon_review.worktree_register_failed", repo=repo, worktree=str(worktree_path), exc_info=True)
+            return False
 
     # ── Structural Analysis ──
 

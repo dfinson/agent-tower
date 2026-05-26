@@ -637,6 +637,7 @@ class RuntimeService:
             await self._emit_setup_progress(job.id, "exploring_codebase")
             # Ensure the repo is indexed before preflight — the curator agent
             # calls coderecon tools which require a populated index.
+            preflight_worktree_path = job.worktree_path
             if self._coderecon_service is not None and self._coderecon_service.available:
                 try:
                     repo_name = await self._coderecon_service.ensure_repo_indexed(job.repo)
@@ -644,10 +645,15 @@ class RuntimeService:
                     # after a fresh index (e.g. server restart). Without this,
                     # preflight scout fails with "Worktree not found in index".
                     if job.worktree_path and job.worktree_path != job.repo:
-                        await self._coderecon_service.register_worktree(repo_name, job.worktree_path)
+                        registered = await self._coderecon_service.register_worktree(repo_name, job.worktree_path)
+                        if not registered:
+                            # Worktree doesn't exist or failed to index — fall
+                            # back to repo root so preflight uses "main".
+                            log.info("preflight_worktree_fallback", job_id=job.id, worktree=job.worktree_path)
+                            preflight_worktree_path = job.repo
                 except Exception:
                     log.debug("preflight_index_failed", job_id=job.id, exc_info=True)
-            session_config = await self._run_preflight_curator(job, session_config)
+            session_config = await self._run_preflight_curator(job, session_config, worktree_override=preflight_worktree_path)
 
             # If the job was canceled during preflight, don't start the main session.
             async with self._session_factory() as session:
@@ -2965,6 +2971,7 @@ class RuntimeService:
         self,
         job: Job,
         session_config: SessionConfig,
+        worktree_override: str | None = None,
     ) -> SessionConfig:
         """Run the preflight curator agent to produce curated context.
 
@@ -2976,7 +2983,7 @@ class RuntimeService:
         from backend.models.secondary_session import EntryKind, SecondarySessionKind, SecondarySessionStatus
         from backend.persistence.secondary_session_repo import SecondarySessionRepository
 
-        worktree_path = job.worktree_path or job.repo
+        worktree_path = worktree_override or job.worktree_path or job.repo
 
         if self._coderecon_service is None or not self._coderecon_service.available:
             return session_config

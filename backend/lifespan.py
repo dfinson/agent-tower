@@ -510,11 +510,9 @@ async def _wire_core_services(
 
     sidecar_dispatcher.set_agent_message_handler(_agent_message_handler)
 
-    # Recover orphaned jobs from a previous crash (background — don't block startup)
-    asyncio.create_task(
-        runtime_service.recover_on_startup(),
-        name="recover-on-startup",
-    )
+    # NOTE: Orphan recovery is deferred until the trail service is subscribed
+    # to the event bus.  This prevents a race where SessionResumed events
+    # would be published before the trail node builder is listening.
 
     return _CoreServices(
         approval_service=approval_service,
@@ -807,6 +805,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     event_bus.subscribe(trail_service.handle_event)
     services.runtime_service.set_trail_service(trail_service)
     trail_task = asyncio.create_task(trail_service.drain_loop(), name="trail-enrichment-drain")
+
+    # Recover orphaned jobs from a previous crash (background — don't block startup).
+    # Must run AFTER the trail service is subscribed so it receives SessionResumed events.
+    asyncio.create_task(
+        services.runtime_service.recover_on_startup(),
+        name="recover-on-startup",
+    )
 
     # --- Sidecar context providers ---
     # Each provider is a closure over the owning service, matching the

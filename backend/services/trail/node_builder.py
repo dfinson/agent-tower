@@ -113,6 +113,10 @@ class TrailNodeBuilder:
         self._activity_tracker = activity_tracker
         # Background tasks for non-blocking title generation / plan classification
         self._background_tasks: set[asyncio.Task[None]] = set()
+        # Per-job locks to serialize event processing within a job.
+        # Prevents race between _on_session_resumed (async state load) and
+        # concurrent _on_step_completed calls that would early-return on missing state.
+        self._job_locks: dict[str, asyncio.Lock] = {}
 
     async def flush_background_tasks(self) -> None:
         """Await all pending background enrichment tasks.  Used by tests and shutdown."""
@@ -121,32 +125,45 @@ class TrailNodeBuilder:
 
     async def handle_event(self, event: DomainEvent) -> None:
         """Domain event subscriber — builds deterministic trail nodes."""
-        try:
-            if event.kind == DomainEventKind.job_state_changed:
-                new_state = (event.payload or {}).get("new_state")
-                if new_state == "running" and event.job_id not in self._job_state:
-                    await self._on_job_started(event)
-            elif event.kind == DomainEventKind.session_resumed:
-                await self._on_session_resumed(event)
-            elif event.kind == DomainEventKind.step_completed:
-                await self._on_step_completed(event)
-            elif event.kind == DomainEventKind.step_started:
-                self._on_step_started(event)
-            elif event.kind == DomainEventKind.execution_phase_changed:
-                await self._on_phase_changed(event)
-            elif event.kind == DomainEventKind.transcript_updated:
-                await self._on_transcript_updated(event)
-            elif event.kind == DomainEventKind.approval_requested:
-                await self._on_approval_requested(event)
-            elif event.kind in (
-                DomainEventKind.job_completed,
-                DomainEventKind.job_failed,
-                DomainEventKind.job_canceled,
-                DomainEventKind.job_review,
-            ):
-                await self._on_job_terminal(event)
-        except Exception:  # Safety-net: protect event loop from unexpected failures
-            log.warning("trail_event_error", event_kind=event.kind, job_id=event.job_id, exc_info=True)
+        job_id = event.job_id
+        if not job_id:
+            return
+
+        # Serialize event processing per job to prevent races between
+        # _on_session_resumed (which does async state loading) and concurrent
+        # events that would early-return on missing state.
+        lock = self._job_locks.get(job_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._job_locks[job_id] = lock
+
+        async with lock:
+            try:
+                if event.kind == DomainEventKind.job_state_changed:
+                    new_state = (event.payload or {}).get("new_state")
+                    if new_state == "running" and event.job_id not in self._job_state:
+                        await self._on_job_started(event)
+                elif event.kind == DomainEventKind.session_resumed:
+                    await self._on_session_resumed(event)
+                elif event.kind == DomainEventKind.step_completed:
+                    await self._on_step_completed(event)
+                elif event.kind == DomainEventKind.step_started:
+                    self._on_step_started(event)
+                elif event.kind == DomainEventKind.execution_phase_changed:
+                    await self._on_phase_changed(event)
+                elif event.kind == DomainEventKind.transcript_updated:
+                    await self._on_transcript_updated(event)
+                elif event.kind == DomainEventKind.approval_requested:
+                    await self._on_approval_requested(event)
+                elif event.kind in (
+                    DomainEventKind.job_completed,
+                    DomainEventKind.job_failed,
+                    DomainEventKind.job_canceled,
+                    DomainEventKind.job_review,
+                ):
+                    await self._on_job_terminal(event)
+            except Exception:  # Safety-net: protect event loop from unexpected failures
+                log.warning("trail_event_error", event_kind=event.kind, job_id=event.job_id, exc_info=True)
 
     async def _on_session_resumed(self, event: DomainEvent) -> None:
         """Rehydrate trail state when a job session resumes.
@@ -846,6 +863,7 @@ class TrailNodeBuilder:
         await self._save_snapshot(job_id, state)
 
         del self._job_state[job_id]
+        self._job_locks.pop(job_id, None)
         log.debug("trail_job_terminal", job_id=job_id, status=status)
 
     # ------------------------------------------------------------------
