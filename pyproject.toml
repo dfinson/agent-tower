@@ -36,8 +36,8 @@ dependencies = [
     "dishka[fastapi]>=1.9.1,<2",
     "pyjwt[crypto]>=2.12.0,<3",
     "cryptography>=46.0,<47",
-    # Structural analysis (lightweight review-only subset)
-    "coderecon-review @ git+https://github.com/dfinson/coderecon.git#subdirectory=packages/coderecon-review",
+    # Structural analysis (full SDK — SPLADE/CE disabled by default via config)
+    "coderecon @ git+https://github.com/dfinson/coderecon.git",
     "cloudflare>=5.1.0",
     "sh-guard>=0.1.10",
 ]
@@ -164,6 +164,3 @@ dev = [
     "pip-audit>=2.10.0",
     "pytest-timeout>=2.4.0",
 ]
-
-[tool.uv.sources]
-coderecon = { path = "vendor/coderecon-1.0.1.dev161+ge32844acf-py3-none-any.whl" }

@@ -1,4 +1,4 @@
-"""CodeRecon Review integration — lightweight structural analysis.
+"""CodeRecon integration — structural analysis.
 
 Wraps ``coderecon.review.ReviewKit`` for structural diff, cycle detection,
 community detection, and health scoring.  Runs in-process (no daemon, no
@@ -6,8 +6,10 @@ network) and is always enabled.  All heavy work (tree-sitter parsing,
 graph building) happens in a thread pool so the async event loop is never
 blocked.
 
-The coderecon-review package is vendored and always required.  If the
-import fails, ``start()`` raises immediately — silent degradation is a bug.
+The coderecon package is always required.  If the import fails,
+``start()`` raises immediately — silent degradation is a bug.
+SPLADE and cross-encoder features are disabled by default and toggled
+via CodePlane settings (env vars CODERECON__FEATURES__SPLADE / CROSS_ENCODER).
 """
 
 from __future__ import annotations
@@ -40,7 +42,7 @@ log = structlog.get_logger(__name__)
 
 
 class CodeReconService:
-    """In-process structural analysis via coderecon-review's ReviewKit.
+    """In-process structural analysis via coderecon's ReviewKit.
 
     Always-on, no config gating.  Indexes repos in the background on
     startup.  Thread-offloads all blocking operations.
@@ -84,7 +86,7 @@ class CodeReconService:
     # ── Lifecycle ──
 
     async def start(self) -> None:
-        """Import coderecon-review.  Raises on failure — the package is required."""
+        """Import coderecon.  Raises on failure — the package is required."""
         from coderecon.review import ReviewKit
 
         self._kit_class = ReviewKit
@@ -656,10 +658,10 @@ class CodeReconService:
 
 
 class CodeReconUnavailableError(Exception):
-    """Raised when the coderecon-review package is not installed/available."""
+    """Raised when the coderecon package is not installed/available."""
 
     def __init__(self) -> None:
-        super().__init__("coderecon-review is not available")
+        super().__init__("coderecon is not available")
 
 
 class RepoNotIndexedError(Exception):

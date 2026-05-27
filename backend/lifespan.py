@@ -859,6 +859,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     services.sidecar_dispatcher.register_context("worktree_path", _worktree_path_provider)
 
     # --- CodeRecon start (always-on, degrades gracefully if package missing) ---
+    # Propagate feature toggles as env vars before the SDK loads its config.
+    # Direct assignment (not setdefault) so CodePlane config is authoritative.
+    os.environ["CODERECON__FEATURES__SPLADE"] = str(config.coderecon.splade).lower()
+    os.environ["CODERECON__FEATURES__CROSS_ENCODER"] = str(config.coderecon.cross_encoder).lower()
     await coderecon_service.start()
 
     # Index all registered repos in the background (non-blocking)

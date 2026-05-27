@@ -66,6 +66,8 @@ def _config_to_response(config: CPLConfig) -> SettingsResponse:
         verify_prompt=config.verification.verify_prompt or DEFAULT_VERIFY_PROMPT,
         self_review_prompt=config.verification.self_review_prompt or DEFAULT_SELF_REVIEW_PROMPT,
         cli_sidecars=config.runtime.cli_sidecars,
+        coderecon_splade=config.coderecon.splade,
+        coderecon_cross_encoder=config.coderecon.cross_encoder,
     )
 
 
@@ -100,6 +102,8 @@ def update_settings(
         "verify_prompt": ("verification", "verify_prompt"),
         "self_review_prompt": ("verification", "self_review_prompt"),
         "cli_sidecars": ("runtime", "cli_sidecars"),
+        "coderecon_splade": ("coderecon", "splade"),
+        "coderecon_cross_encoder": ("coderecon", "cross_encoder"),
     }
 
     for field, (section, attr) in _FIELD_MAP.items():
@@ -107,6 +111,12 @@ def update_settings(
             setattr(getattr(config, section), attr, updates[field])
 
     save_config(config)
+
+    # Keep env vars in sync so new coderecon ReviewKit instances use fresh values.
+    if "coderecon_splade" in updates or "coderecon_cross_encoder" in updates:
+        os.environ["CODERECON__FEATURES__SPLADE"] = str(config.coderecon.splade).lower()
+        os.environ["CODERECON__FEATURES__CROSS_ENCODER"] = str(config.coderecon.cross_encoder).lower()
+
     return _config_to_response(config)
 
 

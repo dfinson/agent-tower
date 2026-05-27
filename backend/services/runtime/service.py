@@ -795,7 +795,7 @@ class RuntimeService:
         if worktree_path and self._step_tracker is not None:
             self._step_tracker.register_worktree(job_id, worktree_path)
 
-        # Register worktree with coderecon-review for structural indexing
+        # Register worktree with coderecon for structural indexing
         if worktree_path and self._coderecon_service is not None and self._coderecon_service.available:
             try:
                 repo_name = await self._coderecon_service.ensure_repo_indexed(job.repo)

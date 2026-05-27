@@ -132,6 +132,8 @@ class UpdateSettingsRequest(CamelModel):
     verify_prompt: str | None = Field(None, max_length=5000)
     self_review_prompt: str | None = Field(None, max_length=5000)
     cli_sidecars: list[str] | None = Field(None, description="Sidecar names for CLI sessions; null leaves current value unchanged")
+    coderecon_splade: bool | None = None
+    coderecon_cross_encoder: bool | None = None
 
 
 class SettingsResponse(CamelModel):
@@ -148,6 +150,8 @@ class SettingsResponse(CamelModel):
     verify_prompt: str
     self_review_prompt: str
     cli_sidecars: list[str] | None
+    coderecon_splade: bool
+    coderecon_cross_encoder: bool
 
 
 class RegisterRepoRequest(CamelModel):
