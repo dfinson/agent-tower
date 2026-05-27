@@ -73,6 +73,12 @@ class FakeBlastRadiusResult:
 
 
 @dataclass
+class FakeCoveringTestsResult:
+    tests_by_def: dict[str, list[FakeTestCandidate]] = field(default_factory=dict)
+    file_path: str = ""
+
+
+@dataclass
 class FakeStructuralChange:
     path: str = "src/foo.py"
     kind: str = "function"
@@ -227,6 +233,27 @@ class TestGetJobCoveringTests:
 
         assert result.available is True
         assert result.symbols == {}
+
+    @pytest.mark.anyio
+    async def test_supports_typed_covering_tests_result(self) -> None:
+        job = _make_job()
+        svc = _make_svc(job)
+        coderecon = _make_coderecon()
+        coderecon.covering_tests = AsyncMock(return_value=FakeCoveringTestsResult(
+            tests_by_def={"module.do_stuff": [FakeTestCandidate()]},
+            file_path="src/foo.py",
+        ))
+
+        result = await get_job_covering_tests(
+            job_id="job-1",
+            svc=svc,
+            coderecon=coderecon,
+            file_path="src/foo.py",
+        )
+
+        assert result.available is True
+        assert "module.do_stuff" in result.symbols
+        assert result.symbols["module.do_stuff"][0].test_id == "tests/test_foo.py::test_bar"
 
 
 # -- Blast Radius Endpoint -----------------------------------------------------

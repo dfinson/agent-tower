@@ -1762,8 +1762,9 @@ async def get_job_covering_tests(
         log.warning("covering_tests_failed", job_id=job_id, file_path=file_path, exc_info=True)
         return CoveringTestsResponse(job_id=job_id, file_path=file_path, available=False)
 
+    tests_by_def = getattr(result, "tests_by_def", result)
     symbols: dict[str, list[CoveringTestCandidate]] = {}
-    for symbol, candidates in result.items():
+    for symbol, candidates in tests_by_def.items():
         symbols[symbol] = [
             CoveringTestCandidate(
                 test_id=c.test_id,

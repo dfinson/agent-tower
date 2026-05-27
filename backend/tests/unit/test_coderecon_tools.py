@@ -85,7 +85,7 @@ class TestItemToDict:
 
     def test_dict_passthrough(self):
         d = {"a": 1}
-        assert _item_to_dict(d) is d
+        assert _item_to_dict(d) == d
 
     def test_object_with_dict(self):
         @dataclass
@@ -94,6 +94,19 @@ class TestItemToDict:
 
         result = _item_to_dict(Foo(bar=7))
         assert result == {"bar": 7}
+
+    def test_nested_dataclass_serializes_recursively(self):
+        @dataclass
+        class Inner:
+            value: int
+
+        @dataclass
+        class Outer:
+            name: str
+            items: list[Inner]
+
+        result = _item_to_dict(Outer(name="x", items=[Inner(value=1)]))
+        assert result == {"name": "x", "items": [{"value": 1}]}
 
     def test_fallback_str(self):
         result = _item_to_dict(frozenset([1, 2]))

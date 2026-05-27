@@ -10,7 +10,7 @@ the tools natively.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -180,23 +180,24 @@ def _serialize_result(obj: Any) -> str:
     """Best-effort JSON serialization of SDK result objects."""
     if isinstance(obj, str):
         return obj
-    if isinstance(obj, dict):
-        return json.dumps(obj, default=str, indent=2)
-    if isinstance(obj, list):
-        return json.dumps([_item_to_dict(x) for x in obj], default=str, indent=2)
-    # SDK result objects typically have __dict__ or dataclass fields
-    if hasattr(obj, "__dict__"):
-        return json.dumps(obj.__dict__, default=str, indent=2)
-    return str(obj)
+    return json.dumps(_item_to_dict(obj), default=str, indent=2)
 
 
 def _item_to_dict(obj: Any) -> Any:
     if isinstance(obj, (str, int, float, bool, type(None))):
         return obj
     if isinstance(obj, dict):
-        return obj
+        return {str(k): _item_to_dict(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return [_item_to_dict(v) for v in obj]
+    if is_dataclass(obj):
+        return _item_to_dict(asdict(obj))
     if hasattr(obj, "__dict__"):
-        return obj.__dict__
+        return {
+            str(k): _item_to_dict(v)
+            for k, v in vars(obj).items()
+            if not k.startswith("_")
+        }
     return str(obj)
 
 
