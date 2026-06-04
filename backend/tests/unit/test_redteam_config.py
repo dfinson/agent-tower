@@ -254,7 +254,7 @@ class TestYAMLInjection:
 
     def test_unicode_values(self, tmp_path: Path) -> None:
         f = tmp_path / "config.yaml"
-        f.write_text("server:\n  host: '日本語ホスト'\n")
+        f.write_text('server:\n  host: "\\u65e5\\u672c\\u8a9e\\u30db\\u30b9\\u30c8"\n')
         config = load_config(f)
         assert config.server.host == "日本語ホスト"
 

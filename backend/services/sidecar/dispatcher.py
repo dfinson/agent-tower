@@ -1137,11 +1137,11 @@ class SidecarDispatcher:
             timeout_s=defn.timeout_s,
         )
         try:
-            result = await agentic.run(prompt, timeout=defn.timeout_s or 120.0)
+            run_result = await agentic.run(prompt, timeout=defn.timeout_s or 120.0)
         except Exception:
             log.warning("dispatcher_agentic_error", job_id=job_id, sidecar=defn.name, exc_info=True)
             return None
-        return result
+        return run_result
 
     def _parse(self, raw: str, parser: OutputParser) -> dict[str, Any] | str | list[Any] | None:
         """Parse raw LLM response according to the output parser spec."""

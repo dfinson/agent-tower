@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 import structlog
 
 from backend.models.domain import (
+    ErrorPayload,
     SessionConfig,
     SessionEvent,
     SessionEventKind,
@@ -318,10 +319,10 @@ class CopilotAdapter(BaseAgentAdapter):
                 success = bool(tc.success) if tc.success is not None else True
                 result_text = ""
                 if tc.result is not None:
-                    content = getattr(tc.result, "content", None)
-                    if content:
-                        result_text = self._extract_result_text(content)
-                    elif content is None:
+                    result_content: object | None = getattr(tc.result, "content", None)
+                    if result_content:
+                        result_text = self._extract_result_text(result_content)
+                    elif result_content is None:
                         # No content attribute or it's None — leave empty
                         pass
                     else:
@@ -429,7 +430,7 @@ class CopilotAdapter(BaseAgentAdapter):
                 queue.put_nowait(None)
         elif kind_str == "session.error":
             payload = data.to_dict() if data and hasattr(data, "to_dict") else {}
-            await self._pipeline.on_error(job_id, payload)
+            await self._pipeline.on_error(job_id, cast("ErrorPayload", payload))
             with contextlib.suppress(asyncio.QueueFull):
                 queue.put_nowait(None)
 
@@ -673,9 +674,9 @@ class CopilotAdapter(BaseAgentAdapter):
             import tempfile
 
             # Build system message config if caller provided one
-            sys_msg_config = None
+            sys_msg_config: SystemMessageAppendConfig | None = None
             if system_message:
-                sys_msg_config: SystemMessageAppendConfig = {
+                sys_msg_config = {
                     "mode": "append",
                     "content": system_message,
                 }

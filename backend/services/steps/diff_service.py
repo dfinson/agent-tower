@@ -251,10 +251,10 @@ class StepDiffService:
             if not spans:
                 all_spans = await self._spans_repo.motivated_spans_for_job(job_id=job_id)
                 changed_paths = {f.path for f in changed_files}
-                spans = [s for s in all_spans if _rel(s.get("tool_target", "")) in changed_paths]
+                spans = [s for s in all_spans if _rel(s.get("tool_target") or "") in changed_paths]
 
             for span in spans:
-                target = _rel(span.get("tool_target", ""))
+                target = _rel(span.get("tool_target") or "")
                 summary = span.get("motivation_summary")
                 if not target or not summary:
                     continue

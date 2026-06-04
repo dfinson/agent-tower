@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -36,7 +37,9 @@ from backend.models.domain import (
 from backend.services.events.event_enricher import build_tool_call_payload, build_tool_running_payload
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Coroutine
+    from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 log = structlog.get_logger()
 
@@ -896,7 +899,8 @@ class EventPipeline:
         """Set the SQLAlchemy session factory for DB writes."""
         self._session_factory = factory
 
-    async def _get_db_session(self):  # noqa: ANN201
+    @asynccontextmanager
+    async def _get_db_session(self) -> AsyncIterator[AsyncSession]:
         """Yield a scoped DB session with commit and error handling."""
         from backend.persistence.database import serialized_write
 
@@ -904,8 +908,3 @@ class EventPipeline:
             raise RuntimeError("EventPipeline: no session_factory configured")
         async with serialized_write(self._session_factory) as session:
             yield session
-
-    # Make _get_db_session a proper async context manager
-    from contextlib import asynccontextmanager as _acm  # noqa: E301
-
-    _get_db_session = _acm(_get_db_session)  # type: ignore[assignment]

@@ -10,7 +10,7 @@ from __future__ import annotations
 import contextlib
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -36,7 +36,15 @@ from backend.models.api_schemas import (
 from backend.services.tools.tool_classifier import classify_tool, classify_tool_activity, refine_shell_category
 
 if TYPE_CHECKING:
-    from backend.models.domain import TelemetrySpanRow
+    from backend.models.domain import (
+        CostAttributionRow,
+        FileAccessRow,
+        FileAccessStatsRow,
+        Job,
+        LatencyAttributionRow,
+        TelemetrySpanRow,
+        TelemetrySummaryRow,
+    )
     from backend.persistence.cost_attribution_repo import CostAttributionRepository
     from backend.persistence.file_access_repo import FileAccessRepository
     from backend.persistence.job_repo import JobRepository
@@ -135,15 +143,7 @@ class TelemetryQueryService:
             return JobTelemetryResponse(job_id=job_id, available=False)
 
         # Fetch remaining data in parallel — these are all independent queries
-        (
-            job_row,
-            spans,
-            attribution_rows,
-            latency_rows,
-            file_stats,
-            top_files,
-            sidecar_rows,
-        ) = await asyncio.gather(
+        gather_results = await asyncio.gather(
             self._job_repo.get(job_id),
             self._spans_repo.list_for_job(job_id),
             self._cost_repo.for_job(job_id),
@@ -152,13 +152,32 @@ class TelemetryQueryService:
             self._file_repo.most_accessed_files(job_id=job_id),
             self._summary_repo.list_sidecars(job_id),
         )
+        (
+            job_row,
+            spans,
+            attribution_rows,
+            latency_rows,
+            file_stats,
+            top_files,
+            sidecar_rows,
+        ) = cast(
+            "tuple[Job | None, list[TelemetrySpanRow],"
+            " list[CostAttributionRow], list[LatencyAttributionRow],"
+            " FileAccessStatsRow, list[FileAccessRow], list[TelemetrySummaryRow]]",
+            gather_results,
+        )
         sdk = job_row.sdk if job_row else ""
 
         # Parse quota JSON if present
-        quota_snapshots_raw = None
-        if summary.get("quota_json"):
+        quota_snapshots_raw: dict[str, dict[str, Any]] | None = None
+        quota_json = summary.get("quota_json")
+        if quota_json:
             with contextlib.suppress(json.JSONDecodeError, TypeError):
-                quota_snapshots_raw = json.loads(summary["quota_json"] or "{}")
+                parsed_quota = json.loads(quota_json)
+                if isinstance(parsed_quota, dict):
+                    quota_snapshots_raw = {
+                        str(resource): snap for resource, snap in parsed_quota.items() if isinstance(snap, dict)
+                    }
 
         # Compute derived fields
         input_tok = summary.get("input_tokens", 0)
@@ -171,7 +190,9 @@ class TelemetryQueryService:
         tool_calls: list[TelemetryToolCall] = []
         llm_calls: list[TelemetryLlmCall] = []
         for span in spans:
-            attrs = span.get("attrs", {})
+            attrs = span.get("attrs")
+            if not isinstance(attrs, dict):
+                attrs = {}
             if span.get("span_type") == "tool":
                 edit_motivations = None
                 if span.get("edit_motivations"):
@@ -305,7 +326,6 @@ class TelemetryQueryService:
                     reset_date=snap.get("reset_date", ""),
                 )
                 for resource, snap in quota_snapshots_raw.items()
-                if isinstance(snap, dict)
             }
 
         return JobTelemetryResponse(
@@ -409,8 +429,6 @@ class TelemetryQueryService:
         """Annotate each turn bucket with intent and concrete actions."""
         import json as _json
         from collections import Counter
-
-        from backend.services.tools.tool_classifier import classify_tool_activity
 
         # Group tool spans by turn
         turns: dict[str, list[TelemetrySpanRow]] = {}

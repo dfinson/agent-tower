@@ -405,12 +405,15 @@ class RuntimeService:
     async def _generate_title_safe(self, context: str) -> str | None:
         """One-shot title generation via sidecar. Returns None on failure."""
         try:
+            sidecar_sessions = self._sidecar_sessions
+            if sidecar_sessions is None:
+                return None
             prompt = (
                 "Given this coding task prompt, generate a concise 3-8 word title. "
                 "Respond with ONLY the title text, no quotes, no punctuation at the end.\n\n"
                 f"Task:\n{context}"
             )
-            title = await self._sidecar_sessions.complete(prompt, timeout=10.0)
+            title = await sidecar_sessions.complete(prompt, timeout=10.0)
             title = str(title).strip().strip('"').strip("'")
             return title if title and len(title) >= 3 else None
         except Exception:
@@ -419,13 +422,16 @@ class RuntimeService:
     async def _generate_description_safe(self, context: str) -> str | None:
         """One-shot description generation via sidecar. Returns None on failure."""
         try:
+            sidecar_sessions = self._sidecar_sessions
+            if sidecar_sessions is None:
+                return None
             prompt = (
                 "Given this coding task prompt, generate a 1-2 sentence description "
                 "of the work being done. Be specific and concise. "
                 "Respond with ONLY the description text.\n\n"
                 f"Task:\n{context}"
             )
-            desc = await self._sidecar_sessions.complete(prompt, timeout=10.0)
+            desc = await sidecar_sessions.complete(prompt, timeout=10.0)
             desc = str(desc).strip()
             return desc if desc and len(desc) >= 10 else None
         except Exception:

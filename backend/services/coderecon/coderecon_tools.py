@@ -190,7 +190,7 @@ def _item_to_dict(obj: Any) -> Any:
         return {str(k): _item_to_dict(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple, set)):
         return [_item_to_dict(v) for v in obj]
-    if is_dataclass(obj):
+    if is_dataclass(obj) and not isinstance(obj, type):
         return _item_to_dict(asdict(obj))
     if hasattr(obj, "__dict__"):
         return {str(k): _item_to_dict(v) for k, v in vars(obj).items() if not k.startswith("_")}

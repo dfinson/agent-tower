@@ -82,7 +82,24 @@ async function setupJobDetailMocks(
 ) {
   await setupBaseMocks(page, [job]);
 
-  await page.route("**/api/jobs/job-1", async (route) => {
+  const jobId = job.id as string;
+
+  await page.route(`**/api/jobs/${jobId}/snapshot*`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job,
+        logs: [],
+        transcript: [],
+        diff: [],
+        approvals: [],
+        timeline: [],
+      }),
+    });
+  });
+
+  await page.route(`**/api/jobs/${jobId}`, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({
       status: 200,
@@ -91,16 +108,16 @@ async function setupJobDetailMocks(
     });
   });
 
-  await page.route("**/api/jobs/job-1/transcript*", async (route) => {
+  await page.route(`**/api/jobs/${jobId}/transcript*`, async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   });
-  await page.route("**/api/jobs/job-1/timeline*", async (route) => {
+  await page.route(`**/api/jobs/${jobId}/timeline*`, async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   });
-  await page.route("**/api/jobs/job-1/diff*", async (route) => {
+  await page.route(`**/api/jobs/${jobId}/diff*`, async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   });
-  await page.route("**/api/jobs/job-1/approvals*", async (route) => {
+  await page.route(`**/api/jobs/${jobId}/approvals*`, async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   });
 }

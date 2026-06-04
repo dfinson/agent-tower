@@ -97,4 +97,5 @@ class StepRepository:
                 .values(status=status, completed_at=completed_at)
             )
             result = await session.execute(stmt)
-            return result.rowcount  # type: ignore[return-value]
+            rowcount = getattr(result, "rowcount", 0)
+            return int(rowcount or 0)

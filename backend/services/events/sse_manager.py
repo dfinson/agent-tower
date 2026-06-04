@@ -317,6 +317,8 @@ def _build_secondary_session_entry(event: DomainEvent) -> str:
 
     p = event.payload
     entry = p.get("entry", {})
+    if not isinstance(entry, dict):
+        entry = {}
     return json.dumps(
         {
             "sessionId": p.get("session_id", ""),

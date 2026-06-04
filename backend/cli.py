@@ -617,13 +617,18 @@ def _kill_process_group(pid: int, sig: int) -> None:
     """Send *sig* to the process group led by *pid*, falling back to the process itself."""
     import os
 
-    try:
-        pgid = os.getpgid(pid)
-        os.killpg(pgid, sig)
-    except (ProcessLookupError, PermissionError):
-        # Process gone or we don't own the group — try the PID directly.
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.kill(pid, sig)
+    getpgid = getattr(os, "getpgid", None)
+    killpg = getattr(os, "killpg", None)
+    if getpgid is not None and killpg is not None:
+        try:
+            pgid = getpgid(pid)
+            killpg(pgid, sig)
+            return
+        except (ProcessLookupError, PermissionError):
+            pass
+    # Process gone or we don't own the group — try the PID directly.
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.kill(pid, sig)
 
 
 def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
@@ -652,9 +657,13 @@ def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
     # children, uvicorn workers) instead of individual PIDs.
     pgids_seen: set[int] = set()
     ordered_pids: list[int] = []
+    getpgid = getattr(os, "getpgid", None)
     for pid in all_pids:
+        if getpgid is None:
+            ordered_pids.append(pid)
+            continue
         try:
-            pgid = os.getpgid(pid)
+            pgid = getpgid(pid)
         except (ProcessLookupError, PermissionError):
             continue
         if pgid not in pgids_seen:
@@ -678,8 +687,9 @@ def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
             break
         if time.monotonic() > deadline:
             click.echo(f"  SIGTERM timed out after {timeout_seconds}s — sending SIGKILL to {remaining}…")
+            sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
             for pid in remaining:
-                _kill_process_group(pid, signal.SIGKILL)
+                _kill_process_group(pid, sigkill)
             time.sleep(1)
             break
         time.sleep(0.5)

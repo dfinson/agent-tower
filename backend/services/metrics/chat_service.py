@@ -396,13 +396,15 @@ def _parse_json(raw: str) -> dict[str, Any] | None:
         lines = [line for line in lines[1:] if not line.strip().startswith("```")]
         text = "\n".join(lines)
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
         start = text.find("{")
         end = text.rfind("}")
         if start >= 0 and end > start:
             try:
-                return json.loads(text[start : end + 1])
+                parsed = json.loads(text[start : end + 1])
+                return parsed if isinstance(parsed, dict) else None
             except json.JSONDecodeError:
                 return None
         return None

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Request
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.responses import StreamingResponse
 
 from backend.models.api_schemas import (
@@ -145,7 +145,7 @@ async def get_shared_snapshot(
     svc: FromDishka[JobService],
     approval_repo: FromDishka[ApprovalRepository],
     diff_service: FromDishka[DiffService],
-    session_factory: FromDishka[async_sessionmaker],
+    session_factory: FromDishka[async_sessionmaker[AsyncSession]],
 ) -> JobSnapshotResponse:
     """Full state hydration via share token — same shape as /jobs/{id}/snapshot."""
     from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full

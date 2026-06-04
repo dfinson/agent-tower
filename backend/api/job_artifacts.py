@@ -579,7 +579,7 @@ async def get_job_snapshot(
     session: FromDishka[AsyncSession],
     diff_service: FromDishka[DiffService],
     approval_repo: FromDishka[ApprovalRepository],
-    session_factory: FromDishka[async_sessionmaker],
+    session_factory: FromDishka[async_sessionmaker[AsyncSession]],
 ) -> JobSnapshotResponse:
     """Full state hydration for a single job.
 

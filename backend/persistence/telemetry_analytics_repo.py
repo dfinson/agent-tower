@@ -227,13 +227,13 @@ class TelemetryAnalyticsRepository(BaseRepository):
             text(f"""
                 SELECT
                     COUNT(*) as total_jobs,
-                    SUM(CASE WHEN j.state = 'running' THEN 1 ELSE 0 END) as running,
-                    SUM(CASE WHEN j.state = 'review' THEN 1 ELSE 0 END) as in_review,
-                    SUM(CASE WHEN j.resolution = 'merged' THEN 1 ELSE 0 END) as merged,
-                    SUM(CASE WHEN j.resolution = 'pr_created' THEN 1 ELSE 0 END) as pr_created,
-                    SUM(CASE WHEN j.resolution = 'discarded' THEN 1 ELSE 0 END) as discarded,
-                    SUM(CASE WHEN j.state = 'failed' THEN 1 ELSE 0 END) as failed,
-                    SUM(CASE WHEN j.state = 'canceled' THEN 1 ELSE 0 END) as cancelled
+                    COALESCE(SUM(CASE WHEN j.state = 'running' THEN 1 ELSE 0 END), 0) as running,
+                    COALESCE(SUM(CASE WHEN j.state = 'review' THEN 1 ELSE 0 END), 0) as in_review,
+                    COALESCE(SUM(CASE WHEN j.resolution = 'merged' THEN 1 ELSE 0 END), 0) as merged,
+                    COALESCE(SUM(CASE WHEN j.resolution = 'pr_created' THEN 1 ELSE 0 END), 0) as pr_created,
+                    COALESCE(SUM(CASE WHEN j.resolution = 'discarded' THEN 1 ELSE 0 END), 0) as discarded,
+                    COALESCE(SUM(CASE WHEN j.state = 'failed' THEN 1 ELSE 0 END), 0) as failed,
+                    COALESCE(SUM(CASE WHEN j.state = 'canceled' THEN 1 ELSE 0 END), 0) as cancelled
                 FROM jobs j
                 WHERE j.created_at >= datetime('now', '-{int(period_days)} days')
             """),

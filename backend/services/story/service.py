@@ -347,7 +347,7 @@ try:
 
 except ImportError:
 
-    def _estimate_tokens(text: str) -> int:  # type: ignore[misc]
+    def _estimate_tokens(text: str) -> int:
         """Fallback: rough token count (~4 chars/token)."""
         return len(text) // 4
 
@@ -1030,8 +1030,9 @@ async def invalidate_story_cache_for_jobs(
             params,
         )
         await session.commit()
-        if result.rowcount:  # type: ignore[union-attr]
-            log.info("story_cache_invalidated", count=result.rowcount, job_ids=sorted(job_ids))
+        rowcount = int(getattr(result, "rowcount", 0) or 0)
+        if rowcount:
+            log.info("story_cache_invalidated", count=rowcount, job_ids=sorted(job_ids))
 
 
 # ---------------------------------------------------------------------------
@@ -1248,7 +1249,7 @@ class StoryService:
 
     async def _enrich_refs_with_diffs(
         self,
-        refs: list[dict[str, Any]],
+        refs: list[StoryBlock],
         job_row: dict[str, Any],
     ) -> None:
         """Populate ``snippet`` on refs that have a file but no snippet.

@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.models.domain import SessionEvent, SessionEventKind
+from backend.models.domain import SessionEvent, SessionEventKind, SessionEventPayload
 from backend.services.events.event_pipeline import EventPipeline
 
 # ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ class _PipelineHarness:
     def transcript_events(self, job_id: str) -> list[SessionEvent]:
         return [ev for jid, ev in self.emitted if jid == job_id and ev.kind == SessionEventKind.transcript]
 
-    def last_payload(self, job_id: str) -> dict[str, Any]:
+    def last_payload(self, job_id: str) -> SessionEventPayload:
         events = self.events_for(job_id)
         assert events, "No events emitted"
         return events[-1].payload

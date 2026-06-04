@@ -18,11 +18,11 @@ import math
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
-from backend.models.domain import Job, JobSource, JobState, SessionEvent
+from backend.models.domain import DonePayload, ErrorPayload, Job, JobSource, JobState, SessionEvent
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.events.event_pipeline import EventPipeline
 from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin
@@ -798,11 +798,11 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         # events in _translate_event, so this is a no-op today).
         elif kind_str in ("session.task_complete", "session.idle", "session.shutdown"):
             payload = data.to_dict() if data and hasattr(data, "to_dict") else {}
-            await self._pipeline.on_done(job_id, payload)
+            await self._pipeline.on_done(job_id, cast("DonePayload", payload))
 
         elif kind_str == "session.error":
             payload = data.to_dict() if data and hasattr(data, "to_dict") else {}
-            await self._pipeline.on_error(job_id, payload)
+            await self._pipeline.on_error(job_id, cast("ErrorPayload", payload))
 
     # ------------------------------------------------------------------
     # Prompt capture for CLI sessions

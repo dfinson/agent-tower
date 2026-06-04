@@ -84,6 +84,9 @@ function sseBody(events: { event: string; data: unknown }[]): string {
 }
 
 async function setupJobDetailMocks(page: import("@playwright/test").Page) {
+  const job = MOCK_JOB;
+  const jobId = job.id as string;
+
   await page.route("**/api/events*", async (route) => {
     await route.fulfill({
       status: 200,
@@ -94,7 +97,7 @@ async function setupJobDetailMocks(page: import("@playwright/test").Page) {
       },
       body: sseBody([
         { event: "session_heartbeat", data: {} },
-        { event: "snapshot", data: { jobs: [MOCK_JOB], pendingApprovals: [] } },
+        { event: "snapshot", data: { jobs: [job], pendingApprovals: [] } },
       ]),
     });
   });
@@ -104,16 +107,16 @@ async function setupJobDetailMocks(page: import("@playwright/test").Page) {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ items: [MOCK_JOB], cursor: null, hasMore: false }),
+      body: JSON.stringify({ items: [job], cursor: null, hasMore: false }),
     });
   });
 
-  await page.route("**/api/jobs/job-1/snapshot*", async (route) => {
+  await page.route(`**/api/jobs/${jobId}/snapshot*`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        job: MOCK_JOB,
+        job,
         logs: [],
         transcript: [],
         diff: [],
@@ -123,25 +126,25 @@ async function setupJobDetailMocks(page: import("@playwright/test").Page) {
     });
   });
 
-  await page.route("**/api/jobs/job-1", async (route) => {
+  await page.route(`**/api/jobs/${jobId}`, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(MOCK_JOB),
+      body: JSON.stringify(job),
     });
   });
 
-  await page.route("**/api/jobs/job-1/transcript*", async (route) => {
+  await page.route(`**/api/jobs/${jobId}/transcript*`, async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   });
-  await page.route("**/api/jobs/job-1/timeline*", async (route) => {
+  await page.route(`**/api/jobs/${jobId}/timeline*`, async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   });
-  await page.route("**/api/jobs/job-1/diff*", async (route) => {
+  await page.route(`**/api/jobs/${jobId}/diff*`, async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   });
-  await page.route("**/api/jobs/job-1/approvals*", async (route) => {
+  await page.route(`**/api/jobs/${jobId}/approvals*`, async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   });
   await page.route("**/api/settings", async (route) => {

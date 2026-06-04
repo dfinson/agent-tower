@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select, update
 
@@ -64,7 +64,7 @@ class SecondarySessionRepository:
         input_tokens: int = 0,
         output_tokens: int = 0,
         cost_usd: float = 0.0,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Mark a session as completed/failed/timeout with final metrics."""
         async with serialized_write(self._session_factory) as session:

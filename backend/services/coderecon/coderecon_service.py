@@ -19,7 +19,7 @@ import contextlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -87,8 +87,13 @@ class CodeReconService:
     # ── Lifecycle ──
 
     async def start(self) -> None:
-        """Import coderecon.  Raises on failure — the package is required."""
-        from coderecon.review import ReviewKit
+        """Import coderecon.  Marks unavailable if review module is missing."""
+        try:
+            from coderecon.review import ReviewKit
+        except (ImportError, ModuleNotFoundError):
+            log.warning("coderecon_review.unavailable", reason="coderecon.review module not found")
+            self._available = False
+            return
 
         self._kit_class = ReviewKit
         self._available = True
@@ -350,7 +355,7 @@ class CodeReconService:
         wt_name = self._resolve_worktree_name(repo, worktree)
         count = await loop.run_in_executor(self._executor, lambda: kit.reindex(changed_paths, worktree=wt_name))
         await self._refresh_stats(repo, worktree=wt_name)
-        return count
+        return int(count)
 
     async def checkpoint(
         self,
@@ -413,7 +418,7 @@ class CodeReconService:
         wt_name = self._resolve_worktree_name(repo, worktree)
         count = await loop.run_in_executor(self._executor, lambda: kit.sync_from_git(worktree=wt_name))
         await self._refresh_stats(repo, worktree=wt_name)
-        return count
+        return int(count)
 
     async def merge_index(self, repo: str, source: str, target: str = "main") -> dict[str, Any]:
         """Reconcile source worktree index into target, then drop source.
@@ -425,7 +430,7 @@ class CodeReconService:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(self._executor, lambda: kit.merge_index(source, target))
         await self._refresh_stats(repo, worktree=target)
-        return result
+        return cast("dict[str, Any]", result)
 
     async def drop_worktree(self, repo: str, name: str) -> int:
         """Remove all indexed data for a worktree.
@@ -436,7 +441,7 @@ class CodeReconService:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(self._executor, lambda: kit.drop_worktree(name))
         self._worktree_stats.pop((repo, name), None)
-        return result
+        return int(result)
 
     async def enrich_scip(self, repo: str, *, worktree: str) -> Any:
         """Run SCIP indexers and import compiler-grade cross-references.

@@ -18,18 +18,21 @@ import math
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
 # Claude SDK typed message parser — converts raw JSONL dicts to typed objects
 from claude_code_sdk import AssistantMessage, TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock, UserMessage
-from claude_code_sdk._internal.message_parser import MessageParseError, parse_message
+from claude_code_sdk._internal import message_parser as _message_parser
 
-from backend.models.domain import Job, JobSource, JobState, SessionEvent
-from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.events.event_pipeline import EventPipeline
-from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin
+parse_message = cast("Any", _message_parser).parse_message
+MessageParseError = cast("type[Exception]", getattr(_message_parser, "MessageParseError", ValueError))
+
+from backend.models.domain import Job, JobSource, JobState, SessionEvent  # noqa: E402
+from backend.models.events import DomainEvent, DomainEventKind  # noqa: E402
+from backend.services.events.event_pipeline import EventPipeline  # noqa: E402
+from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin  # noqa: E402
 
 if TYPE_CHECKING:
     from collections.abc import Callable

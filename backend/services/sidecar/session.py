@@ -212,7 +212,6 @@ class AgenticSidecarSession:
         until the stream ends or timeout is hit.  The final assistant
         message is returned.
         """
-        from backend.models.domain import SessionEventKind
 
         t0 = time.monotonic()
         config = self._session_config
@@ -244,17 +243,13 @@ class AgenticSidecarSession:
         final_text = ""
         try:
             async for event in self._adapter.stream_events(session_id):
-                if event.kind == SessionEventKind.message:
-                    role = (event.payload or {}).get("role", "")
-                    if role in ("agent", "assistant"):
-                        content = (event.payload or {}).get("content", "")
-                        if content:
-                            final_text = content
-                elif event.kind == SessionEventKind.metrics:
-                    payload = event.payload or {}
-                    self.total_input_tokens += int(payload.get("input_tokens", 0))
-                    self.total_output_tokens += int(payload.get("output_tokens", 0))
-                    self.total_cost_usd += float(payload.get("cost_usd", 0.0))
+                if event.kind.value != "transcript" or not isinstance(event.payload, dict):
+                    continue
+                role = str(event.payload.get("role", ""))
+                if role in ("agent", "assistant"):
+                    content = event.payload.get("content")
+                    if isinstance(content, str) and content:
+                        final_text = content
         except (TimeoutError, OSError, RuntimeError):
             log.warning("agentic_sidecar_session_error", session_id=session_id, exc_info=True)
         finally:

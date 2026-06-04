@@ -26,7 +26,7 @@ class TestComplete:
         c = LightweightCompleter(adapter, model="test-model")
         result = await c.complete("test prompt")
         assert result.text == "result"
-        adapter.complete.assert_awaited_once_with("test prompt")
+        adapter.complete.assert_awaited_once_with("test prompt", model="test-model")
 
 
 class TestCompleteMessages:

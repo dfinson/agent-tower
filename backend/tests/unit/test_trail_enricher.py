@@ -383,8 +383,8 @@ class TestDrainEnrichment:
         )
 
         result = await enricher.drain_enrichment()
-        assert result == 0
-        enricher._repo.update_enrichment.assert_not_called()
+        assert result == 1
+        enricher._repo.update_enrichment.assert_called_once_with("n1", enrichment="complete")
 
     @pytest.mark.asyncio
     async def test_parse_failure_marks_all_failed(self):
@@ -433,7 +433,7 @@ class TestDrainEnrichment:
         )
 
         result = await enricher.drain_enrichment()
-        assert result == 1
+        assert result == 2
         enricher._repo.create.assert_called_once()
         created = enricher._repo.create.call_args[0][0]
         assert created.kind == "decide"
@@ -506,8 +506,9 @@ class TestDrainEnrichment:
         )
 
         result = await enricher.drain_enrichment()
-        assert result == 0
+        assert result == 1
         enricher._repo.create.assert_not_called()
+        enricher._repo.update_enrichment.assert_called_once_with("n1", enrichment="complete")
 
     @pytest.mark.asyncio
     async def test_semantic_node_supersedes_validated(self):

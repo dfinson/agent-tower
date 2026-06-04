@@ -510,6 +510,8 @@ class TrailEnricher:
                 await self._coderecon.register_worktree(repo_name, worktree_path)
 
                 # Run semantic_diff between the modify node's SHAs
+                if not modify_node.start_sha or not modify_node.end_sha:
+                    continue
                 diff_result = await self._coderecon.semantic_diff(
                     repo_name,
                     base=modify_node.start_sha,
@@ -522,7 +524,7 @@ class TrailEnricher:
                 # Build a file→changes index for distribution
                 changes_by_file: dict[str, list[dict[str, Any]]] = {}
                 for ch in structural_changes:
-                    entry = {
+                    entry: dict[str, Any] = {
                         "symbol": ch.qualified_name or ch.name,
                         "kind": ch.kind,
                         "change": ch.change,
