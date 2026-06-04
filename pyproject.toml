@@ -37,7 +37,7 @@ dependencies = [
     "pyjwt[crypto]>=2.12.0,<3",
     "cryptography>=46.0,<47",
     # Structural analysis (full SDK — SPLADE/CE disabled by default via config)
-    "coderecon @ git+https://github.com/dfinson/coderecon.git",
+    "coderecon-ai @ git+https://github.com/dfinson/coderecon.git@main",
     "cloudflare>=5.1.0",
     "sh-guard>=0.1.10",
 ]
