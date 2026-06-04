@@ -172,7 +172,7 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
   };
 }
 
-export function handleSidecarTranscript(_state: AppState, _payload: Record<string, unknown>): Partial<AppState> | null {
+export function handleSidecarTranscript(): Partial<AppState> | null {
   // Legacy — no longer emitted. Kept as no-op for backward compat with old SSE replays.
   return null;
 }

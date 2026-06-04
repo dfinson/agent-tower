@@ -20,7 +20,7 @@ import struct
 import subprocess  # noqa: S404
 import sys
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -47,7 +47,6 @@ else:
     import fcntl
     import pty
     import signal
-    import termios
 
     _SIGWINCH = signal.SIGWINCH
 
@@ -250,11 +249,16 @@ class TerminalService:
     ) -> PtySession:
         """Spawn a PTY session using the POSIX pty/fcntl/termios stack."""
         import tempfile
+        import termios
 
-        master_fd, slave_fd = pty.openpty()
+        pty_mod = cast("Any", pty)
+        fcntl_mod = cast("Any", fcntl)
+        termios_mod = cast("Any", termios)
+
+        master_fd, slave_fd = pty_mod.openpty()
 
         winsize = struct.pack("HHHH", rows, cols, 0, 0)
-        fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
+        fcntl_mod.ioctl(slave_fd, termios_mod.TIOCSWINSZ, winsize)
 
         env = {**os.environ, "TERM": "xterm-256color", "CODEPLANE_TERMINAL": "1"}
 
@@ -300,8 +304,8 @@ class TerminalService:
 
         os.close(slave_fd)
 
-        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
-        fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        flags = fcntl_mod.fcntl(master_fd, fcntl_mod.F_GETFL)
+        fcntl_mod.fcntl(master_fd, fcntl_mod.F_SETFL, flags | int(getattr(os, "O_NONBLOCK", 0)))
 
         session = PtySession(
             id=session_id,
@@ -443,8 +447,12 @@ class TerminalService:
             if sys.platform == "win32":
                 session.process.setwinsize(rows, cols)
             else:
+                import termios
+
+                fcntl_mod = cast("Any", fcntl)
+                termios_mod = cast("Any", termios)
                 winsize = struct.pack("HHHH", rows, cols, 0, 0)
-                fcntl.ioctl(session.master_fd, termios.TIOCSWINSZ, winsize)
+                fcntl_mod.ioctl(session.master_fd, termios_mod.TIOCSWINSZ, winsize)
                 if _SIGWINCH is not None:
                     os.kill(session.process.pid, _SIGWINCH)
         except OSError:

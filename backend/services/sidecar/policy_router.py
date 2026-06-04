@@ -24,31 +24,69 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 # Tools classified as read-only file access.
-_READ_TOOLS: frozenset[str] = frozenset({
-    "read_file", "read", "Read", "view", "view_image", "cat", "readFile",
-    "open_file", "list_dir", "list_directory",
-})
+_READ_TOOLS: frozenset[str] = frozenset(
+    {
+        "read_file",
+        "read",
+        "Read",
+        "view",
+        "view_image",
+        "cat",
+        "readFile",
+        "open_file",
+        "list_dir",
+        "list_directory",
+    }
+)
 
 # Tools classified as search/discovery.
-_SEARCH_TOOLS: frozenset[str] = frozenset({
-    "grep_search", "file_search", "semantic_search", "search", "find",
-    "ripgrep", "SearchFiles", "GrepTool",
-})
+_SEARCH_TOOLS: frozenset[str] = frozenset(
+    {
+        "grep_search",
+        "file_search",
+        "semantic_search",
+        "search",
+        "find",
+        "ripgrep",
+        "SearchFiles",
+        "GrepTool",
+    }
+)
 
 # Tools classified as file-write operations.
-_WRITE_TOOLS: frozenset[str] = frozenset({
-    "create_file", "create", "edit_file", "edit", "Edit", "MultiEdit",
-    "write", "Write", "write_file", "replace_string_in_file",
-    "multi_replace_string_in_file", "str_replace_based_edit_tool",
-    "str_replace_editor", "insert_edit_into_file", "apply_patch",
-    "delete_file",
-})
+_WRITE_TOOLS: frozenset[str] = frozenset(
+    {
+        "create_file",
+        "create",
+        "edit_file",
+        "edit",
+        "Edit",
+        "MultiEdit",
+        "write",
+        "Write",
+        "write_file",
+        "replace_string_in_file",
+        "multi_replace_string_in_file",
+        "str_replace_based_edit_tool",
+        "str_replace_editor",
+        "insert_edit_into_file",
+        "apply_patch",
+        "delete_file",
+    }
+)
 
 # Tools classified as shell execution.
-_SHELL_TOOLS: frozenset[str] = frozenset({
-    "Bash", "bash", "shell", "run_in_terminal", "execute_command",
-    "run_command", "terminal",
-})
+_SHELL_TOOLS: frozenset[str] = frozenset(
+    {
+        "Bash",
+        "bash",
+        "shell",
+        "run_in_terminal",
+        "execute_command",
+        "run_command",
+        "terminal",
+    }
+)
 
 
 def _classify_tool(tool_name: str) -> str:
@@ -129,7 +167,7 @@ class SidecarPolicyRouter:
                 if not _matches_shell_allowlist(command, policy.shell_allowlist):
                     return SidecarDecision(
                         proceed=False,
-                        reason=f"command not in shell allowlist",
+                        reason="command not in shell allowlist",
                     )
         elif category == "mcp":
             if "mcp" not in policy.allowed_categories:
@@ -171,10 +209,7 @@ def _matches_shell_allowlist(command: str, allowlist: tuple[str, ...]) -> bool:
     matches ``pytest tests/`` but not ``pytest_coverage``).
     """
     stripped = command.strip()
-    for prefix in allowlist:
-        if stripped == prefix or stripped.startswith(prefix + " "):
-            return True
-    return False
+    return any(stripped == prefix or stripped.startswith(prefix + " ") for prefix in allowlist)
 
 
 def _extract_path(tool_input: dict[str, object] | None) -> str | None:

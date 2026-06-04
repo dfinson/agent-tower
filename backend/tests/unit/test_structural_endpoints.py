@@ -168,9 +168,14 @@ def _make_coderecon(*, available: bool = True) -> SimpleNamespace:
     svc.semantic_diff = AsyncMock(return_value=FakeDiffResult())
     svc.graph_cycles = AsyncMock(return_value=FakeCyclesResult())
     svc.graph_communities = AsyncMock(return_value=FakeCommunitiesResult())
-    svc.impact = AsyncMock(return_value=SimpleNamespace(
-        definition_sites=[], references=[], import_sites=[], total_references=0,
-    ))
+    svc.impact = AsyncMock(
+        return_value=SimpleNamespace(
+            definition_sites=[],
+            references=[],
+            import_sites=[],
+            total_references=0,
+        )
+    )
     return svc
 
 

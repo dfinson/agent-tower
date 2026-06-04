@@ -41,7 +41,7 @@ def _kill_sdk_subprocess(client: object | None) -> None:
     with contextlib.suppress(ProcessLookupError, OSError):
         os.kill(pid, signal.SIGTERM)
     with contextlib.suppress(ChildProcessError):
-        os.waitpid(pid, os.WNOHANG)
+        os.waitpid(pid, getattr(os, "WNOHANG", 0))
     # Null out SDK internal references so the garbage collector doesn't
     # try to clean them up through anyio (which triggers the connection
     # pool contamination on __del__).

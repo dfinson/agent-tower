@@ -50,9 +50,10 @@ class LightweightCompleter:
         messages: list[dict[str, str]],
     ) -> CompletionResult:
         """Multi-turn completion — flattened into a single prompt for the adapter."""
-        flat = system + "\n\n" + "\n".join(
-            f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
-            for m in messages
+        flat = (
+            system
+            + "\n\n"
+            + "\n".join(f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in messages)
         )
         return await self._adapter.complete(flat)
 

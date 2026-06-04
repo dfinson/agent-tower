@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -22,7 +22,6 @@ from backend.models.api_schemas import (
     StructuralChange,
 )
 from backend.models.domain import Job, JobState
-
 
 # -- Fixtures ------------------------------------------------------------------
 
@@ -122,17 +121,21 @@ def _make_coderecon(*, available: bool = True) -> SimpleNamespace:
     svc.available = available
     svc.ensure_repo_indexed = AsyncMock(return_value="test-repo")
     svc.register_worktree = AsyncMock(return_value=None)
-    svc.semantic_diff = AsyncMock(return_value=FakeDiffResult(
-        structural_changes=[FakeStructuralChange(path="src/foo.py")]
-    ))
-    svc.blast_radius = AsyncMock(return_value=FakeBlastRadiusResult(
-        candidates=[FakeTestCandidate()],
-        coverage_gaps=["src/uncovered.py"],
-        has_coverage_data=True,
-    ))
-    svc.covering_tests = AsyncMock(return_value={
-        "module.do_stuff": [FakeTestCandidate()],
-    })
+    svc.semantic_diff = AsyncMock(
+        return_value=FakeDiffResult(structural_changes=[FakeStructuralChange(path="src/foo.py")])
+    )
+    svc.blast_radius = AsyncMock(
+        return_value=FakeBlastRadiusResult(
+            candidates=[FakeTestCandidate()],
+            coverage_gaps=["src/uncovered.py"],
+            has_coverage_data=True,
+        )
+    )
+    svc.covering_tests = AsyncMock(
+        return_value={
+            "module.do_stuff": [FakeTestCandidate()],
+        }
+    )
     return svc
 
 
@@ -140,7 +143,6 @@ def _make_svc(job: Job | None = None) -> SimpleNamespace:
     svc = SimpleNamespace()
     svc.get_job = AsyncMock(return_value=job)
     return svc
-
 
 
 # -- Covering Tests Endpoint ---------------------------------------------------
@@ -239,10 +241,12 @@ class TestGetJobCoveringTests:
         job = _make_job()
         svc = _make_svc(job)
         coderecon = _make_coderecon()
-        coderecon.covering_tests = AsyncMock(return_value=FakeCoveringTestsResult(
-            tests_by_def={"module.do_stuff": [FakeTestCandidate()]},
-            file_path="src/foo.py",
-        ))
+        coderecon.covering_tests = AsyncMock(
+            return_value=FakeCoveringTestsResult(
+                tests_by_def={"module.do_stuff": [FakeTestCandidate()]},
+                file_path="src/foo.py",
+            )
+        )
 
         result = await get_job_covering_tests(
             job_id="job-1",
@@ -361,15 +365,19 @@ class TestGetJobBlastRadius:
         job = _make_job()
         svc = _make_svc(job)
         coderecon = _make_coderecon()
-        coderecon.blast_radius = AsyncMock(return_value=FakeBlastRadiusResult(
-            candidates=[
-                FakeTestCandidate(test_id="tests/test_a.py::test_1", source="coverage", confidence=0.95),
-                FakeTestCandidate(test_id="tests/test_b.py::test_2", source="reachability", confidence=0.6, distance=2),
-                FakeTestCandidate(test_id="tests/test_c.py::test_3", source="graph", confidence=0.3, distance=3),
-            ],
-            coverage_gaps=[],
-            has_coverage_data=True,
-        ))
+        coderecon.blast_radius = AsyncMock(
+            return_value=FakeBlastRadiusResult(
+                candidates=[
+                    FakeTestCandidate(test_id="tests/test_a.py::test_1", source="coverage", confidence=0.95),
+                    FakeTestCandidate(
+                        test_id="tests/test_b.py::test_2", source="reachability", confidence=0.6, distance=2
+                    ),
+                    FakeTestCandidate(test_id="tests/test_c.py::test_3", source="graph", confidence=0.3, distance=3),
+                ],
+                coverage_gaps=[],
+                has_coverage_data=True,
+            )
+        )
 
         result = await get_job_blast_radius(
             job_id="job-1",
@@ -489,16 +497,12 @@ class TestCodeReconServiceCoverageMethods:
         service = CodeReconService()
         service._available = True
 
-        fake_result = SimpleNamespace(
-            facts_written=10, defs_covered=5, reachability_facts=3, calibrated_edges=2
-        )
+        fake_result = SimpleNamespace(facts_written=10, defs_covered=5, reachability_facts=3, calibrated_edges=2)
         mock_kit = MagicMock()
         mock_kit.ingest_coverage.return_value = fake_result
         service._kits["repo"] = mock_kit
 
-        result = await service.ingest_coverage(
-            "repo", "/path/to/coverage.json", worktree="main"
-        )
+        result = await service.ingest_coverage("repo", "/path/to/coverage.json", worktree="main")
 
         assert result.facts_written == 10
         mock_kit.ingest_coverage.assert_called_once_with(
@@ -518,9 +522,7 @@ class TestCodeReconServiceCoverageMethods:
         service = CodeReconService()
         service._available = True
 
-        fake_result = SimpleNamespace(
-            candidates=[], coverage_gaps=["gap.py"], has_coverage_data=True
-        )
+        fake_result = SimpleNamespace(candidates=[], coverage_gaps=["gap.py"], has_coverage_data=True)
         mock_kit = MagicMock()
         mock_kit.blast_radius.return_value = fake_result
         service._kits["repo"] = mock_kit
@@ -529,9 +531,7 @@ class TestCodeReconServiceCoverageMethods:
 
         assert result.has_coverage_data is True
         assert result.coverage_gaps == ["gap.py"]
-        mock_kit.blast_radius.assert_called_once_with(
-            ["src/a.py"], worktree="main", max_hops=3
-        )
+        mock_kit.blast_radius.assert_called_once_with(["src/a.py"], worktree="main", max_hops=3)
 
     @pytest.mark.anyio
     async def test_covering_tests_delegates_to_kit(self) -> None:

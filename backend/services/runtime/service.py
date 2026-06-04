@@ -397,9 +397,7 @@ class RuntimeService:
 
                         from backend.models.db import JobRow
 
-                        await ws.execute(
-                            sa_update(JobRow).where(JobRow.id == job_id).values(description=desc)
-                        )
+                        await ws.execute(sa_update(JobRow).where(JobRow.id == job_id).values(description=desc))
                     log.info("finalize_description_generated", job_id=job_id)
         except Exception:
             log.debug("finalize_naming_failed", job_id=job_id, exc_info=True)
@@ -407,12 +405,15 @@ class RuntimeService:
     async def _generate_title_safe(self, context: str) -> str | None:
         """One-shot title generation via sidecar. Returns None on failure."""
         try:
+            sidecar_sessions = self._sidecar_sessions
+            if sidecar_sessions is None:
+                return None
             prompt = (
                 "Given this coding task prompt, generate a concise 3-8 word title. "
                 "Respond with ONLY the title text, no quotes, no punctuation at the end.\n\n"
                 f"Task:\n{context}"
             )
-            title = await self._sidecar_sessions.complete(prompt, timeout=10.0)
+            title = await sidecar_sessions.complete(prompt, timeout=10.0)
             title = str(title).strip().strip('"').strip("'")
             return title if title and len(title) >= 3 else None
         except Exception:
@@ -421,13 +422,16 @@ class RuntimeService:
     async def _generate_description_safe(self, context: str) -> str | None:
         """One-shot description generation via sidecar. Returns None on failure."""
         try:
+            sidecar_sessions = self._sidecar_sessions
+            if sidecar_sessions is None:
+                return None
             prompt = (
                 "Given this coding task prompt, generate a 1-2 sentence description "
                 "of the work being done. Be specific and concise. "
                 "Respond with ONLY the description text.\n\n"
                 f"Task:\n{context}"
             )
-            desc = await self._sidecar_sessions.complete(prompt, timeout=10.0)
+            desc = await sidecar_sessions.complete(prompt, timeout=10.0)
             desc = str(desc).strip()
             return desc if desc and len(desc) >= 10 else None
         except Exception:
@@ -653,7 +657,11 @@ class RuntimeService:
                             preflight_worktree_path = job.repo
                 except Exception:
                     log.debug("preflight_index_failed", job_id=job.id, exc_info=True)
-            session_config = await self._run_preflight_curator(job, session_config, worktree_override=preflight_worktree_path)
+            session_config = await self._run_preflight_curator(
+                job,
+                session_config,
+                worktree_override=preflight_worktree_path,
+            )
 
             # If the job was canceled during preflight, don't start the main session.
             async with self._session_factory() as session:
@@ -858,7 +866,13 @@ class RuntimeService:
             # job.mode is persisted: "plan" = planning phase, "plan_implementing" = implementation phase.
             if job is not None and job.mode == JobMode.plan:
                 plan_result = await self._handle_plan_session_completed(
-                    job_id, job, agent_session, config, worktree_path, base_ref, session_number,
+                    job_id,
+                    job,
+                    agent_session,
+                    config,
+                    worktree_path,
+                    base_ref,
+                    session_number,
                 )
                 if plan_result is not None:
                     final_state = plan_result
@@ -1607,9 +1621,7 @@ class RuntimeService:
 
             step_repo = StepRepository(self._session_factory)
             status = "completed" if not error_reason else "failed"
-            closed = await step_repo.close_running_by_job(
-                job_id, status=status, completed_at=datetime.now(UTC)
-            )
+            closed = await step_repo.close_running_by_job(job_id, status=status, completed_at=datetime.now(UTC))
             if closed:
                 log.info("finalize_swept_stuck_steps", job_id=job_id, count=closed)
         except Exception:
@@ -2075,10 +2087,8 @@ class RuntimeService:
             # Abort the agent session so the preflight curator's stream ends.
             agent_session = self._agent_sessions.get(job_id)
             if agent_session is not None:
-                try:
+                with contextlib.suppress(Exception):
                     await agent_session.abort()
-                except Exception:
-                    pass
                 log.info("job_cancel_preflight_aborted", job_id=job_id)
             else:
                 log.info("job_cancel_no_running_task", job_id=job_id)
@@ -2300,7 +2310,9 @@ class RuntimeService:
         job = await self._get_job(job_id)
         if job and job.source != JobSource.managed:
             # Soft gate — deliver via the CLI channel (Stop hook / Steer API).
-            gate_msg = f"[GATE:{sidecar_name}] {reason}" if reason else f"[GATE:{sidecar_name}] Action blocked by sidecar."
+            gate_msg = (
+                f"[GATE:{sidecar_name}] {reason}" if reason else f"[GATE:{sidecar_name}] Action blocked by sidecar."
+            )
             if self._ingest_service is not None:
                 await self._ingest_service.send_operator_message(job_id, gate_msg)
             else:
@@ -2737,7 +2749,9 @@ class RuntimeService:
 
         approval = await self._approval_service.create_request(
             job_id=job_id,
-            description=f"Agent proposed a {len(plan_steps)}-step plan. Review and approve to proceed with implementation.",
+            description=(
+                f"Agent proposed a {len(plan_steps)}-step plan. Review and approve to proceed with implementation."
+            ),
             proposed_action="execute_plan",
             requires_explicit_approval=True,
         )
@@ -2789,13 +2803,13 @@ class RuntimeService:
         self._last_activity[job_id] = time.monotonic()
 
         # -- Rejection → re-plan loop (iterative, not recursive) ----------
-        _MAX_REPLAN_ITERATIONS = 5
+        max_replan_iterations = 5
         replan_count = 0
         while resolution == ApprovalResolution.rejected:
             replan_count += 1
-            if replan_count > _MAX_REPLAN_ITERATIONS:
+            if replan_count > max_replan_iterations:
                 log.warning("plan_mode.max_replans_exceeded", job_id=job_id, count=replan_count)
-                await self._fail_job(job_id, f"Plan rejected {_MAX_REPLAN_ITERATIONS} times — giving up")
+                await self._fail_job(job_id, f"Plan rejected {max_replan_iterations} times — giving up")
                 return JobState.failed
 
             log.info("plan_mode.plan_rejected", job_id=job_id)
@@ -2815,8 +2829,12 @@ class RuntimeService:
                 new_agent_session = AgentSession()
                 self._agent_sessions[job_id] = new_agent_session
                 result = await self._execute_session_attempt(
-                    job_id, new_agent_session, replan_config,
-                    worktree_path, base_ref, session_number=session_number,
+                    job_id,
+                    new_agent_session,
+                    replan_config,
+                    worktree_path,
+                    base_ref,
+                    session_number=session_number,
                 )
                 if result.error_reason:
                     await self._finalize_diff_safe(job_id, worktree_path, base_ref)
@@ -2947,8 +2965,12 @@ class RuntimeService:
         new_agent_session = AgentSession()
         self._agent_sessions[job_id] = new_agent_session
         result = await self._execute_session_attempt(
-            job_id, new_agent_session, impl_config,
-            worktree_path, base_ref, session_number=session_number + 1,
+            job_id,
+            new_agent_session,
+            impl_config,
+            worktree_path,
+            base_ref,
+            session_number=session_number + 1,
         )
 
         if result.error_reason:
@@ -2958,8 +2980,11 @@ class RuntimeService:
 
         # Implementation session completed — normal completion flow
         final_state = await self._handle_successful_completion(
-            job_id, impl_config, result.session_id,
-            worktree_path, base_ref,
+            job_id,
+            impl_config,
+            result.session_id,
+            worktree_path,
+            base_ref,
             post_conflict_merge_requested=False,
             session_number=session_number + 1,
         )
@@ -3022,13 +3047,14 @@ class RuntimeService:
                 )
             )
 
-            async def _on_tool_call(tc: "PreflightToolCall") -> None:
+            async def _on_tool_call(tc: PreflightToolCall) -> None:
                 nonlocal seq_counter
                 seq_counter += 1
                 now = datetime.now(UTC)
 
                 # Enrich via the shared pipeline (same as main transcript)
                 from backend.services.events.event_enricher import build_tool_call_payload
+
                 enriched = build_tool_call_payload(
                     tool_name=tc.tool_name,
                     tool_args=tc.tool_args,

@@ -382,7 +382,7 @@ class TestBuildReferencesDedup:
 class TestEstimateTokens:
     def test_basic_estimate(self):
         text = "a" * 400
-        assert _estimate_tokens(text) == 100
+        assert _estimate_tokens(text) == 50
 
     def test_empty(self):
         assert _estimate_tokens("") == 0

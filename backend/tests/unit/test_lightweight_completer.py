@@ -22,13 +22,11 @@ class TestComplete:
         from backend.services.adapters.agent_adapter import CompletionResult
 
         adapter = AsyncMock()
-        adapter.complete.return_value = CompletionResult(
-            text="result", input_tokens=10, output_tokens=5, model="test"
-        )
+        adapter.complete.return_value = CompletionResult(text="result", input_tokens=10, output_tokens=5, model="test")
         c = LightweightCompleter(adapter, model="test-model")
         result = await c.complete("test prompt")
         assert result.text == "result"
-        adapter.complete.assert_awaited_once_with("test prompt")
+        adapter.complete.assert_awaited_once_with("test prompt", model="test-model")
 
 
 class TestCompleteMessages:
@@ -37,9 +35,7 @@ class TestCompleteMessages:
         from backend.services.adapters.agent_adapter import CompletionResult
 
         adapter = AsyncMock()
-        adapter.complete.return_value = CompletionResult(
-            text="reply", input_tokens=20, output_tokens=10, model="test"
-        )
+        adapter.complete.return_value = CompletionResult(text="reply", input_tokens=20, output_tokens=10, model="test")
         c = LightweightCompleter(adapter, model="test-model")
         result = await c.complete_messages(
             system="You are helpful.",

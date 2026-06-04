@@ -19,12 +19,58 @@ export interface CoveragePopoverState {
   left: number;
 }
 
+interface GlyphDecorationLike {
+  range: unknown;
+  options: {
+    glyphMarginClassName: string;
+    glyphMarginHoverMessage: { value: string };
+  };
+}
+
+interface CoverageMouseEventLike {
+  target: {
+    type: number;
+    position?: {
+      lineNumber?: number;
+    };
+  };
+}
+
+interface DisposableLike {
+  dispose(): void;
+}
+
+interface ModifiedEditorLike {
+  deltaDecorations(oldDecorations: string[], newDecorations: GlyphDecorationLike[]): string[];
+  onMouseDown(listener: (event: CoverageMouseEventLike) => void): DisposableLike;
+  getDomNode(): { getBoundingClientRect(): { top: number; left: number } } | null;
+  getScrollTop(): number;
+  getTopForLineNumber(lineNumber: number): number;
+}
+
+interface DiffEditorLike {
+  getModifiedEditor(): ModifiedEditorLike | null;
+}
+
+interface MonacoRangeCtorLike {
+  new (startLineNumber: number, startColumn: number, endLineNumber: number, endColumn: number): unknown;
+}
+
+interface MonacoLike {
+  Range: MonacoRangeCtorLike;
+  editor: {
+    MouseTargetType: {
+      GUTTER_GLYPH_MARGIN: number;
+    };
+  };
+}
+
 interface UseCoverageLayersOpts {
   jobId: string;
   filePath: string | undefined;
   enabled: boolean;
-  editorRef: React.MutableRefObject<any>;
-  monacoRef: React.MutableRefObject<any>;
+  editorRef: React.MutableRefObject<DiffEditorLike | null>;
+  monacoRef: React.MutableRefObject<MonacoLike | null>;
   editorReady: boolean;
 }
 
@@ -39,7 +85,7 @@ export function useCoverageLayers({
   const [coverage, setCoverage] = useState<LineCoverageResponse | null>(null);
   const [popover, setPopover] = useState<CoveragePopoverState>({ visible: false, lineNumber: 0, tests: [], top: 0, left: 0 });
   const decorationIdsRef = useRef<string[]>([]);
-  const disposableRef = useRef<any>(null);
+  const disposableRef = useRef<DisposableLike | null>(null);
 
   // Fetch coverage when file changes (always fetch, toggle only controls display)
   useEffect(() => {
@@ -75,7 +121,7 @@ export function useCoverageLayers({
     const applyDecorations = () => {
       const ed = editorRef.current?.getModifiedEditor();
       if (!ed) return;
-      const newDecorations: any[] = [];
+      const newDecorations: GlyphDecorationLike[] = [];
 
       for (const lineNo of coverage.coveredLines) {
         newDecorations.push({
@@ -122,7 +168,7 @@ export function useCoverageLayers({
     // Dispose previous listener
     disposableRef.current?.dispose();
 
-    disposableRef.current = modifiedEditor.onMouseDown((e: any) => {
+    disposableRef.current = modifiedEditor.onMouseDown((e: CoverageMouseEventLike) => {
       if (e.target.type !== m.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
       const lineNumber = e.target.position?.lineNumber;
       if (lineNumber == null) return;

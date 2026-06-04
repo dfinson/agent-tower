@@ -1145,7 +1145,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         model_pricing=model_pricing_service,
         git_service=services.git_service,
     )
-    story_drain_task = asyncio.create_task(story_drain_service.drain_loop(), name="story-drain")
+    _story_drain_task = asyncio.create_task(story_drain_service.drain_loop(), name="story-drain")
 
     # --- SessionStateWatcher (auto-discover Copilot --remote sessions) ---
     # Watchers feed events through RuntimeService so imported sessions get the

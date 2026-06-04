@@ -47,12 +47,61 @@ export interface ImpactZoneData {
   uncoveredCount: number;
 }
 
+interface ViewZoneLike {
+  afterLineNumber: number;
+  heightInPx: number;
+  domNode: HTMLElement;
+  suppressMouseDown: boolean;
+}
+
+interface ViewZoneAccessorLike {
+  removeZone(id: string): void;
+  addZone(zone: ViewZoneLike): string;
+  layoutZone(id: string): void;
+}
+
+interface ImpactMouseEventLike {
+  target: {
+    type: number;
+    detail?: {
+      viewZoneId?: string;
+    };
+  };
+}
+
+interface DisposableLike {
+  dispose(): void;
+}
+
+interface ModifiedModelLike {
+  getLineCount(): number;
+  getLineContent(lineNumber: number): string;
+}
+
+interface ModifiedEditorLike {
+  changeViewZones(callback: (accessor: ViewZoneAccessorLike) => void): void;
+  getModel(): ModifiedModelLike | null;
+  onMouseDown(listener: (event: ImpactMouseEventLike) => void): DisposableLike;
+}
+
+interface DiffEditorLike {
+  getModifiedEditor(): ModifiedEditorLike | null;
+}
+
+interface MonacoLike {
+  editor: {
+    MouseTargetType: {
+      CONTENT_VIEW_ZONE: number;
+    };
+  };
+}
+
 interface UseImpactLayersOpts {
   jobId: string;
   file: DiffFileModel | undefined;
   enabled: boolean;
-  editorRef: React.MutableRefObject<any>;
-  monacoRef: React.MutableRefObject<any>;
+  editorRef: React.MutableRefObject<DiffEditorLike | null>;
+  monacoRef: React.MutableRefObject<MonacoLike | null>;
   editorReady: boolean;
 }
 
@@ -175,7 +224,7 @@ export function useImpactLayers({
     const modifiedEditor = editor.getModifiedEditor();
     if (!modifiedEditor) return;
 
-    modifiedEditor.changeViewZones((accessor: any) => {
+    modifiedEditor.changeViewZones((accessor: ViewZoneAccessorLike) => {
       viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
       viewZoneIdsRef.current = [];
       zoneDomsRef.current.clear();
@@ -301,7 +350,7 @@ export function useImpactLayers({
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (viewZoneIdsRef.current.length > 0) {
       timer = setTimeout(() => {
-        modifiedEditor.changeViewZones((accessor: any) => {
+        modifiedEditor.changeViewZones((accessor: ViewZoneAccessorLike) => {
           for (const id of viewZoneIdsRef.current) {
             accessor.layoutZone(id);
           }
@@ -325,7 +374,7 @@ export function useImpactLayers({
 
     const CONTENT_VIEW_ZONE = monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE;
 
-    const disposable = modifiedEditor.onMouseDown((e: any) => {
+    const disposable = modifiedEditor.onMouseDown((e: ImpactMouseEventLike) => {
       if (e.target.type !== CONTENT_VIEW_ZONE) return;
       const viewZoneId = e.target.detail?.viewZoneId;
       if (!viewZoneId) return;

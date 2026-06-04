@@ -18,7 +18,7 @@ import asyncio
 import json
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -26,7 +26,9 @@ from backend.services.metrics.query_executor import (
     QueryValidationError,
     execute_query,
 )
-from backend.services.sidecar.session import SidecarSessionManager
+
+if TYPE_CHECKING:
+    from backend.services.sidecar.session import SidecarSessionManager
 
 log = structlog.get_logger()
 
@@ -164,9 +166,10 @@ class MetricsChatService:
 
     async def _complete(self, messages: list[dict[str, str]], *, timeout: float) -> str:
         """Flatten conversation history into a single prompt and send through the sidecar."""
-        flat = _SYSTEM_PROMPT + "\n\n" + "\n".join(
-            f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
-            for m in messages
+        flat = (
+            _SYSTEM_PROMPT
+            + "\n\n"
+            + "\n".join(f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in messages)
         )
         return await self._sidecar.complete(flat, timeout=timeout)
 
@@ -224,10 +227,15 @@ class MetricsChatService:
             if parsed is None:
                 log.debug("metrics_chat_bad_json", attempt=attempt, raw=raw[:200])
                 messages.append({"role": "assistant", "content": raw})
-                messages.append({
-                    "role": "user",
-                    "content": "Your response wasn't valid JSON. Please reply with a single JSON object using the action protocol.",
-                })
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Your response wasn't valid JSON. Please reply with a "
+                            "single JSON object using the action protocol."
+                        ),
+                    }
+                )
                 continue
 
             action = parsed.get("action", "message")
@@ -258,10 +266,14 @@ class MetricsChatService:
                 messages.append({"role": "assistant", "content": raw})
 
                 if not queries:
-                    messages.append({
-                        "role": "user",
-                        "content": "No queries were provided. Either generate SQL queries or respond with a message.",
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "No queries were provided. Either generate SQL queries or respond with a message."
+                            ),
+                        }
+                    )
                     continue
 
                 # Execute queries and build a results report
@@ -279,24 +291,17 @@ class MetricsChatService:
                             timeout_seconds=min(exec_remaining, 10.0),
                         )
                         results_parts.append(
-                            f"Query {i+1} ({purpose}): {len(rows)} rows\n"
-                            f"SQL: {sql}\n"
-                            f"Results: {json.dumps(rows[:50])}"
+                            f"Query {i + 1} ({purpose}): {len(rows)} rows\nSQL: {sql}\nResults: {json.dumps(rows[:50])}"
                         )
                         executed_sql.append(sql)
                     except (QueryValidationError, Exception) as exc:
-                        results_parts.append(
-                            f"Query {i+1} ({purpose}): FAILED\n"
-                            f"SQL: {sql}\n"
-                            f"Error: {exc}"
-                        )
+                        results_parts.append(f"Query {i + 1} ({purpose}): FAILED\nSQL: {sql}\nError: {exc}")
 
                 # Inject results back into conversation for the LLM
                 results_msg = "\n\n".join(results_parts)
                 if executed_sql:
                     results_msg += (
-                        f'\n\nFormat these results as a "{viz}" visualization. '
-                        "Respond with an action=result JSON."
+                        f'\n\nFormat these results as a "{viz}" visualization. Respond with an action=result JSON.'
                     )
                 else:
                     results_msg += (
@@ -309,10 +314,12 @@ class MetricsChatService:
 
             # Unknown action -- ask for correction
             messages.append({"role": "assistant", "content": raw})
-            messages.append({
-                "role": "user",
-                "content": f"Unknown action '{action}'. Use 'query', 'message', or 'result'.",
-            })
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"Unknown action '{action}'. Use 'query', 'message', or 'result'.",
+                }
+            )
 
 
 class ChatResponse:
@@ -386,16 +393,18 @@ def _parse_json(raw: str) -> dict[str, Any] | None:
     # Strip markdown code fences
     if text.startswith("```"):
         lines = text.split("\n")
-        lines = [l for l in lines[1:] if not l.strip().startswith("```")]
+        lines = [line for line in lines[1:] if not line.strip().startswith("```")]
         text = "\n".join(lines)
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
         start = text.find("{")
         end = text.rfind("}")
         if start >= 0 and end > start:
             try:
-                return json.loads(text[start : end + 1])
+                parsed = json.loads(text[start : end + 1])
+                return parsed if isinstance(parsed, dict) else None
             except json.JSONDecodeError:
                 return None
         return None

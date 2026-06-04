@@ -42,7 +42,7 @@ class TestConstants:
 
     def test_system_prompt_output_rules(self):
         assert "INCLUSION" in _PREFLIGHT_SYSTEM_PROMPT
-        assert "SCOUT, not a solver" in _PREFLIGHT_SYSTEM_PROMPT
+        assert "SCOUT, not a planner" in _PREFLIGHT_SYSTEM_PROMPT
 
 
 class TestPreflightCuratorInit:

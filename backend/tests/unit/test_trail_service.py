@@ -424,7 +424,8 @@ class TestTrailNodeRepository:
             )
 
         pending = await trail_repo.get_pending_enrichment(limit=100)
-        assert len(pending) == 3  # pending + failed
+        assert len(pending) == 2
+        assert all(node.enrichment == "pending" for node in pending)
 
     async def test_update_enrichment(self, trail_repo):
         base = datetime.now(UTC)

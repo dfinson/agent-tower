@@ -125,9 +125,7 @@ class DiffService:
         Sets truncated=True and raw_size to the original hunk content size.
         """
         for f in files:
-            hunk_size = sum(
-                len(line.content) for h in f.hunks for line in h.lines
-            )
+            hunk_size = sum(len(line.content) for h in f.hunks for line in h.lines)
             is_generated = bool(_GENERATED_FILE_PATTERNS.search(f.path))
             if is_generated or hunk_size > DIFF_TRUNCATION_THRESHOLD_BYTES:
                 f.truncated = True

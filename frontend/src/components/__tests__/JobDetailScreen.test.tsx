@@ -19,6 +19,8 @@ vi.mock("../../api/client", () => ({
   fetchArtifacts: vi.fn().mockResolvedValue({ items: [] }),
   createTerminalSession: vi.fn(),
   archiveJob: vi.fn(),
+  fetchMultiSession: vi.fn().mockResolvedValue(null),
+  fetchReviewStory: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("../../hooks/useSSE", () => ({

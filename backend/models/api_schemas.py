@@ -131,7 +131,10 @@ class UpdateSettingsRequest(CamelModel):
     max_turns: int | None = Field(None, ge=1, le=10)
     verify_prompt: str | None = Field(None, max_length=5000)
     self_review_prompt: str | None = Field(None, max_length=5000)
-    cli_sidecars: list[str] | None = Field(None, description="Sidecar names for CLI sessions; null leaves current value unchanged")
+    cli_sidecars: list[str] | None = Field(
+        None,
+        description="Sidecar names for CLI sessions; null leaves current value unchanged",
+    )
     coderecon_splade: bool | None = None
     coderecon_cross_encoder: bool | None = None
 

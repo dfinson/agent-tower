@@ -18,11 +18,11 @@ import math
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
-from backend.models.domain import Job, JobSource, JobState, SessionEvent, SessionEventKind
+from backend.models.domain import DonePayload, ErrorPayload, Job, JobSource, JobState, SessionEvent
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.events.event_pipeline import EventPipeline
 from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin
@@ -326,8 +326,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                     # Match cwd against managed repo paths
                     # cwd may be a subdirectory of the repo path
                     cwd_matches = any(
-                        cwd == repo_path or cwd.startswith(repo_path + "/")
-                        for repo_path in managed_paths
+                        cwd == repo_path or cwd.startswith(repo_path + "/") for repo_path in managed_paths
                     )
                     if not cwd_matches:
                         continue
@@ -647,7 +646,10 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         worktree = self._job_worktrees.get(job_id)
         base_ref = self._job_base_refs.get(job_id)
         await self._runtime.feed_external_event(
-            job_id, event, worktree_path=worktree, base_ref=base_ref,
+            job_id,
+            event,
+            worktree_path=worktree,
+            base_ref=base_ref,
         )
 
     def _pipeline_schedule_write(self, coro: Any) -> None:
@@ -729,7 +731,10 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 tool_intent = str(raw_args.get("description", ""))
             tool_id = getattr(data, "tool_call_id", "") or ""
             await self._pipeline.on_tool_start(
-                job_id, tool_id, tool_name, args_str,
+                job_id,
+                tool_id,
+                tool_name,
+                args_str,
                 intent=tool_intent or None,
                 title=tool_title or None,
             )
@@ -793,11 +798,11 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         # events in _translate_event, so this is a no-op today).
         elif kind_str in ("session.task_complete", "session.idle", "session.shutdown"):
             payload = data.to_dict() if data and hasattr(data, "to_dict") else {}
-            await self._pipeline.on_done(job_id, payload)
+            await self._pipeline.on_done(job_id, cast("DonePayload", payload))
 
         elif kind_str == "session.error":
             payload = data.to_dict() if data and hasattr(data, "to_dict") else {}
-            await self._pipeline.on_error(job_id, payload)
+            await self._pipeline.on_error(job_id, cast("ErrorPayload", payload))
 
     # ------------------------------------------------------------------
     # Prompt capture for CLI sessions
@@ -944,9 +949,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                     if counters and job_id not in self._jobs_with_streaming_usage:
                         await tele_repo.increment(job_id=job_id, **counters)
                     duration_ms = shutdown_metrics.get("duration_ms", 0)
-                    await tele_repo.finalize(
-                        job_id, status=str(new_state), duration_ms=duration_ms
-                    )
+                    await tele_repo.finalize(job_id, status=str(new_state), duration_ms=duration_ms)
                     ctx_tokens = shutdown_metrics.get("current_context_tokens")
                     if ctx_tokens:
                         await tele_repo.set_context(job_id, current_tokens=ctx_tokens)

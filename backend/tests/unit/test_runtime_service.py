@@ -696,7 +696,7 @@ class TestJobLifecycle:
         config: CPLConfig,
     ) -> None:
         """pause_job blocks tools, interrupts the session, and sends the pause message."""
-        slow_adapter = FakeAgentAdapter(delay=0.3)
+        slow_adapter = FakeAgentAdapter(delay=2.0)
         runtime._adapter_registry._fake = slow_adapter
 
         job = _make_job(repo=config.repos[0])
@@ -704,7 +704,7 @@ class TestJobLifecycle:
 
         await runtime.start_or_enqueue(job)
         await _wait_until(lambda: runtime.running_count == 1, msg="job did not start")
-        await asyncio.sleep(0.2)  # let task progress past setup
+        await asyncio.sleep(0.5)  # let task progress past setup
 
         result = await runtime.pause_job(job.id)
         assert result is True

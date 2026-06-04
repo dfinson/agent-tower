@@ -34,6 +34,7 @@ log = structlog.get_logger()
 # Structured result returned to callers
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PreflightToolCall:
     """A single tool invocation captured during a preflight/secondary session."""
@@ -189,8 +190,8 @@ class PreflightCurator:
         repo: str,
         worktree: str,
         job_id: str = "",
-        on_tool_call: "Callable[[PreflightToolCall], Awaitable[None]] | None" = None,
-        on_reasoning: "Callable[[str], Awaitable[None]] | None" = None,
+        on_tool_call: Callable[[PreflightToolCall], Awaitable[None]] | None = None,
+        on_reasoning: Callable[[str], Awaitable[None]] | None = None,
     ) -> PreflightReport:
         """Run the preflight curator agent and return its structured report.
 
@@ -243,8 +244,8 @@ class PreflightCurator:
         self,
         config: SessionConfig,
         *,
-        on_tool_call: "Callable[[PreflightToolCall], Awaitable[None]] | None" = None,
-        on_reasoning: "Callable[[str], Awaitable[None]] | None" = None,
+        on_tool_call: Callable[[PreflightToolCall], Awaitable[None]] | None = None,
+        on_reasoning: Callable[[str], Awaitable[None]] | None = None,
     ) -> PreflightReport:
         """Execute the curator session and extract the final brief with tool call data."""
         t0 = time.monotonic()
@@ -271,12 +272,16 @@ class PreflightCurator:
                                 raw_args = payload.get("tool_args")
                                 raw_result = payload.get("tool_result") or payload.get("content", "")
                                 sdk_success = payload.get("tool_success", True)
+                                duration_ms_raw = payload.get("duration_ms")
+                                duration_ms = (
+                                    float(duration_ms_raw) if isinstance(duration_ms_raw, (int, float)) else None
+                                )
                                 tc = PreflightToolCall(
                                     tool_name=str(payload.get("tool_name", "")),
                                     tool_args=str(raw_args) if raw_args else None,
                                     result_text=str(raw_result) if raw_result else "",
                                     success=bool(sdk_success),
-                                    duration_ms=payload.get("duration_ms"),
+                                    duration_ms=duration_ms,
                                 )
                                 tool_calls.append(tc)
                                 if on_tool_call is not None:

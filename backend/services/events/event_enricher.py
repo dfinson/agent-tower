@@ -14,7 +14,6 @@ Key responsibilities:
 from __future__ import annotations
 
 import time
-from typing import Any
 
 from backend.models.domain import TranscriptPayload
 
@@ -128,7 +127,7 @@ class ToolEventEnricher:
         *,
         tool_intent: str | None = None,
         tool_title: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> TranscriptPayload:
         """Buffer tool start metadata and return an enriched tool_running payload."""
         self._tool_start_times[tool_id] = time.monotonic()
         self._pending_tool_metadata[tool_id] = {
@@ -153,7 +152,7 @@ class ToolEventEnricher:
         sdk_success: bool,
         *,
         tool_name_fallback: str = "tool",
-    ) -> dict[str, Any]:
+    ) -> TranscriptPayload:
         """Consume buffered start metadata and return an enriched tool_call payload."""
         buffered = self._pending_tool_metadata.pop(tool_id, {})
         tool_name = buffered.get("tool_name", tool_name_fallback)

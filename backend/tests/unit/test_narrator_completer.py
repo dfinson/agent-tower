@@ -83,16 +83,23 @@ class TestNarratorCompleter:
         completer = NarratorCompleter(adapter, model="claude-haiku-4-5")
         result = await completer.complete("Write a story")
         assert result == "narrative text"
-        adapter.complete.assert_awaited_once_with("Write a story")
+        adapter.complete.assert_awaited_once_with(
+            "Write a story",
+            model="claude-haiku-4-5",
+            system_message=(
+                "You are a technical writer. Respond ONLY with the requested text content. "
+                "Do not use any tools, do not read or write files, do not run commands. "
+                "Just produce the written content directly."
+            ),
+            excluded_tools=["*"],
+        )
 
     @pytest.mark.asyncio()
     async def test_complete_returns_empty_on_none(self):
         from backend.services.adapters.agent_adapter import CompletionResult
 
         adapter = AsyncMock()
-        adapter.complete.return_value = CompletionResult(
-            text=None, input_tokens=10, output_tokens=0, model="test"
-        )
+        adapter.complete.return_value = CompletionResult(text=None, input_tokens=10, output_tokens=0, model="test")
         completer = NarratorCompleter(adapter, model="test")
         result = await completer.complete("prompt")
         assert result == ""

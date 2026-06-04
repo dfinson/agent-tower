@@ -11,8 +11,9 @@ Create Date: 2026-05-17
 
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "0050"
 down_revision = "0049"
@@ -22,11 +23,13 @@ depends_on = None
 
 def upgrade() -> None:
     # Drop the unique index if it was previously created (idempotent).
-    with op.batch_alter_table("job_telemetry_summary") as batch_op:
-        try:
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text("SELECT name FROM sqlite_master WHERE type='index' AND name='uq_telemetry_summary_job_session'")
+    )
+    if result.fetchone():
+        with op.batch_alter_table("job_telemetry_summary") as batch_op:
             batch_op.drop_index("uq_telemetry_summary_job_session")
-        except Exception:
-            pass
 
     # Recreate the table with composite PK (job_id, session_kind).
     # batch_alter_table copies data, rebuilds with the new schema.

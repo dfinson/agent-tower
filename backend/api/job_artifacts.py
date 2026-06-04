@@ -115,7 +115,9 @@ def _cache_put(job_id: str, endpoint: str, sha: str | None, value: Any) -> None:
 
 
 async def _ensure_repo_and_worktree(
-    coderecon: CodeReconService, repo: str, worktree_path: str,
+    coderecon: CodeReconService,
+    repo: str,
+    worktree_path: str,
 ) -> str:
     """Index the repo and register the worktree so semantic_diff sees changes."""
     repo_name = await coderecon.ensure_repo_indexed(repo)
@@ -284,7 +286,11 @@ async def get_job_diff(
     already_enriched = any(f.symbols for f in files)
     if files and not already_enriched and coderecon.available and job.repo and job.worktree_path:
         await _enrich_files_with_symbols(
-            coderecon, files, job.repo, job.worktree_path, job.base_ref or "HEAD",
+            coderecon,
+            files,
+            job.repo,
+            job.worktree_path,
+            job.base_ref or "HEAD",
         )
 
     return DiffListResponse(items=DiffService.truncate_large_files(files))
@@ -307,9 +313,7 @@ async def get_job_diff_file(
 
     if job.state in (JobState.running, JobState.waiting_for_approval) and job.worktree_path:
         try:
-            file = await diff_service.calculate_diff_single_file(
-                job.worktree_path, job.base_ref, path
-            )
+            file = await diff_service.calculate_diff_single_file(job.worktree_path, job.base_ref, path)
         except (GitError, OSError):
             log.warning("get_job_diff_file_failed", job_id=job_id, path=path, exc_info=True)
 
@@ -575,7 +579,7 @@ async def get_job_snapshot(
     session: FromDishka[AsyncSession],
     diff_service: FromDishka[DiffService],
     approval_repo: FromDishka[ApprovalRepository],
-    session_factory: FromDishka[async_sessionmaker],
+    session_factory: FromDishka[async_sessionmaker[AsyncSession]],
 ) -> JobSnapshotResponse:
     """Full state hydration for a single job.
 
@@ -745,6 +749,7 @@ async def get_job_story(
     cached = row.scalar_one_or_none()
     if cached:
         import json
+
         try:
             payload = json.loads(cached)
             blocks = [StoryBlock(**b) for b in payload.get("blocks", [])]
@@ -924,7 +929,9 @@ def _build_structural_changes(raw_changes: list[Any]) -> list[StructuralChange]:
                 test_files=test_files,
                 risk=risk,
                 line_range=[c.start_line, c.end_line] if c.start_line else None,
-                coverage_confidence=impact.coverage_confidence if impact and hasattr(impact, "coverage_confidence") else None,
+                coverage_confidence=(
+                    impact.coverage_confidence if impact and hasattr(impact, "coverage_confidence") else None
+                ),
             )
         )
     return changes
@@ -1692,9 +1699,9 @@ async def get_job_motivations(
         # Normalize to relative path — spans created before the worktree existed
         # store repo-absolute paths, so try both prefixes.
         if target.startswith(wt_prefix):
-            rel_target = target[len(wt_prefix):]
+            rel_target = target[len(wt_prefix) :]
         elif target.startswith(repo_prefix):
-            rel_target = target[len(repo_prefix):]
+            rel_target = target[len(repo_prefix) :]
         else:
             rel_target = target
 
@@ -1711,8 +1718,11 @@ async def get_job_motivations(
         edit_motivations_raw = span.get("edit_motivations")
         if edit_motivations_raw:
             import json as _json
+
             try:
-                edits = _json.loads(edit_motivations_raw) if isinstance(edit_motivations_raw, str) else edit_motivations_raw
+                edits = (
+                    _json.loads(edit_motivations_raw) if isinstance(edit_motivations_raw, str) else edit_motivations_raw
+                )
                 for i, edit in enumerate(edits if isinstance(edits, list) else []):
                     key = f"{rel_target}:{i}"
                     # The stored JSON uses "summary" (not "title"/"why").
@@ -1756,7 +1766,9 @@ async def get_job_covering_tests(
     try:
         repo_name = await _ensure_repo_and_worktree(coderecon, job.repo, job.worktree_path)
         result = await coderecon.covering_tests(
-            repo_name, file_path, worktree=job.worktree_path,
+            repo_name,
+            file_path,
+            worktree=job.worktree_path,
         )
     except Exception:
         log.warning("covering_tests_failed", job_id=job_id, file_path=file_path, exc_info=True)
@@ -1816,8 +1828,7 @@ async def get_job_line_coverage(
     tests_by_line: dict[str, list[LineCoverageTestInfo]] = {}
     for line_no, test_names in (result.tests_by_line or {}).items():
         tests_by_line[str(line_no)] = [
-            LineCoverageTestInfo(name=name, file="", line=0, status="pass")
-            for name in test_names
+            LineCoverageTestInfo(name=name, file="", line=0, status="pass") for name in test_names
         ]
 
     return LineCoverageResponse(
@@ -1860,7 +1871,9 @@ async def get_job_blast_radius(
 
     try:
         result = await coderecon.blast_radius(
-            repo_name, changed_files, worktree=job.worktree_path,
+            repo_name,
+            changed_files,
+            worktree=job.worktree_path,
         )
     except Exception:
         log.warning("blast_radius_failed", job_id=job_id, exc_info=True)

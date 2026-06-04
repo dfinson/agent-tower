@@ -6,6 +6,13 @@ resolution-markers = [
     "python_full_version < '3.15'",
 ]
 
+[manifest]
+overrides = [
+    { name = "coderecon-ai-models-ce", directory = "stubs/coderecon-models-ce" },
+    { name = "coderecon-ai-models-ce-tiny", directory = "stubs/coderecon-models-ce-tiny" },
+    { name = "coderecon-ai-models-splade", directory = "stubs/coderecon-models-splade" },
+]
+
 [[package]]
 name = "aiofile"
 version = "3.11.1"
@@ -718,17 +725,17 @@ dependencies = [
 [[package]]
 name = "coderecon-ai-models-ce"
 version = "1.0.0"
-source = { git = "https://github.com/dfinson/coderecon.git?subdirectory=model-packages%2Fcoderecon-models-ce&rev=main#865d3072a1fe2c7f3f80a79f23d80b94ec6018e2" }
+source = { directory = "stubs/coderecon-models-ce" }
 
 [[package]]
 name = "coderecon-ai-models-ce-tiny"
 version = "1.0.0"
-source = { git = "https://github.com/dfinson/coderecon.git?subdirectory=model-packages%2Fcoderecon-models-ce-tiny&rev=main#865d3072a1fe2c7f3f80a79f23d80b94ec6018e2" }
+source = { directory = "stubs/coderecon-models-ce-tiny" }
 
 [[package]]
 name = "coderecon-ai-models-splade"
 version = "1.0.0"
-source = { git = "https://github.com/dfinson/coderecon.git?subdirectory=model-packages%2Fcoderecon-models-splade&rev=main#865d3072a1fe2c7f3f80a79f23d80b94ec6018e2" }
+source = { directory = "stubs/coderecon-models-splade" }
 
 [[package]]
 name = "colorama"

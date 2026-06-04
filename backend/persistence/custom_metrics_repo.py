@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.persistence.database import serialized_write
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
 class CustomMetricsRepository:
@@ -65,7 +67,7 @@ class CustomMetricsRepository:
             data["viz_config_json"] = json.dumps(data.pop("viz_config"))
 
         columns = ", ".join(data.keys())
-        placeholders = ", ".join(f":{k}" for k in data.keys())
+        placeholders = ", ".join(f":{k}" for k in data)
 
         async with serialized_write(self._sf) as session:
             await session.execute(

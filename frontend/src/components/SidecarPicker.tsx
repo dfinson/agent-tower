@@ -61,7 +61,7 @@ export function SidecarPicker({
       onSelectionChange([...selected, created.id]);
       setCreating(false);
       toast.success(`Template "${created.name}" created and attached`);
-    } catch (e) {
+    } catch {
       // If library save fails, still attach as inline
       onInlineDefinitions([...inlineDefinitions, definitionJson]);
       setCreating(false);

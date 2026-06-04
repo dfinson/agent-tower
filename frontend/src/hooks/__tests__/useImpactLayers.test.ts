@@ -1,22 +1,40 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 
-vi.mock("../../api/client", () => ({ fetchImpactGraph: vi.fn() }));
+vi.mock("../../api/client", () => ({ fetchImpactGraphBatch: vi.fn() }));
 
-import { fetchImpactGraph } from "../../api/client";
+import { fetchImpactGraphBatch } from "../../api/client";
 import { useImpactLayers } from "../useImpactLayers";
 import type { DiffFileModel } from "../../api/types";
 
-const mockFetchImpactGraph = fetchImpactGraph as ReturnType<typeof vi.fn>;
+const mockFetchImpactGraphBatch = fetchImpactGraphBatch as ReturnType<typeof vi.fn>;
+
+type ViewZoneAccessorMock = {
+  removeZone: ReturnType<typeof vi.fn>;
+  addZone: ReturnType<typeof vi.fn>;
+  layoutZone: ReturnType<typeof vi.fn>;
+};
 
 function makeEditorRef() {
   return {
     current: {
       getModifiedEditor: () => ({
-        changeViewZones: vi.fn((cb: any) =>
-          cb({ removeZone: vi.fn(), addZone: vi.fn().mockReturnValue("z1") }),
+        changeViewZones: vi.fn((cb: (accessor: ViewZoneAccessorMock) => void) =>
+          cb({ removeZone: vi.fn(), addZone: vi.fn().mockReturnValue("z1"), layoutZone: vi.fn() }),
         ),
+        getModel: vi.fn().mockReturnValue(null),
+        onMouseDown: vi.fn().mockReturnValue({ dispose: vi.fn() }),
       }),
+    },
+  };
+}
+
+function makeMonacoRef() {
+  return {
+    current: {
+      editor: {
+        MouseTargetType: { CONTENT_VIEW_ZONE: 8 },
+      },
     },
   };
 }
@@ -58,11 +76,11 @@ describe("useImpactLayers", () => {
         file,
         enabled: false,
         editorRef: makeEditorRef(),
-        monacoRef: { current: {} },
+        monacoRef: makeMonacoRef(),
         editorReady: false,
       }),
     );
-    expect(mockFetchImpactGraph).not.toHaveBeenCalled();
+    expect(mockFetchImpactGraphBatch).not.toHaveBeenCalled();
   });
 
   it("does not fetch when file is undefined", () => {
@@ -72,25 +90,30 @@ describe("useImpactLayers", () => {
         file: undefined,
         enabled: true,
         editorRef: makeEditorRef(),
-        monacoRef: { current: {} },
+        monacoRef: makeMonacoRef(),
         editorReady: false,
       }),
     );
-    expect(mockFetchImpactGraph).not.toHaveBeenCalled();
+    expect(mockFetchImpactGraphBatch).not.toHaveBeenCalled();
   });
 
   it("fetches impact for detected symbols", async () => {
-    mockFetchImpactGraph.mockResolvedValue({
+    mockFetchImpactGraphBatch.mockResolvedValue({
       jobId: "j",
-      target: "my_function",
-      available: true,
-      totalReferences: 2,
-      filesAffected: 1,
-      summary: "2 refs",
-      references: [
-        { symbol: "test_fn", file: "t.py", line: 5, tier: "verified", isTest: true, rawTier: "verified" },
-        { symbol: "caller", file: "api.py", line: 20, tier: "inferred", isTest: false, rawTier: "inferred" },
-      ],
+      results: {
+        my_function: {
+          jobId: "j",
+          target: "my_function",
+          available: true,
+          totalReferences: 2,
+          filesAffected: 1,
+          summary: "2 refs",
+          references: [
+            { symbol: "test_fn", file: "t.py", line: 5, tier: "verified", isTest: true, rawTier: "verified" },
+            { symbol: "caller", file: "api.py", line: 20, tier: "inferred", isTest: false, rawTier: "inferred" },
+          ],
+        },
+      },
     });
 
     const file = makeFile(undefined, [
@@ -102,7 +125,7 @@ describe("useImpactLayers", () => {
         file,
         enabled: true,
         editorRef: makeEditorRef(),
-        monacoRef: { current: {} },
+        monacoRef: makeMonacoRef(),
         editorReady: false,
       }),
     );
@@ -117,14 +140,19 @@ describe("useImpactLayers", () => {
   });
 
   it("does not create zones when API returns unavailable", async () => {
-    mockFetchImpactGraph.mockResolvedValue({
+    mockFetchImpactGraphBatch.mockResolvedValue({
       jobId: "j",
-      target: "my_function",
-      available: false,
-      totalReferences: 0,
-      filesAffected: 0,
-      summary: "",
-      references: [],
+      results: {
+        my_function: {
+          jobId: "j",
+          target: "my_function",
+          available: false,
+          totalReferences: 0,
+          filesAffected: 0,
+          summary: "",
+          references: [],
+        },
+      },
     });
 
     const file = makeFile(undefined, [
@@ -136,26 +164,31 @@ describe("useImpactLayers", () => {
         file,
         enabled: true,
         editorRef: makeEditorRef(),
-        monacoRef: { current: {} },
+        monacoRef: makeMonacoRef(),
         editorReady: false,
       }),
     );
 
     await waitFor(() => {
-      expect(mockFetchImpactGraph).toHaveBeenCalled();
+      expect(mockFetchImpactGraphBatch).toHaveBeenCalled();
     });
     expect(result.current.zones).toHaveLength(0);
   });
 
   it("does not create zones for symbols with zero references", async () => {
-    mockFetchImpactGraph.mockResolvedValue({
+    mockFetchImpactGraphBatch.mockResolvedValue({
       jobId: "j",
-      target: "my_function",
-      available: true,
-      totalReferences: 0,
-      filesAffected: 0,
-      summary: "No references",
-      references: [],
+      results: {
+        my_function: {
+          jobId: "j",
+          target: "my_function",
+          available: true,
+          totalReferences: 0,
+          filesAffected: 0,
+          summary: "No references",
+          references: [],
+        },
+      },
     });
 
     const file = makeFile(undefined, [
@@ -167,13 +200,13 @@ describe("useImpactLayers", () => {
         file,
         enabled: true,
         editorRef: makeEditorRef(),
-        monacoRef: { current: {} },
+        monacoRef: makeMonacoRef(),
         editorReady: false,
       }),
     );
 
     await waitFor(() => {
-      expect(mockFetchImpactGraph).toHaveBeenCalled();
+      expect(mockFetchImpactGraphBatch).toHaveBeenCalled();
     });
     expect(result.current.zones).toHaveLength(0);
   });
@@ -198,11 +231,12 @@ describe("useImpactLayers", () => {
         file: fileNoSymbols,
         enabled: true,
         editorRef: makeEditorRef(),
-        monacoRef: { current: {} },
+        monacoRef: makeMonacoRef(),
         editorReady: false,
       }),
     );
 
-    expect(mockFetchImpactGraph).not.toHaveBeenCalled();
+    expect(mockFetchImpactGraphBatch).not.toHaveBeenCalled();
   });
 });
+

@@ -17,9 +17,9 @@ from backend.models.api_schemas import (
     CustomMetricResponse,
     CustomMetricsListResponse,
     CustomMetricWithDataResponse,
+    MetricsChatMessageResponse,
     MetricsChatRequest,
     MetricsChatResponse,
-    MetricsChatMessageResponse,
     PinMetricRequest,
     UpdateMetricRequest,
 )
@@ -116,7 +116,9 @@ async def list_custom_metrics(
         except Exception as exc:
             error = f"Unexpected error: {exc}"
         return CustomMetricWithDataResponse(
-            metric=_row_to_metric_response(m), data=data, error=error,
+            metric=_row_to_metric_response(m),
+            data=data,
+            error=error,
         )
 
     results = await asyncio.gather(*[_eval(m) for m in metrics])

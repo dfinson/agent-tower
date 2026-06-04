@@ -19,7 +19,7 @@ import contextlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -51,7 +51,8 @@ class CodeReconService:
     def __init__(self) -> None:
         self._kits: dict[str, Any] = {}  # resolved_repo_path → ReviewKit
         self._index_locks: dict[str, asyncio.Lock] = {}
-        self._worktree_stats: dict[tuple[str, str], dict[str, Any]] = {}  # (repo, worktree) → {symbol_count, file_count}
+        self._worktree_stats: dict[tuple[str, str], dict[str, Any]] = {}
+        # (repo, worktree) → {symbol_count, file_count}
         self._available = False
         self._event_bus: EventBus | None = None
         self._kit_class: type | None = None
@@ -86,8 +87,13 @@ class CodeReconService:
     # ── Lifecycle ──
 
     async def start(self) -> None:
-        """Import coderecon.  Raises on failure — the package is required."""
-        from coderecon.review import ReviewKit
+        """Import coderecon.  Marks unavailable if review module is missing."""
+        try:
+            from coderecon.review import ReviewKit
+        except (ImportError, ModuleNotFoundError):
+            log.warning("coderecon_review.unavailable", reason="coderecon.review module not found")
+            self._available = False
+            return
 
         self._kit_class = ReviewKit
         self._available = True
@@ -204,9 +210,7 @@ class CodeReconService:
         loop = asyncio.get_running_loop()
         wt_name = Path(worktree).name if "/" in worktree else worktree
         try:
-            scout_result = await loop.run_in_executor(
-                self._executor, lambda: kit.scout(worktree=wt_name)
-            )
+            scout_result = await loop.run_in_executor(self._executor, lambda: kit.scout(worktree=wt_name))
             self._worktree_stats[(repo, wt_name)] = {
                 "symbol_count": scout_result.def_count,
                 "file_count": scout_result.file_count,
@@ -230,14 +234,17 @@ class CodeReconService:
         try:
             wt = str(Path(worktree_path).resolve())
             await loop.run_in_executor(self._executor, kit.register_worktree, wt_name, Path(wt))
-            await loop.run_in_executor(
-                self._executor, lambda: kit.ensure_indexed(worktree=wt_name)
-            )
+            await loop.run_in_executor(self._executor, lambda: kit.ensure_indexed(worktree=wt_name))
             await self._refresh_stats(repo, worktree=wt_name)
             log.info("coderecon_review.worktree_registered", repo=repo, worktree=wt)
             return True
         except Exception:
-            log.warning("coderecon_review.worktree_register_failed", repo=repo, worktree=str(worktree_path), exc_info=True)
+            log.warning(
+                "coderecon_review.worktree_register_failed",
+                repo=repo,
+                worktree=str(worktree_path),
+                exc_info=True,
+            )
             return False
 
     # ── Structural Analysis ──
@@ -299,9 +306,7 @@ class CodeReconService:
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
         wt_name = self._resolve_worktree_name(repo, worktree)
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.check_structural_health(worktree=wt_name)
-        )
+        return await loop.run_in_executor(self._executor, lambda: kit.check_structural_health(worktree=wt_name))
 
     async def impact(self, repo: str, target: str, *, worktree: str) -> Any:
         """Blast radius for a symbol or file path.
@@ -348,11 +353,9 @@ class CodeReconService:
             raise CodeReconUnavailableError
         loop = asyncio.get_running_loop()
         wt_name = self._resolve_worktree_name(repo, worktree)
-        count = await loop.run_in_executor(
-            self._executor, lambda: kit.reindex(changed_paths, worktree=wt_name)
-        )
+        count = await loop.run_in_executor(self._executor, lambda: kit.reindex(changed_paths, worktree=wt_name))
         await self._refresh_stats(repo, worktree=wt_name)
-        return count
+        return int(count)
 
     async def checkpoint(
         self,
@@ -413,11 +416,9 @@ class CodeReconService:
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
         wt_name = self._resolve_worktree_name(repo, worktree)
-        count = await loop.run_in_executor(
-            self._executor, lambda: kit.sync_from_git(worktree=wt_name)
-        )
+        count = await loop.run_in_executor(self._executor, lambda: kit.sync_from_git(worktree=wt_name))
         await self._refresh_stats(repo, worktree=wt_name)
-        return count
+        return int(count)
 
     async def merge_index(self, repo: str, source: str, target: str = "main") -> dict[str, Any]:
         """Reconcile source worktree index into target, then drop source.
@@ -427,11 +428,9 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            self._executor, lambda: kit.merge_index(source, target)
-        )
+        result = await loop.run_in_executor(self._executor, lambda: kit.merge_index(source, target))
         await self._refresh_stats(repo, worktree=target)
-        return result
+        return cast("dict[str, Any]", result)
 
     async def drop_worktree(self, repo: str, name: str) -> int:
         """Remove all indexed data for a worktree.
@@ -440,11 +439,9 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            self._executor, lambda: kit.drop_worktree(name)
-        )
+        result = await loop.run_in_executor(self._executor, lambda: kit.drop_worktree(name))
         self._worktree_stats.pop((repo, name), None)
-        return result
+        return int(result)
 
     async def enrich_scip(self, repo: str, *, worktree: str) -> Any:
         """Run SCIP indexers and import compiler-grade cross-references.
@@ -454,9 +451,7 @@ class CodeReconService:
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
         wt_name = self._resolve_worktree_name(repo, worktree)
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.enrich_scip(worktree=wt_name)
-        )
+        return await loop.run_in_executor(self._executor, lambda: kit.enrich_scip(worktree=wt_name))
 
     async def repo_status(self, repo: str, *, worktree: str = "main") -> dict[str, Any] | None:
         """Return cached indexing stats for a (repo, worktree) pair.

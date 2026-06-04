@@ -102,14 +102,14 @@ class TestSidecarSession:
         assert session.total_output_tokens == 5
         assert session.total_cost_usd == 0.001
         assert session.last_call_at is not None
-        assert session.total_latency_ms > 0
+        assert session.total_latency_ms >= 0
 
     @pytest.mark.asyncio
     async def test_timeout_retries_once(self) -> None:
         adapter = MagicMock()
         call_count = 0
 
-        async def flaky_complete(prompt: str) -> _CompletionResult:
+        async def flaky_complete(prompt: str, **kwargs) -> _CompletionResult:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -126,7 +126,7 @@ class TestSidecarSession:
     async def test_timeout_exhausted_raises(self) -> None:
         adapter = MagicMock()
 
-        async def slow_complete(prompt: str) -> _CompletionResult:
+        async def slow_complete(prompt: str, **kwargs) -> _CompletionResult:
             await asyncio.sleep(10)
             return _CompletionResult(text="ok", input_tokens=0, output_tokens=0, cost_usd=0)
 

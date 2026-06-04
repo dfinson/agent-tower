@@ -359,9 +359,7 @@ class TrailNodeRepository:
             stmt = update(TrailNodeRow).where(TrailNodeRow.id == node_id).values(edit_motivations=motivations_json)
             await session.execute(stmt)
 
-    async def get_modify_nodes_needing_semantic_targets(
-        self, *, limit: int
-    ) -> list[TrailNodeRow]:
+    async def get_modify_nodes_needing_semantic_targets(self, *, limit: int) -> list[TrailNodeRow]:
         """Fetch modify nodes whose write children lack semantic_targets.
 
         Only returns nodes for jobs that are still running (worktree exists).
@@ -369,37 +367,37 @@ class TrailNodeRepository:
         window for semantic enrichment is closed.
         """
         async with self._session_factory() as session:
-            from sqlalchemy import and_, exists
+            from sqlalchemy import and_
             from sqlalchemy.orm import aliased
 
             from backend.models.db import JobRow
 
-            Parent = aliased(TrailNodeRow, name="parent")
-            Child = aliased(TrailNodeRow, name="child")
+            parent_node = aliased(TrailNodeRow, name="parent")
+            child_node = aliased(TrailNodeRow, name="child")
 
             # Modify nodes that have at least one write child missing semantic_targets
             child_exists = (
-                select(Child.id)
+                select(child_node.id)
                 .where(
                     and_(
-                        Child.parent_id == Parent.id,
-                        Child.kind == "write",
-                        Child.semantic_targets.is_(None),
+                        child_node.parent_id == parent_node.id,
+                        child_node.kind == "write",
+                        child_node.semantic_targets.is_(None),
                     )
                 )
-                .correlate(Parent)
+                .correlate(parent_node)
                 .exists()
             )
             stmt = (
-                select(Parent)
-                .join(JobRow, JobRow.id == Parent.job_id)
-                .where(Parent.kind == "modify")
-                .where(Parent.start_sha.isnot(None))
-                .where(Parent.end_sha.isnot(None))
-                .where(Parent.start_sha != Parent.end_sha)
+                select(parent_node)
+                .join(JobRow, JobRow.id == parent_node.job_id)
+                .where(parent_node.kind == "modify")
+                .where(parent_node.start_sha.isnot(None))
+                .where(parent_node.end_sha.isnot(None))
+                .where(parent_node.start_sha != parent_node.end_sha)
                 .where(child_exists)
                 .where(JobRow.state.in_(("running", "review")))
-                .order_by(Parent.timestamp)
+                .order_by(parent_node.timestamp)
                 .limit(limit)
             )
             result = await session.execute(stmt)
@@ -420,11 +418,7 @@ class TrailNodeRepository:
     async def set_semantic_targets(self, node_id: str, targets_json: str) -> None:
         """Set the semantic_targets JSON on a write sub-node."""
         async with serialized_write(self._session_factory) as session:
-            stmt = (
-                update(TrailNodeRow)
-                .where(TrailNodeRow.id == node_id)
-                .values(semantic_targets=targets_json)
-            )
+            stmt = update(TrailNodeRow).where(TrailNodeRow.id == node_id).values(semantic_targets=targets_json)
             await session.execute(stmt)
 
     async def update_tool_metadata(

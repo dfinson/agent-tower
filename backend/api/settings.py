@@ -260,19 +260,24 @@ async def get_repo_summary(
             from sqlalchemy import text as sa_text
 
             cost_row = (
-                await session.execute(
-                    sa_text(
-                        "SELECT"
-                        " COALESCE(SUM(total_cost_usd), 0) AS total_cost_usd,"
-                        " COUNT(*) AS total_jobs,"
-                        " COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS total_tokens"
-                        " FROM job_telemetry_summary"
-                        " WHERE repo = :repo AND session_kind = 'job'"
-                        " AND created_at >= datetime('now', '-7 days')"
-                    ),
-                    {"repo": resolved},
+                (
+                    await session.execute(
+                        sa_text(
+                            "SELECT"
+                            " COALESCE(SUM(total_cost_usd), 0) AS total_cost_usd,"
+                            " COUNT(*) AS total_jobs,"
+                            " COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens"
+                            " + cache_write_tokens), 0) AS total_tokens"
+                            " FROM job_telemetry_summary"
+                            " WHERE repo = :repo AND session_kind = 'job'"
+                            " AND created_at >= datetime('now', '-7 days')"
+                        ),
+                        {"repo": resolved},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if cost_row:
                 cost_summary = RepoCostSummary(
                     total_cost_usd=float(cost_row["total_cost_usd"]),

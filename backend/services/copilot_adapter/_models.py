@@ -12,12 +12,14 @@ individual malformed models rather than aborting the whole list.
 
 from __future__ import annotations
 
+from typing import Any
+
 import structlog
 
 log = structlog.get_logger(__name__)
 
 
-async def fetch_copilot_models_raw() -> list[dict]:
+async def fetch_copilot_models_raw() -> list[dict[str, Any]]:
     """Start a CopilotClient, fetch raw model dicts, and stop it.
 
     Tolerates missing ``billing.multiplier`` by defaulting it to ``1.0``
@@ -37,7 +39,7 @@ async def fetch_copilot_models_raw() -> list[dict]:
         if not client._client:  # noqa: SLF001
             raise RuntimeError("CopilotClient started but internal RPC client is not set")
         response = await client._client.request("models.list", {})  # noqa: SLF001
-        models: list[dict] = []
+        models: list[dict[str, Any]] = []
         for raw in response.get("models", []):
             if isinstance(raw.get("billing"), dict):
                 raw["billing"].setdefault("multiplier", 1.0)

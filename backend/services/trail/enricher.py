@@ -510,6 +510,8 @@ class TrailEnricher:
                 await self._coderecon.register_worktree(repo_name, worktree_path)
 
                 # Run semantic_diff between the modify node's SHAs
+                if not modify_node.start_sha or not modify_node.end_sha:
+                    continue
                 diff_result = await self._coderecon.semantic_diff(
                     repo_name,
                     base=modify_node.start_sha,
@@ -522,7 +524,7 @@ class TrailEnricher:
                 # Build a file→changes index for distribution
                 changes_by_file: dict[str, list[dict[str, Any]]] = {}
                 for ch in structural_changes:
-                    entry = {
+                    entry: dict[str, Any] = {
                         "symbol": ch.qualified_name or ch.name,
                         "kind": ch.kind,
                         "change": ch.change,
@@ -554,7 +556,7 @@ class TrailEnricher:
                         for full_path in child_files:
                             # Strip worktree prefix to get repo-relative path
                             if full_path.startswith(worktree_prefix):
-                                rel_path = full_path[len(worktree_prefix):]
+                                rel_path = full_path[len(worktree_prefix) :]
                             else:
                                 rel_path = full_path.rsplit("/", 1)[-1]
                             if rel_path in changes_by_file:
@@ -606,7 +608,11 @@ class TrailEnricher:
         ingested = 0
         async with self._session_factory() as session:
             rows = await session.execute(
-                text("SELECT id, repo, worktree_path FROM jobs WHERE state IN ('running', 'paused') AND worktree_path IS NOT NULL"),
+                text(
+                    "SELECT id, repo, worktree_path FROM jobs"
+                    " WHERE state IN ('running', 'paused')"
+                    " AND worktree_path IS NOT NULL"
+                ),
             )
             jobs = rows.mappings().all()
 
@@ -691,9 +697,7 @@ class TrailEnricher:
                     from backend.services.story.service import invalidate_story_cache_for_jobs
 
                     try:
-                        await invalidate_story_cache_for_jobs(
-                            self._session_factory, self._dirty_job_ids
-                        )
+                        await invalidate_story_cache_for_jobs(self._session_factory, self._dirty_job_ids)
                     except Exception:
                         log.debug("story_cache_invalidation_failed", exc_info=True)
                     self._dirty_job_ids = set()

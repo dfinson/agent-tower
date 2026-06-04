@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -36,7 +37,9 @@ from backend.models.domain import (
 from backend.services.events.event_enricher import build_tool_call_payload, build_tool_running_payload
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Coroutine
+    from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 log = structlog.get_logger()
 
@@ -131,7 +134,11 @@ class EventPipeline:
     # ------------------------------------------------------------------
 
     async def on_agent_message(
-        self, job_id: str, content: str, *, title: str | None = None,
+        self,
+        job_id: str,
+        content: str,
+        *,
+        title: str | None = None,
     ) -> None:
         """Agent produced a complete text message."""
         self.set_job_start_time(job_id)
@@ -144,24 +151,33 @@ class EventPipeline:
 
     async def on_agent_delta(self, job_id: str, delta: str) -> None:
         """Streaming chunk of agent text."""
-        await self._emit(job_id, SessionEvent(
-            kind=SessionEventKind.transcript,
-            payload=TranscriptPayload(role="agent_delta", content=delta),
-        ))
+        await self._emit(
+            job_id,
+            SessionEvent(
+                kind=SessionEventKind.transcript,
+                payload=TranscriptPayload(role="agent_delta", content=delta),
+            ),
+        )
 
     async def on_reasoning(self, job_id: str, content: str) -> None:
         """Agent produced a reasoning/thinking block."""
-        await self._emit(job_id, SessionEvent(
-            kind=SessionEventKind.transcript,
-            payload=TranscriptPayload(role="reasoning", content=content),
-        ))
+        await self._emit(
+            job_id,
+            SessionEvent(
+                kind=SessionEventKind.transcript,
+                payload=TranscriptPayload(role="reasoning", content=content),
+            ),
+        )
 
     async def on_reasoning_delta(self, job_id: str, delta: str) -> None:
         """Streaming chunk of reasoning text."""
-        await self._emit(job_id, SessionEvent(
-            kind=SessionEventKind.transcript,
-            payload=TranscriptPayload(role="reasoning_delta", content=delta),
-        ))
+        await self._emit(
+            job_id,
+            SessionEvent(
+                kind=SessionEventKind.transcript,
+                payload=TranscriptPayload(role="reasoning_delta", content=delta),
+            ),
+        )
 
     async def on_user_message(self, job_id: str, content: str) -> None:
         """User/operator sent a message."""
@@ -225,7 +241,10 @@ class EventPipeline:
                 await self.on_file_changed(job_id, fpath)
 
     async def on_tool_partial(
-        self, job_id: str, tool_id: str, chunk: str,
+        self,
+        job_id: str,
+        tool_id: str,
+        chunk: str,
     ) -> None:
         """Streaming output from a running tool."""
         if not chunk:
@@ -239,13 +258,19 @@ class EventPipeline:
         if vis == "hidden":
             return
 
-        await self._emit(job_id, SessionEvent(kind=SessionEventKind.transcript, payload=TranscriptPayload(
-            role="tool_output_delta",
-            content=chunk,
-            tool_name=tool_name,
-            tool_call_id=tool_id,
-            turn_id=buffered.get("turn_id", ""),
-        )))
+        await self._emit(
+            job_id,
+            SessionEvent(
+                kind=SessionEventKind.transcript,
+                payload=TranscriptPayload(
+                    role="tool_output_delta",
+                    content=chunk,
+                    tool_name=tool_name,
+                    tool_call_id=tool_id,
+                    turn_id=buffered.get("turn_id", ""),
+                ),
+            ),
+        )
 
     async def on_tool_complete(
         self,
@@ -314,10 +339,13 @@ class EventPipeline:
 
     async def on_file_changed(self, job_id: str, path: str) -> None:
         """A file was created or modified."""
-        await self._emit(job_id, SessionEvent(
-            kind=SessionEventKind.file_changed,
-            payload=FileChangedPayload(path=path),
-        ))
+        await self._emit(
+            job_id,
+            SessionEvent(
+                kind=SessionEventKind.file_changed,
+                payload=FileChangedPayload(path=path),
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -325,17 +353,23 @@ class EventPipeline:
 
     async def on_done(self, job_id: str, payload: DonePayload | None = None) -> None:
         """Agent session completed."""
-        await self._emit(job_id, SessionEvent(
-            kind=SessionEventKind.done,
-            payload=payload or DonePayload(),
-        ))
+        await self._emit(
+            job_id,
+            SessionEvent(
+                kind=SessionEventKind.done,
+                payload=payload or DonePayload(),
+            ),
+        )
 
     async def on_error(self, job_id: str, payload: ErrorPayload | None = None) -> None:
         """Agent session errored."""
-        await self._emit(job_id, SessionEvent(
-            kind=SessionEventKind.error,
-            payload=payload or ErrorPayload(),
-        ))
+        await self._emit(
+            job_id,
+            SessionEvent(
+                kind=SessionEventKind.error,
+                payload=payload or ErrorPayload(),
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Usage / telemetry  (all fields are plain values, no SDK objects)
@@ -395,9 +429,13 @@ class EventPipeline:
         # LLM span (only if we have meaningful data)
         if duration_ms or input_tokens or output_tokens:
             self._record_llm_span(
-                job_id, model, duration_ms,
-                input_tokens, output_tokens,
-                cache_read_tokens, cache_write_tokens,
+                job_id,
+                model,
+                duration_ms,
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
                 cost_usd,
             )
 
@@ -417,7 +455,10 @@ class EventPipeline:
         self._schedule_write(self._db_set_context(job_id, current_tokens=current_tokens))
 
     async def on_compaction(
-        self, job_id: str, pre_tokens: int, post_tokens: int,
+        self,
+        job_id: str,
+        pre_tokens: int,
+        post_tokens: int,
     ) -> None:
         """Context was compacted."""
         from backend.services.analytics import telemetry as tel
@@ -425,11 +466,13 @@ class EventPipeline:
         attrs: dict[str, Any] = {"job_id": job_id, "sdk": self._sdk}
         tel.compactions_counter.add(1, attrs)
         tel.tokens_compacted.add(max(0, pre_tokens - post_tokens), attrs)
-        self._schedule_write(self._db_increment(
-            job_id,
-            compactions=1,
-            tokens_compacted=max(0, pre_tokens - post_tokens),
-        ))
+        self._schedule_write(
+            self._db_increment(
+                job_id,
+                compactions=1,
+                tokens_compacted=max(0, pre_tokens - post_tokens),
+            )
+        )
         if post_tokens:
             tel.context_tokens_gauge.set(post_tokens, attrs)
             self._schedule_write(self._db_set_context(job_id, current_tokens=post_tokens))
@@ -452,18 +495,25 @@ class EventPipeline:
         self._schedule_write(self._db_set_context(job_id, window_size=window_size))
 
     async def on_shutdown(
-        self, job_id: str, *, premium_requests: float | None = None,
+        self,
+        job_id: str,
+        *,
+        premium_requests: float | None = None,
     ) -> None:
         """Session is shutting down; record any final counters."""
         if premium_requests is not None:
             from backend.services.analytics import telemetry as tel
 
             tel.premium_requests_counter.add(
-                premium_requests, {"job_id": job_id, "sdk": self._sdk},
+                premium_requests,
+                {"job_id": job_id, "sdk": self._sdk},
             )
-            self._schedule_write(self._db_increment(
-                job_id, premium_requests=premium_requests,
-            ))
+            self._schedule_write(
+                self._db_increment(
+                    job_id,
+                    premium_requests=premium_requests,
+                )
+            )
 
     # ------------------------------------------------------------------
     # Log event emission
@@ -473,15 +523,18 @@ class EventPipeline:
         """Emit a log SessionEvent."""
         seq = self._log_seq.get(job_id, 0) + 1
         self._log_seq[job_id] = seq
-        await self._emit(job_id, SessionEvent(
-            kind=SessionEventKind.log,
-            payload=LogPayload(
-                seq=seq,
-                timestamp=datetime.now(UTC).isoformat(),
-                level=level,
-                message=message,
+        await self._emit(
+            job_id,
+            SessionEvent(
+                kind=SessionEventKind.log,
+                payload=LogPayload(
+                    seq=seq,
+                    timestamp=datetime.now(UTC).isoformat(),
+                    level=level,
+                    message=message,
+                ),
             ),
-        ))
+        )
 
     # ------------------------------------------------------------------
     # Tool telemetry recording
@@ -547,22 +600,26 @@ class EventPipeline:
             else:
                 file_rw_increment["file_write_count"] = 1
             for fpath in paths:
-                self._schedule_write(self._db_record_file_access(
-                    job_id=job_id,
-                    file_path=fpath,
-                    access_type=access_type,
-                    turn_number=turn_num,
-                ))
+                self._schedule_write(
+                    self._db_record_file_access(
+                        job_id=job_id,
+                        file_path=fpath,
+                        access_type=access_type,
+                        turn_number=turn_num,
+                    )
+                )
 
         # Summary increment
-        self._schedule_write(self._db_increment(
-            job_id,
-            tool_call_count=1,
-            tool_failure_count=0 if success else 1,
-            total_tool_duration_ms=int(duration_ms),
-            retry_count=1 if retry_result.is_retry else 0,
-            **file_rw_increment,
-        ))
+        self._schedule_write(
+            self._db_increment(
+                job_id,
+                tool_call_count=1,
+                tool_failure_count=0 if success else 1,
+                total_tool_duration_ms=int(duration_ms),
+                retry_count=1 if retry_result.is_retry else 0,
+                **file_rw_increment,
+            )
+        )
 
         # Span detail
         job_start = self._job_start_times.get(job_id, time.monotonic())
@@ -571,27 +628,29 @@ class EventPipeline:
         # Capture preceding context for mutative actions
         preceding_context = self._maybe_capture_context(job_id, category, tool_args_str)
 
-        self._schedule_write(self._db_insert_span(
-            job_id=job_id,
-            span_type="tool",
-            name=tool_name,
-            started_at=round(offset, 2),
-            duration_ms=duration_ms,
-            attrs={
-                "success": success,
-                **({"error_snippet": result_text} if not success and result_text else {}),
-            },
-            tool_category=category,
-            tool_target=target,
-            turn_number=turn_num,
-            execution_phase=current_phase,
-            is_retry=retry_result.is_retry,
-            retries_span_id=retry_result.prior_failure_span_id,
-            tool_args_json=tool_args_str,
-            result_size_bytes=result_size,
-            turn_id=turn_id,
-            preceding_context=preceding_context,
-        ))
+        self._schedule_write(
+            self._db_insert_span(
+                job_id=job_id,
+                span_type="tool",
+                name=tool_name,
+                started_at=round(offset, 2),
+                duration_ms=duration_ms,
+                attrs={
+                    "success": success,
+                    **({"error_snippet": result_text} if not success and result_text else {}),
+                },
+                tool_category=category,
+                tool_target=target,
+                turn_number=turn_num,
+                execution_phase=current_phase,
+                is_retry=retry_result.is_retry,
+                retries_span_id=retry_result.prior_failure_span_id,
+                tool_args_json=tool_args_str,
+                result_size_bytes=result_size,
+                turn_id=turn_id,
+                preceding_context=preceding_context,
+            )
+        )
 
     def _record_llm_span(
         self,
@@ -610,27 +669,29 @@ class EventPipeline:
         job_start = self._job_start_times.get(job_id, time.monotonic())
         offset = time.monotonic() - job_start
 
-        self._schedule_write(self._db_insert_span(
-            job_id=job_id,
-            span_type="llm",
-            name=model or "unknown",
-            started_at=round(offset, 2),
-            duration_ms=float(duration_ms),
-            attrs={
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "cache_read_tokens": cache_read,
-                "cache_write_tokens": cache_write,
-                "cost": cost_usd,
-            },
-            turn_number=turn_num,
-            execution_phase=current_phase,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cache_read_tokens=cache_read,
-            cache_write_tokens=cache_write,
-            cost_usd=cost_usd,
-        ))
+        self._schedule_write(
+            self._db_insert_span(
+                job_id=job_id,
+                span_type="llm",
+                name=model or "unknown",
+                started_at=round(offset, 2),
+                duration_ms=float(duration_ms),
+                attrs={
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cache_read_tokens": cache_read,
+                    "cache_write_tokens": cache_write,
+                    "cost": cost_usd,
+                },
+                turn_number=turn_num,
+                execution_phase=current_phase,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_write,
+                cost_usd=cost_usd,
+            )
+        )
 
     def _record_message_count(self, job_id: str, role: str) -> None:
         """Record a message count increment (OTEL + DB)."""
@@ -684,17 +745,50 @@ class EventPipeline:
         return json.dumps(list(buf), ensure_ascii=False)
 
     # Mutative shell command prefixes
-    _MUTATIVE_SHELL_PREFIXES: frozenset[str] = frozenset({
-        "git commit", "git add", "git push", "git checkout", "git merge",
-        "git rebase", "git reset", "git stash", "git cherry-pick", "git tag",
-        "git branch -d", "git branch -D", "git branch -m",
-        "mkdir", "mv", "rm", "cp", "ln", "chmod", "chown", "touch",
-        "pip install", "pip uninstall", "uv add", "uv remove", "uv sync",
-        "uv pip install", "npm install", "npm uninstall", "npm ci",
-        "yarn add", "yarn remove", "pnpm add", "pnpm remove",
-        "docker build", "docker run", "docker compose up",
-        "make", "cargo build", "go build",
-    })
+    _MUTATIVE_SHELL_PREFIXES: frozenset[str] = frozenset(
+        {
+            "git commit",
+            "git add",
+            "git push",
+            "git checkout",
+            "git merge",
+            "git rebase",
+            "git reset",
+            "git stash",
+            "git cherry-pick",
+            "git tag",
+            "git branch -d",
+            "git branch -D",
+            "git branch -m",
+            "mkdir",
+            "mv",
+            "rm",
+            "cp",
+            "ln",
+            "chmod",
+            "chown",
+            "touch",
+            "pip install",
+            "pip uninstall",
+            "uv add",
+            "uv remove",
+            "uv sync",
+            "uv pip install",
+            "npm install",
+            "npm uninstall",
+            "npm ci",
+            "yarn add",
+            "yarn remove",
+            "pnpm add",
+            "pnpm remove",
+            "docker build",
+            "docker run",
+            "docker compose up",
+            "make",
+            "cargo build",
+            "go build",
+        }
+    )
 
     def _maybe_capture_context(
         self,
@@ -805,7 +899,8 @@ class EventPipeline:
         """Set the SQLAlchemy session factory for DB writes."""
         self._session_factory = factory
 
-    async def _get_db_session(self):  # noqa: ANN201
+    @asynccontextmanager
+    async def _get_db_session(self) -> AsyncIterator[AsyncSession]:
         """Yield a scoped DB session with commit and error handling."""
         from backend.persistence.database import serialized_write
 
@@ -813,8 +908,3 @@ class EventPipeline:
             raise RuntimeError("EventPipeline: no session_factory configured")
         async with serialized_write(self._session_factory) as session:
             yield session
-
-    # Make _get_db_session a proper async context manager
-    from contextlib import asynccontextmanager as _acm  # noqa: E301
-
-    _get_db_session = _acm(_get_db_session)  # type: ignore[assignment]

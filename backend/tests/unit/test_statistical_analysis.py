@@ -1,4 +1,7 @@
-"""Tests for backend.services.analytics.statistical_analysis -- tool_failure, retry_waste, cache_regression detectors."""
+"""Tests for backend.services.analytics.statistical_analysis.
+
+Covers tool_failure, retry_waste, and cache_regression detectors.
+"""
 
 from __future__ import annotations
 

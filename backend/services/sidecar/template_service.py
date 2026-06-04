@@ -362,13 +362,10 @@ def _validate_definition(definition_json: str) -> None:
                     if not isinstance(entry, str) or not entry.strip():
                         raise ValueError(f"toolPolicy.{list_field} entries must be non-empty strings")
 
-    if tool_access == "read_only":
-        if tool_policy:
-            cats = set(tool_policy.get("allowedCategories", []))
-            if cats - {"read", "search"}:
-                raise ValueError(
-                    f"toolAccess 'read_only' only allows categories 'read' and 'search', got {cats}"
-                )
+    if tool_access == "read_only" and tool_policy:
+        cats = set(tool_policy.get("allowedCategories", []))
+        if cats - {"read", "search"}:
+            raise ValueError(f"toolAccess 'read_only' only allows categories 'read' and 'search', got {cats}")
 
     if tool_access == "shell_restricted":
         if not tool_policy:

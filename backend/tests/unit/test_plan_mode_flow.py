@@ -7,15 +7,13 @@ the rejection re-plan loop, the max-iteration guard, and the cancel race.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from unittest.mock import AsyncMock
 
 from backend.config import CPLConfig
 from backend.models.db import Base, JobRow
@@ -35,11 +33,14 @@ from backend.services.adapters.adapter_registry import AdapterRegistry
 from backend.services.adapters.agent_adapter import AgentAdapterInterface, CompletionResult
 from backend.services.events.event_bus import EventBus
 from backend.services.job.approval_service import ApprovalService
-from backend.services.runtime import AgentSession, RuntimeService
+from backend.services.runtime import RuntimeService
 from backend.services.trail import TrailService
 from backend.services.trail.plan_manager import PlanManager
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+    from pathlib import Path
+
     from sqlalchemy.ext.asyncio import AsyncEngine
 
 
@@ -169,7 +170,7 @@ async def runtime(
     config: CPLConfig,
     approval_service: ApprovalService,
 ) -> AsyncGenerator[RuntimeService, None]:
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import MagicMock
 
     from backend.services.trail.models import TrailJobState as _TrailJobState
 
@@ -204,9 +205,8 @@ async def runtime(
         # Auto-create job state on state change to running
         if event.kind == DomainEventKind.job_state_changed:
             payload = event.payload or {}
-            if payload.get("new_state") == "running" and event.job_id:
-                if event.job_id not in trail_state:
-                    trail_state[event.job_id] = _TrailJobState()
+            if payload.get("new_state") == "running" and event.job_id and event.job_id not in trail_state:
+                trail_state[event.job_id] = _TrailJobState()
 
     event_bus.subscribe(_trail_event_handler)
 
