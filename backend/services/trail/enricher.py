@@ -554,7 +554,7 @@ class TrailEnricher:
                         for full_path in child_files:
                             # Strip worktree prefix to get repo-relative path
                             if full_path.startswith(worktree_prefix):
-                                rel_path = full_path[len(worktree_prefix):]
+                                rel_path = full_path[len(worktree_prefix) :]
                             else:
                                 rel_path = full_path.rsplit("/", 1)[-1]
                             if rel_path in changes_by_file:
@@ -606,7 +606,11 @@ class TrailEnricher:
         ingested = 0
         async with self._session_factory() as session:
             rows = await session.execute(
-                text("SELECT id, repo, worktree_path FROM jobs WHERE state IN ('running', 'paused') AND worktree_path IS NOT NULL"),
+                text(
+                    "SELECT id, repo, worktree_path FROM jobs"
+                    " WHERE state IN ('running', 'paused')"
+                    " AND worktree_path IS NOT NULL"
+                ),
             )
             jobs = rows.mappings().all()
 
@@ -691,9 +695,7 @@ class TrailEnricher:
                     from backend.services.story.service import invalidate_story_cache_for_jobs
 
                     try:
-                        await invalidate_story_cache_for_jobs(
-                            self._session_factory, self._dirty_job_ids
-                        )
+                        await invalidate_story_cache_for_jobs(self._session_factory, self._dirty_job_ids)
                     except Exception:
                         log.debug("story_cache_invalidation_failed", exc_info=True)
                     self._dirty_job_ids = set()

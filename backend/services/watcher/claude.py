@@ -22,14 +22,14 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+# Claude SDK typed message parser — converts raw JSONL dicts to typed objects
+from claude_code_sdk import AssistantMessage, TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock, UserMessage
+from claude_code_sdk._internal.message_parser import MessageParseError, parse_message
+
 from backend.models.domain import Job, JobSource, JobState, SessionEvent
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.events.event_pipeline import EventPipeline
 from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin
-
-# Claude SDK typed message parser — converts raw JSONL dicts to typed objects
-from claude_code_sdk import AssistantMessage, TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock, UserMessage
-from claude_code_sdk._internal.message_parser import MessageParseError, parse_message
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -906,7 +906,10 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
                 is_error = block.is_error or False
                 await self._pipeline.on_tool_complete(
-                    job_id, tool_use_id, str(result_content), not is_error,
+                    job_id,
+                    tool_use_id,
+                    str(result_content),
+                    not is_error,
                 )
 
     async def _process_usage_telemetry(
@@ -948,7 +951,10 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         worktree = self._job_worktrees.get(job_id)
         base_ref = self._job_base_refs.get(job_id)
         await self._runtime.feed_external_event(
-            job_id, event, worktree_path=worktree, base_ref=base_ref,
+            job_id,
+            event,
+            worktree_path=worktree,
+            base_ref=base_ref,
         )
 
     def _pipeline_schedule_write(self, coro: Any) -> None:
@@ -1009,13 +1015,10 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                 if job and job.created_at:
                     created = job.created_at
                     if created.tzinfo is None:
-                        from datetime import timezone
-                        created = created.replace(tzinfo=timezone.utc)
+                        created = created.replace(tzinfo=UTC)
                     duration_ms = max(int((now - created).total_seconds() * 1000), 0)
                 tele_repo = TelemetrySummaryRepository(session)
-                await tele_repo.finalize(
-                    job_id, status=str(new_state), duration_ms=duration_ms
-                )
+                await tele_repo.finalize(job_id, status=str(new_state), duration_ms=duration_ms)
         except Exception:
             log.warning("claude_watcher_finalize_failed", job_id=job_id, exc_info=True)
             return

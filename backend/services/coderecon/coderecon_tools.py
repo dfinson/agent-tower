@@ -193,11 +193,7 @@ def _item_to_dict(obj: Any) -> Any:
     if is_dataclass(obj):
         return _item_to_dict(asdict(obj))
     if hasattr(obj, "__dict__"):
-        return {
-            str(k): _item_to_dict(v)
-            for k, v in vars(obj).items()
-            if not k.startswith("_")
-        }
+        return {str(k): _item_to_dict(v) for k, v in vars(obj).items() if not k.startswith("_")}
     return str(obj)
 
 

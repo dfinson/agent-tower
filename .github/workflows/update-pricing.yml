@@ -38,7 +38,7 @@ jobs:
           BRANCH="chore/update-model-pricing"
           git checkout -b "$BRANCH"
           git commit -m "chore: update model pricing from LiteLLM"
-          git push --force-with-lease origin "$BRANCH"
+          git push --force origin "$BRANCH"
           gh pr create \
             --title "chore: update model pricing from LiteLLM" \
             --body "Automated weekly update of \`backend/data/model_pricing.json\` from LiteLLM." \

@@ -7,38 +7,44 @@ CodePlane telemetry tables with a configurable timeout.
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 log = structlog.get_logger()
 
 # Tables that user-generated queries may reference.
-ALLOWED_TABLES = frozenset({
-    "job_telemetry_spans",
-    "job_telemetry_summary",
-    "job_cost_attribution",
-    "jobs",
-})
+ALLOWED_TABLES = frozenset(
+    {
+        "job_telemetry_spans",
+        "job_telemetry_summary",
+        "job_cost_attribution",
+        "jobs",
+    }
+)
 
 # Defense-in-depth: table names that must never appear anywhere in a query.
 # Catches bypass techniques (comma joins, quoted identifiers, subqueries)
 # that the structural regex might miss.
-_DENIED_TABLES = frozenset({
-    "sqlite_master",
-    "sqlite_schema",
-    "sqlite_temp_master",
-    "sqlite_temp_schema",
-    "sqlite_sequence",
-    "custom_metrics",
-    "metrics_chat_messages",
-    "cost_observations",
-    "approvals",
-    "alembic_version",
-    "sidecar_templates",
-})
+_DENIED_TABLES = frozenset(
+    {
+        "sqlite_master",
+        "sqlite_schema",
+        "sqlite_temp_master",
+        "sqlite_temp_schema",
+        "sqlite_sequence",
+        "custom_metrics",
+        "metrics_chat_messages",
+        "cost_observations",
+        "approvals",
+        "alembic_version",
+        "sidecar_templates",
+    }
+)
 
 # SQL keywords that must not appear in user queries.  Checked against the
 # normalised (upper-cased, single-spaced) query text.
@@ -69,7 +75,7 @@ _FORBIDDEN_PATTERNS: list[re.Pattern[str]] = [
 # Match table references after FROM/JOIN — handles unquoted, double-quoted,
 # backtick-quoted, and bracket-quoted identifiers.
 _TABLE_REF_RE = re.compile(
-    r'(?:FROM|JOIN)\s+'
+    r"(?:FROM|JOIN)\s+"
     r'(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([a-zA-Z_]\w*))',
     re.IGNORECASE,
 )
@@ -85,7 +91,7 @@ _COMMA_TABLE_RE = re.compile(
 # the allowed-table check.  Handles optional column lists:
 #   WITH cte AS (...)  and  WITH cte(a, b) AS (...)
 _CTE_ALIAS_RE = re.compile(
-    r'(?:\bWITH\b(?:\s+RECURSIVE)?\s+|,\s*)([a-zA-Z_]\w*)(?:\s*\([^)]*\))?\s+AS\s*\(',
+    r"(?:\bWITH\b(?:\s+RECURSIVE)?\s+|,\s*)([a-zA-Z_]\w*)(?:\s*\([^)]*\))?\s+AS\s*\(",
     re.IGNORECASE,
 )
 
@@ -96,16 +102,16 @@ class QueryValidationError(Exception):
 
 # Unicode characters that LLMs sometimes emit instead of ASCII SQL operators.
 _UNICODE_REPLACEMENTS: dict[str, str] = {
-    "\u2265": ">=",   # ≥
-    "\u2264": "<=",   # ≤
-    "\u2260": "!=",   # ≠
-    "\u00d7": "*",    # ×
-    "\u00f7": "/",    # ÷
-    "\u2212": "-",    # − (minus sign)
-    "\u2018": "'",    # '
-    "\u2019": "'",    # '
-    "\u201c": '"',    # “
-    "\u201d": '"',    # ”
+    "\u2265": ">=",  # ≥
+    "\u2264": "<=",  # ≤
+    "\u2260": "!=",  # ≠
+    "\u00d7": "*",  # ×
+    "\u00f7": "/",  # ÷
+    "\u2212": "-",  # − (minus sign)
+    "\u2018": "'",  # '
+    "\u2019": "'",  # '
+    "\u201c": '"',  # “
+    "\u201d": '"',  # ”
 }
 
 
@@ -138,9 +144,7 @@ def validate_query(sql: str) -> str:
     # Forbidden keywords
     for pattern in _FORBIDDEN_PATTERNS:
         if pattern.search(cleaned):
-            raise QueryValidationError(
-                f"Forbidden SQL keyword detected: {pattern.pattern}"
-            )
+            raise QueryValidationError(f"Forbidden SQL keyword detected: {pattern.pattern}")
 
     # Defense in depth: denied table names as substring check.
     # Catches comma-join bypasses, quoted identifiers, and any other
@@ -151,9 +155,7 @@ def validate_query(sql: str) -> str:
     stripped_sql = re.sub(r"'[^']*'", "''", lower_sql)
     for denied in _DENIED_TABLES:
         if denied in stripped_sql:
-            raise QueryValidationError(
-                f"Reference to '{denied}' is not allowed"
-            )
+            raise QueryValidationError(f"Reference to '{denied}' is not allowed")
 
     # Extract CTE aliases so they pass the allowed-table check
     cte_aliases = {m.group(1).lower() for m in _CTE_ALIAS_RE.finditer(cleaned)}
@@ -163,23 +165,19 @@ def validate_query(sql: str) -> str:
     for match in _TABLE_REF_RE.finditer(cleaned):
         table = _extract_table_names(match).lower()
         if table and table not in allowed_with_ctes:
-            raise QueryValidationError(
-                f"Table '{table}' is not allowed. "
-                f"Allowed: {', '.join(sorted(ALLOWED_TABLES))}"
-            )
+            raise QueryValidationError(f"Table '{table}' is not allowed. Allowed: {', '.join(sorted(ALLOWED_TABLES))}")
         # Check for comma-separated tables following this FROM/JOIN
-        rest = cleaned[match.end():]
+        rest = cleaned[match.end() :]
         for cmatch in _COMMA_TABLE_RE.finditer(rest):
             ctable = _extract_table_names(cmatch).lower()
             if ctable and ctable not in allowed_with_ctes:
                 raise QueryValidationError(
-                    f"Table '{ctable}' is not allowed. "
-                    f"Allowed: {', '.join(sorted(ALLOWED_TABLES))}"
+                    f"Table '{ctable}' is not allowed. Allowed: {', '.join(sorted(ALLOWED_TABLES))}"
                 )
             # Stop at the first non-comma token (avoid matching commas in
             # SELECT lists further down)
             if cmatch.start() > 0:
-                between = rest[:cmatch.start()].strip()
+                between = rest[: cmatch.start()].strip()
                 if between and not between.endswith(","):
                     break
 
@@ -206,15 +204,13 @@ async def execute_query(
             result = await session.execute(text(validated))
             columns = list(result.keys())
             rows = result.fetchall()
-            return [dict(zip(columns, row)) for row in rows]
+            return [dict(zip(columns, row, strict=False)) for row in rows]
 
     try:
         return await asyncio.wait_for(_run(), timeout=timeout_seconds)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning("metrics_query_timeout", sql=validated[:200])
-        raise QueryValidationError(
-            f"Query timed out after {timeout_seconds}s. Try simplifying the query."
-        )
+        raise QueryValidationError(f"Query timed out after {timeout_seconds}s. Try simplifying the query.") from None
     except Exception as exc:
         if isinstance(exc, QueryValidationError):
             raise

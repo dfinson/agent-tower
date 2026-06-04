@@ -121,9 +121,7 @@ class RuntimeConfig:
 
     def __post_init__(self) -> None:
         if not self.utility_model:
-            self.utility_model = (
-                "claude-haiku-4.5" if self.default_sdk == "claude" else "gpt-5-mini"
-            )
+            self.utility_model = "claude-haiku-4.5" if self.default_sdk == "claude" else "gpt-5-mini"
 
 
 @dataclass

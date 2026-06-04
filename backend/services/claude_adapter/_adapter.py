@@ -393,7 +393,10 @@ class ClaudeAdapter(BaseAgentAdapter):
         if job_id:
             hidden = tool_name in _HIDDEN_TOOLS
             await self._pipeline.on_tool_start(
-                job_id, tool_id, tool_name, args_str,
+                job_id,
+                tool_id,
+                tool_name,
+                args_str,
                 hidden=hidden,
                 turn_id=turn_id,
             )
@@ -423,7 +426,11 @@ class ClaudeAdapter(BaseAgentAdapter):
 
             hidden = self._pipeline.get_buffered_tool(tool_use_id).get("tool_name", "") in _HIDDEN_TOOLS
             await self._pipeline.on_tool_complete(
-                job_id, tool_use_id, result_text, success, hidden=hidden,
+                job_id,
+                tool_use_id,
+                result_text,
+                success,
+                hidden=hidden,
             )
 
     async def _process_result_message(
@@ -463,7 +470,10 @@ class ClaudeAdapter(BaseAgentAdapter):
             )
 
             if is_error:
-                await self._pipeline.on_error(job_id, {"message": "Claude session ended with error", "result": result_text})
+                await self._pipeline.on_error(
+                    job_id,
+                    {"message": "Claude session ended with error", "result": result_text},
+                )
             else:
                 await self._pipeline.on_done(job_id)
         else:
@@ -549,12 +559,9 @@ class ClaudeAdapter(BaseAgentAdapter):
         self._stderr_file_objects[session_id] = stderr_file
 
         # Build system prompt — append CodeRecon tool guidance when tools are provisioned (§8.5)
-        if config.system_prompt_override:
-            # Sidecar/preflight sessions define their own identity — skip the
-            # main-agent CODEPLANE_SYSTEM_PROMPT entirely.
-            system_prompt = config.system_prompt_override
-        else:
-            system_prompt = CODEPLANE_SYSTEM_PROMPT
+        # Sidecar/preflight sessions define their own identity — skip the
+        # main-agent CODEPLANE_SYSTEM_PROMPT entirely.
+        system_prompt = config.system_prompt_override or CODEPLANE_SYSTEM_PROMPT
         if config.coderecon_tools is not None and config.coderecon_tools.system_prompt:
             system_prompt = system_prompt + "\n\n" + config.coderecon_tools.system_prompt
 

@@ -23,10 +23,10 @@ multiprocessing.set_start_method("spawn", force=True)
 # server is killed (SIGKILL) rather than gracefully shut down.
 warnings.filterwarnings("ignore", message="resource_tracker:.*leaked semaphore")
 
-import click
-import structlog
+import click  # noqa: E402
+import structlog  # noqa: E402
 
-from backend.config import load_config
+from backend.config import load_config  # noqa: E402
 
 
 @click.group()
@@ -691,10 +691,8 @@ def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
         import subprocess as _sp
 
         click.echo(f"  Cleaning up remaining PIDs on port {port}: {leftover}…")
-        try:
+        with contextlib.suppress(FileNotFoundError, _sp.TimeoutExpired):
             _sp.run(["fuser", "-k", f"{port}/tcp"], capture_output=True, timeout=5)
-        except (FileNotFoundError, _sp.TimeoutExpired):
-            pass
         time.sleep(1)
         leftover = _find_pids_on_port(port)
 

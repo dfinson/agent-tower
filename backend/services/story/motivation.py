@@ -46,11 +46,15 @@ _PROMPT_BODY = (
 )
 
 _SYSTEM_PROMPT = "You narrate why a code change was made. " + _PROMPT_BODY.format(
-    scope_instruction="Describe the change at the file level — what semantic object (function, class, module) was affected and why."
+    scope_instruction=(
+        "Describe the change at the file level — what semantic object (function, class, module) was affected and why."
+    )
 )
 
 _EDIT_SYSTEM_PROMPT = "You narrate why a specific code edit was made. " + _PROMPT_BODY.format(
-    scope_instruction="Focus on this single edit within the file — what specific construct was modified and what triggered it."
+    scope_instruction=(
+        "Focus on this single edit within the file — what specific construct was modified and what triggered it."
+    )
 )
 
 # Batch size for each drain cycle

@@ -71,11 +71,73 @@ import type {
   ActivityTimelineStep,
   ActivityTimelineActivity,
   TerminalSession,
+  SecondarySession,
+  SecondarySessionEntry,
+  ContextHandoff,
 } from "./types";
 
 function pickDefaultModelId(models: Array<{ value: string; isDefault: boolean }>): string | null {
   const flagged = models.find((m) => m.isDefault);
   return flagged?.value ?? models[0]?.value ?? null;
+}
+
+type HydratedJobSnapshot = Parameters<AppState["hydrateJob"]>[0];
+type HydratedSecondarySession = NonNullable<HydratedJobSnapshot["secondarySessions"]>[number];
+type HydratedSecondarySessionEntry = NonNullable<HydratedSecondarySession["entries"]>[number];
+type HydratedContextHandoff = NonNullable<HydratedJobSnapshot["contextHandoffs"]>[number];
+
+function normalizeSecondarySessionEntry(entry: HydratedSecondarySessionEntry): SecondarySessionEntry {
+  return {
+    seq: entry.seq,
+    kind: (["reasoning", "tool_call", "output", "error"].includes(entry.kind)
+      ? entry.kind
+      : "output") as SecondarySessionEntry["kind"],
+    content: entry.content ?? "",
+    toolName: entry.toolName ?? null,
+    toolArgs: entry.toolArgs ?? null,
+    durationMs: entry.durationMs ?? null,
+    toolResult: entry.toolResult ?? null,
+    toolDisplay: entry.toolDisplay ?? null,
+    toolDisplayFull: entry.toolDisplayFull ?? null,
+    toolSuccess: entry.toolSuccess ?? null,
+    toolIssue: entry.toolIssue ?? null,
+    toolVisibility: entry.toolVisibility ?? null,
+  };
+}
+
+function normalizeSecondarySession(jobId: string, session: HydratedSecondarySession): SecondarySession {
+  return {
+    id: session.id,
+    jobId,
+    kind: (["preflight", "sidecar", "monitor", "extractor"].includes(session.kind)
+      ? session.kind
+      : "sidecar") as SecondarySession["kind"],
+    name: session.name,
+    icon: session.icon,
+    status: (["running", "completed", "failed", "timeout"].includes(session.status)
+      ? session.status
+      : "running") as SecondarySession["status"],
+    startedAt: session.startedAt,
+    completedAt: session.completedAt ?? null,
+    output: session.output ?? null,
+    inputTokens: session.inputTokens ?? 0,
+    outputTokens: session.outputTokens ?? 0,
+    costUsd: session.costUsd ?? 0,
+    entries: (session.entries ?? []).map(normalizeSecondarySessionEntry),
+  };
+}
+
+function normalizeContextHandoff(jobId: string, handoff: HydratedContextHandoff): ContextHandoff {
+  return {
+    jobId,
+    source: (["preflight", "resume", "resume_native", "followup"].includes(handoff.source)
+      ? handoff.source
+      : "preflight") as ContextHandoff["source"],
+    sourceSessionId: handoff.sourceSessionId ?? null,
+    summary: handoff.summary ?? "",
+    content: handoff.content ?? null,
+    timestamp: handoff.timestamp ?? "",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -407,48 +469,16 @@ export const useStore = create<AppState>((set, get) => ({
         secondarySessions: {
           ...s.secondarySessions,
           [jobId]: Object.fromEntries(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (snapshot.secondarySessions ?? []).map((sess: any) => [sess.id, {
-              id: sess.id,
-              jobId,
-              kind: sess.kind,
-              name: sess.name,
-              icon: sess.icon,
-              status: sess.status,
-              startedAt: sess.startedAt,
-              completedAt: sess.completedAt ?? null,
-              output: sess.output ?? null,
-              inputTokens: sess.inputTokens ?? 0,
-              outputTokens: sess.outputTokens ?? 0,
-              costUsd: sess.costUsd ?? 0,
-              entries: (sess.entries ?? []).map((e: any) => ({
-                seq: e.seq,
-                kind: e.kind,
-                content: e.content ?? "",
-                toolName: e.toolName ?? null,
-                toolArgs: e.toolArgs ?? null,
-                durationMs: e.durationMs ?? null,
-                toolResult: e.toolResult ?? null,
-                toolDisplay: e.toolDisplay ?? null,
-                toolDisplayFull: e.toolDisplayFull ?? null,
-                toolSuccess: e.toolSuccess ?? null,
-                toolIssue: e.toolIssue ?? null,
-                toolVisibility: e.toolVisibility ?? null,
-              })),
-            }]),
+            (snapshot.secondarySessions ?? []).map((session) => {
+              const normalizedSession = normalizeSecondarySession(jobId, session);
+              return [normalizedSession.id, normalizedSession];
+            }),
           ),
         },
         // Hydrate context handoffs
         contextHandoffs: {
           ...s.contextHandoffs,
-          [jobId]: (snapshot.contextHandoffs ?? []).map((h: any) => ({
-            jobId,
-            source: h.source ?? "preflight",
-            sourceSessionId: h.sourceSessionId ?? null,
-            summary: h.summary ?? "",
-            content: h.content ?? null,
-            timestamp: h.timestamp ?? "",
-          })),
+          [jobId]: (snapshot.contextHandoffs ?? []).map((handoff) => normalizeContextHandoff(jobId, handoff)),
         },
       };
     });

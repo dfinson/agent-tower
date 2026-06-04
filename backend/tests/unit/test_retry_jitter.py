@@ -50,7 +50,10 @@ class TestCalculateDelayWithJitter:
     def test_max_delay_caps_before_jitter(self) -> None:
         """Delay is capped at max_delay before jitter is applied."""
         tracker = RetryTracker(
-            base_delay=1.0, max_delay=10.0, backoff_factor=2.0, jitter_factor=0.25,
+            base_delay=1.0,
+            max_delay=10.0,
+            backoff_factor=2.0,
+            jitter_factor=0.25,
         )
         # attempt 100 would far exceed max_delay without cap
         for _ in range(50):

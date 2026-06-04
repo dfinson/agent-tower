@@ -297,8 +297,6 @@ class BaseAgentAdapter(AgentAdapterInterface):
         else:
             log.info("model_confirmed", model=actual_model, job_id=job_id)
 
-
-
     # ------------------------------------------------------------------
     # Shared tool event helpers (used by Claude + Copilot adapters)
     # ------------------------------------------------------------------

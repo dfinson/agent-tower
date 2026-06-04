@@ -301,13 +301,15 @@ def _build_secondary_session_started(event: DomainEvent) -> str:
     import json
 
     p = event.payload
-    return json.dumps({
-        "sessionId": p.get("session_id", ""),
-        "jobId": event.job_id,
-        "kind": p.get("kind", ""),
-        "name": p.get("name", ""),
-        "icon": p.get("icon", "bot"),
-    })
+    return json.dumps(
+        {
+            "sessionId": p.get("session_id", ""),
+            "jobId": event.job_id,
+            "kind": p.get("kind", ""),
+            "name": p.get("name", ""),
+            "icon": p.get("icon", "bot"),
+        }
+    )
 
 
 def _build_secondary_session_entry(event: DomainEvent) -> str:
@@ -315,40 +317,44 @@ def _build_secondary_session_entry(event: DomainEvent) -> str:
 
     p = event.payload
     entry = p.get("entry", {})
-    return json.dumps({
-        "sessionId": p.get("session_id", ""),
-        "jobId": event.job_id,
-        "entry": {
-            "seq": entry.get("seq", 0),
-            "kind": entry.get("kind", ""),
-            "content": entry.get("content", ""),
-            "toolName": entry.get("tool_name"),
-            "toolArgs": entry.get("tool_args"),
-            "durationMs": entry.get("duration_ms"),
-            "toolResult": entry.get("tool_result"),
-            "toolDisplay": entry.get("tool_display"),
-            "toolDisplayFull": entry.get("tool_display_full"),
-            "toolSuccess": entry.get("tool_success"),
-            "toolIssue": entry.get("tool_issue"),
-            "toolVisibility": entry.get("tool_visibility"),
-        },
-    })
+    return json.dumps(
+        {
+            "sessionId": p.get("session_id", ""),
+            "jobId": event.job_id,
+            "entry": {
+                "seq": entry.get("seq", 0),
+                "kind": entry.get("kind", ""),
+                "content": entry.get("content", ""),
+                "toolName": entry.get("tool_name"),
+                "toolArgs": entry.get("tool_args"),
+                "durationMs": entry.get("duration_ms"),
+                "toolResult": entry.get("tool_result"),
+                "toolDisplay": entry.get("tool_display"),
+                "toolDisplayFull": entry.get("tool_display_full"),
+                "toolSuccess": entry.get("tool_success"),
+                "toolIssue": entry.get("tool_issue"),
+                "toolVisibility": entry.get("tool_visibility"),
+            },
+        }
+    )
 
 
 def _build_secondary_session_completed(event: DomainEvent) -> str:
     import json
 
     p = event.payload
-    return json.dumps({
-        "sessionId": p.get("session_id", ""),
-        "jobId": event.job_id,
-        "status": p.get("status", "completed"),
-        "output": p.get("output"),
-        "inputTokens": p.get("input_tokens", 0),
-        "outputTokens": p.get("output_tokens", 0),
-        "costUsd": p.get("cost_usd", 0.0),
-        "metadata": p.get("metadata", {}),
-    })
+    return json.dumps(
+        {
+            "sessionId": p.get("session_id", ""),
+            "jobId": event.job_id,
+            "status": p.get("status", "completed"),
+            "output": p.get("output"),
+            "inputTokens": p.get("input_tokens", 0),
+            "outputTokens": p.get("output_tokens", 0),
+            "costUsd": p.get("cost_usd", 0.0),
+            "metadata": p.get("metadata", {}),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------

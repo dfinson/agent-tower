@@ -504,7 +504,13 @@ class TestProcessAssistantMessage:
         adapter._pipeline._schedule_write = lambda coro: coro.close()
         # Pre-populate tool metadata in pipeline (simulates on_tool_start)
         adapter._pipeline._tool_start_times["tool-1"] = time.monotonic() - 0.5
-        adapter._pipeline._pending_tool_metadata["tool-1"] = {"tool_name": "Bash", "tool_args": "", "turn_id": "t1", "tool_intent": "", "tool_title": ""}
+        adapter._pipeline._pending_tool_metadata["tool-1"] = {
+            "tool_name": "Bash",
+            "tool_args": "",
+            "turn_id": "t1",
+            "tool_intent": "",
+            "tool_title": "",
+        }
         adapter._pipeline._job_tool_ids.setdefault("job-1", set()).add("tool-1")
 
         result_block = _FakeToolResultBlock(tool_use_id="tool-1", content="output here", is_error=False)
@@ -779,7 +785,11 @@ class TestProcessStreamEvent:
         parent_id = "tool-1"
         # Tool metadata now lives in the pipeline
         adapter._pipeline._pending_tool_metadata[parent_id] = {
-            "tool_name": "Bash", "tool_args": "", "turn_id": "turn-1", "tool_intent": "", "tool_title": "",
+            "tool_name": "Bash",
+            "tool_args": "",
+            "turn_id": "turn-1",
+            "tool_intent": "",
+            "tool_title": "",
         }
 
         stream_event = _FakeStreamEvent(
@@ -1147,7 +1157,11 @@ class TestToolResultTelemetry:
         # Pre-populate tool metadata in pipeline
         adapter._pipeline._tool_start_times["tool-1"] = time.monotonic() - 1.0
         adapter._pipeline._pending_tool_metadata["tool-1"] = {
-            "tool_name": "Bash", "tool_args": "", "turn_id": "t1", "tool_intent": "", "tool_title": "",
+            "tool_name": "Bash",
+            "tool_args": "",
+            "turn_id": "t1",
+            "tool_intent": "",
+            "tool_title": "",
         }
         adapter._pipeline._job_tool_ids.setdefault("job-1", set()).add("tool-1")
 

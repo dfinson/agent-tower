@@ -582,6 +582,4 @@ class SecondarySessionEntryRow(Base):
     tool_issue: Mapped[str | None] = mapped_column(String, nullable=True)
     tool_visibility: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    __table_args__ = (
-        Index("ix_ss_entries_session", "session_id"),
-    )
+    __table_args__ = (Index("ix_ss_entries_session", "session_id"),)

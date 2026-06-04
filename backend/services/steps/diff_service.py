@@ -96,7 +96,11 @@ class StepDiffService:
         # Enrich with per-file symbol impact from CodeRecon semantic_diff
         if changed_files and self._coderecon and self._coderecon.available and job.repo and job.worktree_path:
             await self._enrich_files_with_symbols(
-                changed_files, job.repo, job.worktree_path, start_sha, end_sha,
+                changed_files,
+                job.repo,
+                job.worktree_path,
+                start_sha,
+                end_sha,
             )
 
         return StepDiffPayload(
@@ -229,7 +233,7 @@ class StepDiffService:
 
         def _rel(path: str) -> str:
             """Normalize an absolute tool_target to a repo-relative path."""
-            return path[len(wt_prefix):] if wt_prefix != "/" and path.startswith(wt_prefix) else path
+            return path[len(wt_prefix) :] if wt_prefix != "/" and path.startswith(wt_prefix) else path
 
         if step_row and hasattr(step_row, "preceding_context") and step_row.preceding_context:
             step_context = str(step_row.preceding_context)

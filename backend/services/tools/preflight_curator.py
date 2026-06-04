@@ -34,6 +34,7 @@ log = structlog.get_logger()
 # Structured result returned to callers
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PreflightToolCall:
     """A single tool invocation captured during a preflight/secondary session."""
@@ -189,8 +190,8 @@ class PreflightCurator:
         repo: str,
         worktree: str,
         job_id: str = "",
-        on_tool_call: "Callable[[PreflightToolCall], Awaitable[None]] | None" = None,
-        on_reasoning: "Callable[[str], Awaitable[None]] | None" = None,
+        on_tool_call: Callable[[PreflightToolCall], Awaitable[None]] | None = None,
+        on_reasoning: Callable[[str], Awaitable[None]] | None = None,
     ) -> PreflightReport:
         """Run the preflight curator agent and return its structured report.
 
@@ -243,8 +244,8 @@ class PreflightCurator:
         self,
         config: SessionConfig,
         *,
-        on_tool_call: "Callable[[PreflightToolCall], Awaitable[None]] | None" = None,
-        on_reasoning: "Callable[[str], Awaitable[None]] | None" = None,
+        on_tool_call: Callable[[PreflightToolCall], Awaitable[None]] | None = None,
+        on_reasoning: Callable[[str], Awaitable[None]] | None = None,
     ) -> PreflightReport:
         """Execute the curator session and extract the final brief with tool call data."""
         t0 = time.monotonic()

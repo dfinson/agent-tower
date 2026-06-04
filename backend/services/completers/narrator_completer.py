@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
-    from backend.services.adapters.agent_adapter import AgentAdapterInterface, CompletionResult
+    from backend.services.adapters.agent_adapter import AgentAdapterInterface
 
 log = structlog.get_logger()
 

@@ -248,8 +248,10 @@ class TestToolResultStorage:
         await tracker.on_transcript_event(
             "job-1",
             _make_event(
-                role="tool_call", turn_id="turn-1",
-                tool_name="grep_search", tool_args='{"query": "test"}',
+                role="tool_call",
+                turn_id="turn-1",
+                tool_name="grep_search",
+                tool_args='{"query": "test"}',
                 tool_result="file1.py\nfile2.py\nfile3.py",
             ),
         )
@@ -266,8 +268,10 @@ class TestToolResultStorage:
         await tracker.on_transcript_event(
             "job-1",
             _make_event(
-                role="tool_call", turn_id="turn-1",
-                tool_name="read_file", tool_result="",
+                role="tool_call",
+                turn_id="turn-1",
+                tool_name="read_file",
+                tool_result="",
             ),
         )
 

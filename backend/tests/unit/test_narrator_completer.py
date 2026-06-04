@@ -90,9 +90,7 @@ class TestNarratorCompleter:
         from backend.services.adapters.agent_adapter import CompletionResult
 
         adapter = AsyncMock()
-        adapter.complete.return_value = CompletionResult(
-            text=None, input_tokens=10, output_tokens=0, model="test"
-        )
+        adapter.complete.return_value = CompletionResult(text=None, input_tokens=10, output_tokens=0, model="test")
         completer = NarratorCompleter(adapter, model="test")
         result = await completer.complete("prompt")
         assert result == ""

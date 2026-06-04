@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-import time
 import uuid
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -724,21 +723,11 @@ class TestEventTelemetry:
             await self._fire(session, _FakeSdkSessionEvent("assistant.usage", data))
 
             # Pipeline uses {job_id, sdk} attrs (no session_kind)
-            mock_in.add.assert_called_once_with(
-                100, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o"}
-            )
-            mock_out.add.assert_called_once_with(
-                50, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o"}
-            )
-            mock_cr.add.assert_called_once_with(
-                10, {"job_id": "job-tel", "sdk": "copilot"}
-            )
-            mock_cw.add.assert_called_once_with(
-                5, {"job_id": "job-tel", "sdk": "copilot"}
-            )
-            mock_cost.add.assert_called_once_with(
-                0.002, {"job_id": "job-tel", "sdk": "copilot"}
-            )
+            mock_in.add.assert_called_once_with(100, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o"})
+            mock_out.add.assert_called_once_with(50, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o"})
+            mock_cr.add.assert_called_once_with(10, {"job_id": "job-tel", "sdk": "copilot"})
+            mock_cw.add.assert_called_once_with(5, {"job_id": "job-tel", "sdk": "copilot"})
+            mock_cost.add.assert_called_once_with(0.002, {"job_id": "job-tel", "sdk": "copilot"})
             mock_dur.record.assert_called_once_with(
                 1500.0,
                 {"job_id": "job-tel", "sdk": "copilot", "is_subagent": False},
@@ -970,9 +959,7 @@ class TestEventTelemetry:
         with patch("backend.services.analytics.telemetry.context_window_gauge") as mock_gauge:
             await self._fire(session, _FakeSdkSessionEvent("session.truncation", data))
 
-            mock_gauge.set.assert_called_once_with(
-                128000, {"job_id": "job-tel", "sdk": "copilot"}
-            )
+            mock_gauge.set.assert_called_once_with(128000, {"job_id": "job-tel", "sdk": "copilot"})
 
     @pytest.mark.asyncio
     async def test_session_model_change(self, adapter: CopilotAdapter) -> None:
@@ -994,9 +981,7 @@ class TestEventTelemetry:
         with patch("backend.services.analytics.telemetry.messages_counter") as mock_msg:
             await self._fire(session, _FakeSdkSessionEvent("assistant.message", data))
 
-            mock_msg.add.assert_called_once_with(
-                1, {"job_id": "job-tel", "sdk": "copilot", "role": "agent"}
-            )
+            mock_msg.add.assert_called_once_with(1, {"job_id": "job-tel", "sdk": "copilot", "role": "agent"})
 
     @pytest.mark.asyncio
     async def test_user_message_records_telemetry(self, adapter: CopilotAdapter) -> None:
@@ -1007,9 +992,7 @@ class TestEventTelemetry:
         with patch("backend.services.analytics.telemetry.messages_counter") as mock_msg:
             await self._fire(session, _FakeSdkSessionEvent("user.message", data))
 
-            mock_msg.add.assert_called_once_with(
-                1, {"job_id": "job-tel", "sdk": "copilot", "role": "operator"}
-            )
+            mock_msg.add.assert_called_once_with(1, {"job_id": "job-tel", "sdk": "copilot", "role": "operator"})
 
 
 # ---------------------------------------------------------------------------

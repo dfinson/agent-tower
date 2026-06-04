@@ -328,9 +328,6 @@ _STORY_SYSTEM = (
 )
 
 
-
-
-
 # DB column for cached story text
 _STORY_COLUMN = "story_text"
 
@@ -380,7 +377,7 @@ async def _build_references(
 
     from backend.models.db import TrailNodeRow
 
-    _WRITE_KINDS = ("write", "modify")
+    write_kinds = ("write", "modify")
 
     # Try write/modify nodes first — they're the strongest story anchors.
     # For write/modify nodes, accept any enrichment status: the file path
@@ -388,7 +385,7 @@ async def _build_references(
     stmt = (
         select(TrailNodeRow)
         .where(TrailNodeRow.job_id == job_id)
-        .where(TrailNodeRow.kind.in_(_WRITE_KINDS))
+        .where(TrailNodeRow.kind.in_(write_kinds))
         .order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
     )
     result = await session.execute(stmt)
@@ -437,7 +434,7 @@ async def _build_references(
         step_info = step_map.get(node.turn_id or "")
         step_number = step_info["step_number"] if step_info else None
 
-        is_write = node.kind in _WRITE_KINDS
+        is_write = node.kind in write_kinds
 
         if is_write:
             key = f"__node_{node.id}" if not file_val or step_number is None else f"{file_val}|{step_number}"
@@ -1281,7 +1278,11 @@ class StoryService:
         for filepath in files_needing_diff:
             try:
                 raw = await self._git_service.run_git(
-                    "diff", f"{base}...HEAD", "--", filepath, cwd=wt,
+                    "diff",
+                    f"{base}...HEAD",
+                    "--",
+                    filepath,
+                    cwd=wt,
                 )
                 if raw and raw.strip():
                     file_diffs[filepath] = raw.strip()

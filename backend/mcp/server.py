@@ -39,7 +39,13 @@ from backend.models.api_schemas import (  # type: ignore[attr-defined]
     WorkspaceEntryType,
     WorkspaceListResponse,
 )
-from backend.models.domain import JobNotFoundError, JobState, RepoNotAllowedError, SDKModelMismatchError, StateConflictError
+from backend.models.domain import (
+    JobNotFoundError,
+    JobState,
+    RepoNotAllowedError,
+    SDKModelMismatchError,
+    StateConflictError,
+)
 from backend.services.artifacts.artifact_service import ArtifactService
 from backend.services.git.git_service import GitError, GitService
 from backend.services.job.job_service import JobService

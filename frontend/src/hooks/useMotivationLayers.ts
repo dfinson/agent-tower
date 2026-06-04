@@ -19,11 +19,31 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#39;");
 }
 
+interface ViewZoneLike {
+  afterLineNumber: number;
+  heightInPx: number;
+  domNode: HTMLElement;
+  suppressMouseDown: boolean;
+}
+
+interface ViewZoneAccessorLike {
+  removeZone(id: string): void;
+  addZone(zone: ViewZoneLike): string;
+}
+
+interface MotivationEditorLike {
+  changeViewZones(callback: (accessor: ViewZoneAccessorLike) => void): void;
+}
+
+interface DiffEditorLike {
+  getModifiedEditor(): MotivationEditorLike | null;
+}
+
 interface UseMotivationLayersOpts {
   jobId: string;
   file: DiffFileModel | undefined;
   enabled: boolean;
-  editorRef: React.MutableRefObject<any>;
+  editorRef: React.MutableRefObject<DiffEditorLike | null>;
   editorReady: boolean;
   /** If step-level motivations are already available, use those instead */
   stepFileMotivations?: Record<string, FileMotivation>;
@@ -59,7 +79,7 @@ export function useMotivationLayers({
     const modifiedEditor = editor.getModifiedEditor();
     if (!modifiedEditor) return;
 
-    modifiedEditor.changeViewZones((accessor: any) => {
+    modifiedEditor.changeViewZones((accessor: ViewZoneAccessorLike) => {
       viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
       viewZoneIdsRef.current = [];
 

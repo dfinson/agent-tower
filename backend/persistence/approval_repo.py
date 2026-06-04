@@ -85,9 +85,7 @@ class ApprovalRepository(BaseRepository):
         if notes is not None:
             values["notes"] = notes
         stmt = (
-            update(ApprovalRow)
-            .where(ApprovalRow.id == approval_id, ApprovalRow.resolution.is_(None))
-            .values(**values)
+            update(ApprovalRow).where(ApprovalRow.id == approval_id, ApprovalRow.resolution.is_(None)).values(**values)
         )
         result = await self._session.execute(stmt)
         # CursorResult.rowcount is always present for DML but missing from the generic Result type stub

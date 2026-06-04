@@ -9,6 +9,7 @@ vi.mock("../../api/client", () => ({
   updateSettings: vi.fn(),
   fetchRepos: vi.fn(),
   unregisterRepo: vi.fn(),
+  fetchSidecarTemplates: vi.fn().mockResolvedValue({ items: [] }),
   request: vi.fn().mockResolvedValue(null),
 }));
 

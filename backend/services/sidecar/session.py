@@ -35,7 +35,7 @@ import structlog
 from backend.services.completers.lightweight_completer import LightweightCompleter
 
 if TYPE_CHECKING:
-    from backend.models.domain import SidecarConfig, SessionConfig
+    from backend.models.domain import SessionConfig, SidecarConfig
     from backend.services.adapters.agent_adapter import AgentAdapterInterface
 
 log = structlog.get_logger()
@@ -212,7 +212,7 @@ class AgenticSidecarSession:
         until the stream ends or timeout is hit.  The final assistant
         message is returned.
         """
-        from backend.models.domain import SessionEvent, SessionEventKind
+        from backend.models.domain import SessionEventKind
 
         t0 = time.monotonic()
         config = self._session_config
@@ -390,7 +390,13 @@ class SidecarSessionManager:
         lifetime is requested, a fresh session is always created (pool
         sessions are generic).
         """
-        if system_prompt is not None or max_turns is not None or timeout_s is not None or model is not None or excluded_tools is not None:
+        if (
+            system_prompt is not None
+            or max_turns is not None
+            or timeout_s is not None
+            or model is not None
+            or excluded_tools is not None
+        ):
             self._fill_pool()
             return self._make_session(
                 system_prompt=system_prompt,

@@ -198,7 +198,12 @@ class CopilotAdapter(BaseAgentAdapter):
         """
         try:
             await self._process_sdk_event_inner(
-                sdk_event, session_id, job_id, requested_model, model_verified, queue,
+                sdk_event,
+                session_id,
+                job_id,
+                requested_model,
+                model_verified,
+                queue,
             )
         except Exception:
             log.warning(
@@ -224,10 +229,7 @@ class CopilotAdapter(BaseAgentAdapter):
 
         if not job_id:
             # No job association yet — only bridge done/error for sentinel
-            if kind_str in ("session.task_complete", "session.idle", "session.shutdown"):
-                with contextlib.suppress(asyncio.QueueFull):
-                    queue.put_nowait(None)
-            elif kind_str == "session.error":
+            if kind_str in ("session.task_complete", "session.idle", "session.shutdown") or kind_str == "session.error":
                 with contextlib.suppress(asyncio.QueueFull):
                     queue.put_nowait(None)
             return
@@ -292,7 +294,10 @@ class CopilotAdapter(BaseAgentAdapter):
                 # report_intent is emitted as hidden tool_call (intent marker)
                 hidden = tool_name == "report_intent"
                 await self._pipeline.on_tool_start(
-                    job_id, tool_id, tool_name, args_str,
+                    job_id,
+                    tool_id,
+                    tool_name,
+                    args_str,
                     intent=tool_intent or None,
                     title=tool_title or None,
                     hidden=hidden,
@@ -332,7 +337,11 @@ class CopilotAdapter(BaseAgentAdapter):
 
                 hidden = self._pipeline.get_buffered_tool(tool_id).get("tool_name") == "report_intent"
                 await self._pipeline.on_tool_complete(
-                    job_id, tool_id, result_text, success, hidden=hidden,
+                    job_id,
+                    tool_id,
+                    result_text,
+                    success,
+                    hidden=hidden,
                 )
 
         # --- File change notification ---
@@ -445,18 +454,19 @@ class CopilotAdapter(BaseAgentAdapter):
                 "reset_date": str(snap.reset_date or ""),
             }
             tel.quota_used_gauge.set(
-                used, {"job_id": job_id, "sdk": "copilot", "resource": key},
+                used,
+                {"job_id": job_id, "sdk": "copilot", "resource": key},
             )
             tel.quota_entitlement_gauge.set(
-                entitlement, {"job_id": job_id, "sdk": "copilot", "resource": key},
+                entitlement,
+                {"job_id": job_id, "sdk": "copilot", "resource": key},
             )
             tel.quota_remaining_gauge.set(
-                remaining, {"job_id": job_id, "sdk": "copilot", "resource": key},
+                remaining,
+                {"job_id": job_id, "sdk": "copilot", "resource": key},
             )
 
-        self._schedule_db_write(
-            self._db_write_set_quota(job_id=job_id, quota_remaining=_json.dumps(parsed))
-        )
+        self._schedule_db_write(self._db_write_set_quota(job_id=job_id, quota_remaining=_json.dumps(parsed)))
 
     async def create_session(self, config: SessionConfig) -> str:
         from copilot import CopilotClient

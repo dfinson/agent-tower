@@ -246,8 +246,14 @@ TOOL_CATEGORY_WRITE = "write"
 TOOL_CATEGORY_MCP = "mcp"
 
 ALL_TOOL_CATEGORIES = frozenset(
-    {TOOL_CATEGORY_READ, TOOL_CATEGORY_SEARCH, TOOL_CATEGORY_SHELL_READONLY,
-     TOOL_CATEGORY_SHELL_WRITE, TOOL_CATEGORY_WRITE, TOOL_CATEGORY_MCP}
+    {
+        TOOL_CATEGORY_READ,
+        TOOL_CATEGORY_SEARCH,
+        TOOL_CATEGORY_SHELL_READONLY,
+        TOOL_CATEGORY_SHELL_WRITE,
+        TOOL_CATEGORY_WRITE,
+        TOOL_CATEGORY_MCP,
+    }
 )
 
 # Named access tiers (convenience labels for common combinations).
@@ -505,7 +511,7 @@ class SidecarDispatcher:
         session_manager: SidecarSessionManager,
         event_bus: EventBus,
         *,
-        session_factory: "async_sessionmaker[AsyncSession] | None" = None,
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
         gate_handler: Callable[[str, str, str, str], Awaitable[None]] | None = None,
         agent_message_handler: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> None:
@@ -623,9 +629,7 @@ class SidecarDispatcher:
         # Drain any queued pipelines before closing sessions
         for queued_defn, queued_idx, queued_ctx in state.queued:
             try:
-                await self._execute_pipeline(
-                    job_id, queued_defn, queued_defn.triggers[queued_idx], queued_ctx
-                )
+                await self._execute_pipeline(job_id, queued_defn, queued_defn.triggers[queued_idx], queued_ctx)
             except Exception:
                 log.warning(
                     "dispatcher_drain_error",
@@ -854,10 +858,7 @@ class SidecarDispatcher:
                     # When the agent is gated (paused), treat it as idle
                     # since the gate time — the agent isn't making progress.
                     if cond.idle_guard_s is not None:
-                        if state.gated_since is not None:
-                            idle_s = now - state.gated_since
-                        else:
-                            idle_s = now - state.last_activity
+                        idle_s = now - state.gated_since if state.gated_since is not None else now - state.last_activity
                         if idle_s < cond.idle_guard_s:
                             continue
 
@@ -1262,7 +1263,11 @@ class SidecarDispatcher:
             _sess_id = str(_uuid.uuid4())
             _now = datetime.now(UTC)
             # Human-friendly display name: title-case the label/name for UI.
-            _display_name = raw_label.replace("-", " ").replace("_", " ").title() if raw_label else defn.name.replace("-", " ").replace("_", " ").title()
+            _display_name = (
+                raw_label.replace("-", " ").replace("_", " ").title()
+                if raw_label
+                else defn.name.replace("-", " ").replace("_", " ").title()
+            )
             _icon = defn.icon or "bot"
 
             if self._session_factory is not None:

@@ -9,26 +9,28 @@ output chunks, errors).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum
-from typing import Any
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
-class SecondarySessionKind(str, Enum):
+class SecondarySessionKind(StrEnum):
     preflight = "preflight"
     sidecar = "sidecar"
     monitor = "monitor"
     extractor = "extractor"
 
 
-class SecondarySessionStatus(str, Enum):
+class SecondarySessionStatus(StrEnum):
     running = "running"
     completed = "completed"
     failed = "failed"
     timeout = "timeout"
 
 
-class EntryKind(str, Enum):
+class EntryKind(StrEnum):
     reasoning = "reasoning"
     tool_call = "tool_call"
     output = "output"

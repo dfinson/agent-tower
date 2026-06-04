@@ -11,7 +11,6 @@ feeds events through EventPipeline.  These tests verify the pipeline correctly:
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -20,7 +19,6 @@ import pytest
 
 from backend.models.domain import SessionEvent, SessionEventKind
 from backend.services.events.event_pipeline import EventPipeline
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -54,10 +52,7 @@ class _PipelineHarness:
         return [ev for jid, ev in self.emitted if jid == job_id]
 
     def transcript_events(self, job_id: str) -> list[SessionEvent]:
-        return [
-            ev for jid, ev in self.emitted
-            if jid == job_id and ev.kind == SessionEventKind.transcript
-        ]
+        return [ev for jid, ev in self.emitted if jid == job_id and ev.kind == SessionEventKind.transcript]
 
     def last_payload(self, job_id: str) -> dict[str, Any]:
         events = self.events_for(job_id)
@@ -399,7 +394,8 @@ class TestContextCompaction:
             await pipeline.on_context_update("j1", 5000)
 
             mock_tel.context_tokens_gauge.set.assert_called_once_with(
-                5000, {"job_id": "j1", "sdk": "test"},
+                5000,
+                {"job_id": "j1", "sdk": "test"},
             )
             assert len(harness.writes) >= 1
 
@@ -414,7 +410,8 @@ class TestContextCompaction:
 
             mock_tel.compactions_counter.add.assert_called_once()
             mock_tel.tokens_compacted.add.assert_called_once_with(
-                7000, {"job_id": "j1", "sdk": "test"},
+                7000,
+                {"job_id": "j1", "sdk": "test"},
             )
 
     @pytest.mark.asyncio
