@@ -661,8 +661,8 @@ dev = [
 
 [[package]]
 name = "coderecon-ai"
-version = "0.1.1.dev194+g865d3072a"
-source = { git = "https://github.com/dfinson/coderecon.git?rev=main#865d3072a1fe2c7f3f80a79f23d80b94ec6018e2" }
+version = "0.1.1.dev201+g3048b4fea"
+source = { git = "https://github.com/dfinson/coderecon.git?rev=main#3048b4feaa0eb4cdbf5b106c3ca99eb93f9b792d" }
 dependencies = [
     { name = "alembic" },
     { name = "click" },
