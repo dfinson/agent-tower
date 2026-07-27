@@ -284,15 +284,15 @@ export function handleMergeConflict(state: AppState, payload: Record<string, unk
 
 // SSEHandler type assertion to keep signatures compatible with the lookup table
 export const jobHandlers: Record<string, SSEHandler> = {
-  job_state_changed: handleJobStateChanged,
-  job_setup_progress: handleJobSetupProgress,
-  job_review: handleJobReview,
-  job_completed: handleJobCompleted,
-  job_failed: handleJobFailed,
-  job_archived: handleJobArchived,
-  job_resolved: handleJobResolved,
-  job_title_updated: handleJobTitleUpdated,
-  model_downgraded: handleModelDowngraded,
-  merge_completed: handleMergeCompleted,
-  merge_conflict: handleMergeConflict,
+  "job.state_changed": handleJobStateChanged,
+  "job.setup_progress": handleJobSetupProgress,
+  "job.review": handleJobReview,
+  "job.completed": handleJobCompleted,
+  "job.failed": handleJobFailed,
+  "job.archived": handleJobArchived,
+  "job.resolved": handleJobResolved,
+  "job.title_updated": handleJobTitleUpdated,
+  "model.downgraded": handleModelDowngraded,
+  "merge.completed": handleMergeCompleted,
+  "merge.conflict": handleMergeConflict,
 };

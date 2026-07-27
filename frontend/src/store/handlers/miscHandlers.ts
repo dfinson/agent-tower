@@ -181,15 +181,15 @@ export function handleContextHandoff(state: AppState, payload: Record<string, un
 
 export const miscHandlers: Record<string, SSEHandler> = {
   snapshot: handleSnapshot,
-  session_heartbeat: handleSessionHeartbeat,
-  diff_update: handleDiffUpdate,
-  session_resumed: handleSessionResumed,
-  telemetry_updated: handleTelemetryUpdated,
-  policy_settings_changed: handlePolicySettingsChanged,
-  repo_index_progress: handleRepoIndexProgress,
-  repo_index_complete: handleRepoIndexComplete,
-  context_handoff: handleContextHandoff,
-  structural_warning: (state, payload) => {
+  "session.heartbeat": handleSessionHeartbeat,
+  "diff.updated": handleDiffUpdate,
+  "session.resumed": handleSessionResumed,
+  "telemetry.updated": handleTelemetryUpdated,
+  "policy.settings_changed": handlePolicySettingsChanged,
+  "repo.index_progress": handleRepoIndexProgress,
+  "repo.index_complete": handleRepoIndexComplete,
+  "context.handoff": handleContextHandoff,
+  "structural.warning": (state, payload) => {
     const jobId = payload.jobId as string | undefined;
     if (!jobId) return {};
     const warning = {

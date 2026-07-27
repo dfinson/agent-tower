@@ -276,10 +276,10 @@ export function handleActionClassified(_state: AppState, payload: Record<string,
 }
 
 export const timelineHandlers: Record<string, SSEHandler> = {
-  progress_headline: handleProgressHeadline,
-  agent_plan_updated: handleAgentPlanUpdated,
-  plan_step_updated: handlePlanStepUpdated,
-  turn_summary: handleTurnSummary,
-  step_entries_reassigned: handleStepEntriesReassigned,
-  action_classified: handleActionClassified,
+  "progress.headline": handleProgressHeadline,
+  "plan.updated": handleAgentPlanUpdated,
+  "plan.step_updated": handlePlanStepUpdated,
+  "turn.summary": handleTurnSummary,
+  "step.entries_reassigned": handleStepEntriesReassigned,
+  "action.classified": handleActionClassified,
 };

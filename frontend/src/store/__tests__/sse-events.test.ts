@@ -56,7 +56,7 @@ beforeEach(() => {
 describe("dispatchSSEEvent — additional events", () => {
   it("handles job_review with prUrl and resolution", () => {
     useStore.setState({ jobs: { "job-1": makeJob({ progressHeadline: "Audit", progressSummary: "Reviewing shortcuts" }) } });
-    useStore.getState().dispatchSSEEvent("job_review", {
+    useStore.getState().dispatchSSEEvent("job.review", {
       jobId: "job-1",
       prUrl: "https://github.com/pr/1",
       resolution: "merged",
@@ -73,7 +73,7 @@ describe("dispatchSSEEvent — additional events", () => {
 
   it("handles job_review with model downgrade", () => {
     useStore.setState({ jobs: { "job-1": makeJob() } });
-    useStore.getState().dispatchSSEEvent("job_review", {
+    useStore.getState().dispatchSSEEvent("job.review", {
       jobId: "job-1",
       modelDowngraded: true,
       requestedModel: "gpt-4",
@@ -85,7 +85,7 @@ describe("dispatchSSEEvent — additional events", () => {
   });
 
   it("ignores job_review for unknown job", () => {
-    useStore.getState().dispatchSSEEvent("job_review", {
+    useStore.getState().dispatchSSEEvent("job.review", {
       jobId: "unknown",
     });
     expect(Object.keys(selectJobs(useStore.getState()))).toHaveLength(0);
@@ -93,7 +93,7 @@ describe("dispatchSSEEvent — additional events", () => {
 
   it("handles job_failed", () => {
     useStore.setState({ jobs: { "job-1": makeJob({ progressHeadline: "Audit", progressSummary: "Reviewing shortcuts" }) } });
-    useStore.getState().dispatchSSEEvent("job_failed", {
+    useStore.getState().dispatchSSEEvent("job.failed", {
       jobId: "job-1",
       reason: "Timeout",
     });
@@ -106,7 +106,7 @@ describe("dispatchSSEEvent — additional events", () => {
 
   it("handles job_failed with default reason", () => {
     useStore.setState({ jobs: { "job-1": makeJob() } });
-    useStore.getState().dispatchSSEEvent("job_failed", {
+    useStore.getState().dispatchSSEEvent("job.failed", {
       jobId: "job-1",
     });
     const job = selectJobs(useStore.getState())["job-1"]!;
@@ -114,7 +114,7 @@ describe("dispatchSSEEvent — additional events", () => {
   });
 
   it("ignores job_failed for unknown job", () => {
-    useStore.getState().dispatchSSEEvent("job_failed", {
+    useStore.getState().dispatchSSEEvent("job.failed", {
       jobId: "unknown",
       reason: "Oops",
     });
@@ -123,7 +123,7 @@ describe("dispatchSSEEvent — additional events", () => {
 
   it("handles job_resolved", () => {
     useStore.setState({ jobs: { "job-1": makeJob({ state: "review" }) } });
-    useStore.getState().dispatchSSEEvent("job_resolved", {
+    useStore.getState().dispatchSSEEvent("job.resolved", {
       jobId: "job-1",
       resolution: "merged",
       prUrl: "https://github.com/pr/1",
@@ -137,7 +137,7 @@ describe("dispatchSSEEvent — additional events", () => {
 
   it("handles job_resolved with conflict", () => {
     useStore.setState({ jobs: { "job-1": makeJob({ state: "review" }) } });
-    useStore.getState().dispatchSSEEvent("job_resolved", {
+    useStore.getState().dispatchSSEEvent("job.resolved", {
       jobId: "job-1",
       resolution: "conflict",
       conflictFiles: ["a.ts", "b.ts"],
@@ -148,7 +148,7 @@ describe("dispatchSSEEvent — additional events", () => {
 
   it("stores unresolved job_resolved errors", () => {
     useStore.setState({ jobs: { "job-1": makeJob({ state: "review" }) } });
-    useStore.getState().dispatchSSEEvent("job_resolved", {
+    useStore.getState().dispatchSSEEvent("job.resolved", {
       jobId: "job-1",
       resolution: "unresolved",
       error: "Cherry-pick failed without conflict markers; check git configuration or hooks",
@@ -159,7 +159,7 @@ describe("dispatchSSEEvent — additional events", () => {
   });
 
   it("ignores job_resolved for unknown job", () => {
-    useStore.getState().dispatchSSEEvent("job_resolved", {
+    useStore.getState().dispatchSSEEvent("job.resolved", {
       jobId: "unknown",
       resolution: "merged",
     });
@@ -168,7 +168,7 @@ describe("dispatchSSEEvent — additional events", () => {
 
   it("handles job_archived", () => {
     useStore.setState({ jobs: { "job-1": makeJob({ state: "review" }) } });
-    useStore.getState().dispatchSSEEvent("job_archived", {
+    useStore.getState().dispatchSSEEvent("job.archived", {
       jobId: "job-1",
     });
     const job = selectJobs(useStore.getState())["job-1"]!;
@@ -177,13 +177,13 @@ describe("dispatchSSEEvent — additional events", () => {
   });
 
   it("ignores job_archived for unknown job", () => {
-    useStore.getState().dispatchSSEEvent("job_archived", { jobId: "unknown" });
+    useStore.getState().dispatchSSEEvent("job.archived", { jobId: "unknown" });
     expect(Object.keys(selectJobs(useStore.getState()))).toHaveLength(0);
   });
 
   it("handles diff_update and stores diffs", () => {
     const files = [{ path: "a.ts", status: "modified", additions: 1, deletions: 0, hunks: [] }];
-    useStore.getState().dispatchSSEEvent("diff_update", {
+    useStore.getState().dispatchSSEEvent("diff.updated", {
       jobId: "job-1",
       changedFiles: files,
     });
@@ -192,7 +192,7 @@ describe("dispatchSSEEvent — additional events", () => {
 
   it("handles job_title_updated", () => {
     useStore.setState({ jobs: { "job-1": makeJob() } });
-    useStore.getState().dispatchSSEEvent("job_title_updated", {
+    useStore.getState().dispatchSSEEvent("job.title_updated", {
       jobId: "job-1",
       title: "New Title",
       branch: "feat/new",
@@ -203,7 +203,7 @@ describe("dispatchSSEEvent — additional events", () => {
   });
 
   it("ignores job_title_updated for unknown job", () => {
-    useStore.getState().dispatchSSEEvent("job_title_updated", {
+    useStore.getState().dispatchSSEEvent("job.title_updated", {
       jobId: "unknown",
       title: "Title",
     });
@@ -212,7 +212,7 @@ describe("dispatchSSEEvent — additional events", () => {
 
   it("handles agent_plan_updated — creates plan steps", () => {
     useStore.setState({ jobs: { "job-1": makeJob() } });
-    useStore.getState().dispatchSSEEvent("agent_plan_updated", {
+    useStore.getState().dispatchSSEEvent("plan.updated", {
       jobId: "job-1",
       steps: [
         { label: "Analyze code", status: "active" },
@@ -227,7 +227,7 @@ describe("dispatchSSEEvent — additional events", () => {
 
   it("handles model_downgraded", () => {
     useStore.setState({ jobs: { "job-1": makeJob() } });
-    useStore.getState().dispatchSSEEvent("model_downgraded", {
+    useStore.getState().dispatchSSEEvent("model.downgraded", {
       jobId: "job-1",
       requestedModel: "gpt-4",
       actualModel: "gpt-3.5",
@@ -239,7 +239,7 @@ describe("dispatchSSEEvent — additional events", () => {
   });
 
   it("ignores model_downgraded for unknown job", () => {
-    useStore.getState().dispatchSSEEvent("model_downgraded", {
+    useStore.getState().dispatchSSEEvent("model.downgraded", {
       jobId: "unknown",
       requestedModel: "gpt-4",
       actualModel: "gpt-3.5",
@@ -248,14 +248,14 @@ describe("dispatchSSEEvent — additional events", () => {
   });
 
   it("transcript_update deduplicates", () => {
-    useStore.getState().dispatchSSEEvent("transcript_update", {
+    useStore.getState().dispatchSSEEvent("message.assistant", {
       jobId: "job-1",
       seq: 1,
       timestamp: "2025-01-01T00:00:00Z",
       role: "agent",
       content: "Hello",
     });
-    useStore.getState().dispatchSSEEvent("transcript_update", {
+    useStore.getState().dispatchSSEEvent("message.assistant", {
       jobId: "job-1",
       seq: 1,
       timestamp: "2025-01-01T00:00:00Z",
@@ -369,7 +369,7 @@ describe("job_state_changed evicts stale approvals", () => {
     });
 
     // Server recovery sends job_state_changed back to running, no approval_resolved
-    useStore.getState().dispatchSSEEvent("job_state_changed", {
+    useStore.getState().dispatchSSEEvent("job.state_changed", {
       jobId: "job-1",
       newState: "running",
       timestamp: "2025-01-01T00:01:00Z",
@@ -398,7 +398,7 @@ describe("job_state_changed evicts stale approvals", () => {
       },
     });
 
-    useStore.getState().dispatchSSEEvent("job_state_changed", {
+    useStore.getState().dispatchSSEEvent("job.state_changed", {
       jobId: "job-1",
       newState: "running",
       timestamp: "2025-01-01T00:01:00Z",
@@ -442,7 +442,7 @@ describe("job_state_changed evicts stale approvals", () => {
       },
     });
 
-    useStore.getState().dispatchSSEEvent("job_state_changed", {
+    useStore.getState().dispatchSSEEvent("job.state_changed", {
       jobId: "job-1",
       newState: "running",
       timestamp: "2025-01-01T00:01:00Z",

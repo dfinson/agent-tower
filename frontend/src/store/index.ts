@@ -14,6 +14,7 @@ import { create } from "zustand";
 import { fetchSDKs, fetchModels, createTerminalSession as apiCreateTerminalSession, deleteTerminalSession as apiDeleteTerminalSession } from "../api/client";
 import { sseHandlers, enrichJob } from "./sseHandlers";
 export { enrichJob } from "./sseHandlers";
+import { deriveJobStateFrame } from "./sseNormalize";
 
 // Re-export all types so existing `import { ... } from "../store"` still works
 export type {
@@ -485,16 +486,39 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   dispatchSSEEvent: (eventType, data) => {
-    const handler = sseHandlers[eventType];
-    if (!handler) return;
-    const state = get();
     const payload = data as Record<string, unknown>;
-    const update = handler(state, payload, get);
-    if (update !== null) {
-      set(update);
+
+    // `snapshot` is a passthrough camelCase frame (not a traceforge event) and
+    // never drives a derived state transition.
+    if (eventType === "snapshot") {
+      const handler = sseHandlers[eventType];
+      if (handler) {
+        const update = handler(get(), payload, get);
+        if (update !== null) set(update);
+      }
+      return;
     }
-    // Side-effect: prefetch structural review data when job enters review state
-    if (eventType === "job_review") {
+
+    // Primary handler for the dotted kind (may be absent, e.g. job.created /
+    // job.canceled, which are expressed purely as a derived state frame).
+    const handler = sseHandlers[eventType];
+    if (handler) {
+      const update = handler(get(), payload, get);
+      if (update !== null) set(update);
+    }
+
+    // Re-derive the job-state transition the backend previously synthesized as
+    // a secondary `job_state_changed` frame. Runs after the primary handler so
+    // it observes the freshly-set state (idempotent, no-ops on unknown jobs).
+    const derived = deriveJobStateFrame(eventType, payload);
+    if (derived) {
+      const stateHandler = sseHandlers["job.state_changed"];
+      const update = stateHandler ? stateHandler(get(), derived, get) : null;
+      if (update !== null) set(update);
+    }
+
+    // Side-effect: prefetch structural review data when a job enters review.
+    if (eventType === "job.review") {
       const jobId = (payload as { jobId?: string }).jobId;
       if (jobId) get().prefetchReviewData(jobId);
     }

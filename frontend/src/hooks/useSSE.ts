@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { fetchJob, fetchJobSnapshot } from "../api/client";
 import { enrichJob, useStore } from "../store";
+import { normalizeTFEvent, type TFSessionEvent } from "../store/sseNormalize";
 import type { JobSummary } from "../store";
 
 /** Reconnection parameters per SPEC §3.5 */
@@ -85,55 +86,68 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         }
       };
 
-      // Handle named event types
+      // Handle named event types. Each name is a traceforge dotted event kind
+      // serialized on the SSE `event:` line (except `snapshot`, a bespoke
+      // camelCase frame). The listener unwraps the traceforge envelope and
+      // normalizes the payload before dispatching (see ../store/sseNormalize).
       const eventTypes = [
-        "job_state_changed",
-        "log_line",
-        "transcript_update",
-        "diff_update",
-        "approval_requested",
-        "approval_resolved",
-        "batch_approval_requested",
-        "batch_approval_resolved",
-        "session_heartbeat",
-        "snapshot",
-        "job_review",
-        "job_completed",
-        "job_failed",
-        "job_resolved",
-        "job_archived",
-        "session_resumed",
-        "job_title_updated",
-        "model_downgraded",
-        "tool_group_summary",
-        "merge_completed",
-        "merge_conflict",
-        "telemetry_updated",
+        // Job lifecycle
+        "job.created",
+        "job.state_changed",
+        "job.setup_progress",
+        "job.review",
+        "job.completed",
+        "job.failed",
+        "job.canceled",
+        "job.resolved",
+        "job.archived",
+        "job.title_updated",
+        "model.downgraded",
+        "merge.completed",
+        "merge.conflict",
+        // Transcript / logs (role-split dotted kinds all route to the
+        // transcript handler, which branches on payload.role)
+        "log",
+        "message.user",
+        "message.assistant",
+        "message.delta",
+        "tool.call.started",
+        "tool.call.completed",
+        "tool.group_summary",
+        // Diffs
+        "diff.updated",
+        // Approvals / permissions
+        "permission.requested",
+        "permission.resolved",
+        "permission.batch.requested",
+        "permission.batch.resolved",
+        // Session
+        "session.heartbeat",
+        "session.resumed",
+        "telemetry.updated",
         // Plan steps — the only step-level event the frontend handles
-        "plan_step_updated",
+        "plan.step_updated",
         // Activity timeline
-        "turn_summary",
+        "turn.summary",
         // Step reassignment (classifier moved turn to different plan item)
-        "step_entries_reassigned",
+        "step.entries_reassigned",
         // Action policy tier classification
-        "action_classified",
-        // Job workspace setup progress (preparing → queued)
-        "job_setup_progress",
+        "action.classified",
         // Policy settings changed (triggers settings panel refresh)
-        "policy_settings_changed",
+        "policy.settings_changed",
         // Repository structural index progress
-        "repo_index_progress",
-        "repo_index_complete",
+        "repo.index_progress",
+        "repo.index_complete",
         // Structural health warnings at step boundaries (§7.2)
-        "structural_warning",
-        // Sidecar transcript entries (legacy — kept for replay compat)
-        "sidecar_transcript",
+        "structural.warning",
         // Unified secondary session events
-        "secondary_session_started",
-        "secondary_session_entry",
-        "secondary_session_completed",
+        "secondary_session.started",
+        "secondary_session.entry",
+        "secondary_session.completed",
         // Context handoff visibility
-        "context_handoff",
+        "context.handoff",
+        // Bespoke camelCase snapshot frame (not a traceforge event)
+        "snapshot",
       ];
 
       for (const eventType of eventTypes) {
@@ -147,26 +161,39 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
             // same microtask checkpoint as React's useSyncExternalStore flush.
             // See comment on onopen above for the full explanation of #185.
             setTimeout(async () => {
-              // If a state change arrives for a job not yet in the store
-              // (e.g. created on another device), fetch the full job from the
-              // REST API and insert it before dispatching the state update so
-              // it appears on the Kanban board without a page refresh.
-              if (eventType === "job_state_changed") {
-                const payload = data as Record<string, unknown>;
-                const jobId = payload.jobId as string | undefined;
-                if (jobId && !useStore.getState().jobs[jobId]) {
+              // `snapshot` is a bespoke camelCase frame, not a traceforge
+              // event — dispatch it through untouched.
+              if (eventType === "snapshot") {
+                dispatchSSEEvent(eventType, data as Record<string, unknown>);
+                return;
+              }
+
+              const tfEvent = data as TFSessionEvent;
+
+              // If a lifecycle transition arrives for a job not yet in the
+              // store (e.g. created on another device), fetch the full job from
+              // the REST API and insert it before dispatching so it appears on
+              // the Kanban board without a page refresh.
+              if (
+                eventType === "job.created" ||
+                eventType === "job.canceled" ||
+                eventType === "job.state_changed"
+              ) {
+                const sid = tfEvent.session_id;
+                if (sid && !useStore.getState().jobs[sid]) {
                   try {
-                    const job = await fetchJob(jobId);
+                    const job = await fetchJob(sid);
                     useStore.setState((state) => ({
                       jobs: { ...state.jobs, [job.id]: enrichJob(job as unknown as JobSummary) },
                     }));
                   } catch {
-                    // Job may not be readable yet; the state change dispatch
-                    // below will be a no-op for unknown jobs, which is safe.
+                    // Job may not be readable yet; the dispatch below is a safe
+                    // no-op for unknown jobs.
                   }
                 }
               }
-              dispatchSSEEvent(eventType, data);
+
+              dispatchSSEEvent(eventType, normalizeTFEvent(tfEvent));
             }, 0);
           } catch {
             // Ignore unparseable events
