@@ -212,7 +212,7 @@ async def get_job_logs(
     events = await svc.list_events_by_job(job_id, [DomainEventKind.log_line_emitted], limit=limit)
     lines = []
     for event in events:
-        payload = cast("dict[str, Any]", event.payload)
+        payload = event.payload
         event_level = payload.get("level", "info")
         if _level_order.get(event_level, 1) < min_priority:
             continue
@@ -221,7 +221,7 @@ async def get_job_logs(
             continue
         lines.append(
             LogLinePayload(
-                job_id=event.job_id,
+                job_id=event.session_id,
                 seq=payload.get("seq", 0),
                 timestamp=payload.get("timestamp", event.timestamp),
                 level=event_level,
@@ -363,8 +363,8 @@ async def get_job_transcript(
 
     items: list[TranscriptPayload] = [
         TranscriptPayload(
-            job_id=event.job_id,
-            seq=(p := cast("dict[str, Any]", event.payload)).get("seq", 0),
+            job_id=event.session_id,
+            seq=(p := event.payload).get("seq", 0),
             timestamp=p.get("timestamp", event.timestamp),
             role=p.get("role", "agent"),
             content=p.get("content", ""),
@@ -387,10 +387,10 @@ async def get_job_transcript(
 
     # Append sidecar entries with role="sidecar"
     for event in sidecar_events:
-        p = cast("dict[str, Any]", event.payload)
+        p = event.payload
         items.append(
             TranscriptPayload(
-                job_id=event.job_id,
+                job_id=event.session_id,
                 seq=p.get("seq", 0),
                 timestamp=p.get("timestamp", event.timestamp),
                 role="sidecar",
@@ -423,7 +423,7 @@ async def get_job_steps(
     # De-duplicate: keep the latest event per plan_step_id (events are ordered chronologically)
     latest_by_id: dict[str, dict[str, Any]] = {}
     for ev in events:
-        p = cast("dict[str, Any]", ev.payload)
+        p = ev.payload
         step_id = p.get("plan_step_id", "")
         if step_id:
             latest_by_id[step_id] = p
@@ -431,7 +431,7 @@ async def get_job_steps(
     # Build response preserving insertion order (first-seen order = plan order)
     seen_order: list[str] = []
     for ev in events:
-        p = cast("dict[str, Any]", ev.payload)
+        p = ev.payload
         sid = p.get("plan_step_id", "")
         if sid and sid not in seen_order:
             seen_order.append(sid)
@@ -496,7 +496,7 @@ async def search_transcript(
     events = await event_repo.search_transcript(job_id, q, roles=roles, step_id=step_id, limit=limit)
     results = []
     for evt in events:
-        payload = cast("dict[str, Any]", evt.payload)
+        payload = evt.payload
         results.append(
             TranscriptSearchResult(
                 seq=int(payload.get("seq", 0)),
@@ -556,13 +556,13 @@ async def get_job_timeline(
     # Replay events to reconstruct the collapsed milestone list
     milestones: list[ProgressHeadlinePayload] = []
     for event in events:
-        ep = cast("dict[str, Any]", event.payload)
+        ep = event.payload
         replaces = int(ep.get("replaces_count", 0) or 0)
         if replaces > 0:
             milestones = milestones[:-replaces] if replaces < len(milestones) else []
         milestones.append(
             ProgressHeadlinePayload(
-                job_id=event.job_id,
+                job_id=event.session_id,
                 headline=ep.get("headline", ""),
                 headline_past=ep.get("headline_past", ""),
                 summary=ep.get("summary", ""),

@@ -39,7 +39,7 @@ from rich.text import Text
 from backend.models.events import DomainEventKind
 
 if TYPE_CHECKING:
-    from backend.models.events import DomainEvent
+    from backend.models.events import SessionEvent
 
 # ---------------------------------------------------------------------------
 # Display constants
@@ -176,7 +176,7 @@ class ConsoleLog:
     # EventBus subscriber
     # ------------------------------------------------------------------
 
-    async def handle_event(self, event: DomainEvent) -> None:
+    async def handle_event(self, event: SessionEvent) -> None:
         """Async EventBus subscriber — prints one line per significant event."""
         self._apply_event(event)
 
@@ -207,10 +207,10 @@ class ConsoleLog:
     # Internal: map domain event → printed line
     # ------------------------------------------------------------------
 
-    def _apply_event(self, event: DomainEvent) -> None:
+    def _apply_event(self, event: SessionEvent) -> None:
         ts = datetime.now(UTC).strftime("%H:%M:%S")
         kind = event.kind
-        job_id = event.job_id
+        job_id = event.session_id
         if not job_id:
             return
 
@@ -231,7 +231,7 @@ class ConsoleLog:
                 DomainEventKind.job_completed: "completed",
                 DomainEventKind.job_failed: "failed",
                 DomainEventKind.job_canceled: "canceled",
-            }[kind]
+            }[DomainEventKind(kind)]
             job = self._jobs.get(job_id)
             elapsed = f"  ({job.elapsed()})" if job else ""
             title = f'  "{job.title}"' if job and job.title else ""

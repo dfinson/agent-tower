@@ -17,7 +17,7 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from backend.services.events.event_bus import EventBus
     from backend.services.git.git_service import GitService
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent, new_event
 from backend.services.git.git_service import GitError
 from backend.services.tools.tool_classifier import TOOL_CATEGORIES
 
@@ -103,9 +103,9 @@ class StepTracker:
     def current_step(self, job_id: str) -> _StepState | None:
         return self._current.get(job_id)
 
-    async def on_transcript_event(self, job_id: str, event: DomainEvent) -> None:
+    async def on_transcript_event(self, job_id: str, event: SessionEvent) -> None:
         """Process a TranscriptUpdated event."""
-        payload = cast("dict[str, Any]", event.payload)
+        payload = event.payload
         role = payload.get("role", "")
         content = payload.get("content", "")
         turn_id = payload.get("turn_id") or ""
@@ -167,7 +167,7 @@ class StepTracker:
                 "step_tracker_missing_turn_id",
                 job_id=job_id,
                 role=role,
-                event_id=event.event_id,
+                event_id=event.id,
             )
 
         current = self._current.get(job_id)
@@ -264,9 +264,8 @@ class StepTracker:
         )
         self._current[job_id] = state
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=state.started_at,
                 kind=DomainEventKind.step_started,
                 payload={
@@ -327,9 +326,8 @@ class StepTracker:
                     log.debug("step_diff_numstat_failed", job_id=job_id, exc_info=True)
 
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=now,
                 kind=DomainEventKind.step_completed,
                 payload={
@@ -367,7 +365,7 @@ class StepTracker:
 # ---------------------------------------------------------------------------
 
 
-def _detect_latest_generation(step_events: Sequence[DomainEvent]) -> set[str]:
+def _detect_latest_generation(step_events: Sequence[SessionEvent]) -> set[str]:
     """Detect the latest plan generation from a sequence of plan_step_updated events.
 
     The step tracker replaces the in-memory plan when re-inferring, but old
@@ -381,7 +379,7 @@ def _detect_latest_generation(step_events: Sequence[DomainEvent]) -> set[str]:
     current_gen_start: float = 0.0
 
     for ev in step_events:
-        payload = cast("dict[str, Any]", ev.payload)
+        payload = ev.payload
         sid = payload.get("plan_step_id", "")
         if not sid:
             continue
@@ -402,7 +400,7 @@ def _detect_latest_generation(step_events: Sequence[DomainEvent]) -> set[str]:
 
 
 def hydrate_plan_steps(
-    step_events: Sequence[DomainEvent],
+    step_events: Sequence[SessionEvent],
     job_id: str,
     *,
     detect_generations: bool = True,
@@ -426,7 +424,7 @@ def hydrate_plan_steps(
     step_latest: dict[str, dict[str, Any]] = {}
     step_order: list[str] = []
     for ev in step_events:
-        payload = cast("dict[str, Any]", ev.payload)
+        payload = ev.payload
         sid = payload.get("plan_step_id", "")
         if not sid:
             continue

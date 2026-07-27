@@ -137,22 +137,22 @@ class TestEventBusIntegration:
     @pytest.mark.asyncio
     async def test_concurrent_subscribers(self, event_bus: EventBus) -> None:
         """Multiple subscribers receive the same event."""
-        from backend.models.events import DomainEvent, DomainEventKind
+        from backend.models.events import DomainEventKind, SessionEvent, new_event
 
         received: list[str] = []
 
-        async def sub1(event: DomainEvent) -> None:
-            received.append(f"sub1:{event.kind.value}")
+        async def sub1(event: SessionEvent) -> None:
+            received.append(f"sub1:{str(event.kind)}")
 
-        async def sub2(event: DomainEvent) -> None:
-            received.append(f"sub2:{event.kind.value}")
+        async def sub2(event: SessionEvent) -> None:
+            received.append(f"sub2:{str(event.kind)}")
 
         event_bus.subscribe(sub1)
         event_bus.subscribe(sub2)
 
-        event = DomainEvent(
+        event = new_event(
             event_id="evt-1",
-            job_id="job-1",
+            session_id="job-1",
             timestamp=datetime.now(UTC),
             kind=DomainEventKind.job_state_changed,
             payload={"old_state": "queued", "new_state": "running"},
@@ -164,22 +164,22 @@ class TestEventBusIntegration:
 
     @pytest.mark.asyncio
     async def test_subscriber_error_does_not_crash_bus(self, event_bus: EventBus) -> None:
-        from backend.models.events import DomainEvent, DomainEventKind
+        from backend.models.events import DomainEventKind, SessionEvent, new_event
 
         received: list[str] = []
 
-        async def bad_sub(event: DomainEvent) -> None:
+        async def bad_sub(event: SessionEvent) -> None:
             raise ValueError("subscriber failed")
 
-        async def good_sub(event: DomainEvent) -> None:
+        async def good_sub(event: SessionEvent) -> None:
             received.append("ok")
 
         event_bus.subscribe(bad_sub)
         event_bus.subscribe(good_sub)
 
-        event = DomainEvent(
+        event = new_event(
             event_id="evt-1",
-            job_id="job-1",
+            session_id="job-1",
             timestamp=datetime.now(UTC),
             kind=DomainEventKind.job_state_changed,
             payload={},

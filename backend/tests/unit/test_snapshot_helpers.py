@@ -18,7 +18,7 @@ def _event(
     timestamp: str = "2025-01-01T00:00:00Z",
     **payload: Any,
 ) -> SimpleNamespace:
-    return SimpleNamespace(job_id=job_id, timestamp=timestamp, payload=payload)
+    return SimpleNamespace(session_id=job_id, timestamp=timestamp, payload=payload)
 
 
 # ---------------------------------------------------------------------------

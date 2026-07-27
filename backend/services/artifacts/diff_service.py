@@ -21,7 +21,7 @@ from backend.models.api_schemas import (
     DiffLineType,
     DiffUpdatePayload,
 )
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, new_event
 from backend.services.git.git_service import GitError
 
 if TYPE_CHECKING:
@@ -217,9 +217,9 @@ class DiffService:
         # SSE manager re-serializes to camelCase for the wire.
         payload = DiffUpdatePayload(job_id=job_id, changed_files=files)
         await self._event_bus.publish(
-            DomainEvent(
+            new_event(
                 event_id=f"evt-{uuid.uuid4().hex[:12]}",
-                job_id=job_id,
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.diff_updated,
                 payload=json.loads(payload.model_dump_json()),

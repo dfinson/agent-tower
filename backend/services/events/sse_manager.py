@@ -46,7 +46,7 @@ from backend.models.api_schemas import (
     TurnSummaryPayload,
 )
 from backend.models.domain import JobState, Resolution
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -58,7 +58,7 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 # SSE event type mapping from domain event kinds
-_SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
+_SSE_EVENT_TYPE: dict[str, str | None] = {
     DomainEventKind.job_created: "job_state_changed",
     DomainEventKind.job_setup_progress: "job_setup_progress",
     DomainEventKind.workspace_prepared: None,  # internal only
@@ -115,7 +115,7 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)
-_KIND_TO_STATE: dict[DomainEventKind, str] = {
+_KIND_TO_STATE: dict[str, str] = {
     DomainEventKind.job_created: JobState.running,
     DomainEventKind.job_review: JobState.review,
     DomainEventKind.job_completed: JobState.completed,
@@ -196,12 +196,12 @@ _TS_EVENT = object()  # always event.timestamp
 FieldMap = dict[str, tuple[str, object]]
 
 
-def _build_from_fields(event: DomainEvent, model_cls: type, fields: FieldMap) -> str:
+def _build_from_fields(event: SessionEvent, model_cls: type, fields: FieldMap) -> str:
     """Build a Pydantic SSE payload from a declarative field map.
 
-    Every model receives ``job_id=event.job_id`` automatically.
+    Every model receives ``job_id=event.session_id`` automatically.
     """
-    kwargs: dict[str, object] = {"job_id": event.job_id}
+    kwargs: dict[str, object] = {"job_id": event.session_id}
     for kwarg_name, (payload_key, default) in fields.items():
         if default is _TS_FALLBACK:
             kwargs[kwarg_name] = event.payload.get(payload_key, event.timestamp)
@@ -217,24 +217,24 @@ def _build_from_fields(event: DomainEvent, model_cls: type, fields: FieldMap) ->
 # Custom builders for event types with non-trivial extraction logic
 # ---------------------------------------------------------------------------
 
-_BuilderFn = Callable[[DomainEvent], str]
+_BuilderFn = Callable[[SessionEvent], str]
 
 
-def _build_job_state_changed(event: DomainEvent) -> str:
+def _build_job_state_changed(event: SessionEvent) -> str:
     new_state = _KIND_TO_STATE.get(
         event.kind, event.payload.get("state", event.payload.get("new_state", JobState.queued))
     )
     return JobStateChangedPayload(
-        job_id=event.job_id,
+        job_id=event.session_id,
         previous_state=event.payload.get("previous_state"),
         new_state=new_state,
         timestamp=event.timestamp,
     ).model_dump_json(by_alias=True)
 
 
-def _build_job_review(event: DomainEvent) -> str:
+def _build_job_review(event: SessionEvent) -> str:
     return JobReviewPayload(
-        job_id=event.job_id,
+        job_id=event.session_id,
         pr_url=event.payload.get("pr_url"),
         merge_status=event.payload.get("merge_status"),
         resolution=event.payload.get("resolution"),
@@ -245,10 +245,10 @@ def _build_job_review(event: DomainEvent) -> str:
     ).model_dump_json(by_alias=True)
 
 
-def _build_plan_step_updated(event: DomainEvent) -> str:
+def _build_plan_step_updated(event: SessionEvent) -> str:
     p = event.payload
     return PlanStepPayload(
-        job_id=event.job_id,
+        job_id=event.session_id,
         plan_step_id=p.get("plan_step_id", ""),
         label=p.get("label", ""),
         summary=p.get("summary"),
@@ -264,13 +264,13 @@ def _build_plan_step_updated(event: DomainEvent) -> str:
     ).model_dump_json(by_alias=True)
 
 
-def _build_batch_approval_requested(event: DomainEvent) -> str:
+def _build_batch_approval_requested(event: SessionEvent) -> str:
     import json
 
     p = event.payload
     return json.dumps(
         {
-            "jobId": event.job_id,
+            "jobId": event.session_id,
             "batch_id": p.get("batch_id", ""),
             "batch_size": p.get("batch_size", 0),
             "summary": p.get("summary", ""),
@@ -280,13 +280,13 @@ def _build_batch_approval_requested(event: DomainEvent) -> str:
     )
 
 
-def _build_batch_approval_resolved(event: DomainEvent) -> str:
+def _build_batch_approval_resolved(event: SessionEvent) -> str:
     import json
 
     p = event.payload
     return json.dumps(
         {
-            "jobId": event.job_id,
+            "jobId": event.session_id,
             "batch_id": p.get("batch_id", ""),
             "resolution": p.get("resolution", ""),
             "timestamp": event.timestamp.isoformat() if hasattr(event.timestamp, "isoformat") else str(event.timestamp),
@@ -297,14 +297,14 @@ def _build_batch_approval_resolved(event: DomainEvent) -> str:
 # -- Unified secondary session builders --
 
 
-def _build_secondary_session_started(event: DomainEvent) -> str:
+def _build_secondary_session_started(event: SessionEvent) -> str:
     import json
 
     p = event.payload
     return json.dumps(
         {
             "sessionId": p.get("session_id", ""),
-            "jobId": event.job_id,
+            "jobId": event.session_id,
             "kind": p.get("kind", ""),
             "name": p.get("name", ""),
             "icon": p.get("icon", "bot"),
@@ -312,7 +312,7 @@ def _build_secondary_session_started(event: DomainEvent) -> str:
     )
 
 
-def _build_secondary_session_entry(event: DomainEvent) -> str:
+def _build_secondary_session_entry(event: SessionEvent) -> str:
     import json
 
     p = event.payload
@@ -322,7 +322,7 @@ def _build_secondary_session_entry(event: DomainEvent) -> str:
     return json.dumps(
         {
             "sessionId": p.get("session_id", ""),
-            "jobId": event.job_id,
+            "jobId": event.session_id,
             "entry": {
                 "seq": entry.get("seq", 0),
                 "kind": entry.get("kind", ""),
@@ -341,14 +341,14 @@ def _build_secondary_session_entry(event: DomainEvent) -> str:
     )
 
 
-def _build_secondary_session_completed(event: DomainEvent) -> str:
+def _build_secondary_session_completed(event: SessionEvent) -> str:
     import json
 
     p = event.payload
     return json.dumps(
         {
             "sessionId": p.get("session_id", ""),
-            "jobId": event.job_id,
+            "jobId": event.session_id,
             "status": p.get("status", "completed"),
             "output": p.get("output"),
             "inputTokens": p.get("input_tokens", 0),
@@ -605,7 +605,7 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
 }
 
 
-def _build_sse_data(event: DomainEvent, sse_type: str) -> str:
+def _build_sse_data(event: SessionEvent, sse_type: str) -> str:
     """Serialize the domain event payload via the appropriate Pydantic SSE model.
 
     This ensures all SSE payloads use **camelCase** keys matching the API contract.
@@ -620,14 +620,14 @@ def _build_sse_data(event: DomainEvent, sse_type: str) -> str:
     return _build_from_fields(event, model_cls, fields)
 
 
-def _build_derived_state_frame(event: DomainEvent, sse_id: str | None) -> str | None:
+def _build_derived_state_frame(event: SessionEvent, sse_id: str | None) -> str | None:
     """Build a derived ``job_state_changed`` SSE frame for events that imply a state transition.
 
     Returns ``None`` when *event* does not trigger a secondary frame.
     """
     if event.kind == DomainEventKind.approval_requested:
         payload = JobStateChangedPayload(
-            job_id=event.job_id,
+            job_id=event.session_id,
             previous_state=event.payload.get("previous_state"),
             new_state=JobState.waiting_for_approval,
             timestamp=event.timestamp,
@@ -635,14 +635,14 @@ def _build_derived_state_frame(event: DomainEvent, sse_id: str | None) -> str | 
     elif event.kind == DomainEventKind.approval_resolved:
         new_state = JobState.running if event.payload.get("resolution") == "approved" else JobState.failed
         payload = JobStateChangedPayload(
-            job_id=event.job_id,
+            job_id=event.session_id,
             previous_state=JobState.waiting_for_approval,
             new_state=new_state,
             timestamp=event.timestamp,
         )
     elif event.kind in (DomainEventKind.job_review, DomainEventKind.job_completed, DomainEventKind.job_failed):
         payload = JobStateChangedPayload(
-            job_id=event.job_id,
+            job_id=event.session_id,
             previous_state=None,
             new_state=_KIND_TO_STATE[event.kind],
             timestamp=event.timestamp,
@@ -687,13 +687,13 @@ class SSEManager:
         """Update the active job count for selective streaming decisions."""
         self._active_job_count = count
 
-    async def broadcast_domain_event(self, event: DomainEvent) -> None:
+    async def broadcast_domain_event(self, event: SessionEvent) -> None:
         """Event bus subscriber — translate and broadcast a domain event."""
         sse_type = _SSE_EVENT_TYPE.get(event.kind)
         if sse_type is None:
             return  # internal-only event
 
-        sse_id = str(event.db_id) if event.db_id is not None else event.event_id
+        sse_id = str(event.metadata.sequence) if event.metadata.sequence is not None else event.id
         frame = _format_sse(sse_id, sse_type, _build_sse_data(event, sse_type))
         selective = self._active_job_count > 20
 
@@ -706,7 +706,7 @@ class SSEManager:
 
             # Job-scoped connection: only deliver events for this job
             if conn.job_id is not None:
-                if event.job_id != conn.job_id:
+                if event.session_id != conn.job_id:
                     continue
                 # Scoped connections always get full streaming
                 conn.send(frame)
@@ -725,7 +725,7 @@ class SSEManager:
         # Emit secondary SSE events per the mapping in §5.3.1
         derived = _build_derived_state_frame(event, sse_id=None)
         if derived is not None:
-            self._broadcast_frame(derived, event.job_id)
+            self._broadcast_frame(derived, event.session_id)
 
     def _broadcast_frame(self, frame: str, job_id: str | None) -> None:
         """Send a pre-formatted frame to all relevant connections."""
@@ -845,7 +845,7 @@ class SSEManager:
             sse_type = _SSE_EVENT_TYPE.get(event.kind)
             if sse_type is None:
                 continue
-            sse_id = str(event.db_id) if event.db_id is not None else event.event_id
+            sse_id = str(event.metadata.sequence) if event.metadata.sequence is not None else event.id
             frame = _format_sse(sse_id, sse_type, _build_sse_data(event, sse_type))
             conn.send(frame)
 

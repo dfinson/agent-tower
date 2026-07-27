@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.models.db import Base, JobRow
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent, new_event
 from backend.services.events.event_bus import EventBus
 from backend.services.trail import TrailService
 
@@ -52,14 +52,8 @@ def _make_event(
     kind: DomainEventKind,
     job_id: str = "job-1",
     payload: dict | None = None,
-) -> DomainEvent:
-    return DomainEvent(
-        event_id=DomainEvent.make_event_id(),
-        job_id=job_id,
-        timestamp=datetime.now(UTC),
-        kind=kind,
-        payload=payload or {},
-    )
+) -> SessionEvent:
+    return new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=kind, payload=payload or {})
 
 
 # ===================================================================

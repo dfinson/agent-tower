@@ -39,10 +39,12 @@ from backend.models.domain import (
     Resolution,
     ServiceInitError,
     SessionConfig,
-    SessionEvent,
     SessionEventKind,
 )
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.domain import (
+    SessionEvent as CPSessionEvent,
+)
+from backend.models.events import DomainEventKind, SessionEvent, new_event
 from backend.persistence.job_repo import JobRepository
 from backend.services.job.job_service import JobService
 from backend.services.runtime.handoff import (
@@ -107,7 +109,7 @@ class AgentSession:
         self,
         config: SessionConfig,
         adapter: AgentAdapterInterface,
-    ) -> AsyncIterator[SessionEvent]:
+    ) -> AsyncIterator[CPSessionEvent]:
         self._adapter = adapter
         self._session_id = await adapter.create_session(config)
         async for event in adapter.stream_events(self._session_id):
@@ -209,7 +211,7 @@ Respond with ONLY one JSON object:
 """
 
 
-def _session_event_counts_as_resume_progress(event: SessionEvent) -> bool:
+def _session_event_counts_as_resume_progress(event: CPSessionEvent) -> bool:
     """Return True once a resumed session has produced real agent work."""
     if event.kind in (
         SessionEventKind.file_changed,
@@ -377,9 +379,8 @@ class RuntimeService:
                     async with serialized_write(self._session_factory) as ws:
                         await JobRepository(ws).update_title_and_branch(job_id, title=title)
                     await self._event_bus.publish(
-                        DomainEvent(
-                            event_id=DomainEvent.make_event_id(),
-                            job_id=job_id,
+                        new_event(
+                            session_id=job_id,
                             timestamp=datetime.now(UTC),
                             kind=DomainEventKind.job_title_updated,
                             payload={"title": title},
@@ -776,9 +777,8 @@ class RuntimeService:
         # Emit environment_setup phase
         self._resolve_adapter(config.sdk).set_execution_phase(job_id, ExecutionPhase.environment_setup)
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.execution_phase_changed,
                 payload={"phase": ExecutionPhase.environment_setup},
@@ -818,9 +818,8 @@ class RuntimeService:
             # Emit agent_reasoning phase before main session execution
             self._resolve_adapter(config.sdk).set_execution_phase(job_id, ExecutionPhase.agent_reasoning)
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=datetime.now(UTC),
                     kind=DomainEventKind.execution_phase_changed,
                     payload={"phase": ExecutionPhase.agent_reasoning},
@@ -934,9 +933,8 @@ class RuntimeService:
             await session.commit()
 
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.job_review,
                 payload={
@@ -1041,9 +1039,8 @@ class RuntimeService:
 
         await self._set_step_terminal_state(job_id, final_state)
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=final_event_kind,
                 payload={
@@ -1196,7 +1193,7 @@ class RuntimeService:
             action_rules=len(action_rules),
         )
 
-    async def _on_policy_settings_changed(self, event: DomainEvent) -> None:
+    async def _on_policy_settings_changed(self, event: SessionEvent) -> None:
         """Reload action policy for all running jobs when settings change."""
         if event.kind != DomainEventKind.policy_settings_changed:
             return
@@ -1370,9 +1367,8 @@ class RuntimeService:
                     await session.commit()
                     await self._set_step_terminal_state(job_id, JobState.failed)
                     await self._event_bus.publish(
-                        DomainEvent(
-                            event_id=DomainEvent.make_event_id(),
-                            job_id=job_id,
+                        new_event(
+                            session_id=job_id,
                             timestamp=datetime.now(UTC),
                             kind=DomainEventKind.job_failed,
                             payload={"reason": "Job cleanup: previous error handlers failed to transition state"},
@@ -1384,7 +1380,7 @@ class RuntimeService:
     async def _handle_approval_request(
         self,
         job_id: str,
-        domain_event: DomainEvent,
+        domain_event: SessionEvent,
         rejection_message: str,
     ) -> ApprovalResolution:
         """Handle an approval_requested event: transition state, wait for operator, return resolution."""
@@ -1406,9 +1402,8 @@ class RuntimeService:
         resolution = await self._approval_service.wait_for_resolution(approval_id)
 
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.approval_resolved,
                 payload={
@@ -1479,9 +1474,8 @@ class RuntimeService:
                     await session.commit()
                     await self._set_step_terminal_state(job_id, JobState.canceled)
                     await self._event_bus.publish(
-                        DomainEvent(
-                            event_id=DomainEvent.make_event_id(),
-                            job_id=job_id,
+                        new_event(
+                            session_id=job_id,
                             timestamp=datetime.now(UTC),
                             kind=DomainEventKind.job_canceled,
                             payload={"reason": "operator_cancel"},
@@ -1545,10 +1539,10 @@ class RuntimeService:
     async def feed_external_event(
         self,
         job_id: str,
-        session_event: SessionEvent,
+        session_event: CPSessionEvent,
         worktree_path: str | None = None,
         base_ref: str | None = None,
-    ) -> DomainEvent | None:
+    ) -> SessionEvent | None:
         """Process a single event from an externally-managed session.
 
         Applies the full managed-session pipeline: tool tracking, diff
@@ -1679,12 +1673,12 @@ class RuntimeService:
     async def _process_agent_event(
         self,
         job_id: str,
-        session_event: SessionEvent,
+        session_event: CPSessionEvent,
         agent_session: AgentSession | None,
         worktree_path: str | None,
         base_ref: str | None,
         rejection_message: str,
-    ) -> tuple[EventAction, DomainEvent | None, str | None]:
+    ) -> tuple[EventAction, SessionEvent | None, str | None]:
         """Process a single agent session event (shared by main + follow-up loops).
 
         When *agent_session* is ``None`` (external/imported sessions), approval
@@ -1941,13 +1935,7 @@ class RuntimeService:
                     payload["active_tool_since"] = active[1]
 
                 await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=job_id,
-                        timestamp=now,
-                        kind=DomainEventKind.session_heartbeat,
-                        payload=payload,
-                    )
+                    new_event(session_id=job_id, timestamp=now, kind=DomainEventKind.session_heartbeat, payload=payload)
                 )
 
                 # --- Stall detection via sidecar session ---
@@ -2044,9 +2032,8 @@ class RuntimeService:
         """Interrupt the stalled tool and re-prompt the agent."""
         # Publish stall event for UI visibility
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.stall_detected,
                 payload={
@@ -2133,9 +2120,8 @@ class RuntimeService:
         await agent_session.send_message(message)
         # Publish immediately so the operator message appears in the transcript
         # without waiting for the SDK to echo it back.
-        operator_event = DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
+        operator_event = new_event(
+            session_id=job_id,
             timestamp=now,
             kind=DomainEventKind.transcript_updated,
             payload={
@@ -2200,9 +2186,8 @@ class RuntimeService:
 
         if resolved:
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=datetime.now(UTC),
                     kind=DomainEventKind.batch_approval_resolved,
                     payload={
@@ -2423,9 +2408,8 @@ class RuntimeService:
         try:
             await asyncio.shield(_do_fail())
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=datetime.now(UTC),
                     kind=DomainEventKind.job_failed,
                     payload={"reason": reason},
@@ -2555,9 +2539,8 @@ class RuntimeService:
     async def _publish_state_event(self, job_id: str, previous_state: str | None, new_state: str) -> None:
         """Publish a job state change event."""
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.job_state_changed,
                 payload={
@@ -2570,16 +2553,15 @@ class RuntimeService:
     async def _emit_setup_progress(self, job_id: str, step: str) -> None:
         """Emit a job_setup_progress event so the frontend can show sub-step text."""
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.job_setup_progress,
                 payload={"step": step},
             )
         )
 
-    def _translate_event(self, job_id: str, event: SessionEvent) -> DomainEvent | None:
+    def _translate_event(self, job_id: str, event: CPSessionEvent) -> SessionEvent | None:
         """Translate a SessionEvent into a DomainEvent."""
         mapping: dict[SessionEventKind, DomainEventKind] = {
             SessionEventKind.log: DomainEventKind.log_line_emitted,
@@ -2592,12 +2574,8 @@ class RuntimeService:
         if kind is None:
             # 'done' events are handled at the _run_job level
             return None
-        return DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=datetime.now(UTC),
-            kind=kind,
-            payload=cast("dict[str, Any]", event.payload),
+        return new_event(
+            session_id=job_id, timestamp=datetime.now(UTC), kind=kind, payload=cast("dict[str, Any]", event.payload)
         )
 
     async def recover_on_startup(self) -> None:
@@ -2764,9 +2742,8 @@ class RuntimeService:
         self._waiting_for_approval.add(job_id)
 
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.approval_requested,
                 payload={
@@ -2786,9 +2763,8 @@ class RuntimeService:
         operator_notes = (resolved_approval.notes if resolved_approval else None) or ""
 
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.approval_resolved,
                 payload={
@@ -2869,9 +2845,8 @@ class RuntimeService:
                 self._waiting_for_approval.add(job_id)
 
                 await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=job_id,
+                    new_event(
+                        session_id=job_id,
                         timestamp=datetime.now(UTC),
                         kind=DomainEventKind.approval_requested,
                         payload={
@@ -2889,9 +2864,8 @@ class RuntimeService:
                 operator_notes = (resolved_approval.notes if resolved_approval else None) or ""
 
                 await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=job_id,
+                    new_event(
+                        session_id=job_id,
                         timestamp=datetime.now(UTC),
                         kind=DomainEventKind.approval_resolved,
                         payload={
@@ -2933,9 +2907,8 @@ class RuntimeService:
             await job_repo.update_mode(job_id, JobMode.plan_implementing)
         await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.job_mode_changed,
                 payload={
@@ -3033,9 +3006,8 @@ class RuntimeService:
                 started_at=started_at,
             )
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job.id,
+                new_event(
+                    session_id=job.id,
                     timestamp=started_at,
                     kind=DomainEventKind.secondary_session_started,
                     payload={
@@ -3095,9 +3067,8 @@ class RuntimeService:
                     tool_visibility=enriched.get("tool_visibility"),
                 )
                 await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=job.id,
+                    new_event(
+                        session_id=job.id,
                         timestamp=now,
                         kind=DomainEventKind.secondary_session_entry,
                         payload={"session_id": session_id, "entry": entry_payload},
@@ -3121,9 +3092,8 @@ class RuntimeService:
                     content=text,
                 )
                 await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=job.id,
+                    new_event(
+                        session_id=job.id,
                         timestamp=now,
                         kind=DomainEventKind.secondary_session_entry,
                         payload={"session_id": session_id, "entry": entry_payload},
@@ -3148,9 +3118,8 @@ class RuntimeService:
                 output=report.brief or None,
             )
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job.id,
+                new_event(
+                    session_id=job.id,
                     timestamp=completed_at,
                     kind=DomainEventKind.secondary_session_completed,
                     payload={
@@ -3170,9 +3139,8 @@ class RuntimeService:
                 )
                 # Emit context_handoff so the frontend can show what was passed
                 await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=job.id,
+                    new_event(
+                        session_id=job.id,
                         timestamp=completed_at,
                         kind=DomainEventKind.context_handoff,
                         payload={
@@ -3195,9 +3163,8 @@ class RuntimeService:
                     completed_at=datetime.now(UTC),
                 )
                 await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=job.id,
+                    new_event(
+                        session_id=job.id,
                         timestamp=datetime.now(UTC),
                         kind=DomainEventKind.secondary_session_completed,
                         payload={

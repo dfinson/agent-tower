@@ -7,7 +7,7 @@ import json
 from sqlalchemy import func, select
 
 from backend.models.db import EventRow
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent, new_event
 from backend.persistence.repository import BaseRepository
 
 
@@ -17,37 +17,35 @@ class EventRepository(BaseRepository):
     TrailNodeRepository projections. See internal-docs/design/unified-trail-service.md §6."""
 
     @staticmethod
-    def _to_domain(row: EventRow) -> DomainEvent:
-        return DomainEvent(
+    def _to_domain(row: EventRow) -> SessionEvent:
+        return new_event(
             event_id=row.event_id,
-            job_id=row.job_id,
+            session_id=row.job_id,
             timestamp=row.timestamp,
             kind=DomainEventKind(row.kind),
             payload=json.loads(row.payload),
-            db_id=row.id,
+            sequence=row.id,
         )
 
-    async def append(self, event: DomainEvent) -> int:
+    async def append(self, event: SessionEvent) -> int:
         """Persist a domain event. Returns the autoincrement DB id."""
         row = EventRow(
-            event_id=event.event_id,
-            job_id=event.job_id,
-            kind=event.kind.value,
+            event_id=event.id,
+            job_id=event.session_id or None,
+            kind=str(event.kind),
             timestamp=event.timestamp,
-            payload=json.dumps(event.payload),
+            payload=json.dumps(dict(event.payload)),
         )
         self._session.add(row)
         await self._session.flush()
-        db_id = row.id
-        event.db_id = db_id
-        return db_id
+        return row.id
 
     async def list_after(
         self,
         after_id: int,
         job_id: str | None = None,
         limit: int = 500,
-    ) -> list[DomainEvent]:
+    ) -> list[SessionEvent]:
         """List events with auto-increment id > after_id, optionally scoped to a job."""
         stmt = select(EventRow).where(EventRow.id > after_id).order_by(EventRow.id)
         if job_id is not None:
@@ -61,7 +59,7 @@ class EventRepository(BaseRepository):
         job_id: str,
         kinds: list[DomainEventKind],
         limit: int = 2000,
-    ) -> list[DomainEvent]:
+    ) -> list[SessionEvent]:
         """List events for a job filtered by kind, ordered by db id."""
         stmt = (
             select(EventRow)
@@ -77,7 +75,7 @@ class EventRepository(BaseRepository):
         self,
         job_id: str,
         kinds: list[DomainEventKind],
-    ) -> list[DomainEvent]:
+    ) -> list[SessionEvent]:
         """List all events for a job filtered by kind, without an upper bound."""
         stmt = (
             select(EventRow)
@@ -129,7 +127,7 @@ class EventRepository(BaseRepository):
         roles: list[str] | None = None,
         step_id: str | None = None,
         limit: int = 50,
-    ) -> list[DomainEvent]:
+    ) -> list[SessionEvent]:
         """Full-text search within a job's transcript events."""
         from sqlalchemy import func, or_
 

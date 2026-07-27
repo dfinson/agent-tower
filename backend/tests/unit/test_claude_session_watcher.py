@@ -231,7 +231,7 @@ class TestJsonlEventProcessing:
         runtime_service.feed_external_event.assert_called()
         call_args = runtime_service.feed_external_event.call_args
         session_event = call_args[0][1]
-        assert session_event.kind.value == "transcript"
+        assert str(session_event.kind) == "transcript"
         assert session_event.payload["role"] == "operator"
         assert "Fix the bug" in session_event.payload["content"]
 

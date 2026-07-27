@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent, new_event
 from backend.services.action_policy.batcher import ApprovalBatcher
 from backend.services.action_policy.classifier import (
     Action,
@@ -249,12 +249,8 @@ class TestOnPolicySettingsChanged:
     @pytest.mark.asyncio
     async def test_ignores_non_policy_events(self) -> None:
         svc = _make_runtime_service()
-        event = DomainEvent(
-            event_id="e1",
-            job_id="j1",
-            timestamp=datetime.now(UTC),
-            kind=DomainEventKind.job_created,
-            payload={},
+        event = new_event(
+            event_id="e1", session_id="j1", timestamp=datetime.now(UTC), kind=DomainEventKind.job_created, payload={}
         )
         # Should return without error
         await svc._on_policy_settings_changed(event)
@@ -361,10 +357,10 @@ class TestOnPolicySettingsChanged:
 # ---------------------------------------------------------------------------
 
 
-def _make_policy_event() -> DomainEvent:
-    return DomainEvent(
+def _make_policy_event() -> SessionEvent:
+    return new_event(
         event_id="e-policy",
-        job_id="",
+        session_id="",
         timestamp=datetime.now(UTC),
         kind=DomainEventKind.policy_settings_changed,
         payload={},

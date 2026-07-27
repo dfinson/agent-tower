@@ -51,7 +51,7 @@ HEADLINE_QUERY_LIMIT = 200
 def _build_logs(log_events: list[Any]) -> list[LogLinePayload]:
     return [
         LogLinePayload(
-            job_id=e.job_id,
+            job_id=e.session_id,
             seq=e.payload.get("seq", 0),
             timestamp=e.payload.get("timestamp", e.timestamp),
             level=e.payload.get("level", "info"),
@@ -77,7 +77,7 @@ def _build_transcript(
     }
     result = [
         TranscriptPayload(
-            job_id=e.job_id,
+            job_id=e.session_id,
             seq=e.payload.get("seq", 0),
             timestamp=e.payload.get("timestamp", e.timestamp),
             role=e.payload.get("role", "agent"),
@@ -136,7 +136,7 @@ def _build_timeline(timeline_events: list[Any]) -> list[ProgressHeadlinePayload]
             milestones = milestones[:-replaces] if replaces < len(milestones) else []
         milestones.append(
             ProgressHeadlinePayload(
-                job_id=event.job_id,
+                job_id=event.session_id,
                 headline=event.payload.get("headline", ""),
                 headline_past=event.payload.get("headline_past", ""),
                 summary=event.payload.get("summary", ""),

@@ -40,7 +40,7 @@ from backend.models.domain import (
     SessionEventKind,
     StateConflictError,
 )
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.services.adapters.adapter_registry import AdapterRegistry
 from backend.services.adapters.agent_adapter import AgentAdapterInterface, CompletionResult
@@ -449,7 +449,7 @@ class TestEventTranslation:
         result = runtime._translate_event("job-1", event)
         assert result is not None
         assert result.kind == DomainEventKind.log_line_emitted
-        assert result.job_id == "job-1"
+        assert result.session_id == "job-1"
 
     def test_transcript_event_translated(self, runtime: RuntimeService) -> None:
         event = SessionEvent(
@@ -506,9 +506,9 @@ class TestJobLifecycle:
         session_factory: async_sessionmaker[AsyncSession],
         config: CPLConfig,
     ) -> None:
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -602,9 +602,9 @@ class TestJobLifecycle:
         config: CPLConfig,
     ) -> None:
         """send_message on a job with no live session but a terminal DB state auto-resumes it."""
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -636,9 +636,9 @@ class TestJobLifecycle:
         config: CPLConfig,
     ) -> None:
         """send_message on a job in 'running' state with no live session recovers it in place."""
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -773,9 +773,9 @@ class TestResumeFallback:
             merge_service=merge_service,
         )
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(event: DomainEvent) -> None:
+        async def _collect(event: SessionEvent) -> None:
             published.append(event)
 
         event_bus.subscribe(_collect)
@@ -828,9 +828,9 @@ class TestResumeFallback:
             config=config,
         )
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(event: DomainEvent) -> None:
+        async def _collect(event: SessionEvent) -> None:
             published.append(event)
 
         event_bus.subscribe(_collect)
@@ -1101,9 +1101,9 @@ class TestRecovery:
         session_factory: async_sessionmaker[AsyncSession],
         config: CPLConfig,
     ) -> None:
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -1138,7 +1138,7 @@ class TestRecovery:
     ) -> None:
         observed_states: list[str] = []
 
-        async def _assert_running_state_visible(event: DomainEvent) -> None:
+        async def _assert_running_state_visible(event: SessionEvent) -> None:
             if event.kind != DomainEventKind.session_resumed:
                 return
             async with session_factory() as session:
@@ -1550,9 +1550,9 @@ class TestJobStateChangedEvent:
         config: CPLConfig,
     ) -> None:
         """_publish_state_event should use job_state_changed, not job_created."""
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -1568,17 +1568,6 @@ class TestJobStateChangedEvent:
         # Should NOT have published any job_created events
         created_events = [e for e in published if e.kind == DomainEventKind.job_created]
         assert len(created_events) == 0
-
-
-class TestMakeEventId:
-    def test_format(self) -> None:
-        eid = DomainEvent.make_event_id()
-        assert eid.startswith("evt-")
-        assert len(eid) == 16  # "evt-" + 12 hex chars
-
-    def test_unique(self) -> None:
-        ids = {DomainEvent.make_event_id() for _ in range(100)}
-        assert len(ids) == 100
 
 
 # ---------------------------------------------------------------------------
@@ -1628,9 +1617,9 @@ class TestErrorEventCausesFailure:
             config=config,
         )
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)

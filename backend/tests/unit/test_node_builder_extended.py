@@ -18,7 +18,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.models.db import Base, JobRow, JobTelemetrySpanRow, TrailNodeRow
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent, new_event
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.trail.models import (
     MESSAGE_SIGNAL_BUFFER_SIZE,
@@ -74,17 +74,11 @@ def _make_event(
     kind: DomainEventKind = DomainEventKind.job_state_changed,
     job_id: str = "job-1",
     payload: dict | None = None,
-) -> DomainEvent:
-    return DomainEvent(
-        event_id=DomainEvent.make_event_id(),
-        job_id=job_id,
-        timestamp=datetime.now(UTC),
-        kind=kind,
-        payload=payload or {},
-    )
+) -> SessionEvent:
+    return new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=kind, payload=payload or {})
 
 
-def _started_event(job_id: str = "job-1") -> DomainEvent:
+def _started_event(job_id: str = "job-1") -> SessionEvent:
     return _make_event(
         DomainEventKind.job_state_changed,
         job_id=job_id,
@@ -726,8 +720,8 @@ class TestTranscriptToolCall:
                 "tool_name": "write_file",
             },
         )
-        # Override event job_id to None to test the guard
-        event.job_id = None
+        # Override event session_id to empty to test the guard
+        event = event.model_copy(update={"session_id": ""})
         await builder.handle_event(event)
 
     async def test_tool_success_false(self, builder, trail_repo, job_state):
@@ -1076,9 +1070,8 @@ class TestSessionResumed:
         async with session_factory() as session:
             event_repo = EventRepository(session)
             for i, status in enumerate(["pending", "active"]):
-                ev = DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id="job-1",
+                ev = new_event(
+                    session_id="job-1",
                     timestamp=datetime.now(UTC),
                     kind=DomainEventKind.plan_step_updated,
                     payload={

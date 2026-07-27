@@ -6,8 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.models.domain import SessionEvent, SessionEventKind
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.domain import SessionEvent as CPSessionEvent
+from backend.models.domain import SessionEventKind
+from backend.models.events import DomainEventKind, SessionEvent
 from backend.services.events.event_bus import EventBus
 from backend.services.events.event_processor import EventProcessor
 
@@ -29,43 +30,43 @@ def processor(event_bus: EventBus) -> EventProcessor:
 
 class TestTranslateEvent:
     def test_log_event(self) -> None:
-        ev = SessionEvent(kind=SessionEventKind.log, payload={"message": "hello"})
+        ev = CPSessionEvent(kind=SessionEventKind.log, payload={"message": "hello"})
         result = EventProcessor._translate_event("j1", ev)
         assert result is not None
         assert result.kind == DomainEventKind.log_line_emitted
-        assert result.job_id == "j1"
+        assert result.session_id == "j1"
 
     def test_transcript_event(self) -> None:
-        ev = SessionEvent(kind=SessionEventKind.transcript, payload={"role": "agent", "content": "hi"})
+        ev = CPSessionEvent(kind=SessionEventKind.transcript, payload={"role": "agent", "content": "hi"})
         result = EventProcessor._translate_event("j1", ev)
         assert result is not None
         assert result.kind == DomainEventKind.transcript_updated
 
     def test_approval_request_event(self) -> None:
-        ev = SessionEvent(kind=SessionEventKind.approval_request, payload={"action": "rm -rf"})
+        ev = CPSessionEvent(kind=SessionEventKind.approval_request, payload={"action": "rm -rf"})
         result = EventProcessor._translate_event("j1", ev)
         assert result is not None
         assert result.kind == DomainEventKind.approval_requested
 
     def test_error_event(self) -> None:
-        ev = SessionEvent(kind=SessionEventKind.error, payload={"message": "failed"})
+        ev = CPSessionEvent(kind=SessionEventKind.error, payload={"message": "failed"})
         result = EventProcessor._translate_event("j1", ev)
         assert result is not None
         assert result.kind == DomainEventKind.job_failed
 
     def test_model_downgraded_event(self) -> None:
-        ev = SessionEvent(kind=SessionEventKind.model_downgraded, payload={"from": "a", "to": "b"})
+        ev = CPSessionEvent(kind=SessionEventKind.model_downgraded, payload={"from": "a", "to": "b"})
         result = EventProcessor._translate_event("j1", ev)
         assert result is not None
         assert result.kind == DomainEventKind.model_downgraded
 
     def test_unknown_event_returns_none(self) -> None:
-        ev = SessionEvent(kind=SessionEventKind.done, payload={})
+        ev = CPSessionEvent(kind=SessionEventKind.done, payload={})
         result = EventProcessor._translate_event("j1", ev)
         assert result is None
 
     def test_file_changed_returns_none(self) -> None:
-        ev = SessionEvent(kind=SessionEventKind.file_changed, payload={"path": "a.py"})
+        ev = CPSessionEvent(kind=SessionEventKind.file_changed, payload={"path": "a.py"})
         result = EventProcessor._translate_event("j1", ev)
         assert result is None
 
@@ -78,15 +79,15 @@ class TestTranslateEvent:
 class TestProcessEvent:
     @pytest.mark.asyncio
     async def test_log_event_published(self, processor: EventProcessor, event_bus: EventBus) -> None:
-        received: list[DomainEvent] = []
+        received: list[SessionEvent] = []
 
-        async def _handler(e: DomainEvent) -> None:
+        async def _handler(e: SessionEvent) -> None:
             if e.kind == DomainEventKind.log_line_emitted:
                 received.append(e)
 
         event_bus.subscribe(_handler)
 
-        ev = SessionEvent(kind=SessionEventKind.log, payload={"message": "test"})
+        ev = CPSessionEvent(kind=SessionEventKind.log, payload={"message": "test"})
         result = await processor.process_event("j1", ev)
         assert result is not None
         assert len(received) == 1
@@ -97,7 +98,7 @@ class TestProcessEvent:
         diff_svc = AsyncMock()
         proc = EventProcessor(bus, diff_service=diff_svc)
 
-        ev = SessionEvent(kind=SessionEventKind.file_changed, payload={"path": "a.py"})
+        ev = CPSessionEvent(kind=SessionEventKind.file_changed, payload={"path": "a.py"})
         result = await proc.process_event("j1", ev, worktree_path="/w", base_ref="main")
         assert result is None
         diff_svc.on_worktree_file_modified.assert_awaited_once()
@@ -108,7 +109,7 @@ class TestProcessEvent:
         diff_svc = AsyncMock()
         proc = EventProcessor(bus, diff_service=diff_svc)
 
-        ev = SessionEvent(
+        ev = CPSessionEvent(
             kind=SessionEventKind.transcript,
             payload={"role": "tool_call", "tool_name": "write_file"},
         )
@@ -122,7 +123,7 @@ class TestProcessEvent:
         diff_svc = AsyncMock()
         proc = EventProcessor(bus, diff_service=diff_svc)
 
-        ev = SessionEvent(
+        ev = CPSessionEvent(
             kind=SessionEventKind.transcript,
             payload={"role": "tool_call", "tool_name": "report_intent"},
         )
@@ -132,7 +133,7 @@ class TestProcessEvent:
 
     @pytest.mark.asyncio
     async def test_transcript_gets_synthesized_turn_id(self, processor: EventProcessor) -> None:
-        ev = SessionEvent(
+        ev = CPSessionEvent(
             kind=SessionEventKind.transcript,
             payload={"role": "tool_call", "content": "running"},
         )
@@ -142,7 +143,7 @@ class TestProcessEvent:
 
     @pytest.mark.asyncio
     async def test_turn_id_rotates_on_agent_message(self, processor: EventProcessor) -> None:
-        ev1 = SessionEvent(
+        ev1 = CPSessionEvent(
             kind=SessionEventKind.transcript,
             payload={"role": "tool_call", "content": "running"},
         )
@@ -150,14 +151,14 @@ class TestProcessEvent:
         tid1 = result1.payload["turn_id"]
 
         # Agent message rotates the turn_id
-        ev2 = SessionEvent(
+        ev2 = CPSessionEvent(
             kind=SessionEventKind.transcript,
             payload={"role": "agent", "content": "done"},
         )
         await processor.process_event("j1", ev2)
 
         # Next event should have a new turn_id
-        ev3 = SessionEvent(
+        ev3 = CPSessionEvent(
             kind=SessionEventKind.transcript,
             payload={"role": "tool_call", "content": "another"},
         )

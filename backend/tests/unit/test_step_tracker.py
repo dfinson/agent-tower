@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent, new_event
 from backend.services.steps.tracker import StepTracker, _extract_file_path
 
 
@@ -17,14 +17,10 @@ def _make_event(
     content: str = "hello",
     turn_id: str = "turn-1",
     **extra: str,
-) -> DomainEvent:
+) -> SessionEvent:
     payload = {"role": role, "content": content, "turn_id": turn_id, **extra}
-    return DomainEvent(
-        event_id=DomainEvent.make_event_id(),
-        job_id=job_id,
-        timestamp=datetime.now(UTC),
-        kind=DomainEventKind.transcript_updated,
-        payload=payload,
+    return new_event(
+        session_id=job_id, timestamp=datetime.now(UTC), kind=DomainEventKind.transcript_updated, payload=payload
     )
 
 

@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, cast
 import structlog
 
 from backend.models.domain import DonePayload, ErrorPayload, Job, JobSource, JobState, SessionEvent
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, new_event
 from backend.services.events.event_pipeline import EventPipeline
 from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin
 
@@ -485,9 +485,8 @@ class SessionStateWatcher(WatcherTelemetryMixin):
 
         # Publish creation events
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=now,
                 kind=DomainEventKind.job_created,
                 payload={
@@ -500,9 +499,8 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             )
         )
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=now,
                 kind=DomainEventKind.job_state_changed,
                 payload={"state": JobState.running, "new_state": JobState.running},
@@ -963,9 +961,8 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             self._jobs_with_streaming_usage.discard(job_id)
 
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=now,
                 kind=DomainEventKind.job_state_changed,
                 payload={"state": new_state, "new_state": new_state},
@@ -974,9 +971,8 @@ class SessionStateWatcher(WatcherTelemetryMixin):
 
         if new_state == JobState.review:
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=now,
                     kind=DomainEventKind.job_review,
                     payload={"resolution": "unresolved"},

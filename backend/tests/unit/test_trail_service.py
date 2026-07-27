@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.models.db import Base, JobTelemetrySpanRow, TrailNodeRow
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent, new_event
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.events.event_bus import EventBus
 from backend.services.trail import TrailService
@@ -55,17 +55,11 @@ def _make_event(
     kind: DomainEventKind = DomainEventKind.job_state_changed,
     job_id: str = "job-1",
     payload: dict | None = None,
-) -> DomainEvent:
-    return DomainEvent(
-        event_id=DomainEvent.make_event_id(),
-        job_id=job_id,
-        timestamp=datetime.now(UTC),
-        kind=kind,
-        payload=payload or {},
-    )
+) -> SessionEvent:
+    return new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=kind, payload=payload or {})
 
 
-def _job_started_event(job_id: str = "job-1") -> DomainEvent:
+def _job_started_event(job_id: str = "job-1") -> SessionEvent:
     """Create a job_state_changed event that triggers goal node creation."""
     return _make_event(
         DomainEventKind.job_state_changed,

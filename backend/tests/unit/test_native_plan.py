@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent
 from backend.services.events.event_bus import EventBus
 from backend.services.trail import TrailService
 from backend.services.trail.models import TrailJobState as _TrailJobState
@@ -54,7 +54,7 @@ def _init_job(service: TrailService, job_id: str = "job-1") -> None:
 # ---------------------------------------------------------------------------
 
 
-def _step_events(event_bus: AsyncMock) -> list[DomainEvent]:
+def _step_events(event_bus: AsyncMock) -> list[SessionEvent]:
     """Extract all plan_step_updated events from mock publish calls."""
     return [
         call.args[0]
@@ -79,7 +79,7 @@ class TestFeedNativePlan:
 
         step_evts = _step_events(event_bus)
         assert len(step_evts) == 3
-        assert all(e.job_id == "job-1" for e in step_evts)
+        assert all(e.session_id == "job-1" for e in step_evts)
         payloads = [e.payload for e in step_evts]
         assert payloads[0]["label"] == "Explore codebase"
         assert payloads[0]["status"] == "done"

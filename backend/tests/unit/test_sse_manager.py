@@ -10,7 +10,7 @@ import pytest
 
 from backend.models.api_schemas import SnapshotPayload
 from backend.models.domain import Job
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent, new_event
 from backend.services.events.sse_manager import (
     MAX_REPLAY_AGE,
     MAX_REPLAY_EVENTS,
@@ -27,14 +27,14 @@ def _make_event(
     event_id: str = "evt-1",
     payload: dict[str, object] | None = None,
     db_id: int | None = None,
-) -> DomainEvent:
-    return DomainEvent(
+) -> SessionEvent:
+    return new_event(
         event_id=event_id,
-        job_id=job_id,
+        session_id=job_id,
         timestamp=datetime.now(UTC),
         kind=kind,
         payload=payload or {"test": True},
-        db_id=db_id,
+        sequence=db_id,
     )
 
 
@@ -393,21 +393,21 @@ class TestSSEManager:
         # Create mock repos
         now = datetime.now(UTC)
         events = [
-            DomainEvent(
+            new_event(
                 event_id="evt-1",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=now,
                 kind=DomainEventKind.job_created,
                 payload={"state": "running"},
-                db_id=1,
+                sequence=1,
             ),
-            DomainEvent(
+            new_event(
                 event_id="evt-2",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=now,
                 kind=DomainEventKind.log_line_emitted,
                 payload={"seq": 1, "message": "hello"},
-                db_id=2,
+                sequence=2,
             ),
         ]
 
@@ -436,9 +436,9 @@ class TestSSEManager:
         now = datetime.now(UTC)
         # Create MAX_REPLAY_EVENTS + 1 events to trigger snapshot
         events = [
-            DomainEvent(
+            new_event(
                 event_id=f"evt-{i}",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=now,
                 kind=DomainEventKind.log_line_emitted,
                 payload={"seq": i},
@@ -472,12 +472,8 @@ class TestSSEManager:
 
         old_time = datetime.now(UTC) - MAX_REPLAY_AGE - timedelta(minutes=1)
         events = [
-            DomainEvent(
-                event_id="evt-old",
-                job_id="job-1",
-                timestamp=old_time,
-                kind=DomainEventKind.job_created,
-                payload={},
+            new_event(
+                event_id="evt-old", session_id="job-1", timestamp=old_time, kind=DomainEventKind.job_created, payload={}
             ),
         ]
 
@@ -505,12 +501,8 @@ class TestSSEManager:
 
         now = datetime.now(UTC)
         events = [
-            DomainEvent(
-                event_id="evt-1",
-                job_id="job-1",
-                timestamp=now,
-                kind=DomainEventKind.workspace_prepared,
-                payload={},
+            new_event(
+                event_id="evt-1", session_id="job-1", timestamp=now, kind=DomainEventKind.workspace_prepared, payload={}
             ),
         ]
 
@@ -598,9 +590,9 @@ class TestSSEManager:
         now = datetime.now(UTC)
         # Create overflow to trigger snapshot
         events = [
-            DomainEvent(
+            new_event(
                 event_id=f"evt-{i}",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=now,
                 kind=DomainEventKind.log_line_emitted,
                 payload={"seq": i},
@@ -639,9 +631,9 @@ class TestSSEManager:
 
         now = datetime.now(UTC)
         events = [
-            DomainEvent(
+            new_event(
                 event_id=f"evt-{i}",
-                job_id="deleted-job",
+                session_id="deleted-job",
                 timestamp=now,
                 kind=DomainEventKind.log_line_emitted,
                 payload={"seq": i},
@@ -677,9 +669,9 @@ class TestSSEManager:
 
         now = datetime.now(UTC)
         events = [
-            DomainEvent(
+            new_event(
                 event_id=f"evt-{i}",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=now,
                 kind=DomainEventKind.log_line_emitted,
                 payload={"seq": i},
@@ -828,13 +820,13 @@ class TestReplayDerivedFrames:
 
         now = datetime.now(UTC)
         events = [
-            DomainEvent(
+            new_event(
                 event_id="evt-1",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=now,
                 kind=DomainEventKind.approval_requested,
                 payload={"approval_id": "apr-1", "description": "ok?"},
-                db_id=10,
+                sequence=10,
             ),
         ]
         event_repo = AsyncMock()
@@ -862,13 +854,13 @@ class TestReplayDerivedFrames:
 
         now = datetime.now(UTC)
         events = [
-            DomainEvent(
+            new_event(
                 event_id="evt-2",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=now,
                 kind=DomainEventKind.approval_resolved,
                 payload={"approval_id": "apr-1", "resolution": "rejected"},
-                db_id=20,
+                sequence=20,
             ),
         ]
         event_repo = AsyncMock()

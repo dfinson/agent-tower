@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, get_codeplane_dir, load_config
 from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMaxBytes
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, EventMetadata, SessionEvent, new_event
 from backend.persistence.database import create_engine, create_session_factory, serialized_write
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.step_repo import StepRepository
@@ -294,11 +294,11 @@ def _init_event_infrastructure(
     """
     event_bus = EventBus()
     sse_manager = SSEManager()
-    dead_letter: asyncio.Queue[tuple[DomainEvent, int]] = asyncio.Queue()
+    dead_letter: asyncio.Queue[tuple[SessionEvent, int]] = asyncio.Queue()
 
-    # Persist-then-broadcast subscriber: ensures event.db_id is set
-    # (monotonic autoincrement) before SSE frames are built.
-    async def _persist_and_broadcast(event: DomainEvent) -> None:
+    # Persist-then-broadcast subscriber: stamps the autoincrement DB id onto
+    # metadata.sequence (the SSE resume cursor) before SSE frames are built.
+    async def _persist_and_broadcast(event: SessionEvent) -> None:
         # agent_delta events are ephemeral streaming chunks — broadcast
         # immediately without writing to DB (the complete agent message
         # that follows is the canonical persisted record).
@@ -308,28 +308,33 @@ def _init_event_infrastructure(
 
         # System-level events (no job association) cannot be persisted to the
         # events table (job_id FK constraint). Broadcast only.
-        if event.job_id is None:
+        if not event.session_id:
             await sse_manager.broadcast_domain_event(event)
             return
 
         try:
-            await _persist_event_with_retry(
+            db_id = await _persist_event_with_retry(
                 event=event,
                 session_factory=session_factory,
             )
         except OperationalError:
             log.error(
                 "event_persist_failed_queued_for_retry",
-                event_id=event.event_id,
-                job_id=event.job_id,
-                kind=event.kind.value,
+                event_id=event.id,
+                job_id=event.session_id,
+                kind=str(event.kind),
             )
             dead_letter.put_nowait((event, 0))
             # Broadcast anyway so the SSE stream doesn't silently drop the
-            # event; the client will get it without a db_id which means the
+            # event; the client will get it without a sequence which means the
             # replay cursor won't cover it, but it's better than silence.
             await sse_manager.broadcast_domain_event(event)
             return
+        # Stamp the SSE resume cursor (autoincrement id) onto metadata.sequence
+        # before broadcasting so clients receive a monotonic Last-Event-ID.
+        if db_id is not None:
+            metadata = event.metadata or EventMetadata()
+            event = event.model_copy(update={"metadata": metadata.model_copy(update={"sequence": db_id})})
         await sse_manager.broadcast_domain_event(event)
 
     async def _dead_letter_retry_loop() -> None:
@@ -349,8 +354,8 @@ def _init_event_infrastructure(
                 )
                 log.info(
                     "dead_letter_event_persisted",
-                    event_id=event.event_id,
-                    job_id=event.job_id,
+                    event_id=event.id,
+                    job_id=event.session_id,
                     retry_attempt=attempt + 1,
                 )
             except OperationalError:
@@ -359,16 +364,16 @@ def _init_event_infrastructure(
                     dead_letter.put_nowait((event, next_attempt))
                     log.warning(
                         "dead_letter_retry_failed",
-                        event_id=event.event_id,
-                        job_id=event.job_id,
+                        event_id=event.id,
+                        job_id=event.session_id,
                         attempt=next_attempt,
                     )
                 else:
                     log.error(
                         "dead_letter_event_permanently_lost",
-                        event_id=event.event_id,
-                        job_id=event.job_id,
-                        kind=event.kind.value,
+                        event_id=event.id,
+                        job_id=event.session_id,
+                        kind=str(event.kind),
                     )
 
     event_bus.subscribe(_persist_and_broadcast)
@@ -388,27 +393,28 @@ def _is_sqlite_lock_error(exc: OperationalError) -> bool:
 
 async def _persist_event_with_retry(
     *,
-    event: DomainEvent,
+    event: SessionEvent,
     session_factory: async_sessionmaker[AsyncSession],
     max_attempts: int = _EVENT_PERSIST_MAX_ATTEMPTS,
     retry_delay_s: float = _EVENT_PERSIST_RETRY_DELAY_S,
-) -> None:
+) -> int | None:
+    """Persist *event*, returning its autoincrement DB id (the SSE resume cursor)."""
     for attempt in range(max_attempts):
         try:
             async with serialized_write(session_factory) as session:
                 repo = EventRepository(session)
-                await repo.append(event)
-            return
+                return await repo.append(event)
         except OperationalError as exc:
             if not _is_sqlite_lock_error(exc) or attempt == max_attempts - 1:
                 raise
             log.warning(
                 "event_persist_retrying_after_sqlite_lock",
-                event_id=event.event_id,
-                job_id=event.job_id,
+                event_id=event.id,
+                job_id=event.session_id,
                 attempt=attempt + 1,
             )
             await asyncio.sleep(retry_delay_s * (attempt + 1))
+    return None
 
 
 async def _wire_core_services(
@@ -755,30 +761,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         vapid_public_key=vapid_keys["public_key"],
     )
 
-    async def _push_subscriber(event: DomainEvent) -> None:
+    async def _push_subscriber(event: SessionEvent) -> None:
         """Send push notifications for approval requests and terminal job states."""
         if event.kind == DomainEventKind.approval_requested:
             desc = event.payload.get("description", "Action requires your approval")
             await push_service.notify(
                 title="Approval needed",
                 body=str(desc),
-                tag=f"approval-{event.payload.get('approval_id', event.job_id)}",
-                url=f"/jobs/{event.job_id}",
+                tag=f"approval-{event.payload.get('approval_id', event.session_id)}",
+                url=f"/jobs/{event.session_id}",
             )
         elif event.kind == DomainEventKind.job_completed:
             await push_service.notify(
                 title="Job completed",
                 body=str(event.payload.get("resolution", "done")),
-                tag=f"job-{event.job_id}",
-                url=f"/jobs/{event.job_id}",
+                tag=f"job-{event.session_id}",
+                url=f"/jobs/{event.session_id}",
             )
         elif event.kind == DomainEventKind.job_failed:
             reason = event.payload.get("reason", "unknown error")
             await push_service.notify(
                 title="Job failed",
                 body=str(reason),
-                tag=f"job-{event.job_id}",
-                url=f"/jobs/{event.job_id}",
+                tag=f"job-{event.session_id}",
+                url=f"/jobs/{event.session_id}",
             )
 
     event_bus.subscribe(_push_subscriber)
@@ -873,7 +879,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
 
     # Structural health subscriber — emits warnings at step boundaries (§7.2)
-    async def _structural_health_on_step(event: DomainEvent) -> None:
+    async def _structural_health_on_step(event: SessionEvent) -> None:
         if event.kind != DomainEventKind.step_completed:
             return
         if not coderecon_service.available:
@@ -881,7 +887,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         worktree_path = str(event.payload.get("worktree_path", ""))
         if not worktree_path:
             return
-        job_id = event.job_id
+        job_id = event.session_id
         if not job_id:
             return
         raw_files = event.payload.get("files_written", [])
@@ -909,9 +915,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 warnings = await coderecon_service.check_step_structural_health(repo_name, worktree=worktree_path)
                 for w in warnings:
                     await event_bus.publish(
-                        DomainEvent(
-                            event_id=DomainEvent.make_event_id(),
-                            job_id=job_id,
+                        new_event(
+                            session_id=job_id,
                             timestamp=datetime.now(UTC),
                             kind=DomainEventKind.structural_warning,
                             payload=w,
@@ -927,12 +932,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Review story prefetch subscriber — pre-generates and caches review story
     # when a job enters review state so the frontend load is instant.
-    async def _prefetch_review_story(event: DomainEvent) -> None:
+    async def _prefetch_review_story(event: SessionEvent) -> None:
         if event.kind != DomainEventKind.job_review:
             return
         if not coderecon_service.available:
             return
-        job_id = event.job_id
+        job_id = event.session_id
         if not job_id:
             return
 
@@ -972,7 +977,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     event_bus.subscribe(_prefetch_review_story)
 
     # --- §11.11 Persist review story as approval artifact on merge ---
-    async def _persist_review_story_on_resolve(event: DomainEvent) -> None:
+    async def _persist_review_story_on_resolve(event: SessionEvent) -> None:
         if event.kind != DomainEventKind.job_resolved:
             return
         resolution = event.payload.get("resolution")
@@ -980,7 +985,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             return
         if not coderecon_service.available:
             return
-        job_id = event.job_id
+        job_id = event.session_id
         if not job_id:
             return
 
@@ -1021,7 +1026,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     event_bus.subscribe(_persist_review_story_on_resolve)
 
     # --- §7.5 Post-resolution structural analytics ---
-    async def _persist_structural_analytics(event: DomainEvent) -> None:
+    async def _persist_structural_analytics(event: SessionEvent) -> None:
         if event.kind != DomainEventKind.job_resolved:
             return
         resolution = event.payload.get("resolution")
@@ -1029,7 +1034,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             return
         if not coderecon_service.available:
             return
-        job_id = event.job_id
+        job_id = event.session_id
         if not job_id:
             return
 

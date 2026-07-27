@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, new_event
 from backend.services.events.sse_manager import SSEConnection, SSEManager, _format_sse
 
 
@@ -57,13 +57,13 @@ class TestSSEManagerBroadcast:
         conn = SSEConnection(job_id="job-1")
         manager.register(conn)
 
-        event = DomainEvent(
+        event = new_event(
             event_id="evt-1",
-            job_id="job-1",
+            session_id="job-1",
             timestamp=datetime.now(UTC),
             kind=DomainEventKind.log_line_emitted,
             payload={"seq": 1, "message": "hello", "level": "info"},
-            db_id=100,
+            sequence=100,
         )
         await manager.broadcast_domain_event(event)
 
@@ -78,13 +78,13 @@ class TestSSEManagerBroadcast:
         conn = SSEConnection(job_id="job-1")
         manager.register(conn)
 
-        event = DomainEvent(
+        event = new_event(
             event_id="evt-1",
-            job_id="job-2",  # Different job
+            session_id="job-2",
             timestamp=datetime.now(UTC),
             kind=DomainEventKind.log_line_emitted,
             payload={"seq": 1, "message": "hello", "level": "info"},
-            db_id=100,
+            sequence=100,
         )
         await manager.broadcast_domain_event(event)
 
@@ -99,13 +99,13 @@ class TestSSEManagerBroadcast:
         conn = SSEConnection(job_id=None)
         manager.register(conn)
 
-        event = DomainEvent(
+        event = new_event(
             event_id="evt-1",
-            job_id="job-1",
+            session_id="job-1",
             timestamp=datetime.now(UTC),
             kind=DomainEventKind.log_line_emitted,
             payload={"seq": 1, "message": "hello", "level": "info"},
-            db_id=100,
+            sequence=100,
         )
         await manager.broadcast_domain_event(event)
 
@@ -143,13 +143,13 @@ class TestBulkEventsOverflow:
             if conn.closed:
                 closed_after = i
                 break
-            event = DomainEvent(
+            event = new_event(
                 event_id=f"evt-{i}",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.log_line_emitted,
                 payload={"seq": i, "message": f"line-{i}", "level": "info"},
-                db_id=i + 1,
+                sequence=i + 1,
             )
             await manager.broadcast_domain_event(event)
 

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, TypedDict
+
+from traceforge.types import EventMetadata, SessionEvent
 
 if TYPE_CHECKING:
     from backend.models.api_schemas import ExecutionPhase
@@ -16,6 +16,14 @@ if TYPE_CHECKING:
         JobState,
         Resolution,
     )
+
+__all__ = [
+    "DomainEventKind",
+    "EventMetadata",
+    "EventPayload",
+    "SessionEvent",
+    "new_event",
+]
 
 
 class DomainEventKind(StrEnum):
@@ -351,32 +359,35 @@ EventPayload = (
 )
 
 
-@dataclass
-class DomainEvent:
-    event_id: str
-    job_id: str | None
-    timestamp: datetime
-    kind: DomainEventKind
-    payload: EventPayload
-    db_id: int | None = None  # autoincrement ID from EventRow; set after persistence
+def new_event(
+    session_id: str | None,
+    kind: DomainEventKind | str,
+    payload: EventPayload | dict[str, Any],
+    *,
+    timestamp: datetime | None = None,
+    metadata: EventMetadata | None = None,
+    sequence: int | None = None,
+    event_id: str | None = None,
+) -> SessionEvent:
+    """Construct a canonical ``traceforge.SessionEvent`` for a CodePlane job.
 
-    @staticmethod
-    def make_event_id() -> str:
-        """Generate a unique event ID."""
-        return f"evt-{uuid.uuid4().hex[:12]}"
-
-    @classmethod
-    def for_job(
-        cls,
-        job_id: str,
-        kind: DomainEventKind,
-        payload: EventPayload,
-    ) -> DomainEvent:
-        """Convenience factory that fills ``event_id`` and ``timestamp`` automatically."""
-        return cls(
-            event_id=cls.make_event_id(),
-            job_id=job_id,
-            timestamp=datetime.now(UTC),
-            kind=kind,
-            payload=payload,
-        )
+    Single construction point that replaces the retired ``DomainEvent`` dataclass.
+    ``session_id`` carries the CodePlane job id (``""`` for job-less/global events).
+    The persisted autoincrement id (the SSE resume cursor, formerly ``DomainEvent.db_id``)
+    rides on ``metadata.sequence``. ``timestamp`` and event ``id`` are auto-filled when
+    omitted, matching the old ``DomainEvent.for_job`` convenience.
+    """
+    if metadata is None:
+        metadata = EventMetadata(sequence=sequence)
+    elif sequence is not None:
+        metadata = metadata.model_copy(update={"sequence": sequence})
+    fields: dict[str, Any] = {
+        "kind": str(kind),
+        "session_id": session_id or "",
+        "timestamp": timestamp if timestamp is not None else datetime.now(UTC),
+        "payload": dict(payload),
+        "metadata": metadata,
+    }
+    if event_id is not None:
+        fields["id"] = event_id
+    return SessionEvent(**fields)

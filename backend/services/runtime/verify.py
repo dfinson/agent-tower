@@ -16,7 +16,7 @@ from sqlalchemy.exc import DBAPIError
 from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT
 from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import CodePlaneError, SessionConfig
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, new_event
 
 if TYPE_CHECKING:
     from backend.services.runtime.service import RuntimeService
@@ -143,9 +143,8 @@ async def run_verify_review(
     # Emit verification phase change
     host._resolve_adapter(base_config.sdk).set_execution_phase(job_id, ExecutionPhase.verification)
     await host._event_bus.publish(
-        DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
+        new_event(
+            session_id=job_id,
             timestamp=datetime.now(UTC),
             kind=DomainEventKind.execution_phase_changed,
             payload={"phase": ExecutionPhase.verification},

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.config import CompletionConfig, CPLConfig
 from backend.models.db import Base
 from backend.models.domain import Job
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
 from backend.services.events.event_bus import EventBus
@@ -142,9 +142,9 @@ class TestFastForwardMerge:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -260,9 +260,9 @@ class TestConflictFallback:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -387,9 +387,9 @@ class TestFalsePositiveConflicts:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -425,9 +425,9 @@ class TestFalsePositiveConflicts:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -469,9 +469,9 @@ class TestFalsePositiveConflicts:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -521,9 +521,9 @@ class TestOperatorMerge:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -559,9 +559,9 @@ class TestOperatorMerge:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -610,9 +610,9 @@ class TestOperatorMerge:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect2(e: DomainEvent) -> None:
+        async def _collect2(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect2)

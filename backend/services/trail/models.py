@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from backend.models.events import DomainEvent
+    from backend.models.events import SessionEvent
 
 # ---------------------------------------------------------------------------
 # Buffer size constants — see context_window_eval.py for derivation
@@ -171,7 +171,7 @@ class TrailJobState:
     active_step_id: str | None = None
     current_phase: str | None = None
     next_seq: int = 1
-    pending_events: list[DomainEvent] = field(default_factory=list)
+    pending_events: list[SessionEvent] = field(default_factory=list)
 
     # Plan management
     plan_steps: list[PlanStep] = field(default_factory=list)

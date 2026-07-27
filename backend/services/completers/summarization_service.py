@@ -25,7 +25,7 @@ class TranscriptTurn(TypedDict):
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from backend.models.events import DomainEvent
+    from backend.models.events import SessionEvent
     from backend.services.completers.naming_service import Completable
 
 log = structlog.get_logger()
@@ -318,7 +318,7 @@ class SummarizationService:
 # ---------------------------------------------------------------------------
 
 
-def _clean_transcript(events: list[DomainEvent]) -> list[TranscriptTurn]:
+def _clean_transcript(events: list[SessionEvent]) -> list[TranscriptTurn]:
     """Filter and deduplicate transcript events, keeping only agent+operator turns."""
     seen: set[str] = set()
     result: list[TranscriptTurn] = []
@@ -397,7 +397,7 @@ def _format_transcript(turns: list[TranscriptTurn]) -> str:
     return "\n---\n".join(parts) if parts else "(no transcript recorded)"
 
 
-def extract_changed_files(diff_events: list[DomainEvent]) -> list[str]:
+def extract_changed_files(diff_events: list[SessionEvent]) -> list[str]:
     """Extract unique changed file paths from diff_updated events."""
     paths: set[str] = set()
     for ev in diff_events:

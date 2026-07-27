@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent
 from backend.services.events.event_bus import EventBus
 from backend.services.trail.models import (
     PlanStep,
@@ -118,9 +118,9 @@ class TestInferPlan:
             }
         )
 
-        events: list[DomainEvent] = []
+        events: list[SessionEvent] = []
 
-        async def _handler(e: DomainEvent) -> None:
+        async def _handler(e: SessionEvent) -> None:
             if e.kind == DomainEventKind.plan_step_updated:
                 events.append(e)
 
@@ -269,9 +269,9 @@ class TestClassifyAndUpdatePlan:
             }
         )
 
-        events: list[DomainEvent] = []
+        events: list[SessionEvent] = []
 
-        async def _handler(e: DomainEvent) -> None:
+        async def _handler(e: SessionEvent) -> None:
             if e.kind == DomainEventKind.step_entries_reassigned:
                 events.append(e)
 
@@ -311,9 +311,9 @@ class TestFeedNativePlan:
         state = _state()
         job_state["j1"] = state
 
-        events: list[DomainEvent] = []
+        events: list[SessionEvent] = []
 
-        async def _handler(e: DomainEvent) -> None:
+        async def _handler(e: SessionEvent) -> None:
             if e.kind == DomainEventKind.plan_step_updated:
                 events.append(e)
 

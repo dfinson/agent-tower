@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent
 from backend.services.events.event_bus import EventBus
 
 # Import after models to avoid circular
@@ -113,9 +113,9 @@ class TestEmitActivityStepTitleFailure:
         )
         job_state["j1"] = _state()
 
-        events: list[DomainEvent] = []
+        events: list[SessionEvent] = []
 
-        async def _handler(e: DomainEvent) -> None:
+        async def _handler(e: SessionEvent) -> None:
             if e.kind == DomainEventKind.turn_summary:
                 events.append(e)
 
@@ -164,9 +164,9 @@ class TestEmitActivityStepSameActivity:
         state = _state()
         job_state["j1"] = state
 
-        events: list[DomainEvent] = []
+        events: list[SessionEvent] = []
 
-        async def _handler(e: DomainEvent) -> None:
+        async def _handler(e: SessionEvent) -> None:
             if e.kind == DomainEventKind.turn_summary:
                 events.append(e)
 
@@ -217,9 +217,9 @@ class TestEmitActivityStepNewActivity:
         state = _state()
         job_state["j1"] = state
 
-        events: list[DomainEvent] = []
+        events: list[SessionEvent] = []
 
-        async def _handler(e: DomainEvent) -> None:
+        async def _handler(e: SessionEvent) -> None:
             if e.kind == DomainEventKind.turn_summary:
                 events.append(e)
 
@@ -311,9 +311,9 @@ class TestEmitActivityStepMerge:
         )
         job_state["j1"] = state
 
-        events: list[DomainEvent] = []
+        events: list[SessionEvent] = []
 
-        async def _handler(e: DomainEvent) -> None:
+        async def _handler(e: SessionEvent) -> None:
             if e.kind == DomainEventKind.turn_summary:
                 events.append(e)
 

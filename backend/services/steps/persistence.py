@@ -6,7 +6,12 @@ import json
 from typing import TYPE_CHECKING, cast
 
 from backend.models.db import StepRow
-from backend.models.events import DomainEvent, DomainEventKind, StepCompletedPayloadDict, StepStartedPayloadDict
+from backend.models.events import (
+    DomainEventKind,
+    SessionEvent,
+    StepCompletedPayloadDict,
+    StepStartedPayloadDict,
+)
 
 if TYPE_CHECKING:
     from backend.persistence.step_repo import StepRepository
@@ -23,7 +28,7 @@ class StepPersistenceSubscriber:
     def __init__(self, step_repo: StepRepository) -> None:
         self._step_repo = step_repo
 
-    async def __call__(self, event: DomainEvent) -> None:
+    async def __call__(self, event: SessionEvent) -> None:
         """EventBus entry point — dispatches to kind-specific handlers."""
         if event.kind == DomainEventKind.step_started:
             await self._on_step_started(event)
@@ -31,11 +36,11 @@ class StepPersistenceSubscriber:
             await self._on_step_completed(event)
         # All other event kinds: early return (no-op)
 
-    async def _on_step_started(self, event: DomainEvent) -> None:
+    async def _on_step_started(self, event: SessionEvent) -> None:
         p = cast("StepStartedPayloadDict", event.payload)
         row = StepRow(
             id=p["step_id"],
-            job_id=event.job_id,
+            job_id=event.session_id,
             step_number=p["step_number"],
             turn_id=p.get("turn_id"),
             intent=p.get("intent", ""),
@@ -44,7 +49,7 @@ class StepPersistenceSubscriber:
         )
         await self._step_repo.create(row)
 
-    async def _on_step_completed(self, event: DomainEvent) -> None:
+    async def _on_step_completed(self, event: SessionEvent) -> None:
         p = cast("StepCompletedPayloadDict", event.payload)
         step_id = p["step_id"]
         assert step_id is not None

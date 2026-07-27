@@ -15,7 +15,7 @@ from backend.console_dashboard import (
     ConsoleLogHandler,
     _JobInfo,
 )
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEventKind, SessionEvent, new_event
 
 # ── _JobInfo ──
 
@@ -126,8 +126,8 @@ class TestConsoleLog:
 
 
 class TestApplyEvent:
-    def _make_event(self, kind: DomainEventKind, job_id: str = "job-1", **payload) -> DomainEvent:
-        return DomainEvent.for_job(job_id=job_id, kind=kind, payload=payload)
+    def _make_event(self, kind: DomainEventKind, job_id: str = "job-1", **payload) -> SessionEvent:
+        return new_event(session_id=job_id, kind=kind, payload=payload)
 
     def test_job_created(self):
         log = ConsoleLog()
@@ -178,7 +178,7 @@ class TestApplyEvent:
     def test_no_job_id_ignored(self):
         log = ConsoleLog()
         log.start()
-        event = DomainEvent.for_job(job_id="", kind=DomainEventKind.job_created, payload={})
+        event = new_event(session_id="", kind=DomainEventKind.job_created, payload={})
         log._apply_event(event)
         assert len(log._jobs) == 0
 
@@ -244,11 +244,7 @@ class TestHandleEvent:
     async def test_handle_event(self):
         log = ConsoleLog()
         log.start()
-        event = DomainEvent.for_job(
-            job_id="job-1",
-            kind=DomainEventKind.job_created,
-            payload={},
-        )
+        event = new_event(session_id="job-1", kind=DomainEventKind.job_created, payload={})
         await log.handle_event(event)
         assert "job-1" in log._jobs
 
