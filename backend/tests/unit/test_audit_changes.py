@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 from backend.models.db import Base
-from backend.models.events import CPEventKind, new_event
+from backend.models.events import EventKind, new_event
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.job_repo import JobRepository
@@ -174,7 +174,7 @@ class TestBuildConflictResumePrompt:
         job = make_job(id="j-1", branch="feat/x", base_ref="main", worktree_path="/repos/test")
         await job_repo.create(job)
 
-        evt = new_event("j-1", CPEventKind.merge_conflict, {"conflict_files": ["src/a.py", "src/b.py"]})
+        evt = new_event("j-1", EventKind.merge_conflict, {"conflict_files": ["src/a.py", "src/b.py"]})
         await event_repo.append(evt)
         await session.commit()
 
@@ -231,10 +231,10 @@ class TestBuildConflictResumePrompt:
         await job_repo.create(job)
 
         # First conflict event — stale
-        evt1 = new_event("j-3", CPEventKind.merge_conflict, {"conflict_files": ["old.py"]})
+        evt1 = new_event("j-3", EventKind.merge_conflict, {"conflict_files": ["old.py"]})
         await event_repo.append(evt1)
         # Second conflict event — current
-        evt2 = new_event("j-3", CPEventKind.merge_conflict, {"conflict_files": ["new.py"]})
+        evt2 = new_event("j-3", EventKind.merge_conflict, {"conflict_files": ["new.py"]})
         await event_repo.append(evt2)
         await session.commit()
 
@@ -265,11 +265,11 @@ class TestEventRepoListAllByJob:
         await job_repo.create(make_job(id=job_id, worktree_path="/repos/test"))
 
         for i in range(10):
-            evt = new_event(job_id, CPEventKind.log_line_emitted, {"seq": i})
+            evt = new_event(job_id, EventKind.log_line_emitted, {"seq": i})
             await repo.append(evt)
         await session.commit()
 
-        results = await repo.list_all_by_job(job_id, kinds=[CPEventKind.log_line_emitted])
+        results = await repo.list_all_by_job(job_id, kinds=[EventKind.log_line_emitted])
         assert len(results) == 10
 
     @pytest.mark.asyncio
@@ -280,15 +280,15 @@ class TestEventRepoListAllByJob:
         job_repo = JobRepository(session)
         await job_repo.create(make_job(id=job_id, worktree_path="/repos/test"))
 
-        await repo.append(new_event(job_id, CPEventKind.log_line_emitted, {"seq": 0}))
-        await repo.append(new_event(job_id, CPEventKind.merge_conflict, {"conflict_files": []}))
-        await repo.append(new_event(job_id, CPEventKind.log_line_emitted, {"seq": 1}))
+        await repo.append(new_event(job_id, EventKind.log_line_emitted, {"seq": 0}))
+        await repo.append(new_event(job_id, EventKind.merge_conflict, {"conflict_files": []}))
+        await repo.append(new_event(job_id, EventKind.log_line_emitted, {"seq": 1}))
         await session.commit()
 
-        logs = await repo.list_all_by_job(job_id, kinds=[CPEventKind.log_line_emitted])
+        logs = await repo.list_all_by_job(job_id, kinds=[EventKind.log_line_emitted])
         assert len(logs) == 2
 
-        conflicts = await repo.list_all_by_job(job_id, kinds=[CPEventKind.merge_conflict])
+        conflicts = await repo.list_all_by_job(job_id, kinds=[EventKind.merge_conflict])
         assert len(conflicts) == 1
 
     @pytest.mark.asyncio
@@ -300,10 +300,10 @@ class TestEventRepoListAllByJob:
         await job_repo.create(make_job(id=job_id, worktree_path="/repos/test"))
 
         for i in range(5):
-            await repo.append(new_event(job_id, CPEventKind.log_line_emitted, {"seq": i}))
+            await repo.append(new_event(job_id, EventKind.log_line_emitted, {"seq": i}))
         await session.commit()
 
-        results = await repo.list_all_by_job(job_id, kinds=[CPEventKind.log_line_emitted])
+        results = await repo.list_all_by_job(job_id, kinds=[EventKind.log_line_emitted])
         db_ids = [r.metadata.sequence for r in results]
         assert db_ids == sorted(db_ids)
 
@@ -316,13 +316,13 @@ class TestEventRepoListAllByJob:
         await job_repo.create(make_job(id=job_id, worktree_path="/repos/test"))
 
         for i in range(5):
-            await repo.append(new_event(job_id, CPEventKind.log_line_emitted, {"seq": i}))
+            await repo.append(new_event(job_id, EventKind.log_line_emitted, {"seq": i}))
         await session.commit()
 
-        limited = await repo.list_by_job(job_id, kinds=[CPEventKind.log_line_emitted], limit=3)
+        limited = await repo.list_by_job(job_id, kinds=[EventKind.log_line_emitted], limit=3)
         assert len(limited) == 3
 
-        unlimited = await repo.list_all_by_job(job_id, kinds=[CPEventKind.log_line_emitted])
+        unlimited = await repo.list_all_by_job(job_id, kinds=[EventKind.log_line_emitted])
         assert len(unlimited) == 5
 
 

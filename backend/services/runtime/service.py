@@ -46,7 +46,7 @@ from backend.models.domain import (
 )
 from backend.models.events import (
     TRANSCRIPT_KINDS,
-    CPEventKind,
+    EventKind,
     SessionEvent,
     new_event,
     transcript_kind_for_role,
@@ -388,7 +388,7 @@ class RuntimeService:
                         new_event(
                             session_id=job_id,
                             timestamp=datetime.now(UTC),
-                            kind=CPEventKind.job_title_updated,
+                            kind=EventKind.job_title_updated,
                             payload={"title": title},
                         )
                     )
@@ -786,7 +786,7 @@ class RuntimeService:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.execution_phase_changed,
+                kind=EventKind.execution_phase_changed,
                 payload={"phase": ExecutionPhase.environment_setup},
             )
         )
@@ -827,7 +827,7 @@ class RuntimeService:
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=CPEventKind.execution_phase_changed,
+                    kind=EventKind.execution_phase_changed,
                     payload={"phase": ExecutionPhase.agent_reasoning},
                 )
             )
@@ -942,7 +942,7 @@ class RuntimeService:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.job_review,
+                kind=EventKind.job_review,
                 payload={
                     "resolution": Resolution.unresolved,
                     "model_downgraded": True,
@@ -1040,7 +1040,7 @@ class RuntimeService:
         if final_resolution in (Resolution.merged, Resolution.pr_created, Resolution.discarded):
             final_state = JobState.completed
         final_event_kind = (
-            CPEventKind.job_completed if final_state == JobState.completed else CPEventKind.job_review
+            EventKind.job_completed if final_state == JobState.completed else EventKind.job_review
         )
 
         await self._set_step_terminal_state(job_id, final_state)
@@ -1201,7 +1201,7 @@ class RuntimeService:
 
     async def _on_policy_settings_changed(self, event: SessionEvent) -> None:
         """Reload action policy for all running jobs when settings change."""
-        if event.kind != CPEventKind.policy_settings_changed:
+        if event.kind != EventKind.policy_settings_changed:
             return
 
         job_ids = list(self._policy_routers.keys())
@@ -1376,7 +1376,7 @@ class RuntimeService:
                         new_event(
                             session_id=job_id,
                             timestamp=datetime.now(UTC),
-                            kind=CPEventKind.job_failed,
+                            kind=EventKind.job_failed,
                             payload={"reason": "Job cleanup: previous error handlers failed to transition state"},
                         )
                     )
@@ -1411,7 +1411,7 @@ class RuntimeService:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.approval_resolved,
+                kind=EventKind.approval_resolved,
                 payload={
                     "approval_id": approval_id,
                     "resolution": resolution,
@@ -1483,7 +1483,7 @@ class RuntimeService:
                         new_event(
                             session_id=job_id,
                             timestamp=datetime.now(UTC),
-                            kind=CPEventKind.job_canceled,
+                            kind=EventKind.job_canceled,
                             payload={"reason": "operator_cancel"},
                         )
                     )
@@ -1753,7 +1753,7 @@ class RuntimeService:
                 self._turn_ids[job_id] = str(uuid.uuid4())
 
         error_reason: str | None = None
-        if domain_event.kind == CPEventKind.job_failed:
+        if domain_event.kind == EventKind.job_failed:
             error_reason = str(domain_event.payload.get("message", "Agent error"))
 
         # Suppress SDK echoes
@@ -1766,7 +1766,7 @@ class RuntimeService:
         # Handle approval requests (managed sessions only — external sessions
         # handle their own approvals; we just publish for UI visibility).
         if (
-            domain_event.kind == CPEventKind.approval_requested
+            domain_event.kind == EventKind.approval_requested
             and self._approval_service is not None
             and agent_session is not None
         ):
@@ -1827,7 +1827,7 @@ class RuntimeService:
                 await self._persist_sdk_session_id(job_id, session_id)
 
             # Model downgrade: publish event, abort session, signal caller
-            if domain_event.kind == CPEventKind.model_downgraded:
+            if domain_event.kind == EventKind.model_downgraded:
                 requested = str(domain_event.payload.get("requested_model", ""))
                 actual = str(domain_event.payload.get("actual_model", ""))
                 log.warning(
@@ -1861,7 +1861,7 @@ class RuntimeService:
 
             # Tag log lines with the current session number so callers can filter
             # by session when a job has been resumed one or more times.
-            if domain_event.kind == CPEventKind.log_line_emitted:
+            if domain_event.kind == EventKind.log_line_emitted:
                 domain_event.payload.setdefault("session_number", session_number)
 
             await self._event_bus.publish(domain_event)
@@ -1941,7 +1941,7 @@ class RuntimeService:
                     payload["active_tool_since"] = active[1]
 
                 await self._event_bus.publish(
-                    new_event(session_id=job_id, timestamp=now, kind=CPEventKind.session_heartbeat, payload=payload)
+                    new_event(session_id=job_id, timestamp=now, kind=EventKind.session_heartbeat, payload=payload)
                 )
 
                 # --- Stall detection via sidecar session ---
@@ -2041,7 +2041,7 @@ class RuntimeService:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.stall_detected,
+                kind=EventKind.stall_detected,
                 payload={
                     "job_id": job_id,
                     "tool_name": tool_name,
@@ -2195,7 +2195,7 @@ class RuntimeService:
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=CPEventKind.batch_approval_resolved,
+                    kind=EventKind.batch_approval_resolved,
                     payload={
                         "batch_id": batch_id,
                         "resolution": resolution,
@@ -2417,7 +2417,7 @@ class RuntimeService:
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=CPEventKind.job_failed,
+                    kind=EventKind.job_failed,
                     payload={"reason": reason},
                 )
             )
@@ -2548,7 +2548,7 @@ class RuntimeService:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.job_state_changed,
+                kind=EventKind.job_state_changed,
                 payload={
                     "previous_state": previous_state,
                     "new_state": new_state,
@@ -2562,20 +2562,20 @@ class RuntimeService:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.job_setup_progress,
+                kind=EventKind.job_setup_progress,
                 payload={"step": step},
             )
         )
 
     def _translate_event(self, job_id: str, event: CPSessionEvent) -> SessionEvent | None:
         """Translate a SessionEvent into a DomainEvent."""
-        mapping: dict[SessionEventKind, CPEventKind] = {
-            SessionEventKind.log: CPEventKind.log_line_emitted,
-            SessionEventKind.approval_request: CPEventKind.approval_requested,
-            SessionEventKind.error: CPEventKind.job_failed,
-            SessionEventKind.model_downgraded: CPEventKind.model_downgraded,
+        mapping: dict[SessionEventKind, EventKind] = {
+            SessionEventKind.log: EventKind.log_line_emitted,
+            SessionEventKind.approval_request: EventKind.approval_requested,
+            SessionEventKind.error: EventKind.job_failed,
+            SessionEventKind.model_downgraded: EventKind.model_downgraded,
         }
-        kind: CPEventKind | None
+        kind: EventKind | None
         if event.kind == SessionEventKind.transcript:
             kind = transcript_kind_for_role(str(event.payload.get("role", "")))
         else:
@@ -2754,7 +2754,7 @@ class RuntimeService:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.approval_requested,
+                kind=EventKind.approval_requested,
                 payload={
                     "approval_id": approval.id,
                     "description": approval.description,
@@ -2775,7 +2775,7 @@ class RuntimeService:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.approval_resolved,
+                kind=EventKind.approval_resolved,
                 payload={
                     "approval_id": approval.id,
                     "resolution": resolution,
@@ -2857,7 +2857,7 @@ class RuntimeService:
                     new_event(
                         session_id=job_id,
                         timestamp=datetime.now(UTC),
-                        kind=CPEventKind.approval_requested,
+                        kind=EventKind.approval_requested,
                         payload={
                             "approval_id": approval.id,
                             "description": approval.description,
@@ -2876,7 +2876,7 @@ class RuntimeService:
                     new_event(
                         session_id=job_id,
                         timestamp=datetime.now(UTC),
-                        kind=CPEventKind.approval_resolved,
+                        kind=EventKind.approval_resolved,
                         payload={
                             "approval_id": approval.id,
                             "resolution": resolution,
@@ -2919,7 +2919,7 @@ class RuntimeService:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.job_mode_changed,
+                kind=EventKind.job_mode_changed,
                 payload={
                     "previous_mode": JobMode.plan,
                     "new_mode": JobMode.plan_implementing,
@@ -3018,7 +3018,7 @@ class RuntimeService:
                 new_event(
                     session_id=job.id,
                     timestamp=started_at,
-                    kind=CPEventKind.secondary_session_started,
+                    kind=EventKind.secondary_session_started,
                     payload={
                         "session_id": session_id,
                         "kind": SecondarySessionKind.preflight.value,
@@ -3079,7 +3079,7 @@ class RuntimeService:
                     new_event(
                         session_id=job.id,
                         timestamp=now,
-                        kind=CPEventKind.secondary_session_entry,
+                        kind=EventKind.secondary_session_entry,
                         payload={"session_id": session_id, "entry": entry_payload},
                     )
                 )
@@ -3104,7 +3104,7 @@ class RuntimeService:
                     new_event(
                         session_id=job.id,
                         timestamp=now,
-                        kind=CPEventKind.secondary_session_entry,
+                        kind=EventKind.secondary_session_entry,
                         payload={"session_id": session_id, "entry": entry_payload},
                     )
                 )
@@ -3130,7 +3130,7 @@ class RuntimeService:
                 new_event(
                     session_id=job.id,
                     timestamp=completed_at,
-                    kind=CPEventKind.secondary_session_completed,
+                    kind=EventKind.secondary_session_completed,
                     payload={
                         "session_id": session_id,
                         "status": SecondarySessionStatus.completed.value,
@@ -3151,7 +3151,7 @@ class RuntimeService:
                     new_event(
                         session_id=job.id,
                         timestamp=completed_at,
-                        kind=CPEventKind.context_handoff,
+                        kind=EventKind.context_handoff,
                         payload={
                             "source": "preflight",
                             "source_session_id": session_id,
@@ -3175,7 +3175,7 @@ class RuntimeService:
                     new_event(
                         session_id=job.id,
                         timestamp=datetime.now(UTC),
-                        kind=CPEventKind.secondary_session_completed,
+                        kind=EventKind.secondary_session_completed,
                         payload={
                             "session_id": session_id,
                             "status": SecondarySessionStatus.failed.value,

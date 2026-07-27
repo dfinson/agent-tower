@@ -195,7 +195,7 @@ class TestConcurrentEventAppends:
 
     @pytest.mark.asyncio
     async def test_concurrent_appends_all_persisted(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        from backend.models.events import CPEventKind, new_event
+        from backend.models.events import EventKind, new_event
         from backend.persistence.event_repo import EventRepository
 
         # Create a job for FK
@@ -209,7 +209,7 @@ class TestConcurrentEventAppends:
                 event_id=f"evt-{seq}",
                 session_id="ev-job",
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": seq, "message": f"line-{seq}", "level": "info"},
             )
             async with session_factory() as session:
@@ -225,7 +225,7 @@ class TestConcurrentEventAppends:
 
         async with session_factory() as session:
             event_repo = EventRepository(session)
-            events = await event_repo.list_by_job("ev-job", [CPEventKind.log_line_emitted], limit=100)
+            events = await event_repo.list_by_job("ev-job", [EventKind.log_line_emitted], limit=100)
         assert len(events) == 20
 
         # IDs should be monotonically increasing

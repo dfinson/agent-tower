@@ -8,7 +8,7 @@ import pytest
 
 from backend.models.domain import SessionEvent as CPSessionEvent
 from backend.models.domain import SessionEventKind
-from backend.models.events import CPEventKind, SessionEvent
+from backend.models.events import EventKind, SessionEvent
 from backend.services.events.event_bus import EventBus
 from backend.services.events.event_processor import EventProcessor
 
@@ -33,32 +33,32 @@ class TestTranslateEvent:
         ev = CPSessionEvent(kind=SessionEventKind.log, payload={"message": "hello"})
         result = EventProcessor._translate_event("j1", ev)
         assert result is not None
-        assert result.kind == CPEventKind.log_line_emitted
+        assert result.kind == EventKind.log_line_emitted
         assert result.session_id == "j1"
 
     def test_transcript_event(self) -> None:
         ev = CPSessionEvent(kind=SessionEventKind.transcript, payload={"role": "agent", "content": "hi"})
         result = EventProcessor._translate_event("j1", ev)
         assert result is not None
-        assert result.kind == CPEventKind.message_assistant
+        assert result.kind == EventKind.message_assistant
 
     def test_approval_request_event(self) -> None:
         ev = CPSessionEvent(kind=SessionEventKind.approval_request, payload={"action": "rm -rf"})
         result = EventProcessor._translate_event("j1", ev)
         assert result is not None
-        assert result.kind == CPEventKind.approval_requested
+        assert result.kind == EventKind.approval_requested
 
     def test_error_event(self) -> None:
         ev = CPSessionEvent(kind=SessionEventKind.error, payload={"message": "failed"})
         result = EventProcessor._translate_event("j1", ev)
         assert result is not None
-        assert result.kind == CPEventKind.job_failed
+        assert result.kind == EventKind.job_failed
 
     def test_model_downgraded_event(self) -> None:
         ev = CPSessionEvent(kind=SessionEventKind.model_downgraded, payload={"from": "a", "to": "b"})
         result = EventProcessor._translate_event("j1", ev)
         assert result is not None
-        assert result.kind == CPEventKind.model_downgraded
+        assert result.kind == EventKind.model_downgraded
 
     def test_unknown_event_returns_none(self) -> None:
         ev = CPSessionEvent(kind=SessionEventKind.done, payload={})
@@ -82,7 +82,7 @@ class TestProcessEvent:
         received: list[SessionEvent] = []
 
         async def _handler(e: SessionEvent) -> None:
-            if e.kind == CPEventKind.log_line_emitted:
+            if e.kind == EventKind.log_line_emitted:
                 received.append(e)
 
         event_bus.subscribe(_handler)

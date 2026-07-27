@@ -7,7 +7,7 @@ import json
 from sqlalchemy import func, select
 
 from backend.models.db import EventRow
-from backend.models.events import TRANSCRIPT_KINDS, CPEventKind, SessionEvent, new_event
+from backend.models.events import TRANSCRIPT_KINDS, EventKind, SessionEvent, new_event
 from backend.persistence.repository import BaseRepository
 
 
@@ -22,7 +22,7 @@ class EventRepository(BaseRepository):
             event_id=row.event_id,
             session_id=row.job_id,
             timestamp=row.timestamp,
-            kind=CPEventKind(row.kind),
+            kind=EventKind(row.kind),
             payload=json.loads(row.payload),
             sequence=row.id,
         )
@@ -57,7 +57,7 @@ class EventRepository(BaseRepository):
     async def list_by_job(
         self,
         job_id: str,
-        kinds: list[CPEventKind],
+        kinds: list[EventKind],
         limit: int = 2000,
     ) -> list[SessionEvent]:
         """List events for a job filtered by kind, ordered by db id."""
@@ -74,7 +74,7 @@ class EventRepository(BaseRepository):
     async def list_all_by_job(
         self,
         job_id: str,
-        kinds: list[CPEventKind],
+        kinds: list[EventKind],
     ) -> list[SessionEvent]:
         """List all events for a job filtered by kind, without an upper bound."""
         stmt = (
@@ -102,7 +102,7 @@ class EventRepository(BaseRepository):
                 func.max(EventRow.id).label("latest_id"),
             )
             .where(EventRow.job_id.in_(job_ids))
-            .where(EventRow.kind == CPEventKind.progress_headline.value)
+            .where(EventRow.kind == EventKind.progress_headline.value)
             .group_by(EventRow.job_id)
             .subquery()
         )

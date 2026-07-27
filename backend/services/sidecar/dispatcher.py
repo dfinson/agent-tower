@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from backend.services.sidecar.session import SidecarSessionManager
 
 from backend.models.domain import SessionConfig, SidecarConfig
-from backend.models.events import TRANSCRIPT_KINDS, CPEventKind
+from backend.models.events import TRANSCRIPT_KINDS, EventKind
 
 log = structlog.get_logger()
 
@@ -717,7 +717,7 @@ class SidecarDispatcher:
 
                     # FilePatternCondition — match changed file paths from diff events
                     elif isinstance(cond, FilePatternCondition):
-                        if event.kind != CPEventKind.diff_updated:
+                        if event.kind != EventKind.diff_updated:
                             continue
                         if hasattr(event, "job_id") and event.session_id and event.session_id != job_id:
                             continue
@@ -1195,7 +1195,7 @@ class SidecarDispatcher:
         route: OutputRoute,
     ) -> None:
         """Deliver parsed output to a destination."""
-        from backend.models.events import CPEventKind, new_event
+        from backend.models.events import EventKind, new_event
 
         if isinstance(route, EventBusRoute):
             payload: dict[str, Any] = {"sidecar_name": defn.name}
@@ -1213,7 +1213,7 @@ class SidecarDispatcher:
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=CPEventKind(route.event_kind),
+                    kind=EventKind(route.event_kind),
                     payload=payload,
                 )
             )
@@ -1225,9 +1225,9 @@ class SidecarDispatcher:
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=CPEventKind.job_title_updated
+                    kind=EventKind.job_title_updated
                     if route.field_name == "title"
-                    else CPEventKind.sidecar_metadata_update,
+                    else EventKind.sidecar_metadata_update,
                     payload={"field": route.field_name, "value": value, "sidecar_name": defn.name},
                 )
             )
@@ -1256,7 +1256,7 @@ class SidecarDispatcher:
             # Publish unified secondary session events for visibility
             import uuid as _uuid
 
-            from backend.models.events import CPEventKind, new_event
+            from backend.models.events import EventKind, new_event
             from backend.models.secondary_session import EntryKind, SecondarySessionKind, SecondarySessionStatus
 
             _sess_id = str(_uuid.uuid4())
@@ -1298,7 +1298,7 @@ class SidecarDispatcher:
                 new_event(
                     session_id=job_id,
                     timestamp=_now,
-                    kind=CPEventKind.secondary_session_started,
+                    kind=EventKind.secondary_session_started,
                     payload={
                         "session_id": _sess_id,
                         "kind": SecondarySessionKind.sidecar.value,
@@ -1311,7 +1311,7 @@ class SidecarDispatcher:
                 new_event(
                     session_id=job_id,
                     timestamp=_now,
-                    kind=CPEventKind.secondary_session_completed,
+                    kind=EventKind.secondary_session_completed,
                     payload={
                         "session_id": _sess_id,
                         "status": SecondarySessionStatus.completed.value,
@@ -1369,7 +1369,7 @@ class SidecarDispatcher:
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=CPEventKind.sidecar_gate_verdict,
+                    kind=EventKind.sidecar_gate_verdict,
                     payload={
                         "sidecar_name": defn.name,
                         "verdict": verdict,
@@ -1392,7 +1392,7 @@ class SidecarDispatcher:
         """Publish secondary session events so the sidecar's output appears in the feed."""
         import uuid
 
-        from backend.models.events import CPEventKind, new_event
+        from backend.models.events import EventKind, new_event
         from backend.models.secondary_session import EntryKind, SecondarySessionKind, SecondarySessionStatus
 
         content = parsed if isinstance(parsed, str) else json.dumps(parsed)
@@ -1431,7 +1431,7 @@ class SidecarDispatcher:
             new_event(
                 session_id=job_id,
                 timestamp=now,
-                kind=CPEventKind.secondary_session_started,
+                kind=EventKind.secondary_session_started,
                 payload={
                     "session_id": session_id,
                     "kind": SecondarySessionKind.sidecar.value,
@@ -1444,7 +1444,7 @@ class SidecarDispatcher:
             new_event(
                 session_id=job_id,
                 timestamp=now,
-                kind=CPEventKind.secondary_session_completed,
+                kind=EventKind.secondary_session_completed,
                 payload={
                     "session_id": session_id,
                     "status": SecondarySessionStatus.completed.value,

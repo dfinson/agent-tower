@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from backend.config import TrailConfig
-from backend.models.events import TRANSCRIPT_KINDS, CPEventKind, SessionEvent, new_event
+from backend.models.events import TRANSCRIPT_KINDS, EventKind, SessionEvent, new_event
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.tools.parsing_utils import ensure_dict
 from backend.services.trail.activity_tracker import ActivityTracker
@@ -223,7 +223,7 @@ class TrailService:
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=CPEventKind.job_title_updated,
+                    kind=EventKind.job_title_updated,
                     payload={"title": title},
                 )
             )

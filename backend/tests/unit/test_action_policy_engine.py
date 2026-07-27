@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.models.events import CPEventKind, SessionEvent, new_event
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.action_policy.batcher import ApprovalBatcher
 from backend.services.action_policy.classifier import (
     Action,
@@ -250,7 +250,7 @@ class TestOnPolicySettingsChanged:
     async def test_ignores_non_policy_events(self) -> None:
         svc = _make_runtime_service()
         event = new_event(
-            event_id="e1", session_id="j1", timestamp=datetime.now(UTC), kind=CPEventKind.job_created, payload={}
+            event_id="e1", session_id="j1", timestamp=datetime.now(UTC), kind=EventKind.job_created, payload={}
         )
         # Should return without error
         await svc._on_policy_settings_changed(event)
@@ -362,7 +362,7 @@ def _make_policy_event() -> SessionEvent:
         event_id="e-policy",
         session_id="",
         timestamp=datetime.now(UTC),
-        kind=CPEventKind.policy_settings_changed,
+        kind=EventKind.policy_settings_changed,
         payload={},
     )
 

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from backend.models.events import CPEventKind, new_event
+from backend.models.events import EventKind, new_event
 from backend.services.trail.models import (
     Activity,
     ActivityStep,
@@ -128,7 +128,7 @@ class ActivityTracker:
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=CPEventKind.turn_summary,
+                    kind=EventKind.turn_summary,
                     payload={
                         "turn_id": turn_id,
                         "title": title,
@@ -178,7 +178,7 @@ class ActivityTracker:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.turn_summary,
+                kind=EventKind.turn_summary,
                 payload={
                     "turn_id": turn_id,
                     "title": title,

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.models.events import CPEventKind, SessionEvent
+from backend.models.events import EventKind, SessionEvent
 from backend.services.events.event_bus import EventBus
 
 # Import after models to avoid circular
@@ -116,7 +116,7 @@ class TestEmitActivityStepTitleFailure:
         events: list[SessionEvent] = []
 
         async def _handler(e: SessionEvent) -> None:
-            if e.kind == CPEventKind.turn_summary:
+            if e.kind == EventKind.turn_summary:
                 events.append(e)
 
         event_bus.subscribe(_handler)
@@ -167,7 +167,7 @@ class TestEmitActivityStepSameActivity:
         events: list[SessionEvent] = []
 
         async def _handler(e: SessionEvent) -> None:
-            if e.kind == CPEventKind.turn_summary:
+            if e.kind == EventKind.turn_summary:
                 events.append(e)
 
         event_bus.subscribe(_handler)
@@ -220,7 +220,7 @@ class TestEmitActivityStepNewActivity:
         events: list[SessionEvent] = []
 
         async def _handler(e: SessionEvent) -> None:
-            if e.kind == CPEventKind.turn_summary:
+            if e.kind == EventKind.turn_summary:
                 events.append(e)
 
         event_bus.subscribe(_handler)
@@ -314,7 +314,7 @@ class TestEmitActivityStepMerge:
         events: list[SessionEvent] = []
 
         async def _handler(e: SessionEvent) -> None:
-            if e.kind == CPEventKind.turn_summary:
+            if e.kind == EventKind.turn_summary:
                 events.append(e)
 
         event_bus.subscribe(_handler)

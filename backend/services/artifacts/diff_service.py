@@ -21,7 +21,7 @@ from backend.models.api_schemas import (
     DiffLineType,
     DiffUpdatePayload,
 )
-from backend.models.events import CPEventKind, new_event
+from backend.models.events import EventKind, new_event
 from backend.services.git.git_service import GitError
 
 if TYPE_CHECKING:
@@ -221,7 +221,7 @@ class DiffService:
                 event_id=f"evt-{uuid.uuid4().hex[:12]}",
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.diff_updated,
+                kind=EventKind.diff_updated,
                 payload=json.loads(payload.model_dump_json()),
             )
         )

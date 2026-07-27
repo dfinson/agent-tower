@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from backend.services.events.event_bus import EventBus
     from backend.services.git.git_service import GitService
 
-from backend.models.events import CPEventKind, SessionEvent, new_event
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.git.git_service import GitError
 from backend.services.tools.tool_classifier import TOOL_CATEGORIES
 
@@ -267,7 +267,7 @@ class StepTracker:
             new_event(
                 session_id=job_id,
                 timestamp=state.started_at,
-                kind=CPEventKind.step_started,
+                kind=EventKind.step_started,
                 payload={
                     "step_id": step_id,
                     "step_number": n,
@@ -329,7 +329,7 @@ class StepTracker:
             new_event(
                 session_id=job_id,
                 timestamp=now,
-                kind=CPEventKind.step_completed,
+                kind=EventKind.step_completed,
                 payload={
                     "step_id": state.step_id,
                     "turn_id": state.turn_id,

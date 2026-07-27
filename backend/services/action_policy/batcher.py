@@ -190,7 +190,7 @@ class ApprovalBatcher:
 
     async def _on_window_close(self, batch: Batch) -> None:
         """Emit a batch_ready event when the accumulation window closes."""
-        from backend.models.events import CPEventKind, new_event
+        from backend.models.events import EventKind, new_event
 
         if batch.id not in self._batches:
             return  # Already resolved
@@ -200,7 +200,7 @@ class ApprovalBatcher:
             new_event(
                 session_id=batch.job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.batch_approval_requested,
+                kind=EventKind.batch_approval_requested,
                 payload={
                     "batch_id": batch.id,
                     "batch_size": len(batch.actions),

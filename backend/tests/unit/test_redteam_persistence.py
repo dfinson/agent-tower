@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 from backend.models.db import Base
 from backend.models.domain import Artifact, Job, JobNotFoundError, JobState
-from backend.models.events import CPEventKind, new_event
+from backend.models.events import EventKind, new_event
 from backend.persistence.artifact_repo import ArtifactRepository
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.event_repo import EventRepository
@@ -131,7 +131,7 @@ class TestSQLInjection:
             event_id="evt-1",
             session_id="job-1",
             timestamp=now,
-            kind=CPEventKind.log_line_emitted,
+            kind=EventKind.log_line_emitted,
             payload=evil_payload,
         )
         await event_repo.append(event)
@@ -151,7 +151,7 @@ class TestFKViolations:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         event = new_event(
-            event_id="evt-1", session_id="nonexistent-job", timestamp=now, kind=CPEventKind.job_created, payload={}
+            event_id="evt-1", session_id="nonexistent-job", timestamp=now, kind=EventKind.job_created, payload={}
         )
         # flush() inside append() triggers the FK check
         with pytest.raises(IntegrityError):
@@ -200,14 +200,14 @@ class TestDuplicatePKs:
         now = datetime.now(UTC)
         await event_repo.append(
             new_event(
-                event_id="evt-dup", session_id="job-1", timestamp=now, kind=CPEventKind.job_created, payload={}
+                event_id="evt-dup", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={}
             )
         )
         await session.flush()
         with pytest.raises(IntegrityError):
             await event_repo.append(
                 new_event(
-                    event_id="evt-dup", session_id="job-1", timestamp=now, kind=CPEventKind.job_created, payload={}
+                    event_id="evt-dup", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={}
                 )
             )
             await session.flush()
@@ -452,7 +452,7 @@ class TestPaginationEdgeCases:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         await event_repo.append(
-            new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=CPEventKind.job_created, payload={})
+            new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={})
         )
         await session.commit()
 
@@ -469,7 +469,7 @@ class TestPaginationEdgeCases:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         await event_repo.append(
-            new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=CPEventKind.job_created, payload={})
+            new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={})
         )
         await session.commit()
 
@@ -535,7 +535,7 @@ class TestEventPayloadEdgeCases:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         await event_repo.append(
-            new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=CPEventKind.job_created, payload={})
+            new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={})
         )
         await session.commit()
         events = await event_repo.list_after(0)
@@ -558,7 +558,7 @@ class TestEventPayloadEdgeCases:
         now = datetime.now(UTC)
         await event_repo.append(
             new_event(
-                event_id="evt-1", session_id="job-1", timestamp=now, kind=CPEventKind.job_created, payload=deep
+                event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload=deep
             )
         )
         await session.commit()
@@ -584,7 +584,7 @@ class TestEventPayloadEdgeCases:
         now = datetime.now(UTC)
         await event_repo.append(
             new_event(
-                event_id="evt-1", session_id="job-1", timestamp=now, kind=CPEventKind.job_created, payload=payload
+                event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload=payload
             )
         )
         await session.commit()

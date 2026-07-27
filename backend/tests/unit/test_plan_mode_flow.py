@@ -26,7 +26,7 @@ from backend.models.domain import (
     SessionEvent,
     SessionEventKind,
 )
-from backend.models.events import TRANSCRIPT_KINDS, CPEventKind
+from backend.models.events import TRANSCRIPT_KINDS, EventKind
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
 from backend.services.adapters.adapter_registry import AdapterRegistry
@@ -203,7 +203,7 @@ async def runtime(
         if event.kind in TRANSCRIPT_KINDS:
             await trail_svc._on_transcript_event(event)
         # Auto-create job state on state change to running
-        if event.kind == CPEventKind.job_state_changed:
+        if event.kind == EventKind.job_state_changed:
             payload = event.payload or {}
             if payload.get("new_state") == "running" and event.session_id and event.session_id not in trail_state:
                 trail_state[event.session_id] = _TrailJobState()
@@ -334,7 +334,7 @@ async def test_plan_mode_reaches_approval_gate(
     await _wait_for_state(session_factory, job.id, JobState.waiting_for_approval)
 
     # Verify approval_requested event was emitted
-    approval_events = [e for e in events if e.kind == CPEventKind.approval_requested]
+    approval_events = [e for e in events if e.kind == EventKind.approval_requested]
     assert len(approval_events) >= 1
     assert approval_events[0].payload["proposed_action"] == "execute_plan"
 
@@ -361,7 +361,7 @@ async def test_plan_mode_approval_transitions_to_implementing(
     await _wait_for_state(session_factory, job.id, JobState.waiting_for_approval)
 
     # Approve the plan
-    approval_events = [e for e in events if e.kind == CPEventKind.approval_requested]
+    approval_events = [e for e in events if e.kind == EventKind.approval_requested]
     approval_id = approval_events[0].payload["approval_id"]
     await runtime._approval_service.resolve(approval_id, ApprovalResolution.approved)
 
@@ -369,7 +369,7 @@ async def test_plan_mode_approval_transitions_to_implementing(
     await _wait_for_state(session_factory, job.id, JobState.review, timeout=15.0)
 
     # Verify mode_changed event
-    mode_events = [e for e in events if e.kind == CPEventKind.job_mode_changed]
+    mode_events = [e for e in events if e.kind == EventKind.job_mode_changed]
     assert len(mode_events) == 1
     assert mode_events[0].payload["previous_mode"] == "plan"
     assert mode_events[0].payload["new_mode"] == "plan_implementing"
@@ -404,7 +404,7 @@ async def test_plan_mode_rejection_triggers_replan(
     await _wait_for_state(session_factory, job.id, JobState.waiting_for_approval)
 
     # Reject the plan
-    approval_events = [e for e in events if e.kind == CPEventKind.approval_requested]
+    approval_events = [e for e in events if e.kind == EventKind.approval_requested]
     approval_id = approval_events[0].payload["approval_id"]
     await runtime._approval_service.resolve(approval_id, ApprovalResolution.rejected, notes="Needs more detail")
 
@@ -413,7 +413,7 @@ async def test_plan_mode_rejection_triggers_replan(
     await asyncio.sleep(0.2)
 
     # A second approval_requested event should have been emitted
-    approval_events_after = [e for e in events if e.kind == CPEventKind.approval_requested]
+    approval_events_after = [e for e in events if e.kind == EventKind.approval_requested]
     assert len(approval_events_after) >= 2
 
     # Now approve the second plan
@@ -445,7 +445,7 @@ async def test_plan_mode_max_rejections_fails_job(
     # Reject 6 times (limit is 5)
     for i in range(6):
         await _wait_for_state(session_factory, job.id, JobState.waiting_for_approval, timeout=10.0)
-        approval_events = [e for e in events if e.kind == CPEventKind.approval_requested]
+        approval_events = [e for e in events if e.kind == EventKind.approval_requested]
         latest_approval_id = approval_events[-1].payload["approval_id"]
         await runtime._approval_service.resolve(latest_approval_id, ApprovalResolution.rejected)
 

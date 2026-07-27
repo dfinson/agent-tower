@@ -227,7 +227,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         totals: dict[str, float | int] | None = None,
     ) -> None:
         """Publish telemetry_updated if debounce interval has elapsed."""
-        from backend.models.events import CPEventKind, new_event
+        from backend.models.events import EventKind, new_event
 
         if self._event_bus is None:
             return
@@ -244,7 +244,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             payload["output_tokens"] = totals.get("output_tokens", 0)
         await self._event_bus.publish(
             new_event(
-                session_id=job_id, timestamp=datetime.now(UTC), kind=CPEventKind.telemetry_updated, payload=payload
+                session_id=job_id, timestamp=datetime.now(UTC), kind=EventKind.telemetry_updated, payload=payload
             )
         )
 
@@ -461,14 +461,14 @@ class BaseAgentAdapter(AgentAdapterInterface):
         # Emit action_classified event for timeline tier indicators
         tier_str = decision.tier.value if decision.tier else None
         if tier_str and self._event_bus is not None:
-            from backend.models.events import CPEventKind, new_event
+            from backend.models.events import EventKind, new_event
 
             cls = decision.classification
             await self._event_bus.publish(
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=CPEventKind.action_classified,
+                    kind=EventKind.action_classified,
                     payload={
                         "tier": tier_str,
                         "tool_name": tool_name or request.kind,

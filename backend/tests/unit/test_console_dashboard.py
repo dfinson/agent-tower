@@ -15,7 +15,7 @@ from backend.console_dashboard import (
     ConsoleLogHandler,
     _JobInfo,
 )
-from backend.models.events import CPEventKind, SessionEvent, new_event
+from backend.models.events import EventKind, SessionEvent, new_event
 
 # ── _JobInfo ──
 
@@ -126,20 +126,20 @@ class TestConsoleLog:
 
 
 class TestApplyEvent:
-    def _make_event(self, kind: CPEventKind, job_id: str = "job-1", **payload) -> SessionEvent:
+    def _make_event(self, kind: EventKind, job_id: str = "job-1", **payload) -> SessionEvent:
         return new_event(session_id=job_id, kind=kind, payload=payload)
 
     def test_job_created(self):
         log = ConsoleLog()
         log.start()
-        event = self._make_event(CPEventKind.job_created)
+        event = self._make_event(EventKind.job_created)
         log._apply_event(event)
         assert "job-1" in log._jobs
 
     def test_job_state_changed(self):
         log = ConsoleLog()
         log.start()
-        event = self._make_event(CPEventKind.job_state_changed, new_state="running")
+        event = self._make_event(EventKind.job_state_changed, new_state="running")
         log._apply_event(event)
         assert "job-1" in log._jobs
 
@@ -147,7 +147,7 @@ class TestApplyEvent:
         log = ConsoleLog()
         log.start()
         log._jobs["job-1"] = _JobInfo("job-1")
-        event = self._make_event(CPEventKind.job_completed)
+        event = self._make_event(EventKind.job_completed)
         log._apply_event(event)
         assert "job-1" not in log._jobs
 
@@ -155,7 +155,7 @@ class TestApplyEvent:
         log = ConsoleLog()
         log.start()
         log._jobs["job-1"] = _JobInfo("job-1")
-        event = self._make_event(CPEventKind.job_failed)
+        event = self._make_event(EventKind.job_failed)
         log._apply_event(event)
         assert "job-1" not in log._jobs
 
@@ -163,7 +163,7 @@ class TestApplyEvent:
         log = ConsoleLog()
         log.start()
         log._jobs["job-1"] = _JobInfo("job-1")
-        event = self._make_event(CPEventKind.job_canceled)
+        event = self._make_event(EventKind.job_canceled)
         log._apply_event(event)
         assert "job-1" not in log._jobs
 
@@ -171,14 +171,14 @@ class TestApplyEvent:
         log = ConsoleLog()
         log.start()
         log._jobs["job-1"] = _JobInfo("job-1")
-        event = self._make_event(CPEventKind.job_title_updated, title="My Task")
+        event = self._make_event(EventKind.job_title_updated, title="My Task")
         log._apply_event(event)
         assert log._jobs["job-1"].title == "My Task"
 
     def test_no_job_id_ignored(self):
         log = ConsoleLog()
         log.start()
-        event = new_event(session_id="", kind=CPEventKind.job_created, payload={})
+        event = new_event(session_id="", kind=EventKind.job_created, payload={})
         log._apply_event(event)
         assert len(log._jobs) == 0
 
@@ -187,7 +187,7 @@ class TestApplyEvent:
         log.start()
         log._jobs["job-1"] = _JobInfo("job-1")
         event = self._make_event(
-            CPEventKind.approval_requested,
+            EventKind.approval_requested,
             description="run npm install",
         )
         log._apply_event(event)  # Should not raise
@@ -198,7 +198,7 @@ class TestApplyEvent:
         job = _JobInfo("job-1")
         job.title = "Build feature"
         log._jobs["job-1"] = job
-        event = self._make_event(CPEventKind.job_completed)
+        event = self._make_event(EventKind.job_completed)
         log._apply_event(event)
         assert "job-1" not in log._jobs
 
@@ -244,7 +244,7 @@ class TestHandleEvent:
     async def test_handle_event(self):
         log = ConsoleLog()
         log.start()
-        event = new_event(session_id="job-1", kind=CPEventKind.job_created, payload={})
+        event = new_event(session_id="job-1", kind=EventKind.job_created, payload={})
         await log.handle_event(event)
         assert "job-1" in log._jobs
 

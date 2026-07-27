@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "TRANSCRIPT_KINDS",
-    "CPEventKind",
+    "EventKind",
     "EventMetadata",
     "EventPayload",
     "SessionEvent",
@@ -28,7 +28,7 @@ __all__ = [
 ]
 
 
-class CPEventKind(StrEnum):
+class EventKind(StrEnum):
     """CodePlane control-plane event kinds as open dotted TraceForge kinds.
 
     These are CodePlane's own kinds expressed in TraceForge's open dotted-string
@@ -113,18 +113,18 @@ class CPEventKind(StrEnum):
 # dotted kind. Role is retained in ``payload["role"]`` so consumers that branch
 # on role continue to work; kind-level "is this a transcript event" checks use
 # this set.
-TRANSCRIPT_KINDS: frozenset[CPEventKind] = frozenset(
+TRANSCRIPT_KINDS: frozenset[EventKind] = frozenset(
     {
-        CPEventKind.message_user,
-        CPEventKind.message_assistant,
-        CPEventKind.message_delta,
-        CPEventKind.tool_call_started,
-        CPEventKind.tool_call_completed,
+        EventKind.message_user,
+        EventKind.message_assistant,
+        EventKind.message_delta,
+        EventKind.tool_call_started,
+        EventKind.tool_call_completed,
     }
 )
 
 
-def transcript_kind_for_role(role: str) -> CPEventKind:
+def transcript_kind_for_role(role: str) -> EventKind:
     """Map a transcript ``role`` to its dotted CodePlane event kind.
 
     Roles emitted by the adapters/watchers: ``operator``/``user`` (human input),
@@ -132,17 +132,17 @@ def transcript_kind_for_role(role: str) -> CPEventKind:
     partial), ``tool_running`` (a tool began), ``tool_call`` (a tool completed).
     """
     if role in ("operator", "user"):
-        return CPEventKind.message_user
+        return EventKind.message_user
     if role in ("agent", "assistant"):
-        return CPEventKind.message_assistant
+        return EventKind.message_assistant
     if role == "agent_delta":
-        return CPEventKind.message_delta
+        return EventKind.message_delta
     if role == "tool_running":
-        return CPEventKind.tool_call_started
+        return EventKind.tool_call_started
     if role == "tool_call":
-        return CPEventKind.tool_call_completed
+        return EventKind.tool_call_completed
     # Unknown roles default to a full assistant message (safest for display).
-    return CPEventKind.message_assistant
+    return EventKind.message_assistant
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +421,7 @@ EventPayload = (
 
 def new_event(
     session_id: str | None,
-    kind: CPEventKind | str,
+    kind: EventKind | str,
     payload: EventPayload | dict[str, Any],
     *,
     timestamp: datetime | None = None,

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from backend.models.events import CPEventKind, new_event
+from backend.models.events import EventKind, new_event
 from backend.services.trail.models import (
     CONTEXT_WINDOW_SIZE,
     MESSAGE_SIGNAL_BUFFER_SIZE,
@@ -227,7 +227,7 @@ class PlanManager:
                 new_event(
                     session_id=job_id,
                     timestamp=now,
-                    kind=CPEventKind.step_entries_reassigned,
+                    kind=EventKind.step_entries_reassigned,
                     payload={
                         "turn_id": turn_id,
                         "old_step_id": stamped_step_id,
@@ -539,7 +539,7 @@ class PlanManager:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.plan_step_updated,
+                kind=EventKind.plan_step_updated,
                 payload=ps.to_event_payload(),
             )
         )
@@ -549,7 +549,7 @@ class PlanManager:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.progress_headline,
+                kind=EventKind.progress_headline,
                 payload={
                     "headline": ps.label,
                     "headline_past": ps.label,

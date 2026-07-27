@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 import structlog
 
 from backend.models.api_schemas import ApprovalResponse, SnapshotPayload
-from backend.models.events import TRANSCRIPT_KINDS, CPEventKind, SessionEvent
+from backend.models.events import TRANSCRIPT_KINDS, EventKind, SessionEvent
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -32,42 +32,42 @@ log = structlog.get_logger()
 # are computed by the frontend from these dotted kinds, not synthesized here.
 _BROADCAST_KINDS: frozenset[str] = frozenset(
     {
-        CPEventKind.job_created,
-        CPEventKind.job_setup_progress,
-        CPEventKind.log_line_emitted,
-        CPEventKind.diff_updated,
-        CPEventKind.approval_requested,
-        CPEventKind.approval_resolved,
-        CPEventKind.batch_approval_requested,
-        CPEventKind.batch_approval_resolved,
-        CPEventKind.job_review,
-        CPEventKind.job_completed,
-        CPEventKind.job_failed,
-        CPEventKind.job_canceled,
-        CPEventKind.job_state_changed,
-        CPEventKind.session_heartbeat,
-        CPEventKind.merge_completed,
-        CPEventKind.merge_conflict,
-        CPEventKind.session_resumed,
-        CPEventKind.job_resolved,
-        CPEventKind.job_archived,
-        CPEventKind.job_title_updated,
-        CPEventKind.model_downgraded,
-        CPEventKind.tool_group_summary,
-        CPEventKind.telemetry_updated,
-        CPEventKind.plan_step_updated,
-        CPEventKind.step_entries_reassigned,
-        CPEventKind.turn_summary,
-        CPEventKind.action_classified,
-        CPEventKind.policy_settings_changed,
-        CPEventKind.repo_index_progress,
-        CPEventKind.repo_index_complete,
-        CPEventKind.structural_warning,
-        CPEventKind.stall_detected,
-        CPEventKind.secondary_session_started,
-        CPEventKind.secondary_session_entry,
-        CPEventKind.secondary_session_completed,
-        CPEventKind.context_handoff,
+        EventKind.job_created,
+        EventKind.job_setup_progress,
+        EventKind.log_line_emitted,
+        EventKind.diff_updated,
+        EventKind.approval_requested,
+        EventKind.approval_resolved,
+        EventKind.batch_approval_requested,
+        EventKind.batch_approval_resolved,
+        EventKind.job_review,
+        EventKind.job_completed,
+        EventKind.job_failed,
+        EventKind.job_canceled,
+        EventKind.job_state_changed,
+        EventKind.session_heartbeat,
+        EventKind.merge_completed,
+        EventKind.merge_conflict,
+        EventKind.session_resumed,
+        EventKind.job_resolved,
+        EventKind.job_archived,
+        EventKind.job_title_updated,
+        EventKind.model_downgraded,
+        EventKind.tool_group_summary,
+        EventKind.telemetry_updated,
+        EventKind.plan_step_updated,
+        EventKind.step_entries_reassigned,
+        EventKind.turn_summary,
+        EventKind.action_classified,
+        EventKind.policy_settings_changed,
+        EventKind.repo_index_progress,
+        EventKind.repo_index_complete,
+        EventKind.structural_warning,
+        EventKind.stall_detected,
+        EventKind.secondary_session_started,
+        EventKind.secondary_session_entry,
+        EventKind.secondary_session_completed,
+        EventKind.context_handoff,
     }
     | TRANSCRIPT_KINDS
 )
@@ -75,9 +75,9 @@ _BROADCAST_KINDS: frozenset[str] = frozenset(
 # High-frequency dotted kinds suppressed in selective mode (>20 active jobs)
 _SELECTIVE_SUPPRESSED: frozenset[str] = frozenset(
     {
-        CPEventKind.log_line_emitted,
-        CPEventKind.diff_updated,
-        CPEventKind.session_heartbeat,
+        EventKind.log_line_emitted,
+        EventKind.diff_updated,
+        EventKind.session_heartbeat,
     }
     | TRANSCRIPT_KINDS
 )
@@ -87,8 +87,8 @@ _SELECTIVE_SUPPRESSED: frozenset[str] = frozenset(
 # a specific job's detail panel.
 _JOB_SCOPED_ONLY: frozenset[str] = frozenset(
     {
-        CPEventKind.telemetry_updated,
-        CPEventKind.secondary_session_entry,
+        EventKind.telemetry_updated,
+        EventKind.secondary_session_entry,
     }
 )
 

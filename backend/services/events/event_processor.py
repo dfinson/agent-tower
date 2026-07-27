@@ -24,7 +24,7 @@ from backend.models.domain import SessionEvent as CPSessionEvent
 from backend.models.domain import SessionEventKind
 from backend.models.events import (
     TRANSCRIPT_KINDS,
-    CPEventKind,
+    EventKind,
     SessionEvent,
     new_event,
     transcript_kind_for_role,
@@ -151,13 +151,13 @@ class EventProcessor:
     @staticmethod
     def _translate_event(job_id: str, event: CPSessionEvent) -> SessionEvent | None:
         """Translate a SessionEvent into a DomainEvent."""
-        mapping: dict[SessionEventKind, CPEventKind] = {
-            SessionEventKind.log: CPEventKind.log_line_emitted,
-            SessionEventKind.approval_request: CPEventKind.approval_requested,
-            SessionEventKind.error: CPEventKind.job_failed,
-            SessionEventKind.model_downgraded: CPEventKind.model_downgraded,
+        mapping: dict[SessionEventKind, EventKind] = {
+            SessionEventKind.log: EventKind.log_line_emitted,
+            SessionEventKind.approval_request: EventKind.approval_requested,
+            SessionEventKind.error: EventKind.job_failed,
+            SessionEventKind.model_downgraded: EventKind.model_downgraded,
         }
-        kind: CPEventKind | None
+        kind: EventKind | None
         if event.kind == SessionEventKind.transcript:
             kind = transcript_kind_for_role(str(event.payload.get("role", "")))
         else:

@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import TrailConfig
 from backend.models.db import TrailNodeRow
-from backend.models.events import CPEventKind
+from backend.models.events import EventKind
 from backend.services.trail.enricher import TrailEnricher
 from backend.services.trail.models import TrailJobState
 
@@ -739,7 +739,7 @@ class TestDrainTitles:
         await enricher.drain_titles()
         enricher._event_bus.publish.assert_called_once()
         event = enricher._event_bus.publish.call_args[0][0]
-        assert event.kind == CPEventKind.turn_summary
+        assert event.kind == EventKind.turn_summary
         assert event.payload["activity_id"] == "act-123"
         assert event.payload["title"] == "Edited main.py"
         assert event.payload["is_new_activity"] is False

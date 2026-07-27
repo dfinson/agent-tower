@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from backend.lifespan import _persist_event_with_retry
-from backend.models.events import CPEventKind, SessionEvent, new_event
+from backend.models.events import EventKind, SessionEvent, new_event
 
 
 class _FakeSession:
@@ -37,7 +37,7 @@ def _make_event() -> SessionEvent:
         event_id="evt-1",
         session_id="job-1",
         timestamp=datetime.now(UTC),
-        kind=CPEventKind.job_state_changed,
+        kind=EventKind.job_state_changed,
         payload={"state": "running"},
     )
 

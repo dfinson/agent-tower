@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from backend.config import CPLConfig
-    from backend.models.events import CPEventKind, SessionEvent
+    from backend.models.events import EventKind, SessionEvent
     from backend.persistence.event_repo import EventRepository
     from backend.persistence.job_repo import JobRepository
     from backend.services.coderecon.coderecon_service import CodeReconService
@@ -126,7 +126,7 @@ class JobService:
     async def list_events_by_job(
         self,
         job_id: str,
-        kinds: list[CPEventKind],
+        kinds: list[EventKind],
         limit: int = 2000,
     ) -> list[SessionEvent]:
         """Query domain events for a job, filtered by kind.
@@ -410,7 +410,7 @@ class JobService:
         Returns the updated Job.
         Raises JobNotFoundError / StateConflictError on bad state.
         """
-        from backend.models.events import CPEventKind, new_event
+        from backend.models.events import EventKind, new_event
 
         if self._git is None:
             raise ServiceInitError("GitService required for workspace setup")
@@ -427,7 +427,7 @@ class JobService:
                     new_event(
                         session_id=job_id,
                         timestamp=datetime.now(UTC),
-                        kind=CPEventKind.job_setup_progress,
+                        kind=EventKind.job_setup_progress,
                         payload={"step": step},
                     )
                 )
@@ -663,7 +663,7 @@ class JobService:
         Returns (resolution, pr_url, conflict_files, error, events_to_publish).
         The caller should commit the session and then publish the events.
         """
-        from backend.models.events import CPEventKind, new_event
+        from backend.models.events import EventKind, new_event
 
         resolution, pr_url, conflict_files, error = await self.execute_resolve(
             job=job,
@@ -686,7 +686,7 @@ class JobService:
                 new_event(
                     session_id=job.id,
                     timestamp=datetime.now(UTC),
-                    kind=CPEventKind.job_completed,
+                    kind=EventKind.job_completed,
                     payload={
                         "resolution": resolution,
                         "merge_status": resolution,
@@ -703,11 +703,11 @@ class JobService:
         Fetches the latest merge_conflict event for the job to identify
         conflicting files, then constructs a structured resolution prompt.
         """
-        from backend.models.events import CPEventKind
+        from backend.models.events import EventKind
 
         conflict_events = await self.list_events_by_job(
             job_id,
-            kinds=[CPEventKind.merge_conflict],
+            kinds=[EventKind.merge_conflict],
         )
         conflict_files: list[str] = []
         if conflict_events:
@@ -740,7 +740,7 @@ class JobService:
         error: str | None = None,
     ) -> SessionEvent:
         """Build a job_resolved event for publication after the caller commits."""
-        from backend.models.events import CPEventKind, new_event
+        from backend.models.events import EventKind, new_event
 
         payload: dict[str, object] = {"resolution": resolution}
         if pr_url:
@@ -751,7 +751,7 @@ class JobService:
             payload["error"] = error
 
         return new_event(
-            session_id=job_id, timestamp=datetime.now(UTC), kind=CPEventKind.job_resolved, payload=payload
+            session_id=job_id, timestamp=datetime.now(UTC), kind=EventKind.job_resolved, payload=payload
         )
 
     async def archive_job(self, job_id: str) -> Job:
@@ -787,6 +787,6 @@ class JobService:
 
     def build_job_archived_event(self, job_id: str) -> SessionEvent:
         """Build a job_archived event for publication after the caller commits."""
-        from backend.models.events import CPEventKind, new_event
+        from backend.models.events import EventKind, new_event
 
-        return new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=CPEventKind.job_archived, payload={})
+        return new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=EventKind.job_archived, payload={})

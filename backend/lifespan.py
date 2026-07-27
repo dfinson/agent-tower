@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, get_codeplane_dir, load_config
 from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMaxBytes
-from backend.models.events import CPEventKind, EventMetadata, SessionEvent, new_event
+from backend.models.events import EventKind, EventMetadata, SessionEvent, new_event
 from backend.persistence.database import create_engine, create_session_factory, serialized_write
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.step_repo import StepRepository
@@ -302,7 +302,7 @@ def _init_event_infrastructure(
         # agent_delta events are ephemeral streaming chunks — broadcast
         # immediately without writing to DB (the complete agent message
         # that follows is the canonical persisted record).
-        if event.kind == CPEventKind.message_delta and event.payload.get("role") == "agent_delta":
+        if event.kind == EventKind.message_delta and event.payload.get("role") == "agent_delta":
             await sse_manager.broadcast_domain_event(event)
             return
 
@@ -763,7 +763,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     async def _push_subscriber(event: SessionEvent) -> None:
         """Send push notifications for approval requests and terminal job states."""
-        if event.kind == CPEventKind.approval_requested:
+        if event.kind == EventKind.approval_requested:
             desc = event.payload.get("description", "Action requires your approval")
             await push_service.notify(
                 title="Approval needed",
@@ -771,14 +771,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 tag=f"approval-{event.payload.get('approval_id', event.session_id)}",
                 url=f"/jobs/{event.session_id}",
             )
-        elif event.kind == CPEventKind.job_completed:
+        elif event.kind == EventKind.job_completed:
             await push_service.notify(
                 title="Job completed",
                 body=str(event.payload.get("resolution", "done")),
                 tag=f"job-{event.session_id}",
                 url=f"/jobs/{event.session_id}",
             )
-        elif event.kind == CPEventKind.job_failed:
+        elif event.kind == EventKind.job_failed:
             reason = event.payload.get("reason", "unknown error")
             await push_service.notify(
                 title="Job failed",
@@ -880,7 +880,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Structural health subscriber — emits warnings at step boundaries (§7.2)
     async def _structural_health_on_step(event: SessionEvent) -> None:
-        if event.kind != CPEventKind.step_completed:
+        if event.kind != EventKind.step_completed:
             return
         if not coderecon_service.available:
             return
@@ -918,7 +918,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         new_event(
                             session_id=job_id,
                             timestamp=datetime.now(UTC),
-                            kind=CPEventKind.structural_warning,
+                            kind=EventKind.structural_warning,
                             payload=w,
                         )
                     )
@@ -933,7 +933,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Review story prefetch subscriber — pre-generates and caches review story
     # when a job enters review state so the frontend load is instant.
     async def _prefetch_review_story(event: SessionEvent) -> None:
-        if event.kind != CPEventKind.job_review:
+        if event.kind != EventKind.job_review:
             return
         if not coderecon_service.available:
             return
@@ -978,7 +978,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # --- §11.11 Persist review story as approval artifact on merge ---
     async def _persist_review_story_on_resolve(event: SessionEvent) -> None:
-        if event.kind != CPEventKind.job_resolved:
+        if event.kind != EventKind.job_resolved:
             return
         resolution = event.payload.get("resolution")
         if resolution not in ("merged", "pr_created", "smart_merged"):
@@ -1027,7 +1027,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # --- §7.5 Post-resolution structural analytics ---
     async def _persist_structural_analytics(event: SessionEvent) -> None:
-        if event.kind != CPEventKind.job_resolved:
+        if event.kind != EventKind.job_resolved:
             return
         resolution = event.payload.get("resolution")
         if resolution not in ("merged", "pr_created", "smart_merged"):

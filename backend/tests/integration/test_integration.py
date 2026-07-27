@@ -137,7 +137,7 @@ class TestEventBusIntegration:
     @pytest.mark.asyncio
     async def test_concurrent_subscribers(self, event_bus: EventBus) -> None:
         """Multiple subscribers receive the same event."""
-        from backend.models.events import CPEventKind, SessionEvent, new_event
+        from backend.models.events import EventKind, SessionEvent, new_event
 
         received: list[str] = []
 
@@ -154,7 +154,7 @@ class TestEventBusIntegration:
             event_id="evt-1",
             session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=CPEventKind.job_state_changed,
+            kind=EventKind.job_state_changed,
             payload={"old_state": "queued", "new_state": "running"},
         )
         await event_bus.publish(event)
@@ -164,7 +164,7 @@ class TestEventBusIntegration:
 
     @pytest.mark.asyncio
     async def test_subscriber_error_does_not_crash_bus(self, event_bus: EventBus) -> None:
-        from backend.models.events import CPEventKind, SessionEvent, new_event
+        from backend.models.events import EventKind, SessionEvent, new_event
 
         received: list[str] = []
 
@@ -181,7 +181,7 @@ class TestEventBusIntegration:
             event_id="evt-1",
             session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=CPEventKind.job_state_changed,
+            kind=EventKind.job_state_changed,
             payload={},
         )
         await event_bus.publish(event)

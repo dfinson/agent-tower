@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, cast
 import structlog
 
 from backend.models.domain import DonePayload, ErrorPayload, Job, JobSource, JobState, SessionEvent
-from backend.models.events import CPEventKind, new_event
+from backend.models.events import EventKind, new_event
 from backend.services.events.event_pipeline import EventPipeline
 from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin
 
@@ -488,7 +488,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             new_event(
                 session_id=job_id,
                 timestamp=now,
-                kind=CPEventKind.job_created,
+                kind=EventKind.job_created,
                 payload={
                     "repo": repo_path,
                     "branch": branch,
@@ -502,7 +502,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             new_event(
                 session_id=job_id,
                 timestamp=now,
-                kind=CPEventKind.job_state_changed,
+                kind=EventKind.job_state_changed,
                 payload={"state": JobState.running, "new_state": JobState.running},
             )
         )
@@ -964,7 +964,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             new_event(
                 session_id=job_id,
                 timestamp=now,
-                kind=CPEventKind.job_state_changed,
+                kind=EventKind.job_state_changed,
                 payload={"state": new_state, "new_state": new_state},
             )
         )
@@ -974,7 +974,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 new_event(
                     session_id=job_id,
                     timestamp=now,
-                    kind=CPEventKind.job_review,
+                    kind=EventKind.job_review,
                     payload={"resolution": "unresolved"},
                 )
             )

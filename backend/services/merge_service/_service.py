@@ -12,7 +12,7 @@ import structlog
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.models.domain import GitMergeOutcome
-from backend.models.events import CPEventKind, new_event
+from backend.models.events import EventKind, new_event
 from backend.services.git.git_service import GitError
 from backend.services.merge_service._types import (
     _NOT_MERGED,
@@ -478,7 +478,7 @@ class MergeService:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.merge_completed,
+                kind=EventKind.merge_completed,
                 payload={
                     "branch": branch,
                     "base_ref": base_ref,
@@ -501,7 +501,7 @@ class MergeService:
             new_event(
                 session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.merge_conflict,
+                kind=EventKind.merge_conflict,
                 payload={
                     "branch": branch,
                     "base_ref": base_ref,

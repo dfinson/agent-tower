@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from backend.models.events import CPEventKind, new_event
+from backend.models.events import EventKind, new_event
 from backend.services.events.sse_manager import SSEConnection, SSEManager, _format_sse
 
 
@@ -61,7 +61,7 @@ class TestSSEManagerBroadcast:
             event_id="evt-1",
             session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=CPEventKind.log_line_emitted,
+            kind=EventKind.log_line_emitted,
             payload={"seq": 1, "message": "hello", "level": "info"},
             sequence=100,
         )
@@ -82,7 +82,7 @@ class TestSSEManagerBroadcast:
             event_id="evt-1",
             session_id="job-2",
             timestamp=datetime.now(UTC),
-            kind=CPEventKind.log_line_emitted,
+            kind=EventKind.log_line_emitted,
             payload={"seq": 1, "message": "hello", "level": "info"},
             sequence=100,
         )
@@ -103,7 +103,7 @@ class TestSSEManagerBroadcast:
             event_id="evt-1",
             session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=CPEventKind.log_line_emitted,
+            kind=EventKind.log_line_emitted,
             payload={"seq": 1, "message": "hello", "level": "info"},
             sequence=100,
         )
@@ -147,7 +147,7 @@ class TestBulkEventsOverflow:
                 event_id=f"evt-{i}",
                 session_id="job-1",
                 timestamp=datetime.now(UTC),
-                kind=CPEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": i, "message": f"line-{i}", "level": "info"},
                 sequence=i + 1,
             )

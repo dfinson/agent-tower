@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.models.events import CPEventKind, new_event
+from backend.models.events import EventKind, new_event
 from backend.models.schemas.base import CamelModel
 from backend.persistence.policy_repo import PolicyRepository
 from backend.services.events.event_bus import EventBus
@@ -22,7 +22,7 @@ log = structlog.get_logger()
 async def _notify_policy_changed(event_bus: EventBus) -> None:
     """Publish a policy_settings_changed event so running jobs reload policy."""
     await event_bus.publish(
-        new_event(session_id="", timestamp=datetime.now(UTC), kind=CPEventKind.policy_settings_changed, payload={})
+        new_event(session_id="", timestamp=datetime.now(UTC), kind=EventKind.policy_settings_changed, payload={})
     )
 
 

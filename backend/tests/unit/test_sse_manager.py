@@ -17,7 +17,7 @@ import pytest
 
 from backend.models.api_schemas import SnapshotPayload
 from backend.models.domain import Job
-from backend.models.events import CPEventKind, SessionEvent, new_event
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.events.sse_manager import (
     MAX_REPLAY_AGE,
     MAX_REPLAY_EVENTS,
@@ -29,7 +29,7 @@ from backend.services.events.sse_manager import (
 
 
 def _make_event(
-    kind: CPEventKind = CPEventKind.job_created,
+    kind: EventKind = EventKind.job_created,
     job_id: str = "job-1",
     event_id: str = "evt-1",
     payload: dict[str, object] | None = None,
@@ -93,7 +93,7 @@ class TestFormatSSE:
 class TestSerializeTFEvent:
     def test_serializes_dotted_kind_and_payload(self) -> None:
         event = _make_event(
-            kind=CPEventKind.log_line_emitted,
+            kind=EventKind.log_line_emitted,
             payload={"seq": 1, "message": "hello", "level": "info"},
         )
         parsed = json.loads(_serialize_tf_event(event))
@@ -104,13 +104,13 @@ class TestSerializeTFEvent:
         assert parsed["payload"]["level"] == "info"
 
     def test_carries_metadata_sequence(self) -> None:
-        event = _make_event(kind=CPEventKind.job_created, db_id=7)
+        event = _make_event(kind=EventKind.job_created, db_id=7)
         parsed = json.loads(_serialize_tf_event(event))
         assert parsed["metadata"]["sequence"] == 7
 
     def test_transcript_payload_is_verbatim(self) -> None:
         event = _make_event(
-            kind=CPEventKind.tool_call_completed,
+            kind=EventKind.tool_call_completed,
             payload={
                 "seq": 3,
                 "role": "tool_call",
@@ -185,7 +185,7 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        event = _make_event(kind=CPEventKind.job_created, db_id=42)
+        event = _make_event(kind=EventKind.job_created, db_id=42)
         await mgr.broadcast_domain_event(event)
 
         data = conn.queue.get_nowait()
@@ -201,7 +201,7 @@ class TestSSEManager:
         mgr.register(conn)
 
         event = _make_event(
-            kind=CPEventKind.approval_requested,
+            kind=EventKind.approval_requested,
             payload={"approval_id": "apr-1", "description": "approve?"},
             db_id=5,
         )
@@ -220,7 +220,7 @@ class TestSSEManager:
         mgr.register(conn1)
         mgr.register(conn2)
 
-        event = _make_event(kind=CPEventKind.job_created, job_id="job-1", db_id=10)
+        event = _make_event(kind=EventKind.job_created, job_id="job-1", db_id=10)
         await mgr.broadcast_domain_event(event)
 
         assert not conn1.queue.empty()
@@ -232,7 +232,7 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        event = _make_event(kind=CPEventKind.workspace_prepared)
+        event = _make_event(kind=EventKind.workspace_prepared)
         await mgr.broadcast_domain_event(event)
 
         assert conn.queue.empty()
@@ -243,7 +243,7 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        event = _make_event(kind=CPEventKind.agent_session_started)
+        event = _make_event(kind=EventKind.agent_session_started)
         await mgr.broadcast_domain_event(event)
 
         assert conn.queue.empty()
@@ -255,7 +255,7 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        for kind in (CPEventKind.step_started, CPEventKind.step_completed, CPEventKind.agent_plan_updated):
+        for kind in (EventKind.step_started, EventKind.step_completed, EventKind.agent_plan_updated):
             await mgr.broadcast_domain_event(_make_event(kind=kind))
 
         assert conn.queue.empty()
@@ -269,11 +269,11 @@ class TestSSEManager:
         mgr.register(conn)
 
         for kind in [
-            CPEventKind.log_line_emitted,
-            CPEventKind.message_assistant,
-            CPEventKind.tool_call_completed,
-            CPEventKind.diff_updated,
-            CPEventKind.session_heartbeat,
+            EventKind.log_line_emitted,
+            EventKind.message_assistant,
+            EventKind.tool_call_completed,
+            EventKind.diff_updated,
+            EventKind.session_heartbeat,
         ]:
             await mgr.broadcast_domain_event(_make_event(kind=kind))
 
@@ -287,7 +287,7 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        await mgr.broadcast_domain_event(_make_event(kind=CPEventKind.job_review))
+        await mgr.broadcast_domain_event(_make_event(kind=EventKind.job_review))
         assert not conn.queue.empty()
 
     @pytest.mark.asyncio
@@ -298,7 +298,7 @@ class TestSSEManager:
         conn = SSEConnection(job_id="job-1")
         mgr.register(conn)
 
-        await mgr.broadcast_domain_event(_make_event(kind=CPEventKind.log_line_emitted, job_id="job-1"))
+        await mgr.broadcast_domain_event(_make_event(kind=EventKind.log_line_emitted, job_id="job-1"))
         assert not conn.queue.empty()
 
     @pytest.mark.asyncio
@@ -309,7 +309,7 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        await mgr.broadcast_domain_event(_make_event(kind=CPEventKind.log_line_emitted))
+        await mgr.broadcast_domain_event(_make_event(kind=EventKind.log_line_emitted))
         assert not conn.queue.empty()
 
     @pytest.mark.asyncio
@@ -321,7 +321,7 @@ class TestSSEManager:
         mgr.register(global_conn)
         mgr.register(scoped_conn)
 
-        await mgr.broadcast_domain_event(_make_event(kind=CPEventKind.telemetry_updated, job_id="job-1"))
+        await mgr.broadcast_domain_event(_make_event(kind=EventKind.telemetry_updated, job_id="job-1"))
 
         assert global_conn.queue.empty()
         assert not scoped_conn.queue.empty()
@@ -374,7 +374,7 @@ class TestSSEManager:
                 event_id="evt-1",
                 session_id="job-1",
                 timestamp=now,
-                kind=CPEventKind.job_created,
+                kind=EventKind.job_created,
                 payload={"state": "running"},
                 sequence=1,
             ),
@@ -382,7 +382,7 @@ class TestSSEManager:
                 event_id="evt-2",
                 session_id="job-1",
                 timestamp=now,
-                kind=CPEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": 1, "message": "hello"},
                 sequence=2,
             ),
@@ -416,7 +416,7 @@ class TestSSEManager:
                 event_id=f"evt-{i}",
                 session_id="job-1",
                 timestamp=now,
-                kind=CPEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": i},
             )
             for i in range(MAX_REPLAY_EVENTS + 1)
@@ -445,7 +445,7 @@ class TestSSEManager:
         old_time = datetime.now(UTC) - MAX_REPLAY_AGE - timedelta(minutes=1)
         events = [
             new_event(
-                event_id="evt-old", session_id="job-1", timestamp=old_time, kind=CPEventKind.job_created, payload={}
+                event_id="evt-old", session_id="job-1", timestamp=old_time, kind=EventKind.job_created, payload={}
             ),
         ]
 
@@ -471,7 +471,7 @@ class TestSSEManager:
         now = datetime.now(UTC)
         events = [
             new_event(
-                event_id="evt-1", session_id="job-1", timestamp=now, kind=CPEventKind.workspace_prepared, payload={}
+                event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.workspace_prepared, payload={}
             ),
         ]
 
@@ -491,19 +491,19 @@ class TestSSEManager:
         mgr.register(conn)
 
         kinds = [
-            CPEventKind.job_created,
-            CPEventKind.log_line_emitted,
-            CPEventKind.message_assistant,
-            CPEventKind.diff_updated,
-            CPEventKind.approval_requested,
-            CPEventKind.approval_resolved,
-            CPEventKind.job_review,
-            CPEventKind.job_completed,
-            CPEventKind.job_failed,
-            CPEventKind.job_canceled,
-            CPEventKind.session_heartbeat,
-            CPEventKind.job_resolved,
-            CPEventKind.job_archived,
+            EventKind.job_created,
+            EventKind.log_line_emitted,
+            EventKind.message_assistant,
+            EventKind.diff_updated,
+            EventKind.approval_requested,
+            EventKind.approval_resolved,
+            EventKind.job_review,
+            EventKind.job_completed,
+            EventKind.job_failed,
+            EventKind.job_canceled,
+            EventKind.session_heartbeat,
+            EventKind.job_resolved,
+            EventKind.job_archived,
         ]
 
         for i, kind in enumerate(kinds):
@@ -525,7 +525,7 @@ class TestSSEManager:
                 event_id=f"evt-{i}",
                 session_id="job-1",
                 timestamp=now,
-                kind=CPEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": i},
             )
             for i in range(MAX_REPLAY_EVENTS + 1)
@@ -561,7 +561,7 @@ class TestSSEManager:
                 event_id=f"evt-{i}",
                 session_id="deleted-job",
                 timestamp=now,
-                kind=CPEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": i},
             )
             for i in range(MAX_REPLAY_EVENTS + 1)
@@ -595,7 +595,7 @@ class TestSSEManager:
                 event_id=f"evt-{i}",
                 session_id="job-1",
                 timestamp=now,
-                kind=CPEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": i},
             )
             for i in range(MAX_REPLAY_EVENTS + 1)

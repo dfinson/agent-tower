@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.models.events import CPEventKind, SessionEvent, new_event, transcript_kind_for_role
+from backend.models.events import EventKind, SessionEvent, new_event, transcript_kind_for_role
 from backend.services.steps.tracker import StepTracker, _extract_file_path
 
 
@@ -66,7 +66,7 @@ class TestStepLifecycle:
         # Should have published step_started
         event_bus.publish.assert_called_once()
         published = event_bus.publish.call_args[0][0]
-        assert published.kind == CPEventKind.step_started
+        assert published.kind == EventKind.step_started
 
     @pytest.mark.asyncio
     async def test_turn_change_creates_new_step(self, tracker: StepTracker, event_bus: AsyncMock) -> None:
@@ -106,7 +106,7 @@ class TestStepLifecycle:
         assert tracker.current_step("job-1") is None
         # Should have published step_completed
         calls = event_bus.publish.call_args_list
-        completed_events = [c for c in calls if c[0][0].kind == CPEventKind.step_completed]
+        completed_events = [c for c in calls if c[0][0].kind == EventKind.step_completed]
         assert len(completed_events) == 1
         assert completed_events[0][0][0].payload["status"] == "completed"
 

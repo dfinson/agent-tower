@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.models.events import CPEventKind, new_event
+from backend.models.events import EventKind, new_event
 from backend.services.steps.persistence import StepPersistenceSubscriber
 
 
@@ -29,7 +29,7 @@ class TestStepPersistence:
             event_id="evt-1",
             session_id="job-1",
             timestamp=now,
-            kind=CPEventKind.step_started,
+            kind=EventKind.step_started,
             payload={
                 "step_id": "step-1",
                 "step_number": 1,
@@ -56,7 +56,7 @@ class TestStepPersistence:
             event_id="evt-2",
             session_id="job-1",
             timestamp=now,
-            kind=CPEventKind.step_completed,
+            kind=EventKind.step_completed,
             payload={
                 "step_id": "step-1",
                 "status": "done",
@@ -71,7 +71,7 @@ class TestStepPersistence:
     async def test_unrelated_event_is_noop(self, subscriber: StepPersistenceSubscriber, step_repo: AsyncMock) -> None:
         now = datetime.now(UTC)
         event = new_event(
-            event_id="evt-3", session_id="job-1", timestamp=now, kind=CPEventKind.job_created, payload={}
+            event_id="evt-3", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={}
         )
         await subscriber(event)
         step_repo.create.assert_not_called()
