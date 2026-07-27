@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 from rich.text import Text
 
-from backend.models.events import DomainEventKind
+from backend.models.events import CPEventKind
 
 if TYPE_CHECKING:
     from backend.models.events import SessionEvent
@@ -214,24 +214,24 @@ class ConsoleLog:
         if not job_id:
             return
 
-        if kind == DomainEventKind.job_created:
+        if kind == CPEventKind.job_created:
             self._jobs[job_id] = _JobInfo(job_id)
 
-        elif kind == DomainEventKind.job_state_changed:
+        elif kind == CPEventKind.job_state_changed:
             new_state = str(event.payload.get("new_state", ""))
             if job_id not in self._jobs:
                 self._jobs[job_id] = _JobInfo(job_id)
 
         elif kind in (
-            DomainEventKind.job_completed,
-            DomainEventKind.job_failed,
-            DomainEventKind.job_canceled,
+            CPEventKind.job_completed,
+            CPEventKind.job_failed,
+            CPEventKind.job_canceled,
         ):
             new_state = {
-                DomainEventKind.job_completed: "completed",
-                DomainEventKind.job_failed: "failed",
-                DomainEventKind.job_canceled: "canceled",
-            }[DomainEventKind(kind)]
+                CPEventKind.job_completed: "completed",
+                CPEventKind.job_failed: "failed",
+                CPEventKind.job_canceled: "canceled",
+            }[CPEventKind(kind)]
             job = self._jobs.get(job_id)
             elapsed = f"  ({job.elapsed()})" if job else ""
             title = f'  "{job.title}"' if job and job.title else ""
@@ -239,16 +239,16 @@ class ConsoleLog:
             self._print_event(ts, icon, new_state, job_id, new_state + elapsed + title)
             self._jobs.pop(job_id, None)
 
-        elif kind == DomainEventKind.job_title_updated:
+        elif kind == CPEventKind.job_title_updated:
             updated_title: str | None = str(event.payload.get("title")) if event.payload.get("title") else None
             if updated_title and job_id in self._jobs:
                 self._jobs[job_id].title = updated_title
 
-        elif kind == DomainEventKind.progress_headline:
+        elif kind == CPEventKind.progress_headline:
             # Shown in the UI kanban board; suppress from terminal.
             pass
 
-        elif kind == DomainEventKind.approval_requested:
+        elif kind == CPEventKind.approval_requested:
             desc = str(event.payload.get("description") or "approval needed")
             self._print_event(ts, "⏸", "waiting_for_approval", job_id, f"approval needed · {desc}")
 

@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from backend.models.events import DomainEventKind, new_event
+from backend.models.events import CPEventKind, new_event
 from backend.services.events.sse_manager import SSEConnection, SSEManager, _format_sse
 
 
@@ -61,7 +61,7 @@ class TestSSEManagerBroadcast:
             event_id="evt-1",
             session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=DomainEventKind.log_line_emitted,
+            kind=CPEventKind.log_line_emitted,
             payload={"seq": 1, "message": "hello", "level": "info"},
             sequence=100,
         )
@@ -82,7 +82,7 @@ class TestSSEManagerBroadcast:
             event_id="evt-1",
             session_id="job-2",
             timestamp=datetime.now(UTC),
-            kind=DomainEventKind.log_line_emitted,
+            kind=CPEventKind.log_line_emitted,
             payload={"seq": 1, "message": "hello", "level": "info"},
             sequence=100,
         )
@@ -103,7 +103,7 @@ class TestSSEManagerBroadcast:
             event_id="evt-1",
             session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=DomainEventKind.log_line_emitted,
+            kind=CPEventKind.log_line_emitted,
             payload={"seq": 1, "message": "hello", "level": "info"},
             sequence=100,
         )
@@ -147,7 +147,7 @@ class TestBulkEventsOverflow:
                 event_id=f"evt-{i}",
                 session_id="job-1",
                 timestamp=datetime.now(UTC),
-                kind=DomainEventKind.log_line_emitted,
+                kind=CPEventKind.log_line_emitted,
                 payload={"seq": i, "message": f"line-{i}", "level": "info"},
                 sequence=i + 1,
             )
@@ -155,9 +155,8 @@ class TestBulkEventsOverflow:
 
         # Connection should have been closed due to backpressure
         assert conn.closed
-        # Should close around 1024 events (queue size) — each broadcast may
-        # produce multiple frames (main + derived state), so the threshold
-        # is hit at or shortly after 1024 raw events.
+        # One frame per event (no derived frames), so the queue (size 1024)
+        # overflows at or shortly after 1024 raw events.
         assert closed_after is not None
         assert closed_after <= 1030
 

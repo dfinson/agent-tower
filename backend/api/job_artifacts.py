@@ -61,7 +61,7 @@ from backend.models.api_schemas import (
     TranscriptSearchResult,
 )
 from backend.models.domain import JobState, Resolution
-from backend.models.events import DomainEventKind
+from backend.models.events import TRANSCRIPT_KINDS, CPEventKind
 from backend.persistence.approval_repo import ApprovalRepository
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.step_repo import StepRepository
@@ -209,7 +209,7 @@ async def get_job_logs(
     """
     _level_order = {"debug": 0, "info": 1, "warn": 2, "error": 3}
     min_priority = _level_order.get(level, 0)
-    events = await svc.list_events_by_job(job_id, [DomainEventKind.log_line_emitted], limit=limit)
+    events = await svc.list_events_by_job(job_id, [CPEventKind.log_line_emitted], limit=limit)
     lines = []
     for event in events:
         payload = event.payload
@@ -265,7 +265,7 @@ async def get_job_diff(
 
     if not files:
         # Fallback: read from event store (completed/archived/failed jobs)
-        events = await svc.list_events_by_job(job_id, [DomainEventKind.diff_updated])
+        events = await svc.list_events_by_job(job_id, [CPEventKind.diff_updated])
         if not events:
             return DiffListResponse(items=[])
         raw_files = cast("list[dict[str, Any]]", events[-1].payload.get("changed_files", []))
@@ -319,7 +319,7 @@ async def get_job_diff_file(
 
     if file is None:
         # Fallback: read from event store
-        events = await svc.list_events_by_job(job_id, [DomainEventKind.diff_updated])
+        events = await svc.list_events_by_job(job_id, [CPEventKind.diff_updated])
         if events:
             raw_files = cast("list[dict[str, Any]]", events[-1].payload.get("changed_files", []))
             for raw in raw_files:
@@ -341,19 +341,19 @@ async def get_job_transcript(
     limit: int = Query(default=_EVENT_QUERY_DEFAULT, ge=1, le=_EVENT_QUERY_CEILING),
 ) -> TranscriptListResponse:
     """Return historical transcript entries for a job from the event store."""
-    events = await svc.list_events_by_job(job_id, [DomainEventKind.transcript_updated], limit=limit)
+    events = await svc.list_events_by_job(job_id, list(TRANSCRIPT_KINDS), limit=limit)
 
     # Include persisted sidecar events so they survive page reload.
     sidecar_events = await svc.list_events_by_job(
         job_id,
-        [DomainEventKind.sidecar_transcript, DomainEventKind.sidecar_agent_message],
+        [CPEventKind.sidecar_transcript, CPEventKind.sidecar_agent_message],
         limit=limit,
     )
 
     # Build a turn_id → summary map from stored tool_group_summary events so
     # that restored transcripts include AI-generated group labels.
     summary_events = await svc.list_events_by_job(
-        job_id, [DomainEventKind.tool_group_summary], limit=_EVENT_QUERY_CEILING
+        job_id, [CPEventKind.tool_group_summary], limit=_EVENT_QUERY_CEILING
     )
     group_summary_by_turn: dict[str, str] = {
         str(ev.payload.get("turn_id")): str(ev.payload.get("summary"))
@@ -419,7 +419,7 @@ async def get_job_steps(
     endpoint lets late-joining clients catch up on steps that were emitted
     before they connected.
     """
-    events = await svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=_EVENT_QUERY_CEILING)
+    events = await svc.list_events_by_job(job_id, [CPEventKind.plan_step_updated], limit=_EVENT_QUERY_CEILING)
     # De-duplicate: keep the latest event per plan_step_id (events are ordered chronologically)
     latest_by_id: dict[str, dict[str, Any]] = {}
     for ev in events:
@@ -551,7 +551,7 @@ async def get_job_timeline(
     Events with ``replaces_count > 0`` retroactively collapse earlier entries,
     so the returned list is the final milestone timeline, not raw events.
     """
-    events = await svc.list_events_by_job(job_id, [DomainEventKind.progress_headline], limit=limit)
+    events = await svc.list_events_by_job(job_id, [CPEventKind.progress_headline], limit=limit)
 
     # Replay events to reconstruct the collapsed milestone list
     milestones: list[ProgressHeadlinePayload] = []
@@ -1017,7 +1017,7 @@ async def get_job_multi_session(
     # session_resumed event timestamp.
     resumed_events = await event_repo.list_by_job(
         job_id,
-        [DomainEventKind.session_resumed],
+        [CPEventKind.session_resumed],
         limit=100,
     )
     # Build boundary timestamps: session N starts at resumed_events[N-2].timestamp

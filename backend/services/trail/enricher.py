@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import TrailConfig
 from backend.models.db import TrailNodeRow
-from backend.models.events import DomainEventKind, new_event
+from backend.models.events import CPEventKind, new_event
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.story.motivation import (
     _EDIT_SYSTEM_PROMPT,
@@ -266,7 +266,7 @@ class TrailEnricher:
                         new_event(
                             session_id=node.job_id,
                             timestamp=node.timestamp,
-                            kind=DomainEventKind.turn_summary,
+                            kind=CPEventKind.turn_summary,
                             payload={
                                 "turn_id": node.turn_id,
                                 "title": title,

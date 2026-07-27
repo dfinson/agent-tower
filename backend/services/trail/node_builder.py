@@ -11,7 +11,7 @@ from sqlalchemy import select as sa_select
 from sqlalchemy.exc import DBAPIError
 
 from backend.models.db import JobRow, TrailNodeRow
-from backend.models.events import DomainEventKind, SessionEvent
+from backend.models.events import TRANSCRIPT_KINDS, CPEventKind, SessionEvent
 from backend.services.trail.models import (
     MESSAGE_SIGNAL_BUFFER_SIZE,
     Activity,
@@ -139,27 +139,27 @@ class TrailNodeBuilder:
 
         async with lock:
             try:
-                if event.kind == DomainEventKind.job_state_changed:
+                if event.kind == CPEventKind.job_state_changed:
                     new_state = (event.payload or {}).get("new_state")
                     if new_state == "running" and event.session_id not in self._job_state:
                         await self._on_job_started(event)
-                elif event.kind == DomainEventKind.session_resumed:
+                elif event.kind == CPEventKind.session_resumed:
                     await self._on_session_resumed(event)
-                elif event.kind == DomainEventKind.step_completed:
+                elif event.kind == CPEventKind.step_completed:
                     await self._on_step_completed(event)
-                elif event.kind == DomainEventKind.step_started:
+                elif event.kind == CPEventKind.step_started:
                     self._on_step_started(event)
-                elif event.kind == DomainEventKind.execution_phase_changed:
+                elif event.kind == CPEventKind.execution_phase_changed:
                     await self._on_phase_changed(event)
-                elif event.kind == DomainEventKind.transcript_updated:
+                elif event.kind in TRANSCRIPT_KINDS:
                     await self._on_transcript_updated(event)
-                elif event.kind == DomainEventKind.approval_requested:
+                elif event.kind == CPEventKind.approval_requested:
                     await self._on_approval_requested(event)
                 elif event.kind in (
-                    DomainEventKind.job_completed,
-                    DomainEventKind.job_failed,
-                    DomainEventKind.job_canceled,
-                    DomainEventKind.job_review,
+                    CPEventKind.job_completed,
+                    CPEventKind.job_failed,
+                    CPEventKind.job_canceled,
+                    CPEventKind.job_review,
                 ):
                     await self._on_job_terminal(event)
             except Exception:  # Safety-net: protect event loop from unexpected failures
@@ -216,7 +216,7 @@ class TrailNodeBuilder:
             # 200 provides ~3× headroom over observed maximums.
             plan_events = await event_repo.list_by_job(
                 job_id,
-                [DomainEventKind.plan_step_updated],
+                [CPEventKind.plan_step_updated],
                 limit=200,
             )
         if plan_events:
@@ -840,8 +840,8 @@ class TrailNodeBuilder:
         seq = state.next_seq
         state.next_seq += 1
 
-        status = "completed" if event.kind == DomainEventKind.job_completed else "failed"
-        if event.kind == DomainEventKind.job_canceled:
+        status = "completed" if event.kind == CPEventKind.job_completed else "failed"
+        if event.kind == CPEventKind.job_canceled:
             status = "canceled"
 
         node = TrailNodeRow(

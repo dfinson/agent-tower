@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, cast
 
 from backend.models.db import StepRow
 from backend.models.events import (
-    DomainEventKind,
+    CPEventKind,
     SessionEvent,
     StepCompletedPayloadDict,
     StepStartedPayloadDict,
@@ -30,9 +30,9 @@ class StepPersistenceSubscriber:
 
     async def __call__(self, event: SessionEvent) -> None:
         """EventBus entry point — dispatches to kind-specific handlers."""
-        if event.kind == DomainEventKind.step_started:
+        if event.kind == CPEventKind.step_started:
             await self._on_step_started(event)
-        elif event.kind == DomainEventKind.step_completed:
+        elif event.kind == CPEventKind.step_completed:
             await self._on_step_completed(event)
         # All other event kinds: early return (no-op)
 

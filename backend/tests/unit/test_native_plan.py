@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.models.events import DomainEventKind, SessionEvent
+from backend.models.events import CPEventKind, SessionEvent
 from backend.services.events.event_bus import EventBus
 from backend.services.trail import TrailService
 from backend.services.trail.models import TrailJobState as _TrailJobState
@@ -59,7 +59,7 @@ def _step_events(event_bus: AsyncMock) -> list[SessionEvent]:
     return [
         call.args[0]
         for call in event_bus.publish.call_args_list
-        if call.args[0].kind == DomainEventKind.plan_step_updated
+        if call.args[0].kind == CPEventKind.plan_step_updated
     ]
 
 

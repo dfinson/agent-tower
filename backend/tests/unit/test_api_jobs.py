@@ -40,21 +40,21 @@ async def test_resolve_job_publishes_after_commit() -> None:
 
     session.commit = AsyncMock(side_effect=_commit)
 
-    from backend.models.events import DomainEventKind, new_event
+    from backend.models.events import CPEventKind, new_event
 
     now = datetime.now(UTC)
     resolved_event = new_event(
         event_id="evt-1",
         session_id="job-1",
         timestamp=now,
-        kind=DomainEventKind.job_resolved,
+        kind=CPEventKind.job_resolved,
         payload={"resolution": "discarded"},
     )
     completed_event = new_event(
         event_id="evt-2",
         session_id="job-1",
         timestamp=now,
-        kind=DomainEventKind.job_completed,
+        kind=CPEventKind.job_completed,
         payload={"resolution": "discarded", "merge_status": "discarded", "pr_url": None},
     )
     svc = SimpleNamespace(
@@ -89,7 +89,7 @@ async def test_resolve_job_publishes_after_commit() -> None:
     # Two events: job_resolved + job_completed
     assert event_bus.publish.await_count == 2
     assert published_events[0] is resolved_event
-    assert published_events[1].kind == DomainEventKind.job_completed
+    assert published_events[1].kind == CPEventKind.job_completed
 
 
 @pytest.mark.asyncio

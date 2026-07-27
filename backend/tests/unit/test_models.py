@@ -13,7 +13,7 @@ from backend.models.api_schemas import (
     JobState,
 )
 from backend.models.domain import Job, MCPServerConfig, SessionConfig
-from backend.models.events import DomainEventKind, new_event
+from backend.models.events import CPEventKind, new_event
 
 
 def test_camel_model_serializes_to_camel_case() -> None:
@@ -81,15 +81,15 @@ def test_domain_event_creation() -> None:
         event_id="evt-1",
         session_id="job-1",
         timestamp=now,
-        kind=DomainEventKind.job_created,
+        kind=CPEventKind.job_created,
         payload={"repo": "/repos/a"},
     )
-    assert event.kind == DomainEventKind.job_created
-    assert str(event.kind) == "JobCreated"
+    assert event.kind == CPEventKind.job_created
+    assert str(event.kind) == "job.created"
 
 
 def test_domain_event_kind_values() -> None:
-    assert len(DomainEventKind) == 54
+    assert len(CPEventKind) == 58
 
 
 def test_job_domain_model() -> None:

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.models.events import DomainEventKind, SessionEvent, new_event
+from backend.models.events import CPEventKind, SessionEvent, new_event, transcript_kind_for_role
 from backend.services.completers.summarization_service import (
     SummarizationService,
     _clean_transcript,
@@ -29,7 +29,7 @@ def _transcript_event(role: str, content: str, timestamp: str = "2024-01-01T00:0
         event_id="evt-test",
         session_id="job-1",
         timestamp=datetime.now(UTC),
-        kind=DomainEventKind.transcript_updated,
+        kind=transcript_kind_for_role(role),
         payload={"role": role, "content": content, "timestamp": timestamp},
     )
 
@@ -40,7 +40,7 @@ def _diff_event(changed_files: list[dict[str, object]]) -> SessionEvent:
         event_id="evt-diff",
         session_id="job-1",
         timestamp=datetime.now(UTC),
-        kind=DomainEventKind.diff_updated,
+        kind=CPEventKind.diff_updated,
         payload={"changed_files": changed_files},
     )
 
@@ -152,7 +152,7 @@ class TestCleanTranscript:
             event_id="evt-test",
             session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=DomainEventKind.transcript_updated,
+            kind=CPEventKind.message_assistant,
             payload={"role": "agent", "content": None},
         )
         result = _clean_transcript([ev])
@@ -163,7 +163,7 @@ class TestCleanTranscript:
             event_id="evt-test",
             session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=DomainEventKind.transcript_updated,
+            kind=CPEventKind.message_assistant,
             payload={"content": "no role here"},
         )
         result = _clean_transcript([ev])

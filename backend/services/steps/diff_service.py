@@ -18,7 +18,7 @@ from backend.models.api_schemas import (
     HunkMotivation,
     StepDiffPayload,
 )
-from backend.models.events import DomainEventKind
+from backend.models.events import CPEventKind
 from backend.services.artifacts.diff_service import DiffService
 
 if TYPE_CHECKING:
@@ -186,7 +186,7 @@ class StepDiffService:
         # Try plan_step_updated events first (plan step IDs like ps-XXXX)
         events = await self._job_svc.list_events_by_job(
             job_id,
-            [DomainEventKind.plan_step_updated],
+            [CPEventKind.plan_step_updated],
             limit=_EVENT_QUERY_CEILING,
         )
         for ev in events:

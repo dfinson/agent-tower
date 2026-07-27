@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 from backend.models.db import Base
 from backend.models.domain import Artifact
-from backend.models.events import DomainEventKind, new_event
+from backend.models.events import CPEventKind, new_event
 from backend.persistence.artifact_repo import ArtifactRepository
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.event_repo import EventRepository
@@ -155,7 +155,7 @@ async def test_event_append_and_list(session: AsyncSession) -> None:
         event_id="evt-1",
         session_id="job-1",
         timestamp=now,
-        kind=DomainEventKind.job_created,
+        kind=CPEventKind.job_created,
         payload={"repo": "/repos/test"},
     )
     await event_repo.append(event)
@@ -164,7 +164,7 @@ async def test_event_append_and_list(session: AsyncSession) -> None:
     events = await event_repo.list_after(0)
     assert len(events) == 1
     assert events[0].id == "evt-1"
-    assert events[0].kind == DomainEventKind.job_created
+    assert events[0].kind == CPEventKind.job_created
     assert events[0].payload == {"repo": "/repos/test"}
 
 
@@ -182,7 +182,7 @@ async def test_event_list_after_filters_by_id(session: AsyncSession) -> None:
                 event_id=f"evt-{i}",
                 session_id="job-1",
                 timestamp=now,
-                kind=DomainEventKind.log_line_emitted,
+                kind=CPEventKind.log_line_emitted,
                 payload={"seq": i},
             )
         )
@@ -203,10 +203,10 @@ async def test_event_list_after_scoped_to_job(session: AsyncSession) -> None:
     event_repo = EventRepository(session)
     now = datetime.now(UTC)
     await event_repo.append(
-        new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=DomainEventKind.job_created, payload={})
+        new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=CPEventKind.job_created, payload={})
     )
     await event_repo.append(
-        new_event(event_id="evt-2", session_id="job-2", timestamp=now, kind=DomainEventKind.job_created, payload={})
+        new_event(event_id="evt-2", session_id="job-2", timestamp=now, kind=CPEventKind.job_created, payload={})
     )
     await session.commit()
 

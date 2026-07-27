@@ -7,11 +7,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from backend.models.events import DomainEventKind, SessionEvent, new_event
+from backend.models.events import CPEventKind, SessionEvent, new_event
 from backend.services.events.event_bus import EventBus
 
 
-def _make_event(kind: DomainEventKind = DomainEventKind.job_created) -> SessionEvent:
+def _make_event(kind: CPEventKind = CPEventKind.job_created) -> SessionEvent:
     return new_event(
         event_id="evt-1", session_id="job-1", timestamp=datetime.now(UTC), kind=kind, payload={"hello": "world"}
     )

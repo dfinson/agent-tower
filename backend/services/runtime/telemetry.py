@@ -16,7 +16,7 @@ from sqlalchemy.exc import DBAPIError
 
 from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import JobState
-from backend.models.events import DomainEventKind, new_event
+from backend.models.events import CPEventKind, new_event
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -103,7 +103,7 @@ class RuntimeTelemetry:
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.execution_phase_changed,
+                    kind=CPEventKind.execution_phase_changed,
                     payload={"phase": ExecutionPhase.finalization},
                 )
             )
@@ -160,7 +160,7 @@ class RuntimeTelemetry:
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.telemetry_updated,
+                    kind=CPEventKind.telemetry_updated,
                     payload={"job_id": job_id},
                 )
             )
@@ -240,7 +240,7 @@ class RuntimeTelemetry:
                     from backend.persistence.event_repo import EventRepository
 
                     event_repo = EventRepository(session)
-                    log_events = await event_repo.list_all_by_job(job_id, [DomainEventKind.log_line_emitted])
+                    log_events = await event_repo.list_all_by_job(job_id, [CPEventKind.log_line_emitted])
                     if log_events:
                         await artifact_svc.store_log_artifact(
                             job_id,

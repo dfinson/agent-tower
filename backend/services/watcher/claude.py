@@ -30,7 +30,7 @@ parse_message = cast("Any", _message_parser).parse_message
 MessageParseError = cast("type[Exception]", getattr(_message_parser, "MessageParseError", ValueError))
 
 from backend.models.domain import Job, JobSource, JobState, SessionEvent  # noqa: E402
-from backend.models.events import DomainEventKind, new_event  # noqa: E402
+from backend.models.events import CPEventKind, new_event  # noqa: E402
 from backend.services.events.event_pipeline import EventPipeline  # noqa: E402
 from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin  # noqa: E402
 
@@ -574,7 +574,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                         new_event(
                             session_id=job_id,
                             timestamp=now,
-                            kind=DomainEventKind.job_state_changed,
+                            kind=CPEventKind.job_state_changed,
                             payload={"state": JobState.running, "new_state": JobState.running},
                         )
                     )
@@ -623,7 +623,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             new_event(
                 session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.job_created,
+                kind=CPEventKind.job_created,
                 payload={
                     "repo": repo_path,
                     "branch": branch,
@@ -637,7 +637,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             new_event(
                 session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.job_state_changed,
+                kind=CPEventKind.job_state_changed,
                 payload={"state": JobState.running, "new_state": JobState.running},
             )
         )
@@ -1027,7 +1027,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             new_event(
                 session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.job_state_changed,
+                kind=CPEventKind.job_state_changed,
                 payload={"state": new_state, "new_state": new_state},
             )
         )
@@ -1037,7 +1037,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                 new_event(
                     session_id=job_id,
                     timestamp=now,
-                    kind=DomainEventKind.job_review,
+                    kind=CPEventKind.job_review,
                     payload={"resolution": "unresolved"},
                 )
             )

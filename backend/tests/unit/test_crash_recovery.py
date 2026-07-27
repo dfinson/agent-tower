@@ -128,13 +128,13 @@ class TestDeadLetterRetry:
     async def test_dead_letter_retries_and_succeeds(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         """Simulate event persist failure then success on retry."""
         from backend.lifespan import _persist_event_with_retry
-        from backend.models.events import DomainEventKind, new_event
+        from backend.models.events import CPEventKind, new_event
 
         event = new_event(
             event_id="test-evt-1",
             session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=DomainEventKind.log_line_emitted,
+            kind=CPEventKind.log_line_emitted,
             payload={"seq": 1, "message": "test", "level": "info"},
         )
 
@@ -151,14 +151,14 @@ class TestDeadLetterRetry:
         from sqlalchemy.exc import OperationalError
 
         from backend.lifespan import _persist_event_with_retry
-        from backend.models.events import DomainEventKind, SessionEvent, new_event
+        from backend.models.events import CPEventKind, SessionEvent, new_event
         from backend.persistence.event_repo import EventRepository
 
         event = new_event(
             event_id="test-evt-retry",
             session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=DomainEventKind.log_line_emitted,
+            kind=CPEventKind.log_line_emitted,
             payload={"seq": 1, "message": "retry test", "level": "info"},
         )
 

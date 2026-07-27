@@ -174,13 +174,13 @@ class CodeReconService:
         """Publish a repo_index_progress event."""
         if self._event_bus is None:
             return
-        from backend.models.events import DomainEventKind, new_event
+        from backend.models.events import CPEventKind, new_event
 
         await self._event_bus.publish(
             new_event(
                 session_id=None,
                 timestamp=datetime.now(UTC),
-                kind=DomainEventKind.repo_index_progress,
+                kind=CPEventKind.repo_index_progress,
                 payload={"repo": repo, "indexed": indexed, "total": total, "phase": "indexing"},
             )
         )
@@ -189,13 +189,13 @@ class CodeReconService:
         """Publish a repo_index_complete event."""
         if self._event_bus is None:
             return
-        from backend.models.events import DomainEventKind, new_event
+        from backend.models.events import CPEventKind, new_event
 
         await self._event_bus.publish(
             new_event(
                 session_id=None,
                 timestamp=datetime.now(UTC),
-                kind=DomainEventKind.repo_index_complete,
+                kind=CPEventKind.repo_index_complete,
                 payload={"repo": repo},
             )
         )

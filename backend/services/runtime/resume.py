@@ -26,7 +26,7 @@ from backend.models.domain import (
     Resolution,
     StateConflictError,
 )
-from backend.models.events import DomainEventKind, new_event
+from backend.models.events import CPEventKind, new_event, transcript_kind_for_role
 from backend.persistence.job_repo import JobRepository
 
 if TYPE_CHECKING:
@@ -204,7 +204,7 @@ async def recover_active_job(
         new_event(
             session_id=job_id,
             timestamp=now,
-            kind=DomainEventKind.session_resumed,
+            kind=CPEventKind.session_resumed,
             payload={
                 "session_number": new_session_count,
                 "instruction": instruction,
@@ -426,7 +426,7 @@ async def resume_job(host: RuntimeService, job_id: str, instruction: str | None 
         new_event(
             session_id=job_id,
             timestamp=now,
-            kind=DomainEventKind.session_resumed,
+            kind=CPEventKind.session_resumed,
             payload={
                 "session_number": new_session_count,
                 "instruction": normalized_instruction,
@@ -442,7 +442,7 @@ async def resume_job(host: RuntimeService, job_id: str, instruction: str | None 
             new_event(
                 session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.context_handoff,
+                kind=CPEventKind.context_handoff,
                 payload={
                     "source": "resume",
                     "summary": f"Carried forward context from session {previous_session_count}",
@@ -456,7 +456,7 @@ async def resume_job(host: RuntimeService, job_id: str, instruction: str | None 
             new_event(
                 session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.context_handoff,
+                kind=CPEventKind.context_handoff,
                 payload={
                     "source": "resume_native",
                     "summary": f"Resumed SDK session (full history from session {previous_session_count})",
@@ -469,7 +469,7 @@ async def resume_job(host: RuntimeService, job_id: str, instruction: str | None 
         new_event(
             session_id=job_id,
             timestamp=now,
-            kind=DomainEventKind.transcript_updated,
+            kind=transcript_kind_for_role(TranscriptRole.operator),
             payload={
                 "job_id": job_id,
                 "seq": 0,
@@ -550,7 +550,7 @@ async def create_followup_job(host: RuntimeService, job_id: str, instruction: st
             new_event(
                 session_id=followup.id,
                 timestamp=datetime.now(UTC),
-                kind=DomainEventKind.context_handoff,
+                kind=CPEventKind.context_handoff,
                 payload={
                     "source": "followup",
                     "summary": f"Continuing from parent job '{parent_label}'",

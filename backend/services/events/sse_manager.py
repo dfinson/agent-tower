@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -14,39 +12,8 @@ if TYPE_CHECKING:
 
 import structlog
 
-from backend.models.api_schemas import (
-    ApprovalRequestedPayload,
-    ApprovalResolvedPayload,
-    ApprovalResponse,
-    ContextHandoffPayload,
-    DiffUpdatePayload,
-    JobArchivedPayload,
-    JobCompletedPayload,
-    JobFailedPayload,
-    JobResolvedPayload,
-    JobReviewPayload,
-    JobStateChangedPayload,
-    JobTitleUpdatedPayload,
-    LogLinePayload,
-    MergeCompletedPayload,
-    MergeConflictPayload,
-    ModelDowngradedPayload,
-    PlanStepPayload,
-    RepoIndexCompletePayload,
-    RepoIndexProgressPayload,
-    SessionHeartbeatPayload,
-    SessionResumedPayload,
-    SnapshotPayload,
-    StallDetectedPayload,
-    StepEntriesReassignedPayload,
-    StructuralWarningPayload,
-    TelemetryUpdatedPayload,
-    ToolGroupSummaryPayload,
-    TranscriptPayload,
-    TurnSummaryPayload,
-)
-from backend.models.domain import JobState, Resolution
-from backend.models.events import DomainEventKind, SessionEvent
+from backend.models.api_schemas import ApprovalResponse, SnapshotPayload
+from backend.models.events import TRANSCRIPT_KINDS, CPEventKind, SessionEvent
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -57,89 +24,71 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-# SSE event type mapping from domain event kinds
-_SSE_EVENT_TYPE: dict[str, str | None] = {
-    DomainEventKind.job_created: "job_state_changed",
-    DomainEventKind.job_setup_progress: "job_setup_progress",
-    DomainEventKind.workspace_prepared: None,  # internal only
-    DomainEventKind.agent_session_started: None,  # internal only
-    DomainEventKind.log_line_emitted: "log_line",
-    DomainEventKind.transcript_updated: "transcript_update",
-    DomainEventKind.diff_updated: "diff_update",
-    DomainEventKind.approval_requested: "approval_requested",
-    DomainEventKind.approval_resolved: "approval_resolved",
-    DomainEventKind.batch_approval_requested: "batch_approval_requested",
-    DomainEventKind.batch_approval_resolved: "batch_approval_resolved",
-    DomainEventKind.job_review: "job_review",
-    DomainEventKind.job_completed: "job_completed",
-    DomainEventKind.job_failed: "job_failed",
-    DomainEventKind.job_canceled: "job_state_changed",
-    DomainEventKind.job_state_changed: "job_state_changed",
-    DomainEventKind.session_heartbeat: "session_heartbeat",
-    DomainEventKind.merge_completed: "merge_completed",
-    DomainEventKind.merge_conflict: "merge_conflict",
-    DomainEventKind.session_resumed: "session_resumed",
-    DomainEventKind.job_resolved: "job_resolved",
-    DomainEventKind.job_archived: "job_archived",
-    DomainEventKind.job_title_updated: "job_title_updated",
-    DomainEventKind.progress_headline: None,  # dead — replaced by plan_step_updated
-    DomainEventKind.model_downgraded: "model_downgraded",
-    DomainEventKind.tool_group_summary: "tool_group_summary",
-    DomainEventKind.agent_plan_updated: None,  # dead — replaced by plan_step_updated
-    DomainEventKind.telemetry_updated: "telemetry_updated",
-    # Step system — internal SDK-turn tracking, not sent to frontend
-    DomainEventKind.step_started: None,
-    DomainEventKind.step_completed: None,
-    DomainEventKind.step_title_generated: None,
-    DomainEventKind.step_group_updated: None,
-    # Plan steps — the only step-level event the frontend sees
-    DomainEventKind.plan_step_updated: "plan_step_updated",
-    DomainEventKind.step_entries_reassigned: "step_entries_reassigned",
-    DomainEventKind.turn_summary: "turn_summary",
-    DomainEventKind.action_classified: "action_classified",
-    DomainEventKind.policy_settings_changed: "policy_settings_changed",
-    DomainEventKind.repo_index_progress: "repo_index_progress",
-    DomainEventKind.repo_index_complete: "repo_index_complete",
-    DomainEventKind.structural_warning: "structural_warning",
-    DomainEventKind.stall_detected: "stall_detected",
-    DomainEventKind.sidecar_transcript: None,  # replaced by secondary_session_completed
-    DomainEventKind.sidecar_agent_message: None,  # replaced by secondary_session_completed
-    DomainEventKind.sidecar_gate_verdict: None,  # internal — handled by dispatcher
-    DomainEventKind.sidecar_metadata_update: None,  # internal — handled by dispatcher
-    # Unified secondary session events
-    DomainEventKind.secondary_session_started: "secondary_session_started",
-    DomainEventKind.secondary_session_entry: "secondary_session_entry",
-    DomainEventKind.secondary_session_completed: "secondary_session_completed",
-    # Context handoff visibility
-    DomainEventKind.context_handoff: "context_handoff",
-}
-
-# State implied by each domain event kind (for job_state_changed payloads)
-_KIND_TO_STATE: dict[str, str] = {
-    DomainEventKind.job_created: JobState.running,
-    DomainEventKind.job_review: JobState.review,
-    DomainEventKind.job_completed: JobState.completed,
-    DomainEventKind.job_failed: JobState.failed,
-    DomainEventKind.job_canceled: JobState.canceled,
-}
-
-# High-frequency event types suppressed in selective mode (>20 active jobs)
-_SELECTIVE_SUPPRESSED: frozenset[str] = frozenset(
+# Dotted TF kinds delivered to the frontend. Kinds NOT in this allowlist are
+# internal-only (steps, sidecar internals, workspace prep, dead kinds) and are
+# never broadcast. The wire ``event:`` type IS the dotted kind and ``data:`` is
+# the TF event serialized as-is — no translation to any legacy wire vocabulary.
+# Derived job-state transitions (e.g. permission.requested ⇒ waiting_for_approval)
+# are computed by the frontend from these dotted kinds, not synthesized here.
+_BROADCAST_KINDS: frozenset[str] = frozenset(
     {
-        "log_line",
-        "transcript_update",
-        "diff_update",
-        "session_heartbeat",
+        CPEventKind.job_created,
+        CPEventKind.job_setup_progress,
+        CPEventKind.log_line_emitted,
+        CPEventKind.diff_updated,
+        CPEventKind.approval_requested,
+        CPEventKind.approval_resolved,
+        CPEventKind.batch_approval_requested,
+        CPEventKind.batch_approval_resolved,
+        CPEventKind.job_review,
+        CPEventKind.job_completed,
+        CPEventKind.job_failed,
+        CPEventKind.job_canceled,
+        CPEventKind.job_state_changed,
+        CPEventKind.session_heartbeat,
+        CPEventKind.merge_completed,
+        CPEventKind.merge_conflict,
+        CPEventKind.session_resumed,
+        CPEventKind.job_resolved,
+        CPEventKind.job_archived,
+        CPEventKind.job_title_updated,
+        CPEventKind.model_downgraded,
+        CPEventKind.tool_group_summary,
+        CPEventKind.telemetry_updated,
+        CPEventKind.plan_step_updated,
+        CPEventKind.step_entries_reassigned,
+        CPEventKind.turn_summary,
+        CPEventKind.action_classified,
+        CPEventKind.policy_settings_changed,
+        CPEventKind.repo_index_progress,
+        CPEventKind.repo_index_complete,
+        CPEventKind.structural_warning,
+        CPEventKind.stall_detected,
+        CPEventKind.secondary_session_started,
+        CPEventKind.secondary_session_entry,
+        CPEventKind.secondary_session_completed,
+        CPEventKind.context_handoff,
     }
+    | TRANSCRIPT_KINDS
 )
 
-# Event types delivered only to job-scoped connections, never to global/dashboard.
+# High-frequency dotted kinds suppressed in selective mode (>20 active jobs)
+_SELECTIVE_SUPPRESSED: frozenset[str] = frozenset(
+    {
+        CPEventKind.log_line_emitted,
+        CPEventKind.diff_updated,
+        CPEventKind.session_heartbeat,
+    }
+    | TRANSCRIPT_KINDS
+)
+
+# Dotted kinds delivered only to job-scoped connections, never to global/dashboard.
 # These are high-frequency during execution and only relevant to a user viewing
 # a specific job's detail panel.
 _JOB_SCOPED_ONLY: frozenset[str] = frozenset(
     {
-        "telemetry_updated",
-        "secondary_session_entry",
+        CPEventKind.telemetry_updated,
+        CPEventKind.secondary_session_entry,
     }
 )
 
@@ -184,472 +133,18 @@ def _format_sse(event_id: str | None, event_type: str, data: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Generic field-map builder
+# TraceForge event serialization
 # ---------------------------------------------------------------------------
-# Sentinels for timestamp handling in field maps
-_TS_FALLBACK = object()  # event.payload.get(key, event.timestamp)
-_TS_EVENT = object()  # always event.timestamp
-
-# FieldMap: model kwarg → (payload_key, default)
-# When default is _TS_FALLBACK, falls back to event.timestamp if missing.
-# When default is _TS_EVENT, always uses event.timestamp (payload_key ignored).
-FieldMap = dict[str, tuple[str, object]]
 
 
-def _build_from_fields(event: SessionEvent, model_cls: type, fields: FieldMap) -> str:
-    """Build a Pydantic SSE payload from a declarative field map.
+def _serialize_tf_event(event: SessionEvent) -> str:
+    """Serialize a traceforge ``SessionEvent`` to the SSE ``data:`` field as-is.
 
-    Every model receives ``job_id=event.session_id`` automatically.
+    The wire carries the event's own shape — its dotted ``kind``, ``payload``,
+    and ``metadata`` — with no translation to any legacy payload model. The
+    frontend consumes this shape directly.
     """
-    kwargs: dict[str, object] = {"job_id": event.session_id}
-    for kwarg_name, (payload_key, default) in fields.items():
-        if default is _TS_FALLBACK:
-            kwargs[kwarg_name] = event.payload.get(payload_key, event.timestamp)
-        elif default is _TS_EVENT:
-            kwargs[kwarg_name] = event.timestamp
-        else:
-            kwargs[kwarg_name] = event.payload.get(payload_key, default)
-    result: str = model_cls(**kwargs).model_dump_json(by_alias=True)
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Custom builders for event types with non-trivial extraction logic
-# ---------------------------------------------------------------------------
-
-_BuilderFn = Callable[[SessionEvent], str]
-
-
-def _build_job_state_changed(event: SessionEvent) -> str:
-    new_state = _KIND_TO_STATE.get(
-        event.kind, event.payload.get("state", event.payload.get("new_state", JobState.queued))
-    )
-    return JobStateChangedPayload(
-        job_id=event.session_id,
-        previous_state=event.payload.get("previous_state"),
-        new_state=new_state,
-        timestamp=event.timestamp,
-    ).model_dump_json(by_alias=True)
-
-
-def _build_job_review(event: SessionEvent) -> str:
-    return JobReviewPayload(
-        job_id=event.session_id,
-        pr_url=event.payload.get("pr_url"),
-        merge_status=event.payload.get("merge_status"),
-        resolution=event.payload.get("resolution"),
-        model_downgraded=bool(event.payload.get("model_downgraded", False)),
-        requested_model=event.payload.get("requested_model"),
-        actual_model=event.payload.get("actual_model"),
-        timestamp=event.timestamp,
-    ).model_dump_json(by_alias=True)
-
-
-def _build_plan_step_updated(event: SessionEvent) -> str:
-    p = event.payload
-    return PlanStepPayload(
-        job_id=event.session_id,
-        plan_step_id=p.get("plan_step_id", ""),
-        label=p.get("label", ""),
-        summary=p.get("summary"),
-        status=p.get("status", "pending"),
-        order=p.get("order", 0),
-        tool_count=p.get("tool_count", 0),
-        files_written=p.get("files_written"),
-        started_at=p.get("started_at"),
-        completed_at=p.get("completed_at"),
-        duration_ms=p.get("duration_ms"),
-        start_sha=p.get("start_sha"),
-        end_sha=p.get("end_sha"),
-    ).model_dump_json(by_alias=True)
-
-
-def _build_batch_approval_requested(event: SessionEvent) -> str:
-    import json
-
-    p = event.payload
-    return json.dumps(
-        {
-            "jobId": event.session_id,
-            "batch_id": p.get("batch_id", ""),
-            "batch_size": p.get("batch_size", 0),
-            "summary": p.get("summary", ""),
-            "actions": p.get("actions", []),
-            "timestamp": event.timestamp.isoformat() if hasattr(event.timestamp, "isoformat") else str(event.timestamp),
-        }
-    )
-
-
-def _build_batch_approval_resolved(event: SessionEvent) -> str:
-    import json
-
-    p = event.payload
-    return json.dumps(
-        {
-            "jobId": event.session_id,
-            "batch_id": p.get("batch_id", ""),
-            "resolution": p.get("resolution", ""),
-            "timestamp": event.timestamp.isoformat() if hasattr(event.timestamp, "isoformat") else str(event.timestamp),
-        }
-    )
-
-
-# -- Unified secondary session builders --
-
-
-def _build_secondary_session_started(event: SessionEvent) -> str:
-    import json
-
-    p = event.payload
-    return json.dumps(
-        {
-            "sessionId": p.get("session_id", ""),
-            "jobId": event.session_id,
-            "kind": p.get("kind", ""),
-            "name": p.get("name", ""),
-            "icon": p.get("icon", "bot"),
-        }
-    )
-
-
-def _build_secondary_session_entry(event: SessionEvent) -> str:
-    import json
-
-    p = event.payload
-    entry = p.get("entry", {})
-    if not isinstance(entry, dict):
-        entry = {}
-    return json.dumps(
-        {
-            "sessionId": p.get("session_id", ""),
-            "jobId": event.session_id,
-            "entry": {
-                "seq": entry.get("seq", 0),
-                "kind": entry.get("kind", ""),
-                "content": entry.get("content", ""),
-                "toolName": entry.get("tool_name"),
-                "toolArgs": entry.get("tool_args"),
-                "durationMs": entry.get("duration_ms"),
-                "toolResult": entry.get("tool_result"),
-                "toolDisplay": entry.get("tool_display"),
-                "toolDisplayFull": entry.get("tool_display_full"),
-                "toolSuccess": entry.get("tool_success"),
-                "toolIssue": entry.get("tool_issue"),
-                "toolVisibility": entry.get("tool_visibility"),
-            },
-        }
-    )
-
-
-def _build_secondary_session_completed(event: SessionEvent) -> str:
-    import json
-
-    p = event.payload
-    return json.dumps(
-        {
-            "sessionId": p.get("session_id", ""),
-            "jobId": event.session_id,
-            "status": p.get("status", "completed"),
-            "output": p.get("output"),
-            "inputTokens": p.get("input_tokens", 0),
-            "outputTokens": p.get("output_tokens", 0),
-            "costUsd": p.get("cost_usd", 0.0),
-            "metadata": p.get("metadata", {}),
-        }
-    )
-
-
-# ---------------------------------------------------------------------------
-# Unified SSE payload registry
-# ---------------------------------------------------------------------------
-# Each entry is either a (ModelClass, FieldMap) tuple handled generically by
-# ``_build_from_fields``, or a custom callable for event types that need
-# non-trivial extraction logic.
-
-_SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
-    # --- Custom builders (non-trivial extraction) ---
-    "job_state_changed": _build_job_state_changed,
-    "job_review": _build_job_review,
-    "plan_step_updated": _build_plan_step_updated,
-    "batch_approval_requested": _build_batch_approval_requested,
-    "batch_approval_resolved": _build_batch_approval_resolved,
-    # Unified secondary session events
-    "secondary_session_started": _build_secondary_session_started,
-    "secondary_session_entry": _build_secondary_session_entry,
-    "secondary_session_completed": _build_secondary_session_completed,
-    # --- Field-map builders (declarative) ---
-    "log_line": (
-        LogLinePayload,
-        {
-            "seq": ("seq", 0),
-            "timestamp": ("timestamp", _TS_FALLBACK),
-            "level": ("level", "info"),
-            "message": ("message", ""),
-            "context": ("context", None),
-        },
-    ),
-    "transcript_update": (
-        TranscriptPayload,
-        {
-            "seq": ("seq", 0),
-            "timestamp": ("timestamp", _TS_FALLBACK),
-            "role": ("role", "agent"),
-            "content": ("content", ""),
-            "title": ("title", None),
-            "turn_id": ("turn_id", None),
-            "tool_name": ("tool_name", None),
-            "tool_args": ("tool_args", None),
-            "tool_result": ("tool_result", None),
-            "tool_success": ("tool_success", None),
-            "tool_issue": ("tool_issue", None),
-            "tool_intent": ("tool_intent", None),
-            "tool_title": ("tool_title", None),
-            "tool_display": ("tool_display", None),
-            "tool_display_full": ("tool_display_full", None),
-            "tool_duration_ms": ("tool_duration_ms", None),
-            "tool_visibility": ("tool_visibility", None),
-            "step_id": ("step_id", None),
-            "step_number": ("step_number", None),
-        },
-    ),
-    "diff_update": (
-        DiffUpdatePayload,
-        {
-            "changed_files": ("changed_files", []),
-        },
-    ),
-    "approval_requested": (
-        ApprovalRequestedPayload,
-        {
-            "approval_id": ("approval_id", ""),
-            "description": ("description", ""),
-            "proposed_action": ("proposed_action", None),
-            "timestamp": ("timestamp", _TS_FALLBACK),
-            "requires_explicit_approval": ("requires_explicit_approval", False),
-        },
-    ),
-    "approval_resolved": (
-        ApprovalResolvedPayload,
-        {
-            "approval_id": ("approval_id", ""),
-            "resolution": ("resolution", ""),
-            "timestamp": ("timestamp", _TS_FALLBACK),
-        },
-    ),
-    "session_heartbeat": (
-        SessionHeartbeatPayload,
-        {
-            "session_id": ("session_id", ""),
-            "timestamp": ("timestamp", _TS_FALLBACK),
-            "last_activity_at": ("last_activity_at", None),
-            "active_tool_name": ("active_tool_name", None),
-            "active_tool_since": ("active_tool_since", None),
-        },
-    ),
-    "merge_completed": (
-        MergeCompletedPayload,
-        {
-            "branch": ("branch", ""),
-            "base_ref": ("base_ref", ""),
-            "strategy": ("strategy", ""),
-            "timestamp": ("timestamp", _TS_FALLBACK),
-        },
-    ),
-    "merge_conflict": (
-        MergeConflictPayload,
-        {
-            "branch": ("branch", ""),
-            "base_ref": ("base_ref", ""),
-            "conflict_files": ("conflict_files", []),
-            "fallback": ("fallback", "none"),
-            "pr_url": ("pr_url", None),
-            "timestamp": ("timestamp", _TS_FALLBACK),
-        },
-    ),
-    "session_resumed": (
-        SessionResumedPayload,
-        {
-            "session_number": ("session_number", 1),
-            "timestamp": ("timestamp", _TS_FALLBACK),
-        },
-    ),
-    "job_failed": (
-        JobFailedPayload,
-        {
-            "reason": ("reason", "Unknown error"),
-            "timestamp": ("timestamp", _TS_EVENT),
-        },
-    ),
-    "job_completed": (
-        JobCompletedPayload,
-        {
-            "resolution": ("resolution", None),
-            "pr_url": ("pr_url", None),
-            "timestamp": ("timestamp", _TS_EVENT),
-        },
-    ),
-    "job_resolved": (
-        JobResolvedPayload,
-        {
-            "resolution": ("resolution", Resolution.unresolved),
-            "pr_url": ("pr_url", None),
-            "conflict_files": ("conflict_files", None),
-            "error": ("error", None),
-            "timestamp": ("timestamp", _TS_EVENT),
-        },
-    ),
-    "job_archived": (
-        JobArchivedPayload,
-        {
-            "timestamp": ("timestamp", _TS_EVENT),
-        },
-    ),
-    "job_title_updated": (
-        JobTitleUpdatedPayload,
-        {
-            "title": ("title", None),
-            "description": ("description", None),
-            "branch": ("branch", None),
-            "timestamp": ("timestamp", _TS_EVENT),
-        },
-    ),
-    "model_downgraded": (
-        ModelDowngradedPayload,
-        {
-            "requested_model": ("requested_model", ""),
-            "actual_model": ("actual_model", ""),
-            "timestamp": ("timestamp", _TS_EVENT),
-        },
-    ),
-    "tool_group_summary": (
-        ToolGroupSummaryPayload,
-        {
-            "turn_id": ("turn_id", ""),
-            "summary": ("summary", ""),
-            "timestamp": ("timestamp", _TS_EVENT),
-        },
-    ),
-    "telemetry_updated": (
-        TelemetryUpdatedPayload,
-        {
-            "timestamp": ("timestamp", _TS_EVENT),
-            "total_cost_usd": ("total_cost_usd", 0.0),
-            "total_tokens": ("total_tokens", 0),
-            "input_tokens": ("input_tokens", 0),
-            "output_tokens": ("output_tokens", 0),
-        },
-    ),
-    "step_entries_reassigned": (
-        StepEntriesReassignedPayload,
-        {
-            "turn_id": ("turn_id", ""),
-            "old_step_id": ("old_step_id", ""),
-            "new_step_id": ("new_step_id", ""),
-        },
-    ),
-    "turn_summary": (
-        TurnSummaryPayload,
-        {
-            "turn_id": ("turn_id", ""),
-            "title": ("title", ""),
-            "activity_id": ("activity_id", ""),
-            "activity_label": ("activity_label", ""),
-            "activity_status": ("activity_status", "active"),
-            "is_new_activity": ("is_new_activity", False),
-            "plan_item_id": ("plan_item_id", None),
-            "replaces_turn_id": ("replaces_turn_id", None),
-        },
-    ),
-    "repo_index_progress": (
-        RepoIndexProgressPayload,
-        {
-            "repo": ("repo", ""),
-            "indexed": ("indexed", 0),
-            "total": ("total", 0),
-            "phase": ("phase", "indexing"),
-        },
-    ),
-    "repo_index_complete": (
-        RepoIndexCompletePayload,
-        {
-            "repo": ("repo", ""),
-        },
-    ),
-    "structural_warning": (
-        StructuralWarningPayload,
-        {
-            "repo": ("repo", ""),
-            "warning_type": ("warning_type", ""),
-            "detail": ("detail", ""),
-        },
-    ),
-    "stall_detected": (
-        StallDetectedPayload,
-        {
-            "job_id": ("job_id", ""),
-            "tool_name": ("tool_name", ""),
-            "elapsed": ("elapsed", ""),
-            "reason": ("reason", ""),
-        },
-    ),
-    "context_handoff": (
-        ContextHandoffPayload,
-        {
-            "source": ("source", ""),
-            "source_session_id": ("source_session_id", None),
-            "summary": ("summary", ""),
-            "content": ("content", None),
-            "timestamp": ("timestamp", _TS_EVENT),
-        },
-    ),
-}
-
-
-def _build_sse_data(event: SessionEvent, sse_type: str) -> str:
-    """Serialize the domain event payload via the appropriate Pydantic SSE model.
-
-    This ensures all SSE payloads use **camelCase** keys matching the API contract.
-    """
-    spec = _SSE_PAYLOAD_REGISTRY.get(sse_type)
-    if spec is None:
-        # Fallback (should not happen for known types)
-        return json.dumps(event.payload, default=str)
-    if callable(spec):
-        return spec(event)
-    model_cls, fields = spec
-    return _build_from_fields(event, model_cls, fields)
-
-
-def _build_derived_state_frame(event: SessionEvent, sse_id: str | None) -> str | None:
-    """Build a derived ``job_state_changed`` SSE frame for events that imply a state transition.
-
-    Returns ``None`` when *event* does not trigger a secondary frame.
-    """
-    if event.kind == DomainEventKind.approval_requested:
-        payload = JobStateChangedPayload(
-            job_id=event.session_id,
-            previous_state=event.payload.get("previous_state"),
-            new_state=JobState.waiting_for_approval,
-            timestamp=event.timestamp,
-        )
-    elif event.kind == DomainEventKind.approval_resolved:
-        new_state = JobState.running if event.payload.get("resolution") == "approved" else JobState.failed
-        payload = JobStateChangedPayload(
-            job_id=event.session_id,
-            previous_state=JobState.waiting_for_approval,
-            new_state=new_state,
-            timestamp=event.timestamp,
-        )
-    elif event.kind in (DomainEventKind.job_review, DomainEventKind.job_completed, DomainEventKind.job_failed):
-        payload = JobStateChangedPayload(
-            job_id=event.session_id,
-            previous_state=None,
-            new_state=_KIND_TO_STATE[event.kind],
-            timestamp=event.timestamp,
-        )
-    else:
-        return None
-    return _format_sse(sse_id, "job_state_changed", payload.model_dump_json(by_alias=True))
+    return event.model_dump_json()
 
 
 class SSEManager:
@@ -688,13 +183,17 @@ class SSEManager:
         self._active_job_count = count
 
     async def broadcast_domain_event(self, event: SessionEvent) -> None:
-        """Event bus subscriber — translate and broadcast a domain event."""
-        sse_type = _SSE_EVENT_TYPE.get(event.kind)
-        if sse_type is None:
+        """Event bus subscriber — serialize a TF event to the SSE wire as-is.
+
+        The ``event:`` type is the event's dotted ``kind`` and ``data:`` is the
+        TraceForge ``SessionEvent`` serialized verbatim. Kinds outside the
+        broadcast allowlist are internal-only and dropped here.
+        """
+        if event.kind not in _BROADCAST_KINDS:
             return  # internal-only event
 
         sse_id = str(event.metadata.sequence) if event.metadata.sequence is not None else event.id
-        frame = _format_sse(sse_id, sse_type, _build_sse_data(event, sse_type))
+        frame = _format_sse(sse_id, str(event.kind), _serialize_tf_event(event))
         selective = self._active_job_count > 20
 
         # Prune connections closed since last broadcast
@@ -713,27 +212,13 @@ class SSEManager:
                 continue
 
             # Global connections: skip job-scoped-only events entirely
-            if sse_type in _JOB_SCOPED_ONLY:
+            if event.kind in _JOB_SCOPED_ONLY:
                 continue
 
             # Global connections: apply selective streaming if needed
-            if selective and sse_type in _SELECTIVE_SUPPRESSED:
+            if selective and event.kind in _SELECTIVE_SUPPRESSED:
                 continue
 
-            conn.send(frame)
-
-        # Emit secondary SSE events per the mapping in §5.3.1
-        derived = _build_derived_state_frame(event, sse_id=None)
-        if derived is not None:
-            self._broadcast_frame(derived, event.session_id)
-
-    def _broadcast_frame(self, frame: str, job_id: str | None) -> None:
-        """Send a pre-formatted frame to all relevant connections."""
-        for conn in list(self._connections):
-            if conn.closed:
-                continue
-            if conn.job_id is not None and conn.job_id != job_id:
-                continue
             conn.send(frame)
 
     def send_snapshot(self, conn: SSEConnection, snapshot: SnapshotPayload) -> None:
@@ -842,20 +327,11 @@ class SSEManager:
 
         # Replay the events
         for event in events:
-            sse_type = _SSE_EVENT_TYPE.get(event.kind)
-            if sse_type is None:
+            if event.kind not in _BROADCAST_KINDS:
                 continue
             sse_id = str(event.metadata.sequence) if event.metadata.sequence is not None else event.id
-            frame = _format_sse(sse_id, sse_type, _build_sse_data(event, sse_type))
+            frame = _format_sse(sse_id, str(event.kind), _serialize_tf_event(event))
             conn.send(frame)
-
-            # Mirror broadcast_domain_event(): emit a derived
-            # job_state_changed frame so the client sees the state
-            # transition on reconnect.  Reuse the same SSE id so the
-            # replay cursor does not advance beyond the underlying event.
-            derived = _build_derived_state_frame(event, sse_id=sse_id)
-            if derived is not None:
-                conn.send(derived)
 
     async def replay_from_factory(
         self,

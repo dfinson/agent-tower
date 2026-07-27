@@ -22,7 +22,13 @@ import structlog
 
 from backend.models.domain import SessionEvent as CPSessionEvent
 from backend.models.domain import SessionEventKind
-from backend.models.events import DomainEventKind, SessionEvent, new_event
+from backend.models.events import (
+    TRANSCRIPT_KINDS,
+    CPEventKind,
+    SessionEvent,
+    new_event,
+    transcript_kind_for_role,
+)
 
 if TYPE_CHECKING:
     from backend.services.artifacts.diff_service import DiffService
@@ -99,7 +105,7 @@ class EventProcessor:
         # Managed sessions (via CopilotAdapter) already include one; discovered
         # sessions from the watchers don't.  Synthesize one here and rotate it
         # on each completed agent message (role=="agent") to mark turn boundaries.
-        if domain_event.kind == DomainEventKind.transcript_updated:
+        if domain_event.kind in TRANSCRIPT_KINDS:
             payload = domain_event.payload
             if not payload.get("turn_id"):
                 tid = self._turn_ids.get(job_id)
@@ -113,7 +119,7 @@ class EventProcessor:
                 self._turn_ids[job_id] = str(uuid.uuid4())
 
         # Step tracking — annotate transcript events with step boundaries
-        if domain_event.kind == DomainEventKind.transcript_updated and self._step_tracker is not None:
+        if domain_event.kind in TRANSCRIPT_KINDS and self._step_tracker is not None:
             role = str(domain_event.payload.get("role", ""))
             if role != "agent_delta":
                 await self._step_tracker.on_transcript_event(job_id, domain_event)
@@ -145,14 +151,17 @@ class EventProcessor:
     @staticmethod
     def _translate_event(job_id: str, event: CPSessionEvent) -> SessionEvent | None:
         """Translate a SessionEvent into a DomainEvent."""
-        mapping: dict[SessionEventKind, DomainEventKind] = {
-            SessionEventKind.log: DomainEventKind.log_line_emitted,
-            SessionEventKind.transcript: DomainEventKind.transcript_updated,
-            SessionEventKind.approval_request: DomainEventKind.approval_requested,
-            SessionEventKind.error: DomainEventKind.job_failed,
-            SessionEventKind.model_downgraded: DomainEventKind.model_downgraded,
+        mapping: dict[SessionEventKind, CPEventKind] = {
+            SessionEventKind.log: CPEventKind.log_line_emitted,
+            SessionEventKind.approval_request: CPEventKind.approval_requested,
+            SessionEventKind.error: CPEventKind.job_failed,
+            SessionEventKind.model_downgraded: CPEventKind.model_downgraded,
         }
-        kind = mapping.get(event.kind)
+        kind: CPEventKind | None
+        if event.kind == SessionEventKind.transcript:
+            kind = transcript_kind_for_role(str(event.payload.get("role", "")))
+        else:
+            kind = mapping.get(event.kind)
         if kind is None:
             return None
         return new_event(

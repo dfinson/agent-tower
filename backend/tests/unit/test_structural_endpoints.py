@@ -33,7 +33,7 @@ from backend.models.api_schemas import (
     StructuralDiffResponse,
 )
 from backend.models.domain import Job, JobState
-from backend.models.events import DomainEventKind, new_event
+from backend.models.events import CPEventKind, new_event
 
 # -- Fixtures ------------------------------------------------------------------
 
@@ -695,7 +695,7 @@ async def test_multi_session_partitions_by_event_boundaries() -> None:
         event_id="evt-1",
         session_id="job-1",
         timestamp=base_time,
-        kind=DomainEventKind.session_resumed,
+        kind=CPEventKind.session_resumed,
         payload={"session_number": 2},
     )
     event_repo = SimpleNamespace(list_by_job=AsyncMock(return_value=[resumed_event]))
@@ -752,7 +752,7 @@ async def test_multi_session_direction_change_detection() -> None:
         event_id="evt-1",
         session_id="job-1",
         timestamp=base_time,
-        kind=DomainEventKind.session_resumed,
+        kind=CPEventKind.session_resumed,
         payload={"session_number": 2},
     )
     event_repo = SimpleNamespace(list_by_job=AsyncMock(return_value=[resumed_event]))

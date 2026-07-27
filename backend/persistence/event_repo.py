@@ -7,7 +7,7 @@ import json
 from sqlalchemy import func, select
 
 from backend.models.db import EventRow
-from backend.models.events import DomainEventKind, SessionEvent, new_event
+from backend.models.events import TRANSCRIPT_KINDS, CPEventKind, SessionEvent, new_event
 from backend.persistence.repository import BaseRepository
 
 
@@ -22,7 +22,7 @@ class EventRepository(BaseRepository):
             event_id=row.event_id,
             session_id=row.job_id,
             timestamp=row.timestamp,
-            kind=DomainEventKind(row.kind),
+            kind=CPEventKind(row.kind),
             payload=json.loads(row.payload),
             sequence=row.id,
         )
@@ -57,7 +57,7 @@ class EventRepository(BaseRepository):
     async def list_by_job(
         self,
         job_id: str,
-        kinds: list[DomainEventKind],
+        kinds: list[CPEventKind],
         limit: int = 2000,
     ) -> list[SessionEvent]:
         """List events for a job filtered by kind, ordered by db id."""
@@ -74,7 +74,7 @@ class EventRepository(BaseRepository):
     async def list_all_by_job(
         self,
         job_id: str,
-        kinds: list[DomainEventKind],
+        kinds: list[CPEventKind],
     ) -> list[SessionEvent]:
         """List all events for a job filtered by kind, without an upper bound."""
         stmt = (
@@ -102,7 +102,7 @@ class EventRepository(BaseRepository):
                 func.max(EventRow.id).label("latest_id"),
             )
             .where(EventRow.job_id.in_(job_ids))
-            .where(EventRow.kind == DomainEventKind.progress_headline.value)
+            .where(EventRow.kind == CPEventKind.progress_headline.value)
             .group_by(EventRow.job_id)
             .subquery()
         )
@@ -133,7 +133,7 @@ class EventRepository(BaseRepository):
 
         stmt = select(EventRow).where(
             EventRow.job_id == job_id,
-            EventRow.kind == DomainEventKind.transcript_updated.value,
+            EventRow.kind.in_([k.value for k in TRANSCRIPT_KINDS]),
         )
         if roles:
             role_conditions = [EventRow.payload.contains(f'"role": "{role}"') for role in roles]

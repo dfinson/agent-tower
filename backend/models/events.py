@@ -18,71 +18,131 @@ if TYPE_CHECKING:
     )
 
 __all__ = [
-    "DomainEventKind",
+    "TRANSCRIPT_KINDS",
+    "CPEventKind",
     "EventMetadata",
     "EventPayload",
     "SessionEvent",
     "new_event",
+    "transcript_kind_for_role",
 ]
 
 
-class DomainEventKind(StrEnum):
-    job_created = "JobCreated"
-    job_setup_progress = "JobSetupProgress"
-    workspace_prepared = "WorkspacePrepared"
-    agent_session_started = "AgentSessionStarted"
-    log_line_emitted = "LogLineEmitted"
-    transcript_updated = "TranscriptUpdated"
-    diff_updated = "DiffUpdated"
-    approval_requested = "ApprovalRequested"
-    approval_resolved = "ApprovalResolved"
-    batch_approval_requested = "BatchApprovalRequested"
-    batch_approval_resolved = "BatchApprovalResolved"
-    job_review = "JobReview"
-    job_completed = "JobCompleted"
-    job_failed = "JobFailed"
-    job_canceled = "JobCanceled"
-    job_state_changed = "JobStateChanged"
-    session_heartbeat = "SessionHeartbeat"
-    merge_completed = "MergeCompleted"
-    merge_conflict = "MergeConflict"
-    session_resumed = "SessionResumed"
-    job_resolved = "JobResolved"
-    job_archived = "JobArchived"
-    job_title_updated = "JobTitleUpdated"
-    progress_headline = "ProgressHeadline"
-    model_downgraded = "ModelDowngraded"
-    tool_group_summary = "ToolGroupSummary"
-    agent_plan_updated = "AgentPlanUpdated"
-    execution_phase_changed = "ExecutionPhaseChanged"
-    telemetry_updated = "TelemetryUpdated"
-    step_started = "StepStarted"
-    step_completed = "StepCompleted"
-    step_title_generated = "StepTitleGenerated"
-    step_group_updated = "StepGroupUpdated"
-    plan_step_updated = "PlanStepUpdated"
-    step_entries_reassigned = "StepEntriesReassigned"
-    turn_summary = "TurnSummary"
-    action_classified = "ActionClassified"
-    policy_settings_changed = "PolicySettingsChanged"
-    repo_index_progress = "RepoIndexProgress"
-    repo_index_complete = "RepoIndexComplete"
-    structural_warning = "StructuralWarning"
-    stall_detected = "StallDetected"
-    monitor_approved = "MonitorApproved"
-    monitor_rejected = "MonitorRejected"
-    monitor_escalated = "MonitorEscalated"
-    sidecar_transcript = "SidecarTranscript"
-    sidecar_agent_message = "SidecarAgentMessage"
-    sidecar_gate_verdict = "SidecarGateVerdict"
-    sidecar_metadata_update = "SidecarMetadataUpdate"
-    # Unified secondary session events (preflight, sidecars, monitors)
-    secondary_session_started = "SecondarySessionStarted"
-    secondary_session_entry = "SecondarySessionEntry"
-    secondary_session_completed = "SecondarySessionCompleted"
-    # Context handoff — emitted when context crosses a session boundary
-    context_handoff = "ContextHandoff"
-    job_mode_changed = "JobModeChanged"
+class CPEventKind(StrEnum):
+    """CodePlane control-plane event kinds as open dotted TraceForge kinds.
+
+    These are CodePlane's own kinds expressed in TraceForge's open dotted-string
+    ``kind`` grammar. ``traceforge.SessionEvent.kind`` is a free-form string; this
+    enum is just symbol-safe named constants for the kinds CodePlane emits — not a
+    translation layer. The wire/persistence carry these dotted values verbatim.
+    """
+
+    # --- Job lifecycle ---
+    job_created = "job.created"
+    job_setup_progress = "job.setup_progress"
+    workspace_prepared = "workspace.prepared"
+    agent_session_started = "agent.session_started"
+    # --- Transcript family (one CP transcript event per agent role) ---
+    message_user = "message.user"
+    message_assistant = "message.assistant"
+    message_delta = "message.delta"
+    tool_call_started = "tool.call.started"
+    tool_call_completed = "tool.call.completed"
+    # --- Logs / diffs ---
+    log_line_emitted = "log"
+    diff_updated = "diff.updated"
+    # --- Approvals (permissions) ---
+    approval_requested = "permission.requested"
+    approval_resolved = "permission.resolved"
+    batch_approval_requested = "permission.batch.requested"
+    batch_approval_resolved = "permission.batch.resolved"
+    # --- Job state / outcomes ---
+    job_review = "job.review"
+    job_completed = "job.completed"
+    job_failed = "job.failed"
+    job_canceled = "job.canceled"
+    job_state_changed = "job.state_changed"
+    session_heartbeat = "session.heartbeat"
+    merge_completed = "merge.completed"
+    merge_conflict = "merge.conflict"
+    session_resumed = "session.resumed"
+    job_resolved = "job.resolved"
+    job_archived = "job.archived"
+    job_title_updated = "job.title_updated"
+    progress_headline = "progress.headline"
+    model_downgraded = "model.downgraded"
+    tool_group_summary = "tool.group_summary"
+    agent_plan_updated = "plan.updated"
+    execution_phase_changed = "execution.phase_changed"
+    telemetry_updated = "telemetry.updated"
+    # --- Steps / plan ---
+    step_started = "step.started"
+    step_completed = "step.completed"
+    step_title_generated = "step.title_generated"
+    step_group_updated = "step.group_updated"
+    plan_step_updated = "plan.step_updated"
+    step_entries_reassigned = "step.entries_reassigned"
+    turn_summary = "turn.summary"
+    action_classified = "action.classified"
+    policy_settings_changed = "policy.settings_changed"
+    # --- Repo index ---
+    repo_index_progress = "repo.index_progress"
+    repo_index_complete = "repo.index_complete"
+    # --- Structural health ---
+    structural_warning = "structural.warning"
+    stall_detected = "stall.detected"
+    # --- Monitors ---
+    monitor_approved = "monitor.approved"
+    monitor_rejected = "monitor.rejected"
+    monitor_escalated = "monitor.escalated"
+    # --- Sidecars ---
+    sidecar_transcript = "sidecar.transcript"
+    sidecar_agent_message = "sidecar.agent_message"
+    sidecar_gate_verdict = "sidecar.gate_verdict"
+    sidecar_metadata_update = "sidecar.metadata_update"
+    # --- Unified secondary session events (preflight, sidecars, monitors) ---
+    secondary_session_started = "secondary_session.started"
+    secondary_session_entry = "secondary_session.entry"
+    secondary_session_completed = "secondary_session.completed"
+    # --- Context handoff — emitted when context crosses a session boundary ---
+    context_handoff = "context.handoff"
+    job_mode_changed = "job.mode_changed"
+
+
+# The transcript family: one CP "transcript" event fans out to a role-specific
+# dotted kind. Role is retained in ``payload["role"]`` so consumers that branch
+# on role continue to work; kind-level "is this a transcript event" checks use
+# this set.
+TRANSCRIPT_KINDS: frozenset[CPEventKind] = frozenset(
+    {
+        CPEventKind.message_user,
+        CPEventKind.message_assistant,
+        CPEventKind.message_delta,
+        CPEventKind.tool_call_started,
+        CPEventKind.tool_call_completed,
+    }
+)
+
+
+def transcript_kind_for_role(role: str) -> CPEventKind:
+    """Map a transcript ``role`` to its dotted CodePlane event kind.
+
+    Roles emitted by the adapters/watchers: ``operator``/``user`` (human input),
+    ``agent``/``assistant`` (complete agent message), ``agent_delta`` (streaming
+    partial), ``tool_running`` (a tool began), ``tool_call`` (a tool completed).
+    """
+    if role in ("operator", "user"):
+        return CPEventKind.message_user
+    if role in ("agent", "assistant"):
+        return CPEventKind.message_assistant
+    if role == "agent_delta":
+        return CPEventKind.message_delta
+    if role == "tool_running":
+        return CPEventKind.tool_call_started
+    if role == "tool_call":
+        return CPEventKind.tool_call_completed
+    # Unknown roles default to a full assistant message (safest for display).
+    return CPEventKind.message_assistant
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +421,7 @@ EventPayload = (
 
 def new_event(
     session_id: str | None,
-    kind: DomainEventKind | str,
+    kind: CPEventKind | str,
     payload: EventPayload | dict[str, Any],
     *,
     timestamp: datetime | None = None,

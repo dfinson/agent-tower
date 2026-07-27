@@ -40,7 +40,7 @@ from backend.models.domain import (
     SessionEventKind,
     StateConflictError,
 )
-from backend.models.events import DomainEventKind
+from backend.models.events import TRANSCRIPT_KINDS, CPEventKind
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.services.adapters.adapter_registry import AdapterRegistry
 from backend.services.adapters.agent_adapter import AgentAdapterInterface, CompletionResult
@@ -448,7 +448,7 @@ class TestEventTranslation:
         )
         result = runtime._translate_event("job-1", event)
         assert result is not None
-        assert result.kind == DomainEventKind.log_line_emitted
+        assert result.kind == CPEventKind.log_line_emitted
         assert result.session_id == "job-1"
 
     def test_transcript_event_translated(self, runtime: RuntimeService) -> None:
@@ -458,7 +458,7 @@ class TestEventTranslation:
         )
         result = runtime._translate_event("job-1", event)
         assert result is not None
-        assert result.kind == DomainEventKind.transcript_updated
+        assert result.kind == CPEventKind.message_assistant
 
     def test_file_changed_not_translated(self, runtime: RuntimeService) -> None:
         """file_changed events are handled by DiffService, not _translate_event."""
@@ -476,7 +476,7 @@ class TestEventTranslation:
         )
         result = runtime._translate_event("job-1", event)
         assert result is not None
-        assert result.kind == DomainEventKind.approval_requested
+        assert result.kind == CPEventKind.approval_requested
 
     def test_error_event_translated(self, runtime: RuntimeService) -> None:
         event = SessionEvent(
@@ -485,7 +485,7 @@ class TestEventTranslation:
         )
         result = runtime._translate_event("job-1", event)
         assert result is not None
-        assert result.kind == DomainEventKind.job_failed
+        assert result.kind == CPEventKind.job_failed
 
     def test_done_event_returns_none(self, runtime: RuntimeService) -> None:
         event = SessionEvent(kind=SessionEventKind.done, payload={})
@@ -518,16 +518,16 @@ class TestJobLifecycle:
 
         await runtime.start_or_enqueue(job)
         await _wait_until(
-            lambda: any(e.kind == DomainEventKind.job_review for e in published),
+            lambda: any(e.kind == CPEventKind.job_review for e in published),
             msg="job_review event not published",
         )
 
         # Should have log, transcript events + job_review
         # (diff_updated events now come from DiffService which requires a real git worktree)
         kinds = [e.kind for e in published]
-        assert DomainEventKind.log_line_emitted in kinds
-        assert DomainEventKind.transcript_updated in kinds
-        assert DomainEventKind.job_review in kinds
+        assert CPEventKind.log_line_emitted in kinds
+        assert any(k in TRANSCRIPT_KINDS for k in kinds)
+        assert CPEventKind.job_review in kinds
 
     async def test_cancel_running_job(
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
@@ -621,10 +621,10 @@ class TestJobLifecycle:
 
         # The auto-resume should have published a session_resumed event
         kinds = [e.kind for e in published]
-        assert DomainEventKind.session_resumed in kinds
+        assert CPEventKind.session_resumed in kinds
 
         # The operator message should appear as a transcript entry
-        transcript_events = [e for e in published if e.kind == DomainEventKind.transcript_updated]
+        transcript_events = [e for e in published if e.kind in TRANSCRIPT_KINDS]
         operator_msgs = [e for e in transcript_events if e.payload.get("role") == "operator"]
         assert any("please continue" in e.payload.get("content", "") for e in operator_msgs)
 
@@ -652,14 +652,14 @@ class TestJobLifecycle:
 
         # Wait for the resumed task to finish
         await _wait_until(
-            lambda: any(e.kind == DomainEventKind.session_resumed for e in published),
+            lambda: any(e.kind == CPEventKind.session_resumed for e in published),
             msg="session_resumed event not published",
         )
         await _wait_until(lambda: runtime.running_count == 0, msg="resumed job did not finish")
 
         kinds = [e.kind for e in published]
-        assert DomainEventKind.job_failed not in kinds
-        assert DomainEventKind.session_resumed in kinds
+        assert CPEventKind.job_failed not in kinds
+        assert CPEventKind.session_resumed in kinds
 
         # DB should end in review/failed/canceled after the resumed run
         async with session_factory() as session:
@@ -791,7 +791,7 @@ class TestResumeFallback:
         assert resumed.state == JobState.running
 
         await _wait_until(
-            lambda: any(e.kind == DomainEventKind.job_completed for e in published),
+            lambda: any(e.kind == CPEventKind.job_completed for e in published),
             msg="job_completed event not published",
         )
 
@@ -807,7 +807,7 @@ class TestResumeFallback:
             assert row.resolution == Resolution.merged
             assert row.merge_status == Resolution.merged
 
-        completed_events = [event for event in published if event.kind == DomainEventKind.job_completed]
+        completed_events = [event for event in published if event.kind == CPEventKind.job_completed]
         assert completed_events
         assert completed_events[-1].payload["resolution"] == Resolution.merged
         assert completed_events[-1].payload["merge_status"] == Resolution.merged
@@ -1113,7 +1113,7 @@ class TestRecovery:
 
         await runtime.recover_on_startup()
         await _wait_until(
-            lambda: any(e.kind == DomainEventKind.job_review for e in published),
+            lambda: any(e.kind == CPEventKind.job_review for e in published),
             msg="job_review event not published after recovery",
         )
 
@@ -1125,7 +1125,7 @@ class TestRecovery:
             assert row is not None
             assert row.state == JobState.review
 
-        resumed_events = [e for e in published if e.kind == DomainEventKind.session_resumed]
+        resumed_events = [e for e in published if e.kind == CPEventKind.session_resumed]
         assert len(resumed_events) == 1
         assert resumed_events[0].payload["reason"] == "process_restarted"
 
@@ -1139,7 +1139,7 @@ class TestRecovery:
         observed_states: list[str] = []
 
         async def _assert_running_state_visible(event: SessionEvent) -> None:
-            if event.kind != DomainEventKind.session_resumed:
+            if event.kind != CPEventKind.session_resumed:
                 return
             async with session_factory() as session:
                 from backend.persistence.job_repo import JobRepository
@@ -1563,10 +1563,10 @@ class TestJobStateChangedEvent:
         await runtime.start_or_enqueue(job)
         await asyncio.sleep(0.5)
 
-        state_change_events = [e for e in published if e.kind == DomainEventKind.job_state_changed]
+        state_change_events = [e for e in published if e.kind == CPEventKind.job_state_changed]
         assert len(state_change_events) >= 1
         # Should NOT have published any job_created events
-        created_events = [e for e in published if e.kind == DomainEventKind.job_created]
+        created_events = [e for e in published if e.kind == CPEventKind.job_created]
         assert len(created_events) == 0
 
 
@@ -1629,14 +1629,14 @@ class TestErrorEventCausesFailure:
 
         await runtime.start_or_enqueue(job)
         await _wait_until(
-            lambda: any(e.kind == DomainEventKind.job_failed for e in published),
+            lambda: any(e.kind == CPEventKind.job_failed for e in published),
             msg="job_failed event not published",
         )
 
         # Should have a job_failed event, NOT job_review
         kinds = [e.kind for e in published]
-        assert DomainEventKind.job_failed in kinds
-        assert DomainEventKind.job_review not in kinds
+        assert CPEventKind.job_failed in kinds
+        assert CPEventKind.job_review not in kinds
 
         # DB state should be failed
         from backend.models.db import JobRow

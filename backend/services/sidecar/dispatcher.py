@@ -1194,7 +1194,7 @@ class SidecarDispatcher:
         route: OutputRoute,
     ) -> None:
         """Deliver parsed output to a destination."""
-        from backend.models.events import DomainEventKind, new_event
+        from backend.models.events import CPEventKind, new_event
 
         if isinstance(route, EventBusRoute):
             payload: dict[str, Any] = {"sidecar_name": defn.name}
@@ -1212,7 +1212,7 @@ class SidecarDispatcher:
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind(route.event_kind),
+                    kind=CPEventKind(route.event_kind),
                     payload=payload,
                 )
             )
@@ -1224,9 +1224,9 @@ class SidecarDispatcher:
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.job_title_updated
+                    kind=CPEventKind.job_title_updated
                     if route.field_name == "title"
-                    else DomainEventKind.sidecar_metadata_update,
+                    else CPEventKind.sidecar_metadata_update,
                     payload={"field": route.field_name, "value": value, "sidecar_name": defn.name},
                 )
             )
@@ -1255,7 +1255,7 @@ class SidecarDispatcher:
             # Publish unified secondary session events for visibility
             import uuid as _uuid
 
-            from backend.models.events import DomainEventKind, new_event
+            from backend.models.events import CPEventKind, new_event
             from backend.models.secondary_session import EntryKind, SecondarySessionKind, SecondarySessionStatus
 
             _sess_id = str(_uuid.uuid4())
@@ -1297,7 +1297,7 @@ class SidecarDispatcher:
                 new_event(
                     session_id=job_id,
                     timestamp=_now,
-                    kind=DomainEventKind.secondary_session_started,
+                    kind=CPEventKind.secondary_session_started,
                     payload={
                         "session_id": _sess_id,
                         "kind": SecondarySessionKind.sidecar.value,
@@ -1310,7 +1310,7 @@ class SidecarDispatcher:
                 new_event(
                     session_id=job_id,
                     timestamp=_now,
-                    kind=DomainEventKind.secondary_session_completed,
+                    kind=CPEventKind.secondary_session_completed,
                     payload={
                         "session_id": _sess_id,
                         "status": SecondarySessionStatus.completed.value,
@@ -1368,7 +1368,7 @@ class SidecarDispatcher:
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.sidecar_gate_verdict,
+                    kind=CPEventKind.sidecar_gate_verdict,
                     payload={
                         "sidecar_name": defn.name,
                         "verdict": verdict,
@@ -1391,7 +1391,7 @@ class SidecarDispatcher:
         """Publish secondary session events so the sidecar's output appears in the feed."""
         import uuid
 
-        from backend.models.events import DomainEventKind, new_event
+        from backend.models.events import CPEventKind, new_event
         from backend.models.secondary_session import EntryKind, SecondarySessionKind, SecondarySessionStatus
 
         content = parsed if isinstance(parsed, str) else json.dumps(parsed)
@@ -1430,7 +1430,7 @@ class SidecarDispatcher:
             new_event(
                 session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.secondary_session_started,
+                kind=CPEventKind.secondary_session_started,
                 payload={
                     "session_id": session_id,
                     "kind": SecondarySessionKind.sidecar.value,
@@ -1443,7 +1443,7 @@ class SidecarDispatcher:
             new_event(
                 session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.secondary_session_completed,
+                kind=CPEventKind.secondary_session_completed,
                 payload={
                     "session_id": session_id,
                     "status": SecondarySessionStatus.completed.value,
