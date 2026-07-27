@@ -24,7 +24,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/sister-sessions/metrics": {
+    "/api/sidecar-sessions/metrics": {
         parameters: {
             query?: never;
             header?: never;
@@ -32,10 +32,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Sister Session Metrics
-         * @description Return sister session metrics (global + per-job).
+         * Sidecar Session Metrics
+         * @description Return sidecar session metrics (global + per-job).
          */
-        get: operations["sister_session_metrics_api_sister_sessions_metrics_get"];
+        get: operations["sidecar_session_metrics_api_sidecar_sessions_metrics_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -201,6 +201,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/gate/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Gate
+         * @description Resolve a sidecar gate — approve (resume) or keep blocked.
+         */
+        post: operations["resolve_gate_api_jobs__job_id__gate_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}/continue": {
         parameters: {
             query?: never;
@@ -309,6 +329,28 @@ export interface paths {
          *     For completed/archived jobs, returns the last stored diff snapshot.
          */
         get: operations["get_job_diff_api_jobs__job_id__diff_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/diff-file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Diff File
+         * @description Return the full (non-truncated) diff for a single file.
+         *
+         *     Used by the frontend to lazily load large file diffs on demand.
+         */
+        get: operations["get_job_diff_file_api_jobs__job_id__diff_file_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -544,14 +586,232 @@ export interface paths {
         };
         /**
          * Get Job Story
-         * @description Return a structured code-review story with validated change references.
+         * @description Return a cached code-review story for a job.
          *
-         *     Generated on demand using a cheap LLM for connective prose, with change
-         *     references built directly from telemetry spans.  Cached on the jobs table.
-         *     Pass ?regenerate=true to force a fresh generation.
-         *     Verbosity: summary (one-sentence per file), standard (default), detailed (full rationale).
+         *     Stories are pre-generated in the background as soon as a job enters
+         *     review state.  This endpoint reads from the DB cache only — it never
+         *     blocks on LLM generation.
+         *
+         *     Pass ?regenerate=true to force a fresh generation (fire-and-forget;
+         *     returns empty immediately and the background loop will populate it).
          */
         get: operations["get_job_story_api_jobs__job_id__story_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/structural-diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Structural Diff
+         * @description Return structural diff analysis for a job's changes.
+         *
+         *     Uses CodeRecon's semantic_diff to classify changes by structural impact
+         *     (added/removed/modified/moved symbols) rather than raw text diff.
+         *     Computes risk scores and merge confidence per design §9.4 and §7.4.
+         */
+        get: operations["get_job_structural_diff_api_jobs__job_id__structural_diff_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/multi-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Multi Session
+         * @description Multi-session structural intelligence.
+         *
+         *     Returns per-session structural analysis with direction change detection
+         *     and messy-session warnings (§10).
+         */
+        get: operations["get_job_multi_session_api_jobs__job_id__multi_session_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/impact-graph/{symbol}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Impact Graph
+         * @description Return reference/caller graph for a symbol in the job's worktree.
+         *
+         *     Uses ReviewKit.impact() when available; returns available=False otherwise.
+         */
+        get: operations["get_impact_graph_api_jobs__job_id__impact_graph__symbol__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/impact-graph-batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get Impact Graph Batch
+         * @description Return impact graphs for multiple symbols in a single request.
+         */
+        post: operations["get_impact_graph_batch_api_jobs__job_id__impact_graph_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/communities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Communities
+         * @description Return community-grouped structural changes for a job.
+         *
+         *     Groups changes by module community so reviewers can see which logical
+         *     areas of the codebase are affected.
+         */
+        get: operations["get_job_communities_api_jobs__job_id__communities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/review-story": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Review Story
+         * @description Generate a structured review story artifact (§11).
+         *
+         *     Returns a structured document with sections: attention_required,
+         *     structural_concerns, what_changed, what_added, session_history, verdict.
+         *     Each section is populated from structural diff data.
+         */
+        get: operations["get_review_story_api_jobs__job_id__review_story_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/motivations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Motivations
+         * @description Return all motivation annotations for a job's changed files.
+         */
+        get: operations["get_job_motivations_api_jobs__job_id__motivations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/covering-tests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Covering Tests
+         * @description Return tests that cover definitions in the given file for a job's repo.
+         */
+        get: operations["get_job_covering_tests_api_jobs__job_id__covering_tests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/line-coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Line Coverage
+         * @description Return per-line coverage data for gutter dot rendering in the layered diff view.
+         */
+        get: operations["get_job_line_coverage_api_jobs__job_id__line_coverage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/blast-radius": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Blast Radius
+         * @description Return blast radius analysis for a job's changed files.
+         */
+        get: operations["get_job_blast_radius_api_jobs__job_id__blast_radius_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -749,6 +1009,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/hooks/claude": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claude Stop Hook
+         * @description Receive Claude CLI Stop hook. Returns pending operator messages.
+         *
+         *     Claude CLI calls this synchronously on every Stop event. If there are
+         *     queued operator messages, they are returned in the response body which
+         *     Claude displays to the agent.
+         */
+        post: operations["claude_stop_hook_api_hooks_claude_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}/artifacts": {
         parameters: {
             query?: never;
@@ -829,6 +1113,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/workspace/file/raw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Workspace File Raw
+         * @description Serve a workspace file with its native content type (for images, PDFs, videos, etc.).
+         */
+        get: operations["get_workspace_file_raw_api_jobs__job_id__workspace_file_raw_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/voice/transcribe": {
         parameters: {
             query?: never;
@@ -891,6 +1195,46 @@ export interface paths {
          * @description Register a repository (local path or remote URL).
          */
         post: operations["register_repo_endpoint_api_settings_repos_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/repos/{repo_path}/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Repo Health
+         * @description Structural health status for a repository (§6.2).
+         */
+        get: operations["get_repo_health_api_settings_repos__repo_path__health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/repos/{repo_path}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Repo Summary
+         * @description Aggregated dashboard overview for a single repository.
+         */
+        get: operations["get_repo_summary_api_settings_repos__repo_path__summary_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1072,7 +1416,7 @@ export interface paths {
         };
         /**
          * Analytics Tools
-         * @description Tool performance stats (call counts, failure rates, latency).
+         * @description Tool performance stats (call counts, failure rates, latency) + category mix.
          */
         get: operations["analytics_tools_api_analytics_tools_get"];
         put?: never;
@@ -1186,6 +1530,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analytics/latency-drivers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fleet Latency Drivers
+         * @description Fleet-wide latency attribution: time breakdown across all jobs.
+         */
+        get: operations["fleet_latency_drivers_api_analytics_latency_drivers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/analytics/file-access/{job_id}": {
         parameters: {
             query?: never;
@@ -1235,7 +1599,7 @@ export interface paths {
         };
         /**
          * Turn Economics For Job
-         * @description Per-turn cost curve for a specific job.
+         * @description Per-turn cost curve for a specific job, enriched with activity tags.
          */
         get: operations["turn_economics_for_job_api_analytics_turn_economics__job_id__get"];
         put?: never;
@@ -1430,6 +1794,209 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analytics/yield": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Yield
+         * @description Cost yield breakdown by outcome category.
+         */
+        get: operations["analytics_yield_api_analytics_yield_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/model-efficiency": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Model Efficiency
+         * @description Per-model one-shot rate and retry statistics.
+         */
+        get: operations["analytics_model_efficiency_api_analytics_model_efficiency_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/cache-efficiency": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Cache Efficiency
+         * @description Cache token hit rate by execution phase or activity bucket.
+         */
+        get: operations["analytics_cache_efficiency_api_analytics_cache_efficiency_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/file-cost": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics File Cost
+         * @description Most expensive files across the fleet.
+         */
+        get: operations["analytics_file_cost_api_analytics_file_cost_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/outcome-matrix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Outcome Matrix
+         * @description Cost breakdown by activity × job resolution.
+         */
+        get: operations["analytics_outcome_matrix_api_analytics_outcome_matrix_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/activity-phase-matrix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Activity Phase Matrix
+         * @description Phase × activity cost heatmap across the fleet.
+         */
+        get: operations["analytics_activity_phase_matrix_api_analytics_activity_phase_matrix_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/action-purpose-matrix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Action Purpose Matrix
+         * @description Action × purpose cost heatmap across the fleet.
+         */
+        get: operations["analytics_action_purpose_matrix_api_analytics_action_purpose_matrix_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/executive-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Executive Summary
+         * @description Simplified 3-bucket executive view: building / thinking / wasted.
+         */
+        get: operations["analytics_executive_summary_api_analytics_executive_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Export
+         * @description Export analytics data as CSV or JSON for external analysis.
+         *
+         *     ``sections`` is a comma-separated list of data sections to include.
+         *     Supported: overview, models, cost-drivers, yield, observations.
+         */
+        get: operations["analytics_export_api_analytics_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/sidecar-costs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Sidecar Costs
+         * @description Cost breakdown by session kind for sidecar sessions (preflight, memory, etc).
+         */
+        get: operations["analytics_sidecar_costs_api_analytics_sidecar_costs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/notifications/vapid-key": {
         parameters: {
             query?: never;
@@ -1534,26 +2101,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/terminal/observer/{job_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Observer Terminal
-         * @description Return the observer terminal session for a running job, if one exists.
-         */
-        get: operations["get_observer_terminal_api_terminal_observer__job_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/terminal/ask": {
         parameters: {
             query?: never;
@@ -1585,33 +2132,33 @@ export interface paths {
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        get: operations["preview_proxy_api_preview__port___path__patch"];
+        get: operations["preview_proxy_api_preview__port___path__delete"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        put: operations["preview_proxy_api_preview__port___path__patch"];
+        put: operations["preview_proxy_api_preview__port___path__delete"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        post: operations["preview_proxy_api_preview__port___path__patch"];
+        post: operations["preview_proxy_api_preview__port___path__delete"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        delete: operations["preview_proxy_api_preview__port___path__patch"];
+        delete: operations["preview_proxy_api_preview__port___path__delete"];
         options?: never;
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        head: operations["preview_proxy_api_preview__port___path__patch"];
+        head: operations["preview_proxy_api_preview__port___path__delete"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        patch: operations["preview_proxy_api_preview__port___path__patch"];
+        patch: operations["preview_proxy_api_preview__port___path__delete"];
         trace?: never;
     };
     "/api/jobs/{job_id}/share": {
@@ -2018,10 +2565,240 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/metrics/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat Ask
+         * @description Send a natural language question about telemetry data.
+         */
+        post: operations["chat_ask_api_metrics_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metrics/chat/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Conversations
+         * @description List recent chat conversations.
+         */
+        get: operations["list_conversations_api_metrics_chat_conversations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metrics/chat/conversations/{conversation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Conversation
+         * @description Clear an in-memory conversation session.
+         */
+        delete: operations["delete_conversation_api_metrics_chat_conversations__conversation_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Custom Metrics
+         * @description List all pinned custom metrics with their current data.
+         */
+        get: operations["list_custom_metrics_api_metrics_get"];
+        put?: never;
+        /**
+         * Pin Metric
+         * @description Pin a metric as a dashboard tile.
+         */
+        post: operations["pin_metric_api_metrics_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metrics/{metric_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Metric
+         * @description Delete a pinned metric.
+         */
+        delete: operations["delete_metric_api_metrics__metric_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Metric
+         * @description Update a pinned metric's configuration.
+         */
+        patch: operations["update_metric_api_metrics__metric_id__patch"];
+        trace?: never;
+    };
+    "/api/sidecar-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sidecar Templates
+         * @description List all saved sidecar templates.
+         */
+        get: operations["list_sidecar_templates_api_sidecar_templates_get"];
+        put?: never;
+        /**
+         * Create Sidecar Template
+         * @description Create a new sidecar template.
+         */
+        post: operations["create_sidecar_template_api_sidecar_templates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sidecar-templates/{template_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sidecar Template
+         * @description Get a single sidecar template by ID.
+         */
+        get: operations["get_sidecar_template_api_sidecar_templates__template_id__get"];
+        /**
+         * Update Sidecar Template
+         * @description Update an existing sidecar template.
+         */
+        put: operations["update_sidecar_template_api_sidecar_templates__template_id__put"];
+        post?: never;
+        /**
+         * Delete Sidecar Template
+         * @description Delete a sidecar template.
+         */
+        delete: operations["delete_sidecar_template_api_sidecar_templates__template_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sidecar-templates/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Sidecar Definition
+         * @description Generate a sidecar definition from a natural language description.
+         */
+        post: operations["generate_sidecar_definition_api_sidecar_templates_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/sidecars/{sidecar_name}/fire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fire Sidecar
+         * @description Manually fire a sidecar's ManualCondition pipelines.
+         */
+        post: operations["fire_sidecar_api_jobs__job_id__sidecars__sidecar_name__fire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActionPurposeCell */
+        ActionPurposeCell: {
+            /** Action */
+            action: string;
+            /** Purpose */
+            purpose: string;
+            /**
+             * Costusd
+             * @default 0
+             */
+            costUsd: number;
+            /**
+             * Callcount
+             * @default 0
+             */
+            callCount: number;
+        };
+        /** ActionPurposeMatrixResponse */
+        ActionPurposeMatrixResponse: {
+            /**
+             * Cells
+             * @default []
+             */
+            cells: components["schemas"]["ActionPurposeCell"][];
+            /**
+             * Perioddays
+             * @default 30
+             */
+            periodDays: number;
+        };
         /** ActionRuleRequest */
         ActionRuleRequest: {
             /** Matchpattern */
@@ -2043,6 +2820,57 @@ export interface components {
             reason: string;
             /** Createdat */
             createdAt: string;
+        };
+        /** ActivityPhaseCell */
+        ActivityPhaseCell: {
+            /**
+             * Activity
+             * @default
+             */
+            activity: string;
+            /**
+             * Phase
+             * @default
+             */
+            phase: string;
+            /**
+             * Costusd
+             * @default 0
+             */
+            costUsd: number;
+            /**
+             * Inputtokens
+             * @default 0
+             */
+            inputTokens: number;
+            /**
+             * Outputtokens
+             * @default 0
+             */
+            outputTokens: number;
+            /**
+             * Callcount
+             * @default 0
+             */
+            callCount: number;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+        };
+        /** ActivityPhaseMatrixResponse */
+        ActivityPhaseMatrixResponse: {
+            /**
+             * Cells
+             * @default []
+             */
+            cells: components["schemas"]["ActivityPhaseCell"][];
+            /**
+             * Perioddays
+             * @default 30
+             */
+            periodDays: number;
         };
         /** AnalyticsJobsResponse */
         AnalyticsJobsResponse: {
@@ -2240,6 +3068,8 @@ export interface components {
              * @default false
              */
             requiresExplicitApproval: boolean;
+            /** Notes */
+            notes?: string | null;
         };
         /** ArtifactListResponse */
         ArtifactListResponse: {
@@ -2271,6 +3101,53 @@ export interface components {
          * @enum {string}
          */
         ArtifactType: "diff_snapshot" | "agent_summary" | "session_snapshot" | "session_log" | "agent_plan" | "telemetry_report" | "approval_history" | "agent_log" | "document" | "custom";
+        /**
+         * BlastRadiusCandidate
+         * @description A test candidate from blast radius analysis.
+         */
+        BlastRadiusCandidate: {
+            /** Testid */
+            testId: string;
+            /** Source */
+            source: string;
+            /**
+             * Distance
+             * @default 0
+             */
+            distance: number;
+            /**
+             * Confidence
+             * @default 0
+             */
+            confidence: number;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
+        /**
+         * BlastRadiusResponse
+         * @description Blast radius result for a job's changed files.
+         */
+        BlastRadiusResponse: {
+            /** Jobid */
+            jobId: string;
+            /**
+             * Available
+             * @default true
+             */
+            available: boolean;
+            /**
+             * Hascoveragedata
+             * @default false
+             */
+            hasCoverageData: boolean;
+            /** Candidates */
+            candidates?: components["schemas"]["BlastRadiusCandidate"][];
+            /** Coveragegaps */
+            coverageGaps?: string[];
+        };
         /** Body_transcribe_api_voice_transcribe_post */
         Body_transcribe_api_voice_transcribe_post: {
             /** Audio */
@@ -2297,15 +3174,161 @@ export interface components {
              */
             isGitRepo: boolean;
         };
+        /** CacheEfficiencyResponse */
+        CacheEfficiencyResponse: {
+            /** Period */
+            period: number;
+            /** Dimension */
+            dimension: string;
+            /**
+             * Buckets
+             * @default []
+             */
+            buckets: components["schemas"]["CacheEfficiencyRow"][];
+        };
+        /** CacheEfficiencyRow */
+        CacheEfficiencyRow: {
+            /** Bucket */
+            bucket: string;
+            /**
+             * Totalinputtokens
+             * @default 0
+             */
+            totalInputTokens: number;
+            /**
+             * Totalcachereadtokens
+             * @default 0
+             */
+            totalCacheReadTokens: number;
+            /**
+             * Totalcachewritetokens
+             * @default 0
+             */
+            totalCacheWriteTokens: number;
+            /**
+             * Cachehitrate
+             * @default 0
+             */
+            cacheHitRate: number;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+        };
         /** CleanupWorktreesResponse */
         CleanupWorktreesResponse: {
             /** Removed */
             removed: number;
         };
+        /**
+         * CommunitiesResponse
+         * @description Community-grouped structural changes for a job.
+         */
+        CommunitiesResponse: {
+            /** Jobid */
+            jobId: string;
+            /**
+             * Available
+             * @default true
+             */
+            available: boolean;
+            /** Communities */
+            communities?: components["schemas"]["CommunityGroup"][];
+            /** Unclustered */
+            unclustered?: {
+                [key: string]: unknown;
+            }[];
+        };
+        /**
+         * CommunityGroup
+         * @description A module community with its grouped changes.
+         */
+        CommunityGroup: {
+            /** Name */
+            name: string;
+            /** Changes */
+            changes?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Totalrisk
+             * @default 0
+             */
+            totalRisk: number;
+        };
+        /**
+         * CommunityRollupSchema
+         * @description Community-level aggregation when body changes exceed cognitive cap.
+         */
+        CommunityRollupSchema: {
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /**
+             * Changecount
+             * @default 0
+             */
+            changeCount: number;
+            /**
+             * Avgrisk
+             * @default 0
+             */
+            avgRisk: number;
+            /** Highestrisksymbol */
+            highestRiskSymbol?: string | null;
+            /**
+             * Highestrisk
+             * @default 0
+             */
+            highestRisk: number;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+        };
+        /** ContextHandoffPayload */
+        ContextHandoffPayload: {
+            /**
+             * Jobid
+             * @default
+             */
+            jobId: string;
+            /**
+             * Source
+             * @default
+             */
+            source: string;
+            /** Sourcesessionid */
+            sourceSessionId?: string | null;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /** Content */
+            content?: string | null;
+            /**
+             * Timestamp
+             * Format: date-time
+             * @default 0001-01-01T00:00:00
+             */
+            timestamp: string;
+        };
         /** ContinueJobRequest */
         ContinueJobRequest: {
             /** Instruction */
             instruction: string;
+        };
+        /** ConversationListResponse */
+        ConversationListResponse: {
+            /** Conversations */
+            conversations: {
+                [key: string]: unknown;
+            }[];
         };
         /** CostDriverEntry */
         CostDriverEntry: {
@@ -2395,6 +3418,50 @@ export interface components {
              */
             jobs: number;
         };
+        /**
+         * CoveringTestCandidate
+         * @description A test that covers a specific symbol.
+         */
+        CoveringTestCandidate: {
+            /** Testid */
+            testId: string;
+            /** Source */
+            source: string;
+            /**
+             * Distance
+             * @default 0
+             */
+            distance: number;
+            /**
+             * Confidence
+             * @default 0
+             */
+            confidence: number;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
+        /**
+         * CoveringTestsResponse
+         * @description Tests covering definitions in a file.
+         */
+        CoveringTestsResponse: {
+            /** Jobid */
+            jobId: string;
+            /** Filepath */
+            filePath: string;
+            /**
+             * Available
+             * @default true
+             */
+            available: boolean;
+            /** Symbols */
+            symbols?: {
+                [key: string]: components["schemas"]["CoveringTestCandidate"][];
+            };
+        };
         /** CreateJobRequest */
         CreateJobRequest: {
             /** Repo */
@@ -2470,6 +3537,15 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** CreateSidecarTemplateRequest */
+        CreateSidecarTemplateRequest: {
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Definitionjson */
+            definitionJson: string;
+        };
         /** CreateTerminalSessionRequest */
         CreateTerminalSessionRequest: {
             /** Shell */
@@ -2494,6 +3570,83 @@ export interface components {
             /** Pid */
             pid: number;
         };
+        /** CustomMetricResponse */
+        CustomMetricResponse: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Sql */
+            sql: string;
+            /** Viz */
+            viz: string;
+            /** Vizconfig */
+            vizConfig?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Periodrelative
+             * @default true
+             */
+            periodRelative: boolean;
+            /**
+             * Pindashboard
+             * @default true
+             */
+            pinDashboard: boolean;
+            /**
+             * Pinjobpanel
+             * @default false
+             */
+            pinJobPanel: boolean;
+            /**
+             * Alertenabled
+             * @default false
+             */
+            alertEnabled: boolean;
+            /** Alertop */
+            alertOp?: string | null;
+            /** Alertvalue */
+            alertValue?: number | null;
+            /** Alertseverity */
+            alertSeverity?: string | null;
+            /** Alertcooldownhours */
+            alertCooldownHours?: number | null;
+            /**
+             * Tilesize
+             * @default 1x1
+             */
+            tileSize: string;
+            /**
+             * Position
+             * @default 0
+             */
+            position: number;
+            /** Originalquestion */
+            originalQuestion?: string | null;
+            /** Explanation */
+            explanation?: string | null;
+            /** Createdat */
+            createdAt: string;
+            /** Updatedat */
+            updatedAt: string;
+        };
+        /** CustomMetricWithDataResponse */
+        CustomMetricWithDataResponse: {
+            metric: components["schemas"]["CustomMetricResponse"];
+            /**
+             * Data
+             * @default []
+             */
+            data: unknown[];
+            /** Error */
+            error?: string | null;
+        };
+        /** CustomMetricsListResponse */
+        CustomMetricsListResponse: {
+            /** Metrics */
+            metrics: components["schemas"]["CustomMetricWithDataResponse"][];
+        };
         /** DiffFileModel */
         DiffFileModel: {
             /** Path */
@@ -2505,16 +3658,53 @@ export interface components {
             deletions: number;
             /** Hunks */
             hunks: components["schemas"]["DiffHunkModel"][];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /** Rawsize */
+            rawSize?: number | null;
             /** Writecount */
             writeCount?: number | null;
             /** Retrycount */
             retryCount?: number | null;
+            /** Symbols */
+            symbols?: components["schemas"]["DiffFileSymbolImpact"][];
         };
         /**
          * DiffFileStatus
          * @enum {string}
          */
         DiffFileStatus: "added" | "modified" | "deleted" | "renamed";
+        /**
+         * DiffFileSymbolImpact
+         * @description A symbol in a diff file with its impact data from CodeRecon semantic_diff.
+         */
+        DiffFileSymbolImpact: {
+            /** Symbol */
+            symbol: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Category
+             * @default non-structural
+             */
+            category: string;
+            /** Linerange */
+            lineRange?: number[] | null;
+            /**
+             * Refcount
+             * @default 0
+             */
+            refCount: number;
+            /** Reftiers */
+            refTiers?: {
+                [key: string]: number;
+            };
+            /** Testfiles */
+            testFiles?: string[];
+        };
         /** DiffHunkModel */
         DiffHunkModel: {
             /** Oldstart */
@@ -2548,6 +3738,34 @@ export interface components {
         DismissResponse: {
             /** Status */
             status: string;
+        };
+        /**
+         * EdgeCaseBlockSchema
+         * @description A metadata block for non-narrative content (docs, generated, vendor, etc.).
+         */
+        EdgeCaseBlockSchema: {
+            /**
+             * Kind
+             * @default
+             */
+            kind: string;
+            /**
+             * Icon
+             * @default
+             */
+            icon: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+            /** Files */
+            files?: string[];
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
         };
         /** EditEfficiencyCategory */
         EditEfficiencyCategory: {
@@ -2597,6 +3815,58 @@ export interface components {
          * @enum {string}
          */
         ExecutionPhase: "environment_setup" | "agent_reasoning" | "verification" | "finalization" | "post_completion";
+        /** ExecutiveSummaryResponse */
+        ExecutiveSummaryResponse: {
+            /**
+             * Buildingusd
+             * @default 0
+             */
+            buildingUsd: number;
+            /**
+             * Thinkingusd
+             * @default 0
+             */
+            thinkingUsd: number;
+            /**
+             * Wastedusd
+             * @default 0
+             */
+            wastedUsd: number;
+            /**
+             * Totalusd
+             * @default 0
+             */
+            totalUsd: number;
+            /**
+             * Buildingpct
+             * @default 0
+             */
+            buildingPct: number;
+            /**
+             * Thinkingpct
+             * @default 0
+             */
+            thinkingPct: number;
+            /**
+             * Wastedpct
+             * @default 0
+             */
+            wastedPct: number;
+            /**
+             * @default {
+             *       "retryUsd": 0,
+             *       "failedJobsUsd": 0,
+             *       "compactionUsd": 0,
+             *       "rereadsUsd": 0
+             *     }
+             */
+            wasteBreakdown: components["schemas"]["WasteBreakdown"];
+            /**
+             * Perioddays
+             * @default 30
+             */
+            periodDays: number;
+        };
         /** FileAccessEntry */
         FileAccessEntry: {
             /**
@@ -2678,6 +3948,52 @@ export interface components {
              */
             rereadCount: number;
         };
+        /** FileCostEntry */
+        FileCostEntry: {
+            /**
+             * Filepath
+             * @default
+             */
+            filePath: string;
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Totalreadcost
+             * @default 0
+             */
+            totalReadCost: number;
+            /**
+             * Totalwritecost
+             * @default 0
+             */
+            totalWriteCost: number;
+            /**
+             * Totalturns
+             * @default 0
+             */
+            totalTurns: number;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+        };
+        /** FileCostResponse */
+        FileCostResponse: {
+            /**
+             * Files
+             * @default []
+             */
+            files: components["schemas"]["FileCostEntry"][];
+            /**
+             * Perioddays
+             * @default 30
+             */
+            periodDays: number;
+        };
         /**
          * FileMotivation
          * @description Per-file motivation annotation.
@@ -2693,19 +4009,61 @@ export interface components {
              */
             unmatchedEdits: components["schemas"]["HunkMotivation"][];
         };
-        /** FleetCostDriversResponse */
-        FleetCostDriversResponse: {
+        /**
+         * FireSidecarRequest
+         * @description Optional context to pass to the sidecar's manual trigger.
+         */
+        FireSidecarRequest: {
+            /** Context */
+            context?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** FleetFileAccessResponse */
+        FleetFileAccessResponse: {
+            /** Period */
+            period: number;
+            /**
+             * Topfiles
+             * @default []
+             */
+            topFiles: components["schemas"]["FileAccessEntry"][];
+        };
+        /**
+         * FleetLatencyDriversResponse
+         * @description Fleet-wide latency attribution response.
+         */
+        FleetLatencyDriversResponse: {
             /** Period */
             period: number;
             /** Dimension */
             dimension?: string | null;
-            /** Buckets */
-            buckets?: components["schemas"]["CostDriverEntry"][] | null;
-            /** Summary */
-            summary?: components["schemas"]["FleetCostEntry"][] | null;
+            /**
+             * Summary
+             * @default []
+             */
+            summary: components["schemas"]["FleetLatencyEntry"][];
+            /**
+             * Avgjobdurationms
+             * @default 0
+             */
+            avgJobDurationMs: number;
+            /**
+             * P50Jobdurationms
+             * @default 0
+             */
+            p50JobDurationMs: number;
+            /**
+             * P95Jobdurationms
+             * @default 0
+             */
+            p95JobDurationMs: number;
         };
-        /** FleetCostEntry */
-        FleetCostEntry: {
+        /**
+         * FleetLatencyEntry
+         * @description A single row in fleet latency breakdown.
+         */
+        FleetLatencyEntry: {
             /**
              * Dimension
              * @default
@@ -2717,52 +4075,30 @@ export interface components {
              */
             bucket: string;
             /**
-             * Costusd
+             * Avgwallclockms
              * @default 0
              */
-            costUsd: number;
+            avgWallClockMs: number;
             /**
-             * Inputtokens
+             * Avgsumdurationms
              * @default 0
              */
-            inputTokens: number;
+            avgSumDurationMs: number;
             /**
-             * Outputtokens
+             * Totalspancount
              * @default 0
              */
-            outputTokens: number;
-            /**
-             * Callcount
-             * @default 0
-             */
-            callCount: number;
+            totalSpanCount: number;
             /**
              * Jobcount
              * @default 0
              */
             jobCount: number;
             /**
-             * Avgcostperjob
+             * Avgpctoftotal
              * @default 0
              */
-            avgCostPerJob: number;
-            /**
-             * Confidence
-             * @default
-             */
-            confidence: string;
-        } & {
-            [key: string]: unknown;
-        };
-        /** FleetFileAccessResponse */
-        FleetFileAccessResponse: {
-            /** Period */
-            period: number;
-            /**
-             * Topfiles
-             * @default []
-             */
-            topFiles: components["schemas"]["FileAccessEntry"][];
+            avgPctOfTotal: number;
         };
         /** FullPolicyResponse */
         FullPolicyResponse: {
@@ -2777,6 +4113,18 @@ export interface components {
             mcpServers?: components["schemas"]["MCPServerResponse"][];
             /** Trustgrants */
             trustGrants?: components["schemas"]["TrustGrantResponse"][];
+        };
+        /** GenerateSidecarRequest */
+        GenerateSidecarRequest: {
+            /** Description */
+            description: string;
+        };
+        /** GenerateSidecarResponse */
+        GenerateSidecarResponse: {
+            /** Definition */
+            definition: {
+                [key: string]: unknown;
+            };
         };
         /**
          * GitMergeOutcome
@@ -2820,6 +4168,109 @@ export interface components {
             title: string;
             /** Why */
             why: string;
+        };
+        /**
+         * ImpactGraphBatchRequest
+         * @description Request body for batch impact graph queries.
+         */
+        ImpactGraphBatchRequest: {
+            /** Symbols */
+            symbols: string[];
+        };
+        /**
+         * ImpactGraphBatchResponse
+         * @description Batch impact graph results keyed by symbol name.
+         */
+        ImpactGraphBatchResponse: {
+            /** Jobid */
+            jobId: string;
+            /** Results */
+            results?: {
+                [key: string]: components["schemas"]["ImpactGraphResponse"];
+            };
+        };
+        /**
+         * ImpactGraphResponse
+         * @description Impact graph for a symbol — callers with tier classification.
+         */
+        ImpactGraphResponse: {
+            /** Jobid */
+            jobId: string;
+            /** Target */
+            target: string;
+            /**
+             * Available
+             * @default true
+             */
+            available: boolean;
+            /**
+             * Totalreferences
+             * @default 0
+             */
+            totalReferences: number;
+            /**
+             * Filesaffected
+             * @default 0
+             */
+            filesAffected: number;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /** References */
+            references?: components["schemas"]["ImpactReference"][];
+            /**
+             * Failcount
+             * @default 0
+             */
+            failCount: number;
+            /**
+             * Uncoveredcount
+             * @default 0
+             */
+            uncoveredCount: number;
+        };
+        /**
+         * ImpactReference
+         * @description A single reference/caller in an impact graph.
+         */
+        ImpactReference: {
+            /**
+             * Symbol
+             * @default
+             */
+            symbol: string;
+            /**
+             * File
+             * @default
+             */
+            file: string;
+            /** Line */
+            line?: number | null;
+            /**
+             * Tier
+             * @default unverified
+             */
+            tier: string;
+            /**
+             * Istest
+             * @default false
+             */
+            isTest: boolean;
+            /**
+             * Rawtier
+             * @default UNKNOWN
+             */
+            rawTier: string;
+            /** Covered */
+            covered?: boolean | null;
+            /** Testpassed */
+            testPassed?: boolean | null;
+            /** Coveringtestids */
+            coveringTestIds?: string[];
+            /** Stale */
+            stale?: boolean | null;
         };
         /** JobContextFlag */
         JobContextFlag: {
@@ -2928,6 +4379,42 @@ export interface components {
             /** Hasmore */
             hasMore: boolean;
         };
+        /**
+         * JobMode
+         * @description Execution mode for a job.
+         *
+         *     standard          — Normal execution: agent receives task and runs freely.
+         *     plan              — Plan-first: a planning session produces a structured plan,
+         *                         the operator reviews it, then a fresh implementation session
+         *                         executes the approved plan.
+         *     plan_implementing — The planning phase is done and the implementation session
+         *                         is running.  Persisted so crash recovery knows which phase
+         *                         the job is in.
+         * @enum {string}
+         */
+        JobMode: "standard" | "plan" | "plan_implementing";
+        /**
+         * JobMotivationsResponse
+         * @description All motivation annotations for a job, keyed by file path.
+         */
+        JobMotivationsResponse: {
+            /** Jobid */
+            jobId: string;
+            /**
+             * Filemotivations
+             * @default {}
+             */
+            fileMotivations: {
+                [key: string]: components["schemas"]["FileMotivation"];
+            };
+            /**
+             * Hunkmotivations
+             * @default {}
+             */
+            hunkMotivations: {
+                [key: string]: components["schemas"]["HunkMotivation"];
+            };
+        };
         /** JobResponse */
         JobResponse: {
             /** Id */
@@ -2997,6 +4484,23 @@ export interface components {
             enablePlanTracking?: boolean | null;
             /** Parentjobid */
             parentJobId?: string | null;
+            /**
+             * Source
+             * @default managed
+             */
+            source: string;
+            /** Externalsessionid */
+            externalSessionId?: string | null;
+            /** @default standard */
+            mode: components["schemas"]["JobMode"];
+            /** Totalcostusd */
+            totalCostUsd?: number | null;
+            /** Totaltokens */
+            totalTokens?: number | null;
+            /** Inputtokens */
+            inputTokens?: number | null;
+            /** Outputtokens */
+            outputTokens?: number | null;
         };
         /**
          * JobSnapshotResponse
@@ -3024,6 +4528,16 @@ export interface components {
              * @default []
              */
             turnSummaries: components["schemas"]["TurnSummaryPayload"][];
+            /**
+             * Secondarysessions
+             * @default []
+             */
+            secondarySessions: components["schemas"]["SecondarySessionResponse"][];
+            /**
+             * Contexthandoffs
+             * @default []
+             */
+            contextHandoffs: components["schemas"]["ContextHandoffPayload"][];
         };
         /**
          * JobState
@@ -3194,6 +4708,36 @@ export interface components {
             turnEconomics: components["schemas"]["TelemetryTurnEconomics"];
             /**
              * @default {
+             *       "category": [],
+             *       "activity": [],
+             *       "phase": [],
+             *       "toolType": []
+             *     }
+             */
+            latencyDrivers: components["schemas"]["TelemetryLatencyDrivers"];
+            /**
+             * @default {
+             *       "totalTurns": 0,
+             *       "peakTurnMs": 0,
+             *       "avgTurnMs": 0,
+             *       "firstHalfMs": 0,
+             *       "secondHalfMs": 0,
+             *       "turnCurve": []
+             *     }
+             */
+            turnLatency: components["schemas"]["TelemetryTurnLatency"];
+            /**
+             * Parallelismratio
+             * @default 0
+             */
+            parallelismRatio: number;
+            /**
+             * Idlems
+             * @default 0
+             */
+            idleMs: number;
+            /**
+             * @default {
              *       "stats": {
              *         "rereadCount": 0,
              *         "totalAccesses": 0,
@@ -3223,6 +4767,64 @@ export interface components {
              *     }
              */
             reviewComplexity: components["schemas"]["TelemetryReviewComplexity"];
+            /**
+             * Sidecarsessions
+             * @default []
+             */
+            sidecarSessions: components["schemas"]["SidecarSessionSummary"][];
+        };
+        /**
+         * LineCoverageResponse
+         * @description Per-line coverage for gutter rendering in the layered diff view.
+         */
+        LineCoverageResponse: {
+            /** Jobid */
+            jobId: string;
+            /** Filepath */
+            filePath: string;
+            /**
+             * Available
+             * @default true
+             */
+            available: boolean;
+            /** Coveredlines */
+            coveredLines?: number[];
+            /** Uncoveredlines */
+            uncoveredLines?: number[];
+            /**
+             * Totalinstrumented
+             * @default 0
+             */
+            totalInstrumented: number;
+            /**
+             * Linerate
+             * @default 0
+             */
+            lineRate: number;
+            /** Testsbyline */
+            testsByLine?: {
+                [key: string]: components["schemas"]["LineCoverageTestInfo"][];
+            };
+        };
+        /**
+         * LineCoverageTestInfo
+         * @description A test that covers a specific line.
+         */
+        LineCoverageTestInfo: {
+            /** Name */
+            name: string;
+            /** File */
+            file: string;
+            /**
+             * Line
+             * @default 0
+             */
+            line: number;
+            /**
+             * Status
+             * @default notrun
+             */
+            status: string;
         };
         /**
          * LogLevel
@@ -3322,6 +4924,47 @@ export interface components {
             };
             /** Createdat */
             createdAt: string;
+        };
+        /** MetricsChatMessageResponse */
+        MetricsChatMessageResponse: {
+            /** Messageid */
+            messageId: string;
+            /** Narrative */
+            narrative: string;
+            /**
+             * Error
+             * @default false
+             */
+            error: boolean;
+            /** Title */
+            title?: string | null;
+            /** Viz */
+            viz?: string | null;
+            /** Vizconfig */
+            vizConfig?: {
+                [key: string]: unknown;
+            } | null;
+            /** Vizdata */
+            vizData?: unknown[] | null;
+            /** Sqlqueries */
+            sqlQueries?: string[] | null;
+            /** Suggestion */
+            suggestion?: string | null;
+        };
+        /** MetricsChatRequest */
+        MetricsChatRequest: {
+            /** Question */
+            question: string;
+            /** Conversationid */
+            conversationId?: string | null;
+            /** Perioddays */
+            periodDays?: number | null;
+        };
+        /** MetricsChatResponse */
+        MetricsChatResponse: {
+            /** Conversationid */
+            conversationId: string;
+            message: components["schemas"]["MetricsChatMessageResponse"];
         };
         /** ModelComparisonResponse */
         ModelComparisonResponse: {
@@ -3423,6 +5066,81 @@ export interface components {
              * @default 0
              */
             costPerToolCall: number;
+            /**
+             * Costperdiffline
+             * @default 0
+             */
+            costPerDiffLine: number;
+        };
+        /** ModelCostMixEntry */
+        ModelCostMixEntry: {
+            /** Model */
+            model: string;
+            /**
+             * Costpermtok
+             * @default 0
+             */
+            costPerMtok: number;
+            /**
+             * Totaltokens
+             * @default 0
+             */
+            totalTokens: number;
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Pctoftokens
+             * @default 0
+             */
+            pctOfTokens: number;
+        };
+        /** ModelEfficiencyResponse */
+        ModelEfficiencyResponse: {
+            /** Period */
+            period: number;
+            /**
+             * Models
+             * @default []
+             */
+            models: components["schemas"]["ModelEfficiencyRow"][];
+        };
+        /** ModelEfficiencyRow */
+        ModelEfficiencyRow: {
+            /** Model */
+            model: string;
+            /**
+             * Editturns
+             * @default 0
+             */
+            editTurns: number;
+            /**
+             * Oneshotturns
+             * @default 0
+             */
+            oneShotTurns: number;
+            /**
+             * Retries
+             * @default 0
+             */
+            retries: number;
+            /**
+             * Oneshotrate
+             * @default 0
+             */
+            oneShotRate: number;
+            /**
+             * Retryrate
+             * @default 0
+             */
+            retryRate: number;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
         };
         /**
          * ModelInfoResponse
@@ -3524,6 +5242,28 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * MultiSessionResponse
+         * @description Multi-session structural intelligence for a job (§10).
+         */
+        MultiSessionResponse: {
+            /** Jobid */
+            jobId: string;
+            /**
+             * Available
+             * @default true
+             */
+            available: boolean;
+            /**
+             * Sessions
+             * @default []
+             */
+            sessions: components["schemas"]["SessionSegment"][];
+            /** Directionchanges */
+            directionChanges?: {
+                [key: string]: unknown;
+            }[];
+        };
         /** ObservationEntry */
         ObservationEntry: {
             /**
@@ -3551,6 +5291,27 @@ export interface components {
              * @default
              */
             detail: string;
+            /**
+             * Evidence
+             * @default {}
+             */
+            evidence: {
+                [key: string]: unknown;
+            };
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+            /**
+             * Totalwasteusd
+             * @default 0
+             */
+            totalWasteUsd: number;
+            /** Firstseenat */
+            firstSeenAt?: string | null;
+            /** Lastseenat */
+            lastSeenAt?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -3561,6 +5322,57 @@ export interface components {
              * @default []
              */
             observations: components["schemas"]["ObservationEntry"][];
+        };
+        /** OutcomeMatrixCell */
+        OutcomeMatrixCell: {
+            /**
+             * Activity
+             * @default
+             */
+            activity: string;
+            /**
+             * Resolution
+             * @default
+             */
+            resolution: string;
+            /**
+             * Costusd
+             * @default 0
+             */
+            costUsd: number;
+            /**
+             * Inputtokens
+             * @default 0
+             */
+            inputTokens: number;
+            /**
+             * Outputtokens
+             * @default 0
+             */
+            outputTokens: number;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+        };
+        /** OutcomeMatrixResponse */
+        OutcomeMatrixResponse: {
+            /**
+             * Cells
+             * @default []
+             */
+            cells: components["schemas"]["OutcomeMatrixCell"][];
+            /**
+             * Perioddays
+             * @default 30
+             */
+            periodDays: number;
+            /**
+             * Totalwasteusd
+             * @default 0
+             */
+            totalWasteUsd: number;
         };
         /** PathRuleRequest */
         PathRuleRequest: {
@@ -3583,6 +5395,66 @@ export interface components {
             reason: string;
             /** Createdat */
             createdAt: string;
+        };
+        /**
+         * PatternGroupSchema
+         * @description A group of changes sharing a common structural pattern.
+         */
+        PatternGroupSchema: {
+            /**
+             * Pattern
+             * @default
+             */
+            pattern: string;
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+            /** Files */
+            files?: string[];
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+        };
+        /** PinMetricRequest */
+        PinMetricRequest: {
+            /** Name */
+            name: string;
+            /** Sql */
+            sql: string;
+            /** Viz */
+            viz: string;
+            /** Vizconfig */
+            vizConfig?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Periodrelative
+             * @default true
+             */
+            periodRelative: boolean;
+            /**
+             * Pindashboard
+             * @default true
+             */
+            pinDashboard: boolean;
+            /**
+             * Pinjobpanel
+             * @default false
+             */
+            pinJobPanel: boolean;
+            /**
+             * Tilesize
+             * @default 1x1
+             */
+            tileSize: string;
+            /** Originalquestion */
+            originalQuestion?: string | null;
+            /** Explanation */
+            explanation?: string | null;
         };
         /**
          * PlanStepPayload
@@ -3687,20 +5559,14 @@ export interface components {
          * @description Action policy preset — controls how the policy router classifies agent actions.
          *
          *     autonomous — Contained actions auto-approved. Non-contained actions gated.
+         *                  Monitor handles gate-tier decisions.
          *     supervised — Reversible + contained auto-approved. Irreversible or
-         *                  non-contained actions gated.
+         *                  non-contained actions gated. Monitor handles gate-tier decisions.
          *     locked     — Reversible + contained get checkpointed. Everything else gated.
+         *                  Monitor disabled — all gates go directly to human.
          * @enum {string}
          */
         Preset: "autonomous" | "supervised" | "locked";
-        /**
-         * JobMode
-         * @description Execution mode for a job.
-         *     standard — Normal single-phase execution.
-         *     plan     — Plan-first: agent produces a plan, operator reviews, then implementation runs.
-         * @enum {string}
-         */
-        JobMode: "standard" | "plan";
         /** ProgressHeadlinePayload */
         ProgressHeadlinePayload: {
             /** Jobid */
@@ -3738,6 +5604,27 @@ export interface components {
             /** Cloned */
             cloned: boolean;
         };
+        /**
+         * RepoCostSummary
+         * @description Aggregated cost for a repo over a time period.
+         */
+        RepoCostSummary: {
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Totaljobs
+             * @default 0
+             */
+            totalJobs: number;
+            /**
+             * Totaltokens
+             * @default 0
+             */
+            totalTokens: number;
+        };
         /** RepoDetailResponse */
         RepoDetailResponse: {
             /** Path */
@@ -3755,6 +5642,71 @@ export interface components {
             activeJobCount: number;
             /** Platform */
             platform?: string | null;
+        };
+        /**
+         * RepoHealthResponse
+         * @description Structural health status for a repository (§6.2).
+         */
+        RepoHealthResponse: {
+            /** Repo */
+            repo: string;
+            /**
+             * Available
+             * @default false
+             */
+            available: boolean;
+            /** Indexstatus */
+            indexStatus?: string | null;
+            /**
+             * Symbolcount
+             * @default 0
+             */
+            symbolCount: number;
+            /**
+             * Filecount
+             * @default 0
+             */
+            fileCount: number;
+            /** Lastindexedsha */
+            lastIndexedSha?: string | null;
+            /**
+             * Communitycount
+             * @default 0
+             */
+            communityCount: number;
+            /**
+             * Cyclecount
+             * @default 0
+             */
+            cycleCount: number;
+            /**
+             * Stale
+             * @default false
+             */
+            stale: boolean;
+        };
+        /**
+         * RepoJobSummary
+         * @description Minimal job info for repo dashboard.
+         */
+        RepoJobSummary: {
+            /** Id */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /** State */
+            state: string;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /** Completedat */
+            completedAt?: string | null;
+            /** Totalcostusd */
+            totalCostUsd?: number | null;
+            /** Model */
+            model?: string | null;
         };
         /** RepoListResponse */
         RepoListResponse: {
@@ -3812,6 +5764,41 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * RepoSummaryResponse
+         * @description Aggregated overview for a single repo dashboard.
+         */
+        RepoSummaryResponse: {
+            /** Path */
+            path: string;
+            /** Originurl */
+            originUrl?: string | null;
+            /** Basebranch */
+            baseBranch?: string | null;
+            /** Currentbranch */
+            currentBranch?: string | null;
+            /** Platform */
+            platform?: string | null;
+            /**
+             * Recentjobs
+             * @default []
+             */
+            recentJobs: components["schemas"]["RepoJobSummary"][];
+            /**
+             * Activejobcount
+             * @default 0
+             */
+            activeJobCount: number;
+            /**
+             * @default {
+             *       "totalCostUsd": 0,
+             *       "totalJobs": 0,
+             *       "totalTokens": 0
+             *     }
+             */
+            cost: components["schemas"]["RepoCostSummary"];
+            health?: components["schemas"]["RepoHealthResponse"] | null;
+        };
+        /**
          * Resolution
          * @description User-facing disposition of a completed job.
          *
@@ -3829,6 +5816,8 @@ export interface components {
         /** ResolveApprovalRequest */
         ResolveApprovalRequest: {
             resolution: components["schemas"]["ApprovalResolution"];
+            /** Notes */
+            notes?: string | null;
         };
         /**
          * ResolveBatchRequest
@@ -3849,9 +5838,30 @@ export interface components {
             /** Resolved */
             resolved: boolean;
         };
+        /**
+         * ResolveGateRequest
+         * @description Operator resolution for a sidecar gate verdict.
+         */
+        ResolveGateRequest: {
+            /**
+             * Action
+             * @description 'approve' or 'reject'
+             */
+            action: string;
+            /**
+             * Message
+             * @description Optional follow-up message to the agent
+             */
+            message?: string | null;
+        };
         /** ResolveJobRequest */
         ResolveJobRequest: {
             action: components["schemas"]["ResolutionAction"];
+            /**
+             * Confirmlowconfidence
+             * @default false
+             */
+            confirmLowConfidence: boolean;
         };
         /** ResolveJobResponse */
         ResolveJobResponse: {
@@ -3910,6 +5920,94 @@ export interface components {
              * @default 0
              */
             retryPct: number;
+        };
+        /**
+         * ReviewStoryHeader
+         * @description Header block for the review story.
+         */
+        ReviewStoryHeader: {
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+            /**
+             * Filecount
+             * @default 0
+             */
+            fileCount: number;
+            /**
+             * Breakingcount
+             * @default 0
+             */
+            breakingCount: number;
+            /** Mergeconfidence */
+            mergeConfidence?: string | null;
+        };
+        /**
+         * ReviewStoryResponse
+         * @description Structured review story artifact (§11).
+         */
+        ReviewStoryResponse: {
+            /** Jobid */
+            jobId: string;
+            /**
+             * Available
+             * @default true
+             */
+            available: boolean;
+            /**
+             * Collapsed
+             * @default false
+             */
+            collapsed: boolean;
+            header?: components["schemas"]["ReviewStoryHeader"] | null;
+            /** Attentionrequired */
+            attentionRequired?: {
+                [key: string]: unknown;
+            }[];
+            /** Structuralconcerns */
+            structuralConcerns?: {
+                [key: string]: unknown;
+            }[];
+            /** Whatchanged */
+            whatChanged?: {
+                [key: string]: unknown;
+            }[];
+            /** Whatadded */
+            whatAdded?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Nonstructuralcount
+             * @default 0
+             */
+            nonStructuralCount: number;
+            /** Edgecases */
+            edgeCases?: components["schemas"]["EdgeCaseBlockSchema"][];
+            /** Communityrollups */
+            communityRollups?: components["schemas"]["CommunityRollupSchema"][];
+            /** Patterngroups */
+            patternGroups?: components["schemas"]["PatternGroupSchema"][];
+            verdict?: components["schemas"]["ReviewStoryVerdict"] | null;
+        };
+        /**
+         * ReviewStoryVerdict
+         * @description Verdict section of the review story.
+         */
+        ReviewStoryVerdict: {
+            /**
+             * Confidence
+             * @default MEDIUM
+             */
+            confidence: string;
+            /** Blockers */
+            blockers?: string[];
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
         };
         /** SDKInfoResponse */
         SDKInfoResponse: {
@@ -4014,12 +6112,27 @@ export interface components {
         };
         /** ScorecardResponse */
         ScorecardResponse: {
+            /**
+             * Period
+             * @default 0
+             */
+            period: number;
             activity: components["schemas"]["ScorecardActivity"];
             /**
              * Budget
              * @default []
              */
             budget: components["schemas"]["ScorecardBudget"][];
+            /**
+             * Avgcostpermtok
+             * @default 0
+             */
+            avgCostPerMtok: number;
+            /**
+             * Modelcostmix
+             * @default []
+             */
+            modelCostMix: components["schemas"]["ModelCostMixEntry"][];
             /** Quotajson */
             quotaJson?: string | null;
             /**
@@ -4032,6 +6145,130 @@ export interface components {
              * @default 0
              */
             dailySpendLimitUsd: number;
+            /**
+             * Monthlybudgetusd
+             * @default 0
+             */
+            monthlyBudgetUsd: number;
+            /**
+             * Monthspendusd
+             * @default 0
+             */
+            monthSpendUsd: number;
+            /**
+             * Projectedmonthendusd
+             * @default 0
+             */
+            projectedMonthEndUsd: number;
+            /**
+             * Dayselapsed
+             * @default 0
+             */
+            daysElapsed: number;
+            /**
+             * Daysinmonth
+             * @default 0
+             */
+            daysInMonth: number;
+            /**
+             * Dailyavgusd
+             * @default 0
+             */
+            dailyAvgUsd: number;
+            /**
+             * Pctmonthlybudgetused
+             * @default 0
+             */
+            pctMonthlyBudgetUsed: number;
+            /**
+             * Costperdiffline
+             * @default 0
+             */
+            costPerDiffLine: number;
+            /**
+             * Totaldifflines
+             * @default 0
+             */
+            totalDiffLines: number;
+            /**
+             * Compactioncostusd
+             * @default 0
+             */
+            compactionCostUsd: number;
+            /**
+             * Compactiontokens
+             * @default 0
+             */
+            compactionTokens: number;
+        };
+        /** SecondarySessionEntryResponse */
+        SecondarySessionEntryResponse: {
+            /** Seq */
+            seq: number;
+            /** Kind */
+            kind: string;
+            /** Content */
+            content: string;
+            /** Toolname */
+            toolName?: string | null;
+            /** Toolargs */
+            toolArgs?: string | null;
+            /** Durationms */
+            durationMs?: number | null;
+            /** Toolresult */
+            toolResult?: string | null;
+            /** Tooldisplay */
+            toolDisplay?: string | null;
+            /** Tooldisplayfull */
+            toolDisplayFull?: string | null;
+            /** Toolsuccess */
+            toolSuccess?: boolean | null;
+            /** Toolissue */
+            toolIssue?: string | null;
+            /** Toolvisibility */
+            toolVisibility?: string | null;
+        };
+        /** SecondarySessionResponse */
+        SecondarySessionResponse: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Icon */
+            icon: string;
+            /** Status */
+            status: string;
+            /**
+             * Startedat
+             * Format: date-time
+             */
+            startedAt: string;
+            /** Completedat */
+            completedAt?: string | null;
+            /** Output */
+            output?: string | null;
+            /**
+             * Inputtokens
+             * @default 0
+             */
+            inputTokens: number;
+            /**
+             * Outputtokens
+             * @default 0
+             */
+            outputTokens: number;
+            /**
+             * Costusd
+             * @default 0
+             */
+            costUsd: number;
+            /**
+             * Entries
+             * @default []
+             */
+            entries: components["schemas"]["SecondarySessionEntryResponse"][];
         };
         /** SendMessageRequest */
         SendMessageRequest: {
@@ -4047,6 +6284,32 @@ export interface components {
              * Format: date-time
              */
             timestamp: string;
+        };
+        /**
+         * SessionSegment
+         * @description Structural analysis of a single agent session.
+         */
+        SessionSegment: {
+            /** Sessionnumber */
+            sessionNumber: number;
+            /** Startsha */
+            startSha?: string | null;
+            /** Endsha */
+            endSha?: string | null;
+            /**
+             * Changes
+             * @default []
+             */
+            changes: components["schemas"]["StructuralChange"][];
+            /**
+             * Risk
+             * @default 0
+             */
+            risk: number;
+            /** Warnings */
+            warnings?: {
+                [key: string]: unknown;
+            }[];
         };
         /** SettingsResponse */
         SettingsResponse: {
@@ -4074,6 +6337,12 @@ export interface components {
             verifyPrompt: string;
             /** Selfreviewprompt */
             selfReviewPrompt: string;
+            /** Clisidecars */
+            cliSidecars: string[] | null;
+            /** Codereconsplade */
+            codereconSplade: boolean;
+            /** Codereconcrossencoder */
+            codereconCrossEncoder: boolean;
         };
         /** ShareTokenResponse */
         ShareTokenResponse: {
@@ -4124,8 +6393,49 @@ export interface components {
              */
             commands: components["schemas"]["ShellCommandEntry"][];
         };
-        /** SisterSessionGlobalMetrics */
-        SisterSessionGlobalMetrics: {
+        /**
+         * SidecarCostEntry
+         * @description Fleet-level cost breakdown for a single sidecar session kind.
+         */
+        SidecarCostEntry: {
+            /**
+             * Sessionkind
+             * @default
+             */
+            sessionKind: string;
+            /**
+             * Sessioncount
+             * @default 0
+             */
+            sessionCount: number;
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Inputtokens
+             * @default 0
+             */
+            inputTokens: number;
+            /**
+             * Outputtokens
+             * @default 0
+             */
+            outputTokens: number;
+            /**
+             * Llmcallcount
+             * @default 0
+             */
+            llmCallCount: number;
+            /**
+             * Toolcallcount
+             * @default 0
+             */
+            toolCallCount: number;
+        };
+        /** SidecarSessionGlobalMetrics */
+        SidecarSessionGlobalMetrics: {
             /** Totalcalls */
             totalCalls: number;
             /** Avglatencyms */
@@ -4137,8 +6447,8 @@ export interface components {
             /** Warmtokens */
             warmTokens: number;
         };
-        /** SisterSessionJobMetrics */
-        SisterSessionJobMetrics: {
+        /** SidecarSessionJobMetrics */
+        SidecarSessionJobMetrics: {
             /** Callcount */
             callCount: number;
             /** Avglatencyms */
@@ -4152,13 +6462,77 @@ export interface components {
             /** Costusd */
             costUsd: number;
         };
-        /** SisterSessionMetricsResponse */
-        SisterSessionMetricsResponse: {
-            global: components["schemas"]["SisterSessionGlobalMetrics"];
+        /** SidecarSessionMetricsResponse */
+        SidecarSessionMetricsResponse: {
+            global: components["schemas"]["SidecarSessionGlobalMetrics"];
             /** Jobs */
             jobs: {
-                [key: string]: components["schemas"]["SisterSessionJobMetrics"];
+                [key: string]: components["schemas"]["SidecarSessionJobMetrics"];
             };
+        };
+        /**
+         * SidecarSessionSummary
+         * @description Per-session-kind cost/token summary for sidecar sessions within a job.
+         */
+        SidecarSessionSummary: {
+            /**
+             * Sessionkind
+             * @default
+             */
+            sessionKind: string;
+            /**
+             * Inputtokens
+             * @default 0
+             */
+            inputTokens: number;
+            /**
+             * Outputtokens
+             * @default 0
+             */
+            outputTokens: number;
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Llmcallcount
+             * @default 0
+             */
+            llmCallCount: number;
+            /**
+             * Toolcallcount
+             * @default 0
+             */
+            toolCallCount: number;
+        };
+        /** SidecarTemplateListResponse */
+        SidecarTemplateListResponse: {
+            /** Items */
+            items: components["schemas"]["SidecarTemplateResponse"][];
+        };
+        /** SidecarTemplateResponse */
+        SidecarTemplateResponse: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Definitionjson */
+            definitionJson: string;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /** Lastusedat */
+            lastUsedAt: string | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
         };
         /**
          * StepDiffPayload
@@ -4201,14 +6575,22 @@ export interface components {
         /**
          * StoryBlock
          * @description A single block in a structured code-review story.
+         *
+         *     Block types:
+         *     - ``narrative``: prose text connecting references and beats
+         *     - ``reference``: validated code change with file/snippet data
+         *     - ``beat``: cognitive turning point (decision, backtrack, insight, verify)
+         *     - ``heading``: section title for story structure
          */
         StoryBlock: {
             /** Type */
             type: string;
             /** Text */
             text?: string | null;
+            /** Beatkind */
+            beatKind?: string | null;
             /** Spanid */
-            spanId?: number | null;
+            spanId?: string | null;
             /** Stepnumber */
             stepNumber?: number | null;
             /** Steptitle */
@@ -4221,10 +6603,15 @@ export interface components {
             turnId?: string | null;
             /** Editcount */
             editCount?: number | null;
+            /** Snippet */
+            snippet?: string | null;
+            /** Action */
+            action?: string | null;
         };
         /**
          * StoryResponse
-         * @description Structured code-review story with validated change references.
+         * @description Structured code-review story with validated change references
+         *     and agent cognitive beats.
          */
         StoryResponse: {
             /** Jobid */
@@ -4240,10 +6627,93 @@ export interface components {
              */
             cached: boolean;
             /**
-             * Verbosity
-             * @default standard
+             * Beatcount
+             * @default 0
              */
-            verbosity: string;
+            beatCount: number;
+            /**
+             * Hasdecisions
+             * @default false
+             */
+            hasDecisions: boolean;
+            /**
+             * Hasbacktracks
+             * @default false
+             */
+            hasBacktracks: boolean;
+            /**
+             * Pending
+             * @default false
+             */
+            pending: boolean;
+        };
+        /**
+         * StructuralChange
+         * @description A single structural change detected by semantic diff.
+         */
+        StructuralChange: {
+            /** Kind */
+            kind: string;
+            /** Symbol */
+            symbol?: string | null;
+            /** File */
+            file: string;
+            /** Summary */
+            summary?: string | null;
+            /**
+             * Category
+             * @default non-structural
+             */
+            category: string;
+            /**
+             * Refcount
+             * @default 0
+             */
+            refCount: number;
+            /** Reftiers */
+            refTiers?: {
+                [key: string]: number;
+            };
+            /** Testfiles */
+            testFiles?: string[];
+            /**
+             * Risk
+             * @default 0
+             */
+            risk: number;
+            /** Linerange */
+            lineRange?: number[] | null;
+            /** Coverageconfidence */
+            coverageConfidence?: string | null;
+        };
+        /**
+         * StructuralDiffResponse
+         * @description Structural diff result for a job's changes.
+         */
+        StructuralDiffResponse: {
+            /** Jobid */
+            jobId: string;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /**
+             * Changes
+             * @default []
+             */
+            changes: components["schemas"]["StructuralChange"][];
+            /**
+             * Available
+             * @default true
+             */
+            available: boolean;
+            /** Mergeconfidence */
+            mergeConfidence?: string | null;
+            /** Triage */
+            triage?: {
+                [key: string]: number;
+            };
         };
         /** SubscriptionRequest */
         SubscriptionRequest: {
@@ -4304,6 +6774,12 @@ export interface components {
              * @default 0
              */
             callCount: number;
+            /** Activity */
+            activity?: string | null;
+            /** Intent */
+            intent?: string | null;
+            /** Actions */
+            actions?: components["schemas"]["TurnAction"][] | null;
         };
         /** TelemetryCostDrivers */
         TelemetryCostDrivers: {
@@ -4396,6 +6872,83 @@ export interface components {
              * @default 0
              */
             rereadCount: number;
+        };
+        /**
+         * TelemetryLatencyBucket
+         * @description A single bucket within a latency attribution dimension.
+         */
+        TelemetryLatencyBucket: {
+            /**
+             * Dimension
+             * @default unknown
+             */
+            dimension: string;
+            /**
+             * Bucket
+             * @default unknown
+             */
+            bucket: string;
+            /**
+             * Wallclockms
+             * @default 0
+             */
+            wallClockMs: number;
+            /**
+             * Sumdurationms
+             * @default 0
+             */
+            sumDurationMs: number;
+            /**
+             * Spancount
+             * @default 0
+             */
+            spanCount: number;
+            /**
+             * P50Ms
+             * @default 0
+             */
+            p50Ms: number;
+            /**
+             * P95Ms
+             * @default 0
+             */
+            p95Ms: number;
+            /**
+             * Maxms
+             * @default 0
+             */
+            maxMs: number;
+            /**
+             * Pctoftotal
+             * @default 0
+             */
+            pctOfTotal: number;
+        };
+        /**
+         * TelemetryLatencyDrivers
+         * @description Latency breakdown by multiple dimensions.
+         */
+        TelemetryLatencyDrivers: {
+            /**
+             * Category
+             * @default []
+             */
+            category: components["schemas"]["TelemetryLatencyBucket"][];
+            /**
+             * Activity
+             * @default []
+             */
+            activity: components["schemas"]["TelemetryLatencyBucket"][];
+            /**
+             * Phase
+             * @default []
+             */
+            phase: components["schemas"]["TelemetryLatencyBucket"][];
+            /**
+             * Tooltype
+             * @default []
+             */
+            toolType: components["schemas"]["TelemetryLatencyBucket"][];
         };
         /** TelemetryLlmCall */
         TelemetryLlmCall: {
@@ -4519,6 +7072,18 @@ export interface components {
         TelemetryToolCall: {
             /** Name */
             name: string;
+            /** Displaylabel */
+            displayLabel?: string | null;
+            /**
+             * Activity
+             * @default overhead
+             */
+            activity: string;
+            /**
+             * Toolcategory
+             * @default other
+             */
+            toolCategory: string;
             /**
              * Durationms
              * @default 0
@@ -4571,6 +7136,42 @@ export interface components {
              * @default []
              */
             turnCurve: components["schemas"]["TelemetryCostBucket"][];
+        };
+        /**
+         * TelemetryTurnLatency
+         * @description Turn latency summary for a single job.
+         */
+        TelemetryTurnLatency: {
+            /**
+             * Totalturns
+             * @default 0
+             */
+            totalTurns: number;
+            /**
+             * Peakturnms
+             * @default 0
+             */
+            peakTurnMs: number;
+            /**
+             * Avgturnms
+             * @default 0
+             */
+            avgTurnMs: number;
+            /**
+             * Firsthalfms
+             * @default 0
+             */
+            firstHalfMs: number;
+            /**
+             * Secondhalfms
+             * @default 0
+             */
+            secondHalfMs: number;
+            /**
+             * Turncurve
+             * @default []
+             */
+            turnCurve: components["schemas"]["TelemetryLatencyBucket"][];
         };
         /** TerminalAskRequest */
         TerminalAskRequest: {
@@ -4888,12 +7489,20 @@ export interface components {
             stepId?: string | null;
             /** Stepnumber */
             stepNumber?: number | null;
+            /** Sidecarname */
+            sidecarName?: string | null;
+            /** Sidecaricon */
+            sidecarIcon?: string | null;
+            /** Sidecardescription */
+            sidecarDescription?: string | null;
+            /** Sidecartemplateid */
+            sidecarTemplateId?: string | null;
         };
         /**
          * TranscriptRole
          * @enum {string}
          */
-        TranscriptRole: "agent" | "agent_delta" | "operator" | "tool_call" | "tool_running" | "tool_output_delta" | "reasoning" | "reasoning_delta" | "divider";
+        TranscriptRole: "agent" | "agent_delta" | "operator" | "tool_call" | "tool_running" | "tool_output_delta" | "reasoning" | "reasoning_delta" | "divider" | "sidecar";
         /** TranscriptSearchListResponse */
         TranscriptSearchListResponse: {
             /** Items */
@@ -4980,6 +7589,16 @@ export interface components {
             /** Resolved */
             resolved: number;
         };
+        /**
+         * TurnAction
+         * @description A single concrete action within a turn, tagged with its activity.
+         */
+        TurnAction: {
+            /** Text */
+            text: string;
+            /** Activity */
+            activity: string;
+        };
         /** TurnEconomicsResponse */
         TurnEconomicsResponse: {
             /** Jobid */
@@ -5013,7 +7632,7 @@ export interface components {
              * Turncurve
              * @default []
              */
-            turnCurve: components["schemas"]["CostDriverEntry"][];
+            turnCurve: components["schemas"]["TelemetryCostBucket"][];
         };
         /**
          * TurnSummaryPayload
@@ -5042,6 +7661,8 @@ export interface components {
             isNewActivity: boolean;
             /** Planitemid */
             planItemId?: string | null;
+            /** Replacesturnid */
+            replacesTurnId?: string | null;
         };
         /** UnsubscribeRequest */
         UnsubscribeRequest: {
@@ -5054,6 +7675,29 @@ export interface components {
             preset?: string | null;
             /** Batchwindowseconds */
             batchWindowSeconds?: number | null;
+        };
+        /** UpdateMetricRequest */
+        UpdateMetricRequest: {
+            /** Name */
+            name?: string | null;
+            /** Tilesize */
+            tileSize?: string | null;
+            /** Position */
+            position?: number | null;
+            /** Pindashboard */
+            pinDashboard?: boolean | null;
+            /** Pinjobpanel */
+            pinJobPanel?: boolean | null;
+            /** Alertenabled */
+            alertEnabled?: boolean | null;
+            /** Alertop */
+            alertOp?: string | null;
+            /** Alertvalue */
+            alertValue?: number | null;
+            /** Alertseverity */
+            alertSeverity?: string | null;
+            /** Alertcooldownhours */
+            alertCooldownHours?: number | null;
         };
         /** UpdatePresetRequest */
         UpdatePresetRequest: {
@@ -5089,6 +7733,26 @@ export interface components {
             verifyPrompt?: string | null;
             /** Selfreviewprompt */
             selfReviewPrompt?: string | null;
+            /**
+             * Clisidecars
+             * @description Sidecar names for CLI sessions; null leaves current value unchanged
+             */
+            cliSidecars?: string[] | null;
+            /** Codereconsplade */
+            codereconSplade?: boolean | null;
+            /** Codereconcrossencoder */
+            codereconCrossEncoder?: boolean | null;
+        };
+        /** UpdateSidecarTemplateRequest */
+        UpdateSidecarTemplateRequest: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Definitionjson */
+            definitionJson?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -5108,64 +7772,33 @@ export interface components {
             /** Publickey */
             publicKey: string;
         };
-        /** GenerateSidecarRequest */
-        GenerateSidecarRequest: {
-            /** Description */
-            description: string;
-        };
-        /** GenerateSidecarResponse */
-        GenerateSidecarResponse: {
-            /** Definition */
-            definition: Record<string, unknown>;
-        };
-        /** CreateSidecarTemplateRequest */
-        CreateSidecarTemplateRequest: {
-            /** Name */
-            name: string;
-            /** Description */
-            description: string;
-            /** Definitionjson */
-            definitionJson: string;
-        };
-        /** UpdateSidecarTemplateRequest */
-        UpdateSidecarTemplateRequest: {
-            /** Name */
-            name?: string | null;
-            /** Description */
-            description?: string | null;
-            /** Definitionjson */
-            definitionJson?: string | null;
-        };
-        /** SidecarTemplateResponse */
-        SidecarTemplateResponse: {
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
-            /** Description */
-            description: string;
-            /** Definitionjson */
-            definitionJson: string;
-            /**
-             * Createdat
-             * Format: date-time
-             */
-            createdAt: string;
-            /**
-             * Lastusedat
-             * Format: date-time
-             */
-            lastUsedAt?: string | null;
-        };
-        /** SidecarTemplateListResponse */
-        SidecarTemplateListResponse: {
-            /** Items */
-            items: components["schemas"]["SidecarTemplateResponse"][];
-        };
         /** WarmSessionResponse */
         WarmSessionResponse: {
             /** Sessiontoken */
             sessionToken: string;
+        };
+        /** WasteBreakdown */
+        WasteBreakdown: {
+            /**
+             * Retryusd
+             * @default 0
+             */
+            retryUsd: number;
+            /**
+             * Failedjobsusd
+             * @default 0
+             */
+            failedJobsUsd: number;
+            /**
+             * Compactionusd
+             * @default 0
+             */
+            compactionUsd: number;
+            /**
+             * Rereadsusd
+             * @default 0
+             */
+            rereadsUsd: number;
         };
         /** WorkspaceEntry */
         WorkspaceEntry: {
@@ -5196,6 +7829,56 @@ export interface components {
             /** Hasmore */
             hasMore: boolean;
         };
+        /** YieldCategoryRow */
+        YieldCategoryRow: {
+            /** Category */
+            category: string;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Avgcostusd
+             * @default 0
+             */
+            avgCostUsd: number;
+            /**
+             * Pctoftotal
+             * @default 0
+             */
+            pctOfTotal: number;
+        };
+        /** YieldResponse */
+        YieldResponse: {
+            /** Period */
+            period: number;
+            /**
+             * Categories
+             * @default []
+             */
+            categories: components["schemas"]["YieldCategoryRow"][];
+            /**
+             * Costpermergeusd
+             * @default 0
+             */
+            costPerMergeUsd: number;
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Totaljobs
+             * @default 0
+             */
+            totalJobs: number;
+        };
     };
     responses: never;
     parameters: never;
@@ -5225,7 +7908,7 @@ export interface operations {
             };
         };
     };
-    sister_session_metrics_api_sister_sessions_metrics_get: {
+    sidecar_session_metrics_api_sidecar_sessions_metrics_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -5240,7 +7923,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SisterSessionMetricsResponse"];
+                    "application/json": components["schemas"]["SidecarSessionMetricsResponse"];
                 };
             };
         };
@@ -5496,6 +8179,39 @@ export interface operations {
             };
         };
     };
+    resolve_gate_api_jobs__job_id__gate_resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveGateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     continue_job_api_jobs__job_id__continue_post: {
         parameters: {
             query?: never;
@@ -5652,6 +8368,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiffListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_diff_file_api_jobs__job_id__diff_file_get: {
+        parameters: {
+            query: {
+                /** @description Relative file path within the diff */
+                path: string;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiffFileModel"];
                 };
             };
             /** @description Validation Error */
@@ -5993,7 +8743,6 @@ export interface operations {
         parameters: {
             query?: {
                 regenerate?: boolean;
-                verbosity?: string;
             };
             header?: never;
             path: {
@@ -6010,6 +8759,331 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_structural_diff_api_jobs__job_id__structural_diff_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StructuralDiffResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_multi_session_api_jobs__job_id__multi_session_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MultiSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_impact_graph_api_jobs__job_id__impact_graph__symbol__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+                symbol: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImpactGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_impact_graph_batch_api_jobs__job_id__impact_graph_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImpactGraphBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImpactGraphBatchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_communities_api_jobs__job_id__communities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommunitiesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_review_story_api_jobs__job_id__review_story_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewStoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_motivations_api_jobs__job_id__motivations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobMotivationsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_covering_tests_api_jobs__job_id__covering_tests_get: {
+        parameters: {
+            query: {
+                /** @description Relative file path to query covering tests for */
+                file_path: string;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoveringTestsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_line_coverage_api_jobs__job_id__line_coverage_get: {
+        parameters: {
+            query: {
+                /** @description Relative file path to query line coverage for */
+                file_path: string;
+                /** @description Optional start of line range */
+                start_line?: number | null;
+                /** @description Optional end of line range */
+                end_line?: number | null;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineCoverageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_blast_radius_api_jobs__job_id__blast_radius_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlastRadiusResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6300,6 +9374,26 @@ export interface operations {
             };
         };
     };
+    claude_stop_hook_api_hooks_claude_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     list_artifacts_api_jobs__job_id__artifacts_get: {
         parameters: {
             query?: never;
@@ -6417,6 +9511,38 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["WorkspaceFileResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_workspace_file_raw_api_jobs__job_id__workspace_file_raw_get: {
+        parameters: {
+            query: {
+                /** @description Relative path within the worktree */
+                path: string;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -6555,6 +9681,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegisterRepoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_repo_health_api_settings_repos__repo_path__health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repo_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepoHealthResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_repo_summary_api_settings_repos__repo_path__summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repo_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepoSummaryResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6983,6 +10171,7 @@ export interface operations {
             query?: {
                 period?: number;
                 dimension?: string | null;
+                group_by?: string | null;
             };
             header?: never;
             path?: never;
@@ -6996,7 +10185,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FleetCostDriversResponse"];
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fleet_latency_drivers_api_analytics_latency_drivers_get: {
+        parameters: {
+            query?: {
+                period?: number;
+                dimension?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FleetLatencyDriversResponse"];
                 };
             };
             /** @description Validation Error */
@@ -7373,6 +10594,321 @@ export interface operations {
             };
         };
     };
+    analytics_yield_api_analytics_yield_get: {
+        parameters: {
+            query?: {
+                period?: number;
+                repo?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["YieldResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_model_efficiency_api_analytics_model_efficiency_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEfficiencyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_cache_efficiency_api_analytics_cache_efficiency_get: {
+        parameters: {
+            query?: {
+                period?: number;
+                dimension?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CacheEfficiencyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_file_cost_api_analytics_file_cost_get: {
+        parameters: {
+            query?: {
+                period?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileCostResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_outcome_matrix_api_analytics_outcome_matrix_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutcomeMatrixResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_activity_phase_matrix_api_analytics_activity_phase_matrix_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityPhaseMatrixResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_action_purpose_matrix_api_analytics_action_purpose_matrix_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionPurposeMatrixResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_executive_summary_api_analytics_executive_summary_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutiveSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_export_api_analytics_export_get: {
+        parameters: {
+            query?: {
+                period?: number;
+                fmt?: string;
+                sections?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_sidecar_costs_api_analytics_sidecar_costs_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SidecarCostEntry"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_vapid_key_api_notifications_vapid_key_get: {
         parameters: {
             query?: never;
@@ -7537,37 +11073,6 @@ export interface operations {
             };
         };
     };
-    get_observer_terminal_api_terminal_observer__job_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TerminalSessionInfo"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     ask_ai_api_terminal_ask_post: {
         parameters: {
             query?: never;
@@ -7601,7 +11106,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__patch: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -7631,7 +11136,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__patch: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -7661,7 +11166,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__patch: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -7691,7 +11196,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__patch: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -7721,7 +11226,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__patch: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -7751,7 +11256,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__patch: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -8723,6 +12228,424 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_ask_api_metrics_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MetricsChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricsChatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_conversations_api_metrics_chat_conversations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationListResponse"];
+                };
+            };
+        };
+    };
+    delete_conversation_api_metrics_chat_conversations__conversation_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_custom_metrics_api_metrics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomMetricsListResponse"];
+                };
+            };
+        };
+    };
+    pin_metric_api_metrics_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinMetricRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomMetricResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_metric_api_metrics__metric_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                metric_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_metric_api_metrics__metric_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                metric_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMetricRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomMetricResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sidecar_templates_api_sidecar_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SidecarTemplateListResponse"];
+                };
+            };
+        };
+    };
+    create_sidecar_template_api_sidecar_templates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSidecarTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SidecarTemplateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sidecar_template_api_sidecar_templates__template_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SidecarTemplateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_sidecar_template_api_sidecar_templates__template_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSidecarTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SidecarTemplateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_sidecar_template_api_sidecar_templates__template_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_sidecar_definition_api_sidecar_templates_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerateSidecarRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerateSidecarResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fire_sidecar_api_jobs__job_id__sidecars__sidecar_name__fire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+                sidecar_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["FireSidecarRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

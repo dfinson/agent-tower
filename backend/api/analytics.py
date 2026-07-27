@@ -667,7 +667,7 @@ async def analytics_executive_summary(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/analytics/export")
+@router.get("/analytics/export", response_model=None)
 async def analytics_export(
     svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
@@ -764,7 +764,7 @@ async def analytics_export(
     )
 
 
-@router.get("/analytics/sidecar-costs")
+@router.get("/analytics/sidecar-costs", response_model=list[SidecarCostEntry])
 async def analytics_sidecar_costs(
     svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
