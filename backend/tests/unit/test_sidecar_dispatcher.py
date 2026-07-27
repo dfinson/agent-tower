@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from backend.models.events import CPEventKind, new_event
 from backend.services.sidecar.dispatcher import (
     AgentMessageRoute,
     CallbackRoute,
@@ -21,6 +22,7 @@ from backend.services.sidecar.dispatcher import (
     PlainText,
     RegexCondition,
     SidecarDefinition,
+    SidecarDispatcher,
     ThresholdCondition,
     TimerCondition,
     _hydrate_condition,
@@ -267,3 +269,43 @@ class TestConcurrency:
         assert Concurrency.skip_if_running == "skip_if_running"
         assert Concurrency.queue == "queue"
         assert Concurrency.parallel == "parallel"
+
+
+# ── _extract_content: dotted transcript kinds ──
+#
+# Regression guard for the traceforge migration: transcript events fan out to
+# role-specific dotted kinds (message.assistant, tool.call.completed, …) instead
+# of the retired single "TranscriptUpdated" kind. _extract_content must key off
+# TRANSCRIPT_KINDS membership, not the dead literal.
+
+
+class TestExtractContent:
+    def test_messages_agent_content(self):
+        ev = new_event("j", CPEventKind.message_assistant, {"role": "agent", "content": "hello"})
+        assert SidecarDispatcher._extract_content(ev, "messages") == "hello"
+
+    def test_messages_agent_delta_content(self):
+        ev = new_event("j", CPEventKind.message_delta, {"role": "agent_delta", "content": "part"})
+        assert SidecarDispatcher._extract_content(ev, "messages") == "part"
+
+    def test_messages_operator_role_ignored(self):
+        ev = new_event("j", CPEventKind.message_user, {"role": "operator", "content": "hi"})
+        assert SidecarDispatcher._extract_content(ev, "messages") is None
+
+    def test_messages_non_transcript_kind_ignored(self):
+        ev = new_event("j", CPEventKind.log_line_emitted, {"role": "agent", "content": "x"})
+        assert SidecarDispatcher._extract_content(ev, "messages") is None
+
+    def test_tool_calls_returns_tool_name(self):
+        ev = new_event("j", CPEventKind.tool_call_completed, {"role": "tool_call", "tool_name": "Bash"})
+        assert SidecarDispatcher._extract_content(ev, "tool_calls") == "Bash"
+
+    def test_tool_output_returns_result(self):
+        ev = new_event(
+            "j", CPEventKind.tool_call_completed, {"role": "tool_call", "tool_result": "done"}
+        )
+        assert SidecarDispatcher._extract_content(ev, "tool_output") == "done"
+
+    def test_tool_calls_non_transcript_kind_ignored(self):
+        ev = new_event("j", CPEventKind.diff_updated, {"role": "tool_call", "tool_name": "Bash"})
+        assert SidecarDispatcher._extract_content(ev, "tool_calls") is None

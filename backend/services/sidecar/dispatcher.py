@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from backend.services.sidecar.session import SidecarSessionManager
 
 from backend.models.domain import SessionConfig, SidecarConfig
+from backend.models.events import TRANSCRIPT_KINDS, CPEventKind
 
 log = structlog.get_logger()
 
@@ -716,7 +717,7 @@ class SidecarDispatcher:
 
                     # FilePatternCondition — match changed file paths from diff events
                     elif isinstance(cond, FilePatternCondition):
-                        if event.kind != "DiffUpdated":
+                        if event.kind != CPEventKind.diff_updated:
                             continue
                         if hasattr(event, "job_id") and event.session_id and event.session_id != job_id:
                             continue
@@ -1471,20 +1472,20 @@ class SidecarDispatcher:
         payload = event.payload or {}
 
         if source == "messages":
-            # TranscriptUpdated events carry role + content
-            if event.kind == "TranscriptUpdated":
+            # Transcript events carry role + content
+            if event.kind in TRANSCRIPT_KINDS:
                 role = payload.get("role", "")
                 if role in ("agent", "agent_delta"):
                     return str(payload.get("content")) if payload.get("content") is not None else None
             return None
 
         if source == "tool_calls":
-            if event.kind == "TranscriptUpdated" and payload.get("role") == "tool_call":
+            if event.kind in TRANSCRIPT_KINDS and payload.get("role") == "tool_call":
                 return str(payload.get("tool_name", ""))
             return None
 
         if source == "tool_output":
-            if event.kind == "TranscriptUpdated" and payload.get("role") == "tool_call":
+            if event.kind in TRANSCRIPT_KINDS and payload.get("role") == "tool_call":
                 return str(payload.get("tool_result")) if payload.get("tool_result") is not None else None
             return None
 
@@ -1492,7 +1493,7 @@ class SidecarDispatcher:
 
     @staticmethod
     def _extract_changed_files(event: SessionEvent) -> list[dict[str, str]]:
-        """Extract file change info from a DiffUpdated event."""
+        """Extract file change info from a diff.updated event."""
         payload = event.payload or {}
         files = payload.get("files") or payload.get("changed_files") or []
         if isinstance(files, list):
