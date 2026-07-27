@@ -40,6 +40,14 @@ dependencies = [
     "coderecon-ai @ git+https://github.com/dfinson/coderecon.git@main",
     "cloudflare>=5.1.0",
     "sh-guard>=0.1.10",
+    # Agent-trace intelligence substrate — deterministic/CPU-only pipeline that
+    # CodePlane's hand-rolled ingestion/classification/structuring/governance/
+    # observability plumbing is being migrated onto (see P0–P7 migration roadmap).
+    # PyPI is the primary distribution (code-only wheel); it pulls the real
+    # traceforge-title-model ONNX weights transitively. A git+ install is avoided
+    # on purpose — it force-checks-out the LFS monorepo and trips a missing LFS
+    # object on the remote (tracked as an upstream defect).
+    "traceforge-toolkit>=0.1.1,<0.2",
 ]
 
 [project.optional-dependencies]
