@@ -23,10 +23,8 @@ from backend.models.domain import (
     JobMode,
     JobState,
     SessionConfig,
-    SessionEvent,
-    SessionEventKind,
 )
-from backend.models.events import TRANSCRIPT_KINDS, EventKind
+from backend.models.events import TRANSCRIPT_KINDS, EventKind, SessionEvent, new_event
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
 from backend.services.adapters.adapter_registry import AdapterRegistry
@@ -55,35 +53,39 @@ class PlanProducingAdapter(AgentAdapterInterface):
     def __init__(self) -> None:
         self._sessions_created: list[str] = []
         self._session_count = 0
+        self._session_to_job: dict[str, str] = {}
 
     async def create_session(self, config: SessionConfig) -> str:
         self._session_count += 1
         sid = f"plan-session-{self._session_count}"
         self._sessions_created.append(sid)
+        self._session_to_job[sid] = config.job_id or sid
         return sid
 
     async def stream_events(self, session_id: str) -> AsyncGenerator[SessionEvent, None]:
+        job_id = self._session_to_job.get(session_id, session_id)
         # Emit a transcript event simulating a manage_todo_list tool call
-        yield SessionEvent(
-            kind=SessionEventKind.transcript,
+        yield new_event(
+            session_id=job_id,
+            kind=EventKind.tool_call_completed,
             payload={
-                "role": "tool_call",
                 "tool_name": "manage_todo_list",
-                "tool_args": {
+                "arguments": {
                     "todoList": [
                         {"id": 1, "title": "Step 1: Read codebase", "status": "not-started"},
                         {"id": 2, "title": "Step 2: Implement changes", "status": "not-started"},
                         {"id": 3, "title": "Step 3: Write tests", "status": "not-started"},
                     ]
                 },
-                "content": "Planning the implementation...",
+                "result": "Planning the implementation...",
+                "success": True,
             },
         )
-        yield SessionEvent(
-            kind=SessionEventKind.transcript,
-            payload={"role": "agent", "content": "Here is my plan."},
+        yield new_event(
+            session_id=job_id,
+            kind=EventKind.message_assistant,
+            payload={"content": "Here is my plan."},
         )
-        yield SessionEvent(kind=SessionEventKind.done, payload={})
 
     async def send_message(self, session_id: str, message: str) -> None:
         pass

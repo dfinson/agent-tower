@@ -16,9 +16,8 @@ import pytest
 
 from backend.models.domain import (
     SessionConfig,
-    SessionEvent,
-    SessionEventKind,
 )
+from backend.models.events import TRANSCRIPT_KINDS, EventKind, SessionEvent, new_event
 
 # ---------------------------------------------------------------------------
 # Fake copilot SDK types — injected into sys.modules before adapter import
@@ -265,8 +264,8 @@ class TestStreamEvents:
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         adapter._queues[sid] = q
 
-        e1 = SessionEvent(kind=SessionEventKind.transcript, payload={"role": "agent", "content": "hi"})
-        e2 = SessionEvent(kind=SessionEventKind.done, payload={})
+        e1 = new_event(session_id="job-test", kind=EventKind.message_assistant, payload={"content": "hi"})
+        e2 = new_event(session_id="job-test", kind=EventKind.log_line_emitted, payload={"message": "done"})
         q.put_nowait(e1)
         q.put_nowait(e2)
         q.put_nowait(None)
@@ -286,7 +285,7 @@ class TestStreamEvents:
             collected.append(event)
 
         assert len(collected) == 1
-        assert collected[0].kind == SessionEventKind.error
+        assert collected[0].kind == EventKind.job_failed
 
     @pytest.mark.asyncio
     async def test_sentinel_terminates_and_cleans_up(self, adapter: CopilotAdapter) -> None:
@@ -484,7 +483,7 @@ class TestOnEventCallback:
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
         # Prevent pipeline DB writes from failing (no session_factory in tests)
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
         return session_id, queue, session
 
     async def _fire(self, session: Any, event: _FakeSdkSessionEvent) -> None:
@@ -508,9 +507,9 @@ class TestOnEventCallback:
         await self._fire(session, _FakeSdkSessionEvent("assistant.message", data))
 
         events = self._drain_queue(queue)
-        transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
+        transcripts = [e for e in events if e.kind in TRANSCRIPT_KINDS]
         assert len(transcripts) == 1
-        assert transcripts[0].payload["role"] == "agent"
+        assert transcripts[0].kind == EventKind.message_assistant
         assert transcripts[0].payload["content"] == "Hello from agent"
 
     @pytest.mark.asyncio
@@ -521,7 +520,7 @@ class TestOnEventCallback:
         await self._fire(session, _FakeSdkSessionEvent("assistant.message", data))
 
         events = self._drain_queue(queue)
-        transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
+        transcripts = [e for e in events if e.kind in TRANSCRIPT_KINDS]
         assert len(transcripts) == 0
 
     @pytest.mark.asyncio
@@ -532,9 +531,9 @@ class TestOnEventCallback:
         await self._fire(session, _FakeSdkSessionEvent("user.message", data))
 
         events = self._drain_queue(queue)
-        transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
+        transcripts = [e for e in events if e.kind in TRANSCRIPT_KINDS]
         assert len(transcripts) == 1
-        assert transcripts[0].payload["role"] == "operator"
+        assert transcripts[0].kind == EventKind.message_user
 
     @pytest.mark.asyncio
     async def test_system_notification_user_message_skipped(self, adapter: CopilotAdapter) -> None:
@@ -544,7 +543,7 @@ class TestOnEventCallback:
         await self._fire(session, _FakeSdkSessionEvent("user.message", data))
 
         events = self._drain_queue(queue)
-        transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
+        transcripts = [e for e in events if e.kind in TRANSCRIPT_KINDS]
         assert len(transcripts) == 0
 
     @pytest.mark.asyncio
@@ -554,9 +553,10 @@ class TestOnEventCallback:
         data = _FakeEventData()
         await self._fire(session, _FakeSdkSessionEvent("session.task_complete", data))
 
-        events = self._drain_queue(queue)
-        done_events = [e for e in events if e.kind == SessionEventKind.done]
-        assert len(done_events) == 1
+        all_items = []
+        while not queue.empty():
+            all_items.append(queue.get_nowait())
+        assert None in all_items
 
     @pytest.mark.asyncio
     async def test_session_error_emits_error_and_sentinel(self, adapter: CopilotAdapter) -> None:
@@ -571,7 +571,7 @@ class TestOnEventCallback:
             all_items.append(queue.get_nowait())
 
         real_events = [e for e in all_items if e is not None]
-        error_events = [e for e in real_events if e.kind == SessionEventKind.error]
+        error_events = [e for e in real_events if e.kind == EventKind.job_failed]
         assert len(error_events) == 1
         # Sentinel should be present
         assert None in all_items
@@ -583,9 +583,10 @@ class TestOnEventCallback:
         data = _FakeEventData()
         await self._fire(session, _FakeSdkSessionEvent("session.idle", data))
 
-        events = self._drain_queue(queue)
-        done_events = [e for e in events if e.kind == SessionEventKind.done]
-        assert len(done_events) == 1
+        all_items = []
+        while not queue.empty():
+            all_items.append(queue.get_nowait())
+        assert None in all_items
 
     @pytest.mark.asyncio
     async def test_session_shutdown_emits_done(self, adapter: CopilotAdapter) -> None:
@@ -594,9 +595,10 @@ class TestOnEventCallback:
         data = _FakeEventData(total_premium_requests=None)
         await self._fire(session, _FakeSdkSessionEvent("session.shutdown", data))
 
-        events = self._drain_queue(queue)
-        done_events = [e for e in events if e.kind == SessionEventKind.done]
-        assert len(done_events) == 1
+        all_items = []
+        while not queue.empty():
+            all_items.append(queue.get_nowait())
+        assert None in all_items
 
     @pytest.mark.asyncio
     async def test_file_changed_emits_file_changed(self, adapter: CopilotAdapter) -> None:
@@ -606,7 +608,7 @@ class TestOnEventCallback:
         await self._fire(session, _FakeSdkSessionEvent("session.workspace_file_changed", data))
 
         events = self._drain_queue(queue)
-        fc = [e for e in events if e.kind == SessionEventKind.file_changed]
+        fc = [e for e in events if e.kind == EventKind.file_edited]
         assert len(fc) == 1
 
     @pytest.mark.asyncio
@@ -619,7 +621,7 @@ class TestOnEventCallback:
         events = self._drain_queue(queue)
         # Only log events (from tool started etc.) might appear, no mapped event
         mapped = [
-            e for e in events if e.kind in (SessionEventKind.transcript, SessionEventKind.done, SessionEventKind.error)
+            e for e in events if e.kind in TRANSCRIPT_KINDS or e.kind == EventKind.job_failed
         ]
         assert len(mapped) == 0
 
@@ -631,9 +633,9 @@ class TestOnEventCallback:
         await self._fire(session, _FakeSdkSessionEvent("assistant.reasoning_delta", data))
 
         events = self._drain_queue(queue)
-        transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
+        transcripts = [e for e in events if e.kind in TRANSCRIPT_KINDS]
         assert len(transcripts) == 1
-        assert transcripts[0].payload["role"] == "reasoning_delta"
+        assert transcripts[0].kind == EventKind.llm_thinking_chunk
         assert transcripts[0].payload["content"] == "Let me think..."
 
     @pytest.mark.asyncio
@@ -644,7 +646,7 @@ class TestOnEventCallback:
         await self._fire(session, _FakeSdkSessionEvent("assistant.reasoning_delta", data))
 
         events = self._drain_queue(queue)
-        transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
+        transcripts = [e for e in events if e.kind in TRANSCRIPT_KINDS]
         assert len(transcripts) == 0
 
     @pytest.mark.asyncio
@@ -655,9 +657,9 @@ class TestOnEventCallback:
         await self._fire(session, _FakeSdkSessionEvent("assistant.reasoning", data))
 
         events = self._drain_queue(queue)
-        transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
+        transcripts = [e for e in events if e.kind in TRANSCRIPT_KINDS]
         assert len(transcripts) == 1
-        assert transcripts[0].payload["role"] == "reasoning"
+        assert transcripts[0].kind == EventKind.reasoning_started
         assert transcripts[0].payload["content"] == "Full reasoning block"
 
 
@@ -681,7 +683,7 @@ class TestEventTelemetry:
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
         # Prevent pipeline DB writes from failing (no session_factory in tests)
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
         return session_id, queue, session
 
     async def _fire(self, session: Any, event: _FakeSdkSessionEvent) -> None:
@@ -712,26 +714,23 @@ class TestEventTelemetry:
             quota_snapshots=None,
         )
 
-        with (
-            patch("backend.services.analytics.telemetry.tokens_input") as mock_in,
-            patch("backend.services.analytics.telemetry.tokens_output") as mock_out,
-            patch("backend.services.analytics.telemetry.tokens_cache_read") as mock_cr,
-            patch("backend.services.analytics.telemetry.tokens_cache_write") as mock_cw,
-            patch("backend.services.analytics.telemetry.cost_usd") as mock_cost,
-            patch("backend.services.analytics.telemetry.llm_duration") as mock_dur,
-        ):
-            await self._fire(session, _FakeSdkSessionEvent("assistant.usage", data))
+        await self._fire(session, _FakeSdkSessionEvent("assistant.usage", data))
 
-            # Pipeline uses {job_id, sdk} attrs (no session_kind)
-            mock_in.add.assert_called_once_with(100, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o"})
-            mock_out.add.assert_called_once_with(50, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o"})
-            mock_cr.add.assert_called_once_with(10, {"job_id": "job-tel", "sdk": "copilot"})
-            mock_cw.add.assert_called_once_with(5, {"job_id": "job-tel", "sdk": "copilot"})
-            mock_cost.add.assert_called_once_with(0.002, {"job_id": "job-tel", "sdk": "copilot"})
-            mock_dur.record.assert_called_once_with(
-                1500.0,
-                {"job_id": "job-tel", "sdk": "copilot", "is_subagent": False},
-            )
+        events = self._drain_queue(queue)
+        usage = [e for e in events if e.kind == EventKind.telemetry_usage]
+        assert len(usage) == 1
+        assert usage[0].payload == {
+            "model": "gpt-4o",
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cache_read_tokens": 10,
+            "cache_write_tokens": 5,
+            "cost_usd": 0.002,
+            "duration_ms": 1500.0,
+            "is_subagent": False,
+            "advance_turn": True,
+            "num_turns": 1,
+        }
 
     @pytest.mark.asyncio
     async def test_assistant_usage_model_mismatch(self, adapter: CopilotAdapter) -> None:
@@ -743,7 +742,7 @@ class TestEventTelemetry:
 
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         data = _FakeEventData(
             model="gpt-3.5-turbo",
@@ -764,7 +763,7 @@ class TestEventTelemetry:
             if e is not None:
                 events.append(e)
 
-        downgraded = [e for e in events if e.kind == SessionEventKind.model_downgraded]
+        downgraded = [e for e in events if e.kind == EventKind.model_downgraded]
         assert len(downgraded) == 1
         assert downgraded[0].payload["requested_model"] == "gpt-4o"
         assert downgraded[0].payload["actual_model"] == "gpt-3.5-turbo"
@@ -779,7 +778,7 @@ class TestEventTelemetry:
 
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         data = _FakeEventData(
             model="gpt-4o",
@@ -800,7 +799,7 @@ class TestEventTelemetry:
             if e is not None:
                 events.append(e)
 
-        downgraded = [e for e in events if e.kind == SessionEventKind.model_downgraded]
+        downgraded = [e for e in events if e.kind == EventKind.model_downgraded]
         assert len(downgraded) == 0
 
     @pytest.mark.asyncio
@@ -818,29 +817,28 @@ class TestEventTelemetry:
             tool_title=None,
         )
 
-        with patch("backend.services.analytics.telemetry.tool_duration") as mock_tool_dur:
-            await self._fire(session, _FakeSdkSessionEvent("tool.execution_start", start_data))
+        await self._fire(session, _FakeSdkSessionEvent("tool.execution_start", start_data))
 
-            # Verify tool is buffered in the pipeline
-            buffered = adapter._pipeline.get_buffered_tool("tc-1")
-            assert buffered.get("tool_name") == "bash"
+        buffered = adapter._tool_buf.get("tc-1", {})
+        assert buffered.get("tool_name") == "bash"
 
-            # Now fire completion
-            result_obj = SimpleNamespace(content=[SimpleNamespace(text="file1.py")])
-            complete_data = _FakeEventData(
-                tool_call_id="tc-1",
-                tool_name="bash",
-                mcp_tool_name=None,
-                success=True,
-                result=result_obj,
-                partial_output=None,
-                turn_id="t1",
-            )
-            await self._fire(session, _FakeSdkSessionEvent("tool.execution_complete", complete_data))
+        result_obj = SimpleNamespace(content=[SimpleNamespace(text="file1.py")])
+        complete_data = _FakeEventData(
+            tool_call_id="tc-1",
+            tool_name="bash",
+            mcp_tool_name=None,
+            success=True,
+            result=result_obj,
+            partial_output=None,
+            turn_id="t1",
+        )
+        await self._fire(session, _FakeSdkSessionEvent("tool.execution_complete", complete_data))
 
-            mock_tool_dur.record.assert_called_once()
-            call_args = mock_tool_dur.record.call_args
-            assert call_args[0][1]["tool_name"] == "bash"
+        events = self._drain_queue(queue)
+        completed = [e for e in events if e.kind == EventKind.tool_call_completed]
+        assert len(completed) == 1
+        assert completed[0].payload["tool_name"] == "bash"
+        assert completed[0].metadata.duration_ms is not None
 
     @pytest.mark.asyncio
     @patch("backend.services.tool_formatters.format_tool_display", return_value="bash: ls")
@@ -876,15 +874,15 @@ class TestEventTelemetry:
         events = self._drain_queue(queue)
 
         transcripts = [
-            e for e in events if e.kind == SessionEventKind.transcript and e.payload.get("role") == "tool_call"
+            e for e in events if e.kind == EventKind.tool_call_completed
         ]
         assert len(transcripts) == 1
         assert transcripts[0].payload["tool_name"] == "bash"
-        assert transcripts[0].payload["tool_success"] is True
+        assert transcripts[0].payload["success"] is True
 
     @pytest.mark.asyncio
-    async def test_report_intent_tool_skipped_from_transcript(self, adapter: CopilotAdapter) -> None:
-        """report_intent tool calls should be hidden in transcript."""
+    async def test_report_intent_tool_emits_tf_tool_events(self, adapter: CopilotAdapter) -> None:
+        """report_intent is emitted as TF tool events for the processor to handle."""
         sid, queue, session = await self._setup_session_with_job(adapter)
 
         # Fire tool start for report_intent
@@ -914,12 +912,10 @@ class TestEventTelemetry:
 
         events = self._drain_queue(queue)
 
-        # report_intent emits as hidden tool_call — check that it has hidden visibility
-        transcripts = [
-            e for e in events if e.kind == SessionEventKind.transcript and e.payload.get("role") == "tool_call"
-        ]
-        for t in transcripts:
-            assert t.payload.get("tool_visibility") == "hidden"
+        completed = [e for e in events if e.kind == EventKind.tool_call_completed]
+        assert len(completed) == 1
+        assert completed[0].payload["tool_name"] == "report_intent"
+        assert completed[0].payload["arguments"] == {"intent": "testing"}
 
     @pytest.mark.asyncio
     async def test_context_changed(self, adapter: CopilotAdapter) -> None:
@@ -978,10 +974,10 @@ class TestEventTelemetry:
 
         data = _FakeEventData(content="hello", title=None, turn_id=None)
 
-        with patch("backend.services.analytics.telemetry.messages_counter") as mock_msg:
-            await self._fire(session, _FakeSdkSessionEvent("assistant.message", data))
+        await self._fire(session, _FakeSdkSessionEvent("assistant.message", data))
 
-            mock_msg.add.assert_called_once_with(1, {"job_id": "job-tel", "sdk": "copilot", "role": "agent"})
+        events = self._drain_queue(queue)
+        assert any(e.kind == EventKind.message_assistant and e.payload["content"] == "hello" for e in events)
 
     @pytest.mark.asyncio
     async def test_user_message_records_telemetry(self, adapter: CopilotAdapter) -> None:
@@ -989,10 +985,10 @@ class TestEventTelemetry:
 
         data = _FakeEventData(content="user prompt", message=None)
 
-        with patch("backend.services.analytics.telemetry.messages_counter") as mock_msg:
-            await self._fire(session, _FakeSdkSessionEvent("user.message", data))
+        await self._fire(session, _FakeSdkSessionEvent("user.message", data))
 
-            mock_msg.add.assert_called_once_with(1, {"job_id": "job-tel", "sdk": "copilot", "role": "operator"})
+        events = self._drain_queue(queue)
+        assert any(e.kind == EventKind.message_user and e.payload["content"] == "user prompt" for e in events)
 
 
 # ---------------------------------------------------------------------------
@@ -1000,7 +996,7 @@ class TestEventTelemetry:
 # ---------------------------------------------------------------------------
 
 
-class TestLogEvents:
+class TestTfEventEmission:
     @pytest.mark.asyncio
     async def _setup_session(self, adapter: CopilotAdapter) -> tuple[str, asyncio.Queue[SessionEvent | None], Any]:
         config = _make_config(job_id="job-log")
@@ -1010,7 +1006,7 @@ class TestLogEvents:
             session_id = await adapter.create_session(config)
 
         # Prevent pipeline DB writes from failing
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
         return session_id, adapter._queues[session_id], adapter._sessions[session_id]
 
     async def _fire(self, session: Any, event: _FakeSdkSessionEvent) -> None:
@@ -1027,7 +1023,7 @@ class TestLogEvents:
         return events
 
     @pytest.mark.asyncio
-    async def test_tool_start_emits_log(self, adapter: CopilotAdapter) -> None:
+    async def test_tool_start_emits_tf_event(self, adapter: CopilotAdapter) -> None:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData(
@@ -1044,11 +1040,12 @@ class TestLogEvents:
         await self._fire(session, _FakeSdkSessionEvent("tool.execution_start", data))
 
         events = self._drain_queue(queue)
-        log_events = [e for e in events if e.kind == SessionEventKind.log]
-        assert any("Tool started" in e.payload.get("message", "") for e in log_events)
+        started = [e for e in events if e.kind == EventKind.tool_call_started]
+        assert len(started) == 1
+        assert started[0].payload["tool_name"] == "bash"
 
     @pytest.mark.asyncio
-    async def test_tool_complete_emits_log(self, adapter: CopilotAdapter) -> None:
+    async def test_tool_complete_emits_tf_event(self, adapter: CopilotAdapter) -> None:
         sid, queue, session = await self._setup_session(adapter)
 
         # Fire tool start first to buffer metadata
@@ -1077,11 +1074,13 @@ class TestLogEvents:
         await self._fire(session, _FakeSdkSessionEvent("tool.execution_complete", data))
 
         events = self._drain_queue(queue)
-        log_events = [e for e in events if e.kind == SessionEventKind.log]
-        assert any("Tool completed" in e.payload.get("message", "") for e in log_events)
+        completed = [e for e in events if e.kind == EventKind.tool_call_completed]
+        assert len(completed) == 1
+        assert completed[0].payload["tool_name"] == "grep"
+        assert completed[0].payload["success"] is True
 
     @pytest.mark.asyncio
-    async def test_tool_complete_failed_emits_warn(self, adapter: CopilotAdapter) -> None:
+    async def test_tool_complete_failed_emits_unsuccessful_tf_event(self, adapter: CopilotAdapter) -> None:
         sid, queue, session = await self._setup_session(adapter)
 
         # Fire tool start first to buffer metadata
@@ -1110,13 +1109,12 @@ class TestLogEvents:
         await self._fire(session, _FakeSdkSessionEvent("tool.execution_complete", data))
 
         events = self._drain_queue(queue)
-        log_events = [e for e in events if e.kind == SessionEventKind.log]
-        failed_logs = [e for e in log_events if "failed" in e.payload.get("message", "")]
-        assert len(failed_logs) >= 1
-        assert any(e.payload.get("level") == "warn" for e in failed_logs)
+        completed = [e for e in events if e.kind == EventKind.tool_call_completed]
+        assert len(completed) == 1
+        assert completed[0].payload["success"] is False
 
     @pytest.mark.asyncio
-    async def test_assistant_usage_log_normal(self, adapter: CopilotAdapter) -> None:
+    async def test_assistant_usage_emits_tf_usage_event(self, adapter: CopilotAdapter) -> None:
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData(
@@ -1133,11 +1131,12 @@ class TestLogEvents:
         await self._fire(session, _FakeSdkSessionEvent("assistant.usage", data))
 
         events = self._drain_queue(queue)
-        log_events = [e for e in events if e.kind == SessionEventKind.log]
-        assert any("LLM call" in e.payload.get("message", "") for e in log_events)
+        usage = [e for e in events if e.kind == EventKind.telemetry_usage]
+        assert len(usage) == 1
+        assert usage[0].payload["model"] == "gpt-4o"
 
     @pytest.mark.asyncio
-    async def test_assistant_usage_model_mismatch_error_log(self, adapter: CopilotAdapter) -> None:
+    async def test_assistant_usage_model_mismatch_emits_downgrade_event(self, adapter: CopilotAdapter) -> None:
         config = _make_config(job_id="job-mm-log", model="gpt-4o")
         fake_client = _FakeCopilotClient()
 
@@ -1146,7 +1145,7 @@ class TestLogEvents:
 
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         data = _FakeEventData(
             model="gpt-3.5-turbo",
@@ -1167,10 +1166,8 @@ class TestLogEvents:
             if e is not None:
                 events.append(e)
 
-        log_events = [e for e in events if e.kind == SessionEventKind.log]
-        # Pipeline doesn't emit a model mismatch log — it emits a generic LLM call log.
-        # Model mismatch detection is now via model_downgraded event, not log.
-        assert any("LLM call" in e.payload.get("message", "") for e in log_events)
+        downgraded = [e for e in events if e.kind == EventKind.model_downgraded]
+        assert len(downgraded) == 1
 
     @pytest.mark.asyncio
     async def test_compaction_log(self, adapter: CopilotAdapter) -> None:
@@ -1181,7 +1178,7 @@ class TestLogEvents:
         await self._fire(session, _FakeSdkSessionEvent("session.compaction_complete", data))
 
         events = self._drain_queue(queue)
-        log_events = [e for e in events if e.kind == SessionEventKind.log]
+        log_events = [e for e in events if e.kind == EventKind.log_line_emitted]
         assert any("compacted" in e.payload.get("message", "").lower() for e in log_events)
 
     @pytest.mark.asyncio
@@ -1193,12 +1190,12 @@ class TestLogEvents:
         await self._fire(session, _FakeSdkSessionEvent("session.model_change", data))
 
         events = self._drain_queue(queue)
-        log_events = [e for e in events if e.kind == SessionEventKind.log]
+        log_events = [e for e in events if e.kind == EventKind.log_line_emitted]
         assert any("Model changed" in e.payload.get("message", "") for e in log_events)
 
     @pytest.mark.asyncio
-    async def test_mcp_tool_display_name(self, adapter: CopilotAdapter) -> None:
-        """MCP tools should display as server/tool_name in logs."""
+    async def test_mcp_tool_name_uses_server_prefix(self, adapter: CopilotAdapter) -> None:
+        """MCP tools should emit server/tool_name as their TF tool name."""
         sid, queue, session = await self._setup_session(adapter)
 
         data = _FakeEventData(
@@ -1215,11 +1212,11 @@ class TestLogEvents:
         await self._fire(session, _FakeSdkSessionEvent("tool.execution_start", data))
 
         events = self._drain_queue(queue)
-        log_events = [e for e in events if e.kind == SessionEventKind.log]
-        assert any("github/search_code" in e.payload.get("message", "") for e in log_events)
+        started = [e for e in events if e.kind == EventKind.tool_call_started]
+        assert len(started) == 1
+        assert started[0].payload["tool_name"] == "github/search_code"
 
-        # Also verify it was buffered in pipeline
-        buffered = adapter._pipeline.get_buffered_tool("tc-mcp")
+        buffered = adapter._tool_buf.get("tc-mcp", {})
         assert buffered.get("tool_name") == "github/search_code"
 
 
@@ -1309,7 +1306,7 @@ class TestToolStartBuffering:
             session_id = await adapter.create_session(config)
 
         session = adapter._sessions[session_id]
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         data = _FakeEventData(
             tool_call_id="tc-desc",
@@ -1325,8 +1322,8 @@ class TestToolStartBuffering:
         session.fire_event(_FakeSdkSessionEvent("tool.execution_start", data))
         await asyncio.sleep(0)
 
-        buf = adapter._pipeline.get_buffered_tool("tc-desc")
-        assert buf.get("tool_intent") == "List files"
+        buf = adapter._tool_buf.get("tc-desc", {})
+        assert buf.get("intent") == "List files"
 
     @pytest.mark.asyncio
     async def test_arguments_string_buffered(self, adapter: CopilotAdapter) -> None:
@@ -1338,7 +1335,7 @@ class TestToolStartBuffering:
             session_id = await adapter.create_session(config)
 
         session = adapter._sessions[session_id]
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         data = _FakeEventData(
             tool_call_id="tc-str",
@@ -1354,10 +1351,10 @@ class TestToolStartBuffering:
         session.fire_event(_FakeSdkSessionEvent("tool.execution_start", data))
         await asyncio.sleep(0)
 
-        buf = adapter._pipeline.get_buffered_tool("tc-str")
-        assert buf.get("tool_args") == '{"path": "/tmp/foo"}'
-        assert buf.get("tool_intent") == "Read a file"
-        assert buf.get("tool_title") == "read_file"
+        buf = adapter._tool_buf.get("tc-str", {})
+        assert buf.get("arguments") == '{"path": "/tmp/foo"}'
+        assert buf.get("intent") == "Read a file"
+        assert buf.get("title") == "read_file"
 
     @pytest.mark.asyncio
     async def test_arguments_none_buffered_as_empty(self, adapter: CopilotAdapter) -> None:
@@ -1368,7 +1365,7 @@ class TestToolStartBuffering:
             session_id = await adapter.create_session(config)
 
         session = adapter._sessions[session_id]
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         data = _FakeEventData(
             tool_call_id="tc-none",
@@ -1384,8 +1381,8 @@ class TestToolStartBuffering:
         session.fire_event(_FakeSdkSessionEvent("tool.execution_start", data))
         await asyncio.sleep(0)
 
-        buf = adapter._pipeline.get_buffered_tool("tc-none")
-        assert buf.get("tool_args", "") == ""
+        buf = adapter._tool_buf.get("tc-none", {})
+        assert buf.get("arguments") is None
 
 
 # ---------------------------------------------------------------------------
@@ -1406,7 +1403,7 @@ class TestToolResultExtraction:
 
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         # Fire tool start to buffer metadata
         start_data = _FakeEventData(
@@ -1441,10 +1438,10 @@ class TestToolResultExtraction:
                 events.append(e)
 
         transcripts = [
-            e for e in events if e.kind == SessionEventKind.transcript and e.payload.get("role") == "tool_call"
+            e for e in events if e.kind == EventKind.tool_call_completed
         ]
         assert len(transcripts) == 1
-        assert transcripts[0].payload["tool_result"] == ""
+        assert transcripts[0].payload["result"] == ""
 
     @pytest.mark.asyncio
     @patch("backend.services.tool_formatters.format_tool_display", return_value="tool: ok")
@@ -1458,7 +1455,7 @@ class TestToolResultExtraction:
 
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         # Fire tool start to buffer metadata
         start_data = _FakeEventData(
@@ -1494,10 +1491,10 @@ class TestToolResultExtraction:
                 events.append(e)
 
         transcripts = [
-            e for e in events if e.kind == SessionEventKind.transcript and e.payload.get("role") == "tool_call"
+            e for e in events if e.kind == EventKind.tool_call_completed
         ]
         assert len(transcripts) == 1
-        assert transcripts[0].payload["tool_result"] == "plain string result"
+        assert transcripts[0].payload["result"] == "plain string result"
 
 
 # ---------------------------------------------------------------------------

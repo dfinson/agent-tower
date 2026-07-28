@@ -18,9 +18,8 @@ import pytest
 from backend.models.domain import (
     MCPServerConfig,
     SessionConfig,
-    SessionEvent,
-    SessionEventKind,
 )
+from backend.models.events import TRANSCRIPT_KINDS, EventKind, SessionEvent, new_event
 from backend.services.adapters.base_adapter import PermissionDecision
 
 # ---------------------------------------------------------------------------
@@ -350,14 +349,14 @@ class TestEnqueue:
         sid = "sess-1"
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         adapter._queues[sid] = q
-        event = SessionEvent(kind=SessionEventKind.done, payload={})
+        event = None
 
         adapter._enqueue(sid, event)
 
         assert q.get_nowait() is event
 
     def test_enqueue_missing_queue_noop(self, adapter: ClaudeAdapter) -> None:
-        adapter._enqueue("nonexistent", SessionEvent(kind=SessionEventKind.done, payload={}))
+        adapter._enqueue("nonexistent", None)
 
 
 # ---------------------------------------------------------------------------
@@ -445,15 +444,15 @@ class TestProcessAssistantMessage:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
         msg = _FakeAssistantMessage(content=[_FakeTextBlock("Hello world")])
 
         await adapter._process_assistant_message(sid, msg)
 
         event = adapter._queues[sid].get_nowait()
         assert event is not None
-        assert event.kind == SessionEventKind.transcript
-        assert event.payload["role"] == "agent"
+        assert event.kind in TRANSCRIPT_KINDS
+        assert event.kind == EventKind.message_assistant
         assert event.payload["content"] == "Hello world"
 
     @pytest.mark.asyncio
@@ -461,7 +460,7 @@ class TestProcessAssistantMessage:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
         msg = _FakeAssistantMessage(content=[_FakeTextBlock("   ")])
 
         await adapter._process_assistant_message(sid, msg)
@@ -473,27 +472,27 @@ class TestProcessAssistantMessage:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
         tool_block = _FakeToolUseBlock(name="Bash", id="tool-1")
         msg = _FakeAssistantMessage(content=[tool_block])
 
         await adapter._process_assistant_message(sid, msg)
 
-        assert "tool-1" in adapter._pipeline._tool_start_times
+        assert "tool-1" in adapter._tool_buf
 
     @pytest.mark.asyncio
     async def test_todo_write_emits_transcript(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
         tool_block = _FakeToolUseBlock(name="TodoWrite", id="tool-2")
         msg = _FakeAssistantMessage(content=[tool_block])
 
         await adapter._process_assistant_message(sid, msg)
 
         # TodoWrite should now be emitted as a transcript event (no longer hidden)
-        assert "tool-2" in adapter._pipeline._tool_start_times
+        assert "tool-2" in adapter._tool_buf
         assert not adapter._queues[sid].empty()
 
     @pytest.mark.asyncio
@@ -501,17 +500,14 @@ class TestProcessAssistantMessage:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
-        # Pre-populate tool metadata in pipeline (simulates on_tool_start)
-        adapter._pipeline._tool_start_times["tool-1"] = time.monotonic() - 0.5
-        adapter._pipeline._pending_tool_metadata["tool-1"] = {
+        adapter._schedule_db_write = lambda coro: coro.close()
+        # Pre-populate tool metadata (simulates on_tool_start)
+        adapter._tool_buf["tool-1"] = {
+            "job_id": "job-1",
             "tool_name": "Bash",
-            "tool_args": "",
-            "turn_id": "t1",
-            "tool_intent": "",
-            "tool_title": "",
+            "arguments": None,
+            "start": time.monotonic() - 0.5,
         }
-        adapter._pipeline._job_tool_ids.setdefault("job-1", set()).add("tool-1")
 
         result_block = _FakeToolResultBlock(tool_use_id="tool-1", content="output here", is_error=False)
         msg = _FakeAssistantMessage(content=[result_block])
@@ -522,17 +518,17 @@ class TestProcessAssistantMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        transcript_events = [e for e in events if e is not None and e.kind == SessionEventKind.transcript]
+        transcript_events = [e for e in events if e is not None and e.kind in TRANSCRIPT_KINDS]
         assert len(transcript_events) >= 1
-        assert transcript_events[0].payload["tool_result"] == "output here"
-        assert transcript_events[0].payload["tool_success"] is True
+        assert transcript_events[0].payload["result"] == "output here"
+        assert transcript_events[0].payload["success"] is True
 
     @pytest.mark.asyncio
     async def test_tool_result_error(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         result_block = _FakeToolResultBlock(tool_use_id="tool-err", content="error msg", is_error=True)
         msg = _FakeAssistantMessage(content=[result_block])
@@ -543,9 +539,9 @@ class TestProcessAssistantMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        transcript_events = [e for e in events if e is not None and e.kind == SessionEventKind.transcript]
+        transcript_events = [e for e in events if e is not None and e.kind in TRANSCRIPT_KINDS]
         assert len(transcript_events) >= 1
-        assert transcript_events[0].payload["tool_success"] is False
+        assert transcript_events[0].payload["success"] is False
 
     @pytest.mark.asyncio
     async def test_tool_result_list_content(self, adapter: ClaudeAdapter) -> None:
@@ -553,7 +549,7 @@ class TestProcessAssistantMessage:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         part1 = SimpleNamespace(text="line1")
         part2 = SimpleNamespace(text="line2")
@@ -566,8 +562,8 @@ class TestProcessAssistantMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        transcript_events = [e for e in events if e is not None and e.kind == SessionEventKind.transcript]
-        assert transcript_events[0].payload["tool_result"] == "line1\nline2"
+        transcript_events = [e for e in events if e is not None and e.kind in TRANSCRIPT_KINDS]
+        assert transcript_events[0].payload["result"] == "line1\nline2"
 
     @pytest.mark.asyncio
     async def test_tool_result_list_content_no_text_attr(self, adapter: ClaudeAdapter) -> None:
@@ -575,7 +571,7 @@ class TestProcessAssistantMessage:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         result_block = _FakeToolResultBlock(tool_use_id="tool-x", content=[42, "raw"])
         msg = _FakeAssistantMessage(content=[result_block])
@@ -586,14 +582,14 @@ class TestProcessAssistantMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        transcript_events = [e for e in events if e is not None and e.kind == SessionEventKind.transcript]
-        assert "42" in transcript_events[0].payload["tool_result"]
+        transcript_events = [e for e in events if e is not None and e.kind in TRANSCRIPT_KINDS]
+        assert "42" in transcript_events[0].payload["result"]
 
     @pytest.mark.asyncio
     async def test_no_content_blocks(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
         msg = _FakeAssistantMessage(content=None)
 
         await adapter._process_assistant_message(sid, msg)
@@ -605,15 +601,15 @@ class TestProcessAssistantMessage:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
         msg = _FakeAssistantMessage(content=[_FakeThinkingBlock("I need to think about this")])
 
         await adapter._process_assistant_message(sid, msg)
 
         event = adapter._queues[sid].get_nowait()
         assert event is not None
-        assert event.kind == SessionEventKind.transcript
-        assert event.payload["role"] == "reasoning"
+        assert event.kind in TRANSCRIPT_KINDS
+        assert event.kind == EventKind.reasoning_started
         assert event.payload["content"] == "I need to think about this"
 
     @pytest.mark.asyncio
@@ -621,7 +617,7 @@ class TestProcessAssistantMessage:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
         msg = _FakeAssistantMessage(content=[_FakeThinkingBlock("   ")])
 
         await adapter._process_assistant_message(sid, msg)
@@ -634,7 +630,7 @@ class TestProcessResultMessage:
     async def test_successful_result(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         msg = _FakeResultMessage(
             result="All done",
@@ -650,14 +646,13 @@ class TestProcessResultMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        done_events = [e for e in events if e is not None and e.kind == SessionEventKind.done]
-        assert len(done_events) == 1
+        assert events == []
 
     @pytest.mark.asyncio
     async def test_error_result(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         msg = _FakeResultMessage(result="Something broke", is_error=True)
 
@@ -667,7 +662,7 @@ class TestProcessResultMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        error_events = [e for e in events if e is not None and e.kind == SessionEventKind.error]
+        error_events = [e for e in events if e is not None and e.kind == EventKind.job_failed]
         assert len(error_events) == 1
         assert "error" in error_events[0].payload["message"].lower()
 
@@ -677,7 +672,7 @@ class TestProcessResultMessage:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         msg = _FakeResultMessage(
             result="ok",
@@ -690,31 +685,22 @@ class TestProcessResultMessage:
             },
         )
 
-        with (
-            patch("backend.services.analytics.telemetry.tokens_input") as mock_in,
-            patch("backend.services.analytics.telemetry.tokens_output") as mock_out,
-            patch("backend.services.analytics.telemetry.tokens_cache_read") as mock_cr,
-            patch("backend.services.analytics.telemetry.tokens_cache_write") as mock_cw,
-            patch("backend.services.analytics.telemetry.cost_usd") as mock_cost,
-            patch("backend.services.analytics.telemetry.llm_duration") as mock_dur,
-        ):
-            await adapter._process_result_message(sid, msg)
+        await adapter._process_result_message(sid, msg)
 
-            attrs = {"job_id": "job-1", "sdk": "claude"}
-            mock_in.add.assert_called_once_with(10, {**attrs, "model": ""})
-            mock_out.add.assert_called_once_with(5, {**attrs, "model": ""})
-            mock_cr.add.assert_called_once_with(2, attrs)
-            mock_cw.add.assert_called_once_with(1, attrs)
-            mock_cost.add.assert_called_once_with(0.01, attrs)
-            # duration_ms=0 is falsy, so llm_duration.record is not called
-            mock_dur.record.assert_not_called()
+        event = adapter._queues[sid].get_nowait()
+        assert event.kind == EventKind.telemetry_usage
+        assert event.payload["input_tokens"] == 10
+        assert event.payload["output_tokens"] == 5
+        assert event.payload["cache_read_tokens"] == 2
+        assert event.payload["cache_write_tokens"] == 1
+        assert event.payload["cost_usd"] == 0.01
 
     @pytest.mark.asyncio
     async def test_result_empty_usage_dict(self, adapter: ClaudeAdapter) -> None:
         """usage=None or non-dict should default to 0."""
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         msg = _FakeResultMessage(result="ok", usage=None)
         await adapter._process_result_message(sid, msg)
@@ -723,9 +709,7 @@ class TestProcessResultMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        # Should emit a done event without crashing
-        done_events = [e for e in events if e is not None and e.kind == SessionEventKind.done]
-        assert len(done_events) == 1
+        assert events == []
 
 
 # ---------------------------------------------------------------------------
@@ -739,8 +723,7 @@ class TestProcessStreamEvent:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
-        adapter._current_turn_ids[sid] = "turn-1"
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         stream_event = _FakeStreamEvent(
             event={
@@ -754,8 +737,8 @@ class TestProcessStreamEvent:
 
         event = adapter._queues[sid].get_nowait()
         assert event is not None
-        assert event.kind == SessionEventKind.transcript
-        assert event.payload["role"] == "reasoning_delta"
+        assert event.kind in TRANSCRIPT_KINDS
+        assert event.kind == EventKind.llm_thinking_chunk
         assert event.payload["content"] == "Let me consider..."
 
     @pytest.mark.asyncio
@@ -763,7 +746,7 @@ class TestProcessStreamEvent:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         stream_event = _FakeStreamEvent(
             event={
@@ -781,17 +764,8 @@ class TestProcessStreamEvent:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
         parent_id = "tool-1"
-        # Tool metadata now lives in the pipeline
-        adapter._pipeline._pending_tool_metadata[parent_id] = {
-            "tool_name": "Bash",
-            "tool_args": "",
-            "turn_id": "turn-1",
-            "tool_intent": "",
-            "tool_title": "",
-        }
-
         stream_event = _FakeStreamEvent(
             event={
                 "type": "content_block_delta",
@@ -804,7 +778,7 @@ class TestProcessStreamEvent:
 
         event = adapter._queues[sid].get_nowait()
         assert event is not None
-        assert event.payload["role"] == "tool_output_delta"
+        assert event.kind == EventKind.tool_result_chunk
         assert event.payload["content"] == "output line"
 
     @pytest.mark.asyncio
@@ -812,7 +786,7 @@ class TestProcessStreamEvent:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         stream_event = _FakeStreamEvent(event=None)
 
@@ -833,7 +807,7 @@ class TestConsumeMessages:
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         adapter._queues[sid] = q
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         client = _FakeClaudeSDKClient()
         client._messages = [
@@ -850,7 +824,7 @@ class TestConsumeMessages:
         # Filter out sentinel None
         events = [e for e in events if e is not None]
         # SystemMessage emits an agent transcript through the pipeline
-        transcript_events = [e for e in events if e.kind == SessionEventKind.transcript]
+        transcript_events = [e for e in events if e.kind in TRANSCRIPT_KINDS]
         assert any("initialized" in (e.payload.get("content", "") or "") for e in transcript_events)
 
     @pytest.mark.asyncio
@@ -858,7 +832,7 @@ class TestConsumeMessages:
         sid = "sess-1"
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         adapter._queues[sid] = q
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         client = _FakeClaudeSDKClient()
         client._messages = [_FakeResultMessage(result="final")]
@@ -872,15 +846,14 @@ class TestConsumeMessages:
         # Last item is sentinel None
         assert events[-1] is None
         real_events = [e for e in events if e is not None]
-        done_events = [e for e in real_events if e.kind == SessionEventKind.done]
-        assert len(done_events) == 1
+        assert real_events == []
 
     @pytest.mark.asyncio
     async def test_exception_emits_error_event(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         adapter._queues[sid] = q
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
         client = MagicMock()
 
@@ -897,7 +870,7 @@ class TestConsumeMessages:
             events.append(q.get_nowait())
 
         real_events = [e for e in events if e is not None]
-        error_events = [e for e in real_events if e.kind == SessionEventKind.error]
+        error_events = [e for e in real_events if e.kind == EventKind.job_failed]
         assert len(error_events) == 1
         assert "error" in error_events[0].payload["message"].lower()
 
@@ -920,8 +893,8 @@ class TestStreamEvents:
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         adapter._queues[sid] = q
 
-        e1 = SessionEvent(kind=SessionEventKind.transcript, payload={"role": "agent", "content": "hi"})
-        e2 = SessionEvent(kind=SessionEventKind.done, payload={})
+        e1 = new_event(session_id="job-test", kind=EventKind.message_assistant, payload={"content": "hi"})
+        e2 = new_event(session_id="job-test", kind=EventKind.log_line_emitted, payload={"message": "done"})
         q.put_nowait(e1)
         q.put_nowait(e2)
         q.put_nowait(None)  # sentinel
@@ -941,7 +914,7 @@ class TestStreamEvents:
             collected.append(event)
 
         assert len(collected) == 1
-        assert collected[0].kind == SessionEventKind.error
+        assert collected[0].kind == EventKind.job_failed
 
     @pytest.mark.asyncio
     async def test_sentinel_terminates_stream(self, adapter: ClaudeAdapter) -> None:
@@ -1153,41 +1126,35 @@ class TestToolResultTelemetry:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         adapter._session_to_job[sid] = "job-1"
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
-        # Pre-populate tool metadata in pipeline
-        adapter._pipeline._tool_start_times["tool-1"] = time.monotonic() - 1.0
-        adapter._pipeline._pending_tool_metadata["tool-1"] = {
+        adapter._schedule_db_write = lambda coro: coro.close()
+        adapter._tool_buf["tool-1"] = {
+            "job_id": "job-1",
             "tool_name": "Bash",
-            "tool_args": "",
-            "turn_id": "t1",
-            "tool_intent": "",
-            "tool_title": "",
+            "arguments": None,
+            "start": time.monotonic() - 1.0,
         }
-        adapter._pipeline._job_tool_ids.setdefault("job-1", set()).add("tool-1")
 
-        with patch("backend.services.analytics.telemetry.tool_duration") as mock_tool_dur:
-            await adapter._process_tool_result_block(
-                sid,
-                _FakeToolResultBlock(tool_use_id="tool-1", content="ok"),
-                "job-1",
-            )
+        await adapter._process_tool_result_block(
+            sid,
+            _FakeToolResultBlock(tool_use_id="tool-1", content="ok"),
+            "job-1",
+        )
 
-            mock_tool_dur.record.assert_called_once()
-            call_args = mock_tool_dur.record.call_args
-            assert call_args[0][1]["job_id"] == "job-1"
+        event = adapter._queues[sid].get_nowait()
+        assert event.kind == EventKind.tool_call_completed
+        assert event.metadata.duration_ms is not None
 
     @pytest.mark.asyncio
     async def test_tool_result_no_job_skips_telemetry(self) -> None:
         adapter = ClaudeAdapter()
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
-        adapter._pipeline._schedule_write = lambda coro: coro.close()
+        adapter._schedule_db_write = lambda coro: coro.close()
 
-        with patch("backend.services.analytics.telemetry.tool_duration") as mock_tool_dur:
-            await adapter._process_tool_result_block(
-                sid,
-                _FakeToolResultBlock(tool_use_id="tool-2", content="ok"),
-                None,
-            )
+        await adapter._process_tool_result_block(
+            sid,
+            _FakeToolResultBlock(tool_use_id="tool-2", content="ok"),
+            None,
+        )
 
-            mock_tool_dur.record.assert_not_called()
+        assert adapter._queues[sid].empty()

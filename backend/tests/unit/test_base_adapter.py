@@ -157,20 +157,20 @@ class TestSessionState:
 
 class TestEnqueue:
     def test_enqueue_to_existing_queue(self) -> None:
-        from backend.models.domain import SessionEvent, SessionEventKind
+        from backend.models.events import EventKind, SessionEvent, new_event
 
         adapter = _make_adapter()
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         adapter._queues["s1"] = q
-        evt = SessionEvent(kind=SessionEventKind.log, payload={"msg": "hi"})
+        evt = new_event(session_id="j1", kind=EventKind.log_line_emitted, payload={"msg": "hi"})
         adapter._enqueue("s1", evt)
         assert q.qsize() == 1
 
     def test_enqueue_to_missing_queue(self) -> None:
-        from backend.models.domain import SessionEvent, SessionEventKind
+        from backend.models.events import EventKind, new_event
 
         adapter = _make_adapter()
-        evt = SessionEvent(kind=SessionEventKind.log, payload={"msg": "hi"})
+        evt = new_event(session_id="j1", kind=EventKind.log_line_emitted, payload={"msg": "hi"})
         adapter._enqueue("no-queue", evt)  # should not raise
 
 

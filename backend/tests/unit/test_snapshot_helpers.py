@@ -11,8 +11,8 @@ from backend.models.events import EventKind
 from backend.services.artifacts.snapshot_helpers import (
     _apply_reassignments,
     _build_logs,
-    _build_transcript,
     _build_timeline,
+    _build_transcript,
     _build_turn_summaries,
 )
 
@@ -24,7 +24,13 @@ def _event(
     metadata: EventMetadata | None = None,
     **payload: Any,
 ) -> SimpleNamespace:
-    return SimpleNamespace(session_id=job_id, timestamp=timestamp, kind=kind, payload=payload, metadata=metadata or EventMetadata())
+    return SimpleNamespace(
+        session_id=job_id,
+        timestamp=timestamp,
+        kind=kind,
+        payload=payload,
+        metadata=metadata or EventMetadata(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -83,10 +89,10 @@ class TestBuildTranscript:
         transcript = _build_transcript([ev], [], None, None, filter_deltas=True)
 
         assert len(transcript) == 1
-        assert transcript[0].role == "tool_call"
-        assert transcript[0].tool_args == '{"command": "echo hi"}'
-        assert transcript[0].tool_result == "hi"
-        assert transcript[0].tool_success is True
+        assert transcript[0].kind == EventKind.tool_call_completed
+        assert transcript[0].arguments == '{"command": "echo hi"}'
+        assert transcript[0].result == "hi"
+        assert transcript[0].success is True
         assert transcript[0].tool_intent == "Verify shell"
         assert transcript[0].tool_display == "Run echo hi"
         assert transcript[0].tool_duration_ms == 12
@@ -265,7 +271,7 @@ class TestApplyReassignments:
             job_id="j1",
             seq=1,
             timestamp="2025-01-01T00:00:00Z",
-            role="agent",
+            kind=EventKind.message_assistant,
             content="hi",
             turn_id="t1",
             step_id="old-step",
@@ -283,7 +289,7 @@ class TestApplyReassignments:
             job_id="j1",
             seq=1,
             timestamp="2025-01-01T00:00:00Z",
-            role="agent",
+            kind=EventKind.message_assistant,
             content="hi",
             turn_id="t2",
             step_id="old-step",

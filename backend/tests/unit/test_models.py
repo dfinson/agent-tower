@@ -89,7 +89,10 @@ def test_domain_event_creation() -> None:
 
 
 def test_domain_event_kind_values() -> None:
-    assert len(EventKind) == 58
+    assert EventKind.message_user == "message.user"
+    assert EventKind.message_assistant == "message.assistant"
+    assert EventKind.tool_call_started == "tool.call.started"
+    assert EventKind.tool_call_completed == "tool.call.completed"
 
 
 def test_job_domain_model() -> None:
