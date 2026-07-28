@@ -28,11 +28,16 @@ if TYPE_CHECKING:
 
 
 class _Harness:
-    def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        factory: async_sessionmaker[AsyncSession],
+        model_pricing: Any = None,
+    ) -> None:
         self.pending: list[Coroutine[Any, Any, None]] = []
         self.subscriber = TelemetrySubscriber(
             session_factory=factory,
             schedule_write=self.pending.append,
+            model_pricing=model_pricing,
         )
 
     async def handle_and_drain(self, event: Any) -> None:
@@ -51,6 +56,25 @@ class _MetricRecorder:
 
     def record(self, value: float, attrs: dict[str, Any]) -> None:
         self.calls.append((value, attrs))
+
+
+class _FakePricing:
+    """Stub ModelPricingService: records calls and returns a fixed cost."""
+
+    def __init__(self, cost: float) -> None:
+        self.cost = cost
+        self.calls: list[tuple[str, int, int, int, int]] = []
+
+    def compute_cost(
+        self,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        cache_read_tokens: int,
+        cache_write_tokens: int,
+    ) -> float:
+        self.calls.append((model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens))
+        return self.cost
 
 
 @pytest.fixture
@@ -247,6 +271,89 @@ async def test_subscriber_persists_usage_tools_files_and_messages(
         ]
     assert [attrs["sdk"] for _, attrs in message_metrics.calls] == ["copilot", "copilot"]
     assert [attrs["sdk"] for _, attrs in tool_metrics.calls] == ["copilot", "claude"]
+
+
+@pytest.mark.asyncio
+async def test_usage_cost_prefers_sdk_then_falls_back_to_model_pricing(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Both cost paths: SDK-provided cost_usd is authoritative (managed); when it
+    is absent (imported), cost is derived via ModelPricingService from tokens."""
+    pricing = _FakePricing(0.42)
+    harness = _Harness(session_factory, model_pricing=pricing)
+    harness.subscriber.set_job_start_time("sdk-job", 100.0)
+    harness.subscriber.set_job_start_time("imported-job", 100.0)
+
+    async with session_factory() as seed:
+        now = datetime.now(UTC)
+        for jid, sdk in (("sdk-job", "copilot"), ("imported-job", "claude")):
+            seed.add(
+                JobRow(
+                    id=jid,
+                    repo="/repos/test",
+                    prompt="x",
+                    state=JobState.running,
+                    base_ref="main",
+                    permission_mode="full_auto",
+                    preset="autonomous",
+                    sdk=sdk,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        await seed.commit()
+
+    # Path A — managed: SDK supplies cost_usd; pricing must NOT be consulted.
+    await harness.handle_and_drain(
+        new_event(
+            "sdk-job",
+            EventKind.telemetry_usage,
+            {
+                "model": "gpt-4o",
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 0,
+                "cost_usd": 0.25,
+                "duration_ms": 10.0,
+                "advance_turn": True,
+            },
+            metadata=EventMetadata(source_framework="copilot"),
+        )
+    )
+    assert pricing.calls == []
+
+    # Path B — imported: no cost_usd; pricing derives cost from token counts.
+    await harness.handle_and_drain(
+        new_event(
+            "imported-job",
+            EventKind.telemetry_usage,
+            {
+                "model": "claude-sonnet-4",
+                "input_tokens": 200,
+                "output_tokens": 80,
+                "cache_read_tokens": 10,
+                "cache_write_tokens": 5,
+                "duration_ms": 10.0,
+                "advance_turn": True,
+            },
+            metadata=EventMetadata(source_framework="claude"),
+        )
+    )
+    assert pricing.calls == [("claude-sonnet-4", 200, 80, 10, 5)]
+
+    async with session_factory() as session:
+        sdk_summary = await TelemetrySummaryRepository(session).get("sdk-job")
+        imported_summary = await TelemetrySummaryRepository(session).get("imported-job")
+        assert sdk_summary is not None
+        assert imported_summary is not None
+        assert sdk_summary["total_cost_usd"] == pytest.approx(0.25)
+        assert imported_summary["total_cost_usd"] == pytest.approx(0.42)
+
+        sdk_spans = await TelemetrySpansRepository(session).list_for_job("sdk-job")
+        imported_spans = await TelemetrySpansRepository(session).list_for_job("imported-job")
+        assert sdk_spans[0]["cost_usd"] == pytest.approx(0.25)
+        assert imported_spans[0]["cost_usd"] == pytest.approx(0.42)
 
 
 @pytest.mark.asyncio
