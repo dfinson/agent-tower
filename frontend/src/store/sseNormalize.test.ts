@@ -117,6 +117,8 @@ describe("deriveJobStateFrame", () => {
   it("returns null for kinds that imply no job-state transition", () => {
     expect(deriveJobStateFrame("job.state_changed", p)).toBeNull();
     expect(deriveJobStateFrame("tool.call.completed", p)).toBeNull();
+    // `tool.call.failed` must NOT collide with the `job.failed` state mapping.
+    expect(deriveJobStateFrame("tool.call.failed", p)).toBeNull();
     expect(deriveJobStateFrame("permission.batch.requested", p)).toBeNull();
     expect(deriveJobStateFrame("message.assistant", p)).toBeNull();
   });

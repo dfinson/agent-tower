@@ -48,6 +48,7 @@ class EventKind(StrEnum):
     message_delta = "message.delta"
     tool_call_started = "tool.call.started"
     tool_call_completed = "tool.call.completed"
+    tool_call_failed = "tool.call.failed"
     # --- Logs / diffs ---
     log_line_emitted = "log"
     diff_updated = "diff.updated"
@@ -120,16 +121,24 @@ TRANSCRIPT_KINDS: frozenset[EventKind] = frozenset(
         EventKind.message_delta,
         EventKind.tool_call_started,
         EventKind.tool_call_completed,
+        EventKind.tool_call_failed,
     }
 )
 
 
-def transcript_kind_for_role(role: str) -> EventKind:
+def transcript_kind_for_role(role: str, *, tool_success: bool | None = None) -> EventKind:
     """Map a transcript ``role`` to its dotted CodePlane event kind.
 
     Roles emitted by the adapters/watchers: ``operator``/``user`` (human input),
     ``agent``/``assistant`` (complete agent message), ``agent_delta`` (streaming
-    partial), ``tool_running`` (a tool began), ``tool_call`` (a tool completed).
+    partial), ``tool_running`` (a tool began — a *real* distinct start signal, so
+    ``tool.call.started`` is genuine, not synthesized), ``tool_call`` (a tool
+    finished).
+
+    A finished tool fans out on its corrected ``tool_success`` flag: a ``False``
+    value yields ``tool.call.failed`` so downstream consumers key off the kind
+    rather than re-deriving success from the payload; anything else (including a
+    missing flag) yields ``tool.call.completed``.
     """
     if role in ("operator", "user"):
         return EventKind.message_user
@@ -140,6 +149,8 @@ def transcript_kind_for_role(role: str) -> EventKind:
     if role == "tool_running":
         return EventKind.tool_call_started
     if role == "tool_call":
+        if tool_success is False:
+            return EventKind.tool_call_failed
         return EventKind.tool_call_completed
     # Unknown roles default to a full assistant message (safest for display).
     return EventKind.message_assistant

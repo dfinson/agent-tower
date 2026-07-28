@@ -113,6 +113,7 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "message.delta",
         "tool.call.started",
         "tool.call.completed",
+        "tool.call.failed",
         "tool.group_summary",
         // Diffs
         "diff.updated",

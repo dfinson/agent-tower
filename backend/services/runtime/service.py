@@ -2577,7 +2577,11 @@ class RuntimeService:
         }
         kind: EventKind | None
         if event.kind == SessionEventKind.transcript:
-            kind = transcript_kind_for_role(str(event.payload.get("role", "")))
+            tpayload = cast("dict[str, Any]", event.payload)
+            kind = transcript_kind_for_role(
+                str(tpayload.get("role", "")),
+                tool_success=cast("bool | None", tpayload.get("tool_success")),
+            )
         else:
             kind = mapping.get(event.kind)
         if kind is None:

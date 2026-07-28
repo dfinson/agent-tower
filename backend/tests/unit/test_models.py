@@ -89,7 +89,10 @@ def test_domain_event_creation() -> None:
 
 
 def test_domain_event_kind_values() -> None:
-    assert len(EventKind) == 58
+    # 58 base kinds + tool.call.failed from the transcript role-split.
+    assert len(EventKind) == 59
+    assert EventKind.tool_call_failed in EventKind
+    assert str(EventKind.tool_call_failed) == "tool.call.failed"
 
 
 def test_job_domain_model() -> None:
