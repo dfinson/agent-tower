@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 import uuid
 from typing import TYPE_CHECKING, Any, cast
 
 import structlog
+from traceforge.types import EventMetadata, ToolMotivation
 
 from backend.models.domain import (
-    ErrorPayload,
     SessionConfig,
-    SessionEvent,
-    SessionEventKind,
 )
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.adapters.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionResult
 from backend.services.adapters.base_adapter import (
     CLIENT_STOP_TIMEOUT_S,
@@ -23,7 +23,6 @@ from backend.services.adapters.base_adapter import (
     PermissionDecision,
 )
 from backend.services.auth.permission_policy import PermissionRequest as PolicyRequest
-from backend.services.events.event_pipeline import EventPipeline
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -78,25 +77,45 @@ class CopilotAdapter(BaseAgentAdapter):
         )
         self._sessions: dict[str, CopilotSession] = {}
 
-        # Unified event pipeline — shared by all sessions
-        self._pipeline = EventPipeline(
-            emit=self._pipeline_emit,
-            schedule_write=self._schedule_db_write,
-            sdk="copilot",
+        # Tool-call buffer: tool_call_id -> {job_id, tool_name, arguments, intent, title, start}
+        # Populated on tool.execution_start, drained on tool.execution_complete to
+        # compute duration_ms and carry start-time context (re-homed from EventPipeline).
+        self._tool_buf: dict[str, dict[str, Any]] = {}
+        # Per-job monotonic sequence for adapter-emitted log lines.
+        self._log_seq: dict[str, int] = {}
+
+    def _emit_tf(
+        self,
+        session_id: str,
+        job_id: str,
+        kind: EventKind,
+        payload: dict[str, Any],
+        *,
+        duration_ms: float | None = None,
+        motivation: ToolMotivation | None = None,
+        partial: bool = False,
+    ) -> None:
+        """Build a native traceforge.SessionEvent and enqueue it for the session."""
+        metadata = EventMetadata(
+            source_framework="copilot",
+            duration_ms=duration_ms,
+            motivation=motivation,
+            partial=partial or None,
         )
-        if session_factory:
-            self._pipeline.set_session_factory(session_factory)
+        self._enqueue(session_id, new_event(session_id=job_id, kind=kind, payload=payload, metadata=metadata))
 
-    # ------------------------------------------------------------------
-    # Pipeline integration
-    # ------------------------------------------------------------------
+    def _emit_log_line(self, session_id: str, job_id: str, message: str, level: str = "info") -> None:
+        """Emit a native log event (re-homed from EventPipeline._emit_log)."""
+        from datetime import UTC, datetime
 
-    async def _pipeline_emit(self, job_id: str, event: SessionEvent) -> None:
-        """Deliver a pipeline-produced event to the session queue."""
-        for sid, jid in self._session_to_job.items():
-            if jid == job_id:
-                self._enqueue(sid, event)
-                return
+        seq = self._log_seq.get(job_id, 0) + 1
+        self._log_seq[job_id] = seq
+        self._emit_tf(
+            session_id,
+            job_id,
+            EventKind.log_line_emitted,
+            {"seq": seq, "timestamp": datetime.now(UTC).isoformat(), "level": level, "message": message},
+        )
 
     def _cleanup_session(self, session_id: str) -> None:
         """Remove session and queue references for a completed/aborted session.
@@ -108,10 +127,12 @@ class CopilotAdapter(BaseAgentAdapter):
         client = self._clients.get(session_id)
         if client is not None:
             asyncio.ensure_future(self._stop_client(client))
-        # Clean pipeline per-job state (tool buffers, retry trackers, etc.)
+        # Drop any un-drained tool-buffer entries for this job.
         job_id = self._session_to_job.get(session_id)
         if job_id:
-            self._pipeline.cleanup_job(job_id)
+            self._log_seq.pop(job_id, None)
+            for cid in [c for c, v in self._tool_buf.items() if v.get("job_id") == job_id]:
+                self._tool_buf.pop(cid, None)
         super()._cleanup_session_state(session_id)
 
     @staticmethod
@@ -241,25 +262,28 @@ class CopilotAdapter(BaseAgentAdapter):
             content = (am.content or "") if am else ""
             if content.strip():
                 title = getattr(am, "title", None) if am else None
-                await self._pipeline.on_agent_message(job_id, content, title=title)
+                payload: dict[str, Any] = {"content": content}
+                if title:
+                    payload["title"] = title
+                self._emit_tf(session_id, job_id, EventKind.message_assistant, payload)
 
         elif kind_str == "assistant.message_delta":
             md = cast("AssistantMessageDeltaData", data) if data else None
             delta = (md.delta_content or "") if md else ""
             if delta:
-                await self._pipeline.on_agent_delta(job_id, delta)
+                self._emit_tf(session_id, job_id, EventKind.message_delta, {"content": delta}, partial=True)
 
         elif kind_str == "assistant.reasoning":
             ar = cast("AssistantReasoningData", data) if data else None
             content = (ar.content or "") if ar else ""
             if content:
-                await self._pipeline.on_reasoning(job_id, content)
+                self._emit_tf(session_id, job_id, EventKind.reasoning_started, {"content": content})
 
         elif kind_str == "assistant.reasoning_delta":
             rd = cast("AssistantReasoningDeltaData", data) if data else None
             delta = (rd.delta_content or "") if rd else ""
             if delta:
-                await self._pipeline.on_reasoning_delta(job_id, delta)
+                self._emit_tf(session_id, job_id, EventKind.llm_thinking_chunk, {"content": delta}, partial=True)
 
         elif kind_str == "user.message":
             um = cast("UserMessageData", data) if data else None
@@ -267,7 +291,7 @@ class CopilotAdapter(BaseAgentAdapter):
             if "<system_notification>" in content:
                 return
             if content.strip():
-                await self._pipeline.on_user_message(job_id, content)
+                self._emit_tf(session_id, job_id, EventKind.message_user, {"content": content})
 
         # --- Tool lifecycle ---
         elif kind_str == "tool.execution_start":
@@ -278,30 +302,36 @@ class CopilotAdapter(BaseAgentAdapter):
                     tool_name = f"{ts.mcp_server_name}/{ts.mcp_tool_name}"
 
                 tool_id = ts.tool_call_id or ""
-                args_str: str | None = None
-                if ts.arguments is not None:
-                    try:
-                        import json as _json
-
-                        args_str = _json.dumps(ts.arguments) if not isinstance(ts.arguments, str) else ts.arguments
-                    except (TypeError, ValueError, OverflowError):
-                        args_str = str(ts.arguments)
+                args_val: Any = ts.arguments
 
                 tool_intent = getattr(ts, "intention", None) or ""
                 tool_title = getattr(ts, "tool_title", None) or ""
                 if not tool_intent and isinstance(ts.arguments, dict):
                     tool_intent = str(ts.arguments.get("description", ""))
 
-                # report_intent is emitted as hidden tool_call (intent marker)
-                hidden = tool_name == "report_intent"
-                await self._pipeline.on_tool_start(
+                self._tool_buf[tool_id] = {
+                    "job_id": job_id,
+                    "tool_name": tool_name,
+                    "arguments": args_val,
+                    "intent": tool_intent,
+                    "title": tool_title,
+                    "start": time.monotonic(),
+                }
+
+                start_payload: dict[str, Any] = {
+                    "tool_name": tool_name,
+                    "arguments": args_val,
+                    "tool_call_id": tool_id,
+                    "content": tool_name,
+                }
+                if tool_title:
+                    start_payload["title"] = tool_title
+                self._emit_tf(
+                    session_id,
                     job_id,
-                    tool_id,
-                    tool_name,
-                    args_str,
-                    intent=tool_intent or None,
-                    title=tool_title or None,
-                    hidden=hidden,
+                    EventKind.tool_call_started,
+                    start_payload,
+                    motivation=ToolMotivation(intent=tool_intent) if tool_intent else None,
                 )
 
         elif kind_str == "tool.execution_partial_result":
@@ -310,7 +340,13 @@ class CopilotAdapter(BaseAgentAdapter):
                 tool_id = pr.tool_call_id or ""
                 chunk = pr.partial_output or ""
                 if chunk:
-                    await self._pipeline.on_tool_partial(job_id, tool_id, chunk)
+                    self._emit_tf(
+                        session_id,
+                        job_id,
+                        EventKind.tool_result_chunk,
+                        {"tool_call_id": tool_id, "content": chunk},
+                        partial=True,
+                    )
 
         elif kind_str == "tool.execution_complete":
             tc = cast("ToolExecutionCompleteData", data) if data else None
@@ -328,30 +364,41 @@ class CopilotAdapter(BaseAgentAdapter):
                     else:
                         result_text = str(tc.result)
 
+                buffered = self._tool_buf.pop(tool_id, {})
+                resolved_name = str(buffered.get("tool_name", "tool"))
+
                 # Correct false failures for file-edit tools
                 if not success:
                     from backend.services.tool_formatters import correct_edit_success
 
-                    buffered = self._pipeline.get_buffered_tool(tool_id)
-                    resolved_name = buffered.get("tool_name", "tool")
                     success = correct_edit_success(resolved_name, success, result_text)
 
-                hidden = self._pipeline.get_buffered_tool(tool_id).get("tool_name") == "report_intent"
-                await self._pipeline.on_tool_complete(
+                start = buffered.get("start")
+                duration_ms = (time.monotonic() - start) * 1000.0 if start else None
+                intent = str(buffered.get("intent") or "")
+                self._emit_tf(
+                    session_id,
                     job_id,
-                    tool_id,
-                    result_text,
-                    success,
-                    hidden=hidden,
+                    EventKind.tool_call_completed,
+                    {
+                        "tool_name": resolved_name,
+                        "arguments": buffered.get("arguments"),
+                        "result": result_text,
+                        "success": success,
+                        "tool_call_id": tool_id,
+                    },
+                    duration_ms=duration_ms,
+                    motivation=ToolMotivation(intent=intent) if intent else None,
                 )
 
         # --- File change notification ---
         elif kind_str == "session.workspace_file_changed":
             file_path = getattr(data, "file_path", None) or ""
             if file_path:
-                await self._pipeline.on_file_changed(job_id, file_path)
+                self._emit_tf(session_id, job_id, EventKind.file_edited, {"path": file_path})
 
-        # --- Usage / telemetry ---
+        # --- Usage / telemetry (native TF usage record; DB rollups re-homed to
+        #     the telemetry bus-subscriber that consumes telemetry.usage) ---
         elif kind_str == "assistant.usage":
             au = cast("AssistantUsageData", data) if data else None
             if au:
@@ -366,71 +413,92 @@ class CopilotAdapter(BaseAgentAdapter):
                 main_model = self._job_main_models.get(job_id, "")
                 is_subagent = bool(main_model and actual_model != main_model)
 
-                input_toks = int(au.input_tokens or 0)
-                output_toks = int(au.output_tokens or 0)
-                cache_read = int(au.cache_read_tokens or 0)
-                cache_write = int(au.cache_write_tokens or 0)
-                cost = float(au.cost or 0)
-                duration_ms = float(au.duration or 0)
-
-                await self._pipeline.on_usage(
+                self._emit_tf(
+                    session_id,
                     job_id,
-                    input_tokens=input_toks,
-                    output_tokens=output_toks,
-                    cache_read_tokens=cache_read,
-                    cache_write_tokens=cache_write,
-                    cost_usd=cost,
-                    duration_ms=duration_ms,
-                    model=actual_model,
-                    is_subagent=is_subagent,
-                    advance_turn=True,
+                    EventKind.telemetry_usage,
+                    {
+                        "model": actual_model,
+                        "input_tokens": int(au.input_tokens or 0),
+                        "output_tokens": int(au.output_tokens or 0),
+                        "cache_read_tokens": int(au.cache_read_tokens or 0),
+                        "cache_write_tokens": int(au.cache_write_tokens or 0),
+                        "cost_usd": float(au.cost or 0),
+                        "duration_ms": float(au.duration or 0),
+                        "is_subagent": is_subagent,
+                        "advance_turn": True,
+                        "num_turns": 1,
+                    },
                 )
 
                 # Copilot-specific: quota snapshots
                 if au.quota_snapshots:
                     self._record_quota_snapshots(au.quota_snapshots, job_id)
 
+        # --- Managed-only session-state (context/compaction/truncation/premium/
+        #     model). Not bus events (imported path has no equivalent); reproduced
+        #     as direct DB writes + OTel metrics re-homed from EventPipeline. ---
         elif kind_str == "session.usage_info":
             sui = cast("SessionUsageInfoData", data) if data else None
             if sui:
                 current = int(sui.current_tokens or 0)
                 if current:
-                    await self._pipeline.on_context_update(job_id, current)
+                    from backend.services.analytics import telemetry as tel
+
+                    tel.context_tokens_gauge.set(current, {"job_id": job_id, "sdk": "copilot"})
+                    self._schedule_db_write(self._db_write_set_context(job_id=job_id, current_tokens=current))
 
         elif kind_str == "session.compaction_complete":
             cc = cast("SessionCompactionCompleteData", data) if data else None
             if cc:
                 pre = int(cc.pre_compaction_tokens or 0)
                 post = int(cc.post_compaction_tokens or 0)
-                await self._pipeline.on_compaction(job_id, pre, post)
+                delta = max(0, pre - post)
+                from backend.services.analytics import telemetry as tel
+
+                attrs: dict[str, Any] = {"job_id": job_id, "sdk": "copilot"}
+                tel.compactions_counter.add(1, attrs)
+                tel.tokens_compacted.add(delta, attrs)
+                self._schedule_db_write(
+                    self._db_write_increment(job_id=job_id, compactions=1, tokens_compacted=delta)
+                )
+                if post:
+                    tel.context_tokens_gauge.set(post, attrs)
+                    self._schedule_db_write(self._db_write_set_context(job_id=job_id, current_tokens=post))
+                self._emit_log_line(session_id, job_id, f"Context compacted: {pre} \u2192 {post} tokens", "warn")
 
         elif kind_str == "session.truncation":
             trunc = cast("SessionTruncationData", data) if data else None
             if trunc and trunc.token_limit:
                 window = int(trunc.token_limit)
-                await self._pipeline.on_truncation(job_id, window)
+                from backend.services.analytics import telemetry as tel
+
+                tel.context_window_gauge.set(window, {"job_id": job_id, "sdk": "copilot"})
+                self._schedule_db_write(self._db_write_set_context(job_id=job_id, window_size=window))
 
         elif kind_str == "session.model_change":
             mc = cast("SessionModelChangeData", data) if data else None
             if mc and mc.new_model:
                 self._job_main_models[job_id] = mc.new_model
-                await self._pipeline.on_model_change(job_id, mc.new_model)
+                self._schedule_db_write(self._db_write_set_model(job_id=job_id, model=mc.new_model))
+                self._emit_log_line(session_id, job_id, f"Model changed to {mc.new_model}", "info")
 
         elif kind_str == "session.shutdown":
             sd = cast("SessionShutdownData", data) if data else None
-            premium = None
             if sd and sd.total_premium_requests is not None:
                 premium = int(sd.total_premium_requests)
-            await self._pipeline.on_shutdown(job_id, premium_requests=premium)
+                from backend.services.analytics import telemetry as tel
 
-        # --- Session lifecycle (emit + sentinel) ---
+                tel.premium_requests_counter.add(premium, {"job_id": job_id, "sdk": "copilot"})
+                self._schedule_db_write(self._db_write_increment(job_id=job_id, premium_requests=premium))
+
+        # --- Session lifecycle (sentinel terminates stream_events) ---
         if kind_str in ("session.task_complete", "session.idle", "session.shutdown"):
-            await self._pipeline.on_done(job_id)
             with contextlib.suppress(asyncio.QueueFull):
                 queue.put_nowait(None)
         elif kind_str == "session.error":
-            payload = data.to_dict() if data and hasattr(data, "to_dict") else {}
-            await self._pipeline.on_error(job_id, cast("ErrorPayload", payload))
+            err_payload = data.to_dict() if data and hasattr(data, "to_dict") else {}
+            self._emit_tf(session_id, job_id, EventKind.job_failed, cast("dict[str, Any]", err_payload))
             with contextlib.suppress(asyncio.QueueFull):
                 queue.put_nowait(None)
 
@@ -598,7 +666,13 @@ class CopilotAdapter(BaseAgentAdapter):
         queue = self._queues.get(session_id)
         if queue is None:
             log.error("copilot_stream_no_queue", session_id=session_id)
-            yield SessionEvent(kind=SessionEventKind.error, payload={"message": "No queue for session"})
+            job_id = self._session_to_job.get(session_id, session_id)
+            yield new_event(
+                session_id=job_id,
+                kind=EventKind.job_failed,
+                payload={"message": "No queue for session"},
+                metadata=EventMetadata(source_framework="copilot"),
+            )
             return
         try:
             while True:

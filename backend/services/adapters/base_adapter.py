@@ -21,9 +21,8 @@ from sqlalchemy.exc import DBAPIError
 
 from backend.models.domain import (
     ApprovalResolution,
-    SessionEvent,
-    SessionEventKind,
 )
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.adapters.agent_adapter import AgentAdapterInterface, normalize_model_name
 from backend.services.auth.permission_policy import (
     PermissionRequest,
@@ -220,6 +219,34 @@ class BaseAgentAdapter(AgentAdapterInterface):
             return
         await self._maybe_broadcast_telemetry(job_id)
 
+    async def _db_write_set_context(
+        self, *, job_id: str, current_tokens: int | None = None, window_size: int | None = None
+    ) -> None:
+        """Persist point-in-time context-window state (managed session-state)."""
+        try:
+            async with self._db_session() as session:
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
+                await TelemetrySummaryRepository(session).set_context(
+                    job_id, current_tokens=current_tokens, window_size=window_size
+                )
+        except (_NoSessionFactoryError, DBAPIError, OSError):
+            log.warning("telemetry_db_write_failed", fn="set_context", exc_info=True)
+            return
+        await self._maybe_broadcast_telemetry(job_id)
+
+    async def _db_write_increment(self, *, job_id: str, **counters: Any) -> None:
+        """Increment telemetry summary counters (managed session-state)."""
+        try:
+            async with self._db_session() as session:
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
+                await TelemetrySummaryRepository(session).increment(job_id, **counters)
+        except (_NoSessionFactoryError, DBAPIError, OSError):
+            log.warning("telemetry_db_write_failed", fn="increment", exc_info=True)
+            return
+        await self._maybe_broadcast_telemetry(job_id)
+
     async def _maybe_broadcast_telemetry(
         self,
         job_id: str,
@@ -282,8 +309,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
             )
             self._enqueue(
                 session_id,
-                SessionEvent(
-                    kind=SessionEventKind.model_downgraded,
+                new_event(
+                    session_id=job_id,
+                    kind=EventKind.model_downgraded,
                     payload={
                         "requested_model": requested_model,
                         "actual_model": actual_model,
@@ -521,8 +549,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
         )
         self._enqueue(
             session_id,
-            SessionEvent(
-                kind=SessionEventKind.approval_request,
+            new_event(
+                session_id=job_id,
+                kind=EventKind.approval_requested,
                 payload={
                     "description": description,
                     "proposed_action": proposed,
@@ -558,8 +587,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
         )
         self._enqueue(
             session_id,
-            SessionEvent(
-                kind=SessionEventKind.approval_request,
+            new_event(
+                session_id=job_id,
+                kind=EventKind.approval_requested,
                 payload={
                     "description": description,
                     "proposed_action": proposed_action,

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.models.events import EventKind, SessionEvent, new_event, transcript_kind_for_role
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.steps.tracker import StepTracker, _extract_file_path
 
 
@@ -16,12 +17,21 @@ def _make_event(
     role: str = "agent",
     content: str = "hello",
     turn_id: str = "turn-1",
-    **extra: str,
+    **extra: Any,
 ) -> SessionEvent:
-    payload = {"role": role, "content": content, "turn_id": turn_id, **extra}
-    return new_event(
-        session_id=job_id, timestamp=datetime.now(UTC), kind=transcript_kind_for_role(role), payload=payload
-    )
+    mapped_extra: dict[str, Any] = dict(extra)
+    kind_by_role = {
+        "operator": EventKind.message_user,
+        "user": EventKind.message_user,
+        "agent": EventKind.message_assistant,
+        "assistant": EventKind.message_assistant,
+        "agent_delta": EventKind.message_delta,
+        "reasoning": EventKind.reasoning_started,
+        "tool_running": EventKind.tool_call_started,
+        "tool_call": EventKind.tool_call_completed,
+    }
+    payload = {"content": content, "turn_id": turn_id, **mapped_extra}
+    return new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=kind_by_role[role], payload=payload)
 
 
 @pytest.fixture()
@@ -132,7 +142,7 @@ class TestToolTracking:
                 role="tool_call",
                 turn_id="turn-1",
                 tool_name="read_file",
-                tool_args='{"filePath": "/src/app.py"}',
+                arguments='{"filePath": "/src/app.py"}',
             ),
         )
         current = tracker.current_step("job-1")
@@ -148,7 +158,7 @@ class TestToolTracking:
                 role="tool_call",
                 turn_id="turn-1",
                 tool_name="read_file",
-                tool_args='{"filePath": "src/main.py"}',
+                arguments='{"filePath": "src/main.py"}',
             ),
         )
         current = tracker.current_step("job-1")
@@ -163,7 +173,7 @@ class TestToolTracking:
                 role="tool_call",
                 turn_id="turn-1",
                 tool_name="replace_string_in_file",
-                tool_args='{"filePath": "src/main.py"}',
+                arguments='{"filePath": "src/main.py"}',
             ),
         )
         current = tracker.current_step("job-1")
@@ -179,7 +189,7 @@ class TestToolTracking:
                 role="tool_call",
                 turn_id="turn-1",
                 tool_name="read_file",
-                tool_args='{"filePath": "/workspaces/project/src/main.py"}',
+                arguments='{"filePath": "/workspaces/project/src/main.py"}',
             ),
         )
         current = tracker.current_step("job-1")
@@ -209,7 +219,7 @@ class TestReportIntent:
                 role="tool_call",
                 turn_id="turn-1",
                 tool_name="report_intent",
-                tool_args='{"intent": "Refactoring auth module"}',
+                arguments='{"intent": "Refactoring auth module"}',
             ),
         )
         current = tracker.current_step("job-1")
@@ -247,14 +257,14 @@ class TestToolResultStorage:
                 role="tool_call",
                 turn_id="turn-1",
                 tool_name="grep_search",
-                tool_args='{"query": "test"}',
-                tool_result="file1.py\nfile2.py\nfile3.py",
+                arguments='{"query": "test"}',
+                result="file1.py\nfile2.py\nfile3.py",
             ),
         )
 
         buf = tracker._transcript_buffers["job-1"]
-        tc = [e for e in buf if e["role"] == "tool_call"][0]
-        assert tc["tool_result"] == "file1.py\nfile2.py\nfile3.py"
+        tc = [e for e in buf if e["kind"] == EventKind.tool_call_completed][0]
+        assert tc["result"] == "file1.py\nfile2.py\nfile3.py"
         assert "result_bytes" not in tc
         assert "result_summary" not in tc
 
@@ -267,10 +277,10 @@ class TestToolResultStorage:
                 role="tool_call",
                 turn_id="turn-1",
                 tool_name="read_file",
-                tool_result="",
+                result="",
             ),
         )
 
         buf = tracker._transcript_buffers["job-1"]
-        tc = [e for e in buf if e["role"] == "tool_call"][0]
-        assert "tool_result" not in tc
+        tc = [e for e in buf if e["kind"] == EventKind.tool_call_completed][0]
+        assert "result" not in tc

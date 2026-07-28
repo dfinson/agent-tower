@@ -28,14 +28,16 @@ import contextlib
 import secrets
 import time
 from collections import OrderedDict, deque
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
+from backend.models.events import EventKind
 from backend.services.completers.lightweight_completer import LightweightCompleter
 
 if TYPE_CHECKING:
     from backend.models.domain import SessionConfig, SidecarConfig
+    from backend.models.events import SessionEvent
     from backend.services.adapters.agent_adapter import AgentAdapterInterface
 
 log = structlog.get_logger()
@@ -243,13 +245,12 @@ class AgenticSidecarSession:
         final_text = ""
         try:
             async for event in self._adapter.stream_events(session_id):
-                if str(event.kind) != "transcript" or not isinstance(event.payload, dict):
+                tf_event = cast("SessionEvent", event)
+                if tf_event.kind != EventKind.message_assistant or not isinstance(tf_event.payload, dict):
                     continue
-                role = str(event.payload.get("role", ""))
-                if role in ("agent", "assistant"):
-                    content = event.payload.get("content")
-                    if isinstance(content, str) and content:
-                        final_text = content
+                content = tf_event.payload.get("content")
+                if isinstance(content, str) and content:
+                    final_text = content
         except (TimeoutError, OSError, RuntimeError):
             log.warning("agentic_sidecar_session_error", session_id=session_id, exc_info=True)
         finally:

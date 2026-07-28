@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from typing import TYPE_CHECKING, Any, cast
 
 from backend.models.api_schemas import (
@@ -25,9 +26,10 @@ from backend.models.api_schemas import (
     TurnSummaryPayload,
 )
 from backend.models.domain import JobState
-from backend.models.events import TRANSCRIPT_KINDS, EventKind
+from backend.models.events import TRANSCRIPT_KINDS, TRANSCRIPT_STREAMING_KINDS, EventKind
 from backend.services.git.git_service import GitError
 from backend.services.steps.tracker import hydrate_plan_steps
+from backend.services.tool_formatters import classify_tool_visibility, format_tool_display, format_tool_display_full
 
 if TYPE_CHECKING:
     from backend.persistence.approval_repo import ApprovalRepository
@@ -48,6 +50,81 @@ HEADLINE_QUERY_LIMIT = 200
 # ── internal helpers ────────────────────────────────────────────────────────
 
 
+def _transcript_role_for_kind(kind: EventKind | str) -> str:
+    if kind == EventKind.message_user:
+        return "operator"
+    if kind == EventKind.message_assistant:
+        return "agent"
+    if kind == EventKind.message_delta:
+        return "agent_delta"
+    if kind in (EventKind.reasoning_started, EventKind.llm_thinking_chunk):
+        return "reasoning"
+    if kind == EventKind.tool_call_started:
+        return "tool_running"
+    if kind == EventKind.tool_call_completed:
+        return "tool_call"
+    if kind == EventKind.tool_result_chunk:
+        return "tool_output_delta"
+    return "agent"
+
+
+def _tool_args_to_str(arguments: Any) -> str | None:
+    if arguments is None:
+        return None
+    if isinstance(arguments, str):
+        return arguments
+    if isinstance(arguments, dict):
+        return json.dumps(arguments, ensure_ascii=False)
+    return str(arguments)
+
+
+def _tool_visibility(e: Any) -> str | None:
+    tool_name = e.payload.get("tool_name")
+    if not tool_name:
+        return None
+    return classify_tool_visibility(str(tool_name), _tool_args_to_str(e.payload.get("arguments")))
+
+
+def _is_hidden_tool_event(e: Any) -> bool:
+    if e.kind not in (EventKind.tool_call_started, EventKind.tool_call_completed, EventKind.tool_result_chunk):
+        return False
+    return _tool_visibility(e) == "hidden"
+
+
+def _metadata_tool_intent(e: Any) -> str | None:
+    motivation = getattr(e.metadata, "motivation", None)
+    intent = getattr(motivation, "intent", None)
+    return str(intent) if intent else None
+
+
+def _metadata_tool_duration_ms(e: Any) -> int | None:
+    duration = getattr(e.metadata, "duration_ms", None)
+    return int(duration) if isinstance(duration, (int, float)) else None
+
+
+def _metadata_tool_display(e: Any, *, full: bool = False) -> str | None:
+    tool_name = e.payload.get("tool_name")
+    if not tool_name:
+        return None
+    arguments = _tool_args_to_str(e.payload.get("arguments"))
+    if not full:
+        display = getattr(e.metadata, "tool_display", None)
+        if display is not None:
+            return str(display)
+        return format_tool_display(
+            str(tool_name),
+            arguments,
+            tool_result=e.payload.get("result") or None,
+            tool_success=e.payload.get("success") is not False,
+        )
+    return format_tool_display_full(
+        str(tool_name),
+        arguments,
+        tool_result=e.payload.get("result") or None,
+        tool_success=e.payload.get("success") is not False,
+    )
+
+
 def _build_logs(log_events: list[Any]) -> list[LogLinePayload]:
     return [
         LogLinePayload(
@@ -65,8 +142,8 @@ def _build_logs(log_events: list[Any]) -> list[LogLinePayload]:
 def _build_transcript(
     transcript_events: list[Any],
     summary_events: list[Any],
-    resolve_display: Any,
-    resolve_display_full: Any,
+    _resolve_display: Any,
+    _resolve_display_full: Any,
     *,
     filter_deltas: bool,
 ) -> list[TranscriptPayload]:
@@ -80,27 +157,27 @@ def _build_transcript(
             job_id=e.session_id,
             seq=e.payload.get("seq", 0),
             timestamp=e.payload.get("timestamp", e.timestamp),
-            role=e.payload.get("role", "agent"),
+            role=_transcript_role_for_kind(e.kind),
             content=e.payload.get("content", ""),
             title=e.payload.get("title"),
             turn_id=e.payload.get("turn_id"),
             tool_name=e.payload.get("tool_name"),
-            tool_args=e.payload.get("tool_args"),
-            tool_result=e.payload.get("tool_result"),
-            tool_success=e.payload.get("tool_success"),
+            tool_args=_tool_args_to_str(e.payload.get("arguments")),
+            tool_result=e.payload.get("result"),
+            tool_success=e.payload.get("success"),
             tool_issue=e.payload.get("tool_issue"),
-            tool_intent=e.payload.get("tool_intent"),
+            tool_intent=_metadata_tool_intent(e),
             tool_title=e.payload.get("tool_title"),
-            tool_display=resolve_display(e.payload),
-            tool_display_full=resolve_display_full(e.payload),
-            tool_duration_ms=e.payload.get("tool_duration_ms"),
+            tool_display=_metadata_tool_display(e),
+            tool_display_full=_metadata_tool_display(e, full=True),
+            tool_duration_ms=_metadata_tool_duration_ms(e),
             tool_group_summary=group_summary_by_turn.get(e.payload.get("turn_id") or ""),
-            tool_visibility=e.payload.get("tool_visibility"),
+            tool_visibility=_tool_visibility(e),
             step_id=e.payload.get("step_id"),
             step_number=e.payload.get("step_number"),
         )
         for e in transcript_events
-        if not filter_deltas or e.payload.get("role", "agent") not in ("tool_output_delta", "reasoning_delta")
+        if (not filter_deltas or e.kind not in TRANSCRIPT_STREAMING_KINDS) and not _is_hidden_tool_event(e)
     ]
     return result
 

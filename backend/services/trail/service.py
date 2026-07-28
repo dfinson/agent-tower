@@ -29,6 +29,16 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 
+def _plan_role_for_kind(kind: EventKind | str) -> str | None:
+    if kind == EventKind.message_assistant:
+        return "agent"
+    if kind == EventKind.message_user:
+        return "operator"
+    if kind == EventKind.tool_call_completed:
+        return "tool_call"
+    return None
+
+
 class TrailService:
     """Thin facade composing trail subsystem components.
 
@@ -124,23 +134,24 @@ class TrailService:
     async def _on_transcript_event(self, event: SessionEvent) -> None:
         """Feed plan manager and capture native plans from transcript events."""
         payload = event.payload or {}
-        role = str(payload.get("role", ""))
 
         # Skip ephemeral streaming deltas — no plan value
-        if role == "agent_delta":
+        if event.kind == EventKind.message_delta:
             return
 
         job_id = event.session_id
         if not job_id:
             return
         content = str(payload.get("content", ""))
-        tool_intent = str(payload.get("tool_intent") or "")
+        motivation = getattr(event.metadata, "motivation", None)
+        tool_intent = str(getattr(motivation, "intent", "") or "")
+        plan_role = _plan_role_for_kind(event.kind)
 
         plan_disabled = job_id in self._plan_tracking_disabled
-        if not plan_disabled:
-            await self._plan_manager.feed_transcript(job_id, role, content, tool_intent)
+        if not plan_disabled and plan_role:
+            await self._plan_manager.feed_transcript(job_id, plan_role, content, tool_intent)
 
-        if role == "tool_call":
+        if event.kind == EventKind.tool_call_completed:
             tool_name = str(payload.get("tool_name", ""))
             if tool_name and not plan_disabled:
                 await self._plan_manager.feed_tool_name(job_id, tool_name)
@@ -149,7 +160,7 @@ class TrailService:
                 await self._try_ingest_native_plan(job_id, payload)
 
         # Auto-generate a title for jobs that don't have one yet
-        if role in ("agent", "assistant") and content:
+        if event.kind == EventKind.message_assistant and content:
             await self._maybe_auto_title(job_id, content)
 
     async def _try_ingest_native_plan(
@@ -158,7 +169,7 @@ class TrailService:
         payload: dict[str, Any],
     ) -> None:
         """Extract plan steps from a manage_todo_list / TodoWrite tool call."""
-        raw_args = payload.get("tool_args")
+        raw_args = payload.get("arguments")
         if not raw_args:
             return
         args = ensure_dict(raw_args)

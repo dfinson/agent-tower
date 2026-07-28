@@ -5,9 +5,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+from traceforge.types import EventMetadata, ToolMotivation
+
+from backend.models.events import EventKind
 from backend.services.artifacts.snapshot_helpers import (
     _apply_reassignments,
     _build_logs,
+    _build_transcript,
     _build_timeline,
     _build_turn_summaries,
 )
@@ -16,9 +20,11 @@ from backend.services.artifacts.snapshot_helpers import (
 def _event(
     job_id: str = "j1",
     timestamp: str = "2025-01-01T00:00:00Z",
+    kind: EventKind = EventKind.log_line_emitted,
+    metadata: EventMetadata | None = None,
     **payload: Any,
 ) -> SimpleNamespace:
-    return SimpleNamespace(session_id=job_id, timestamp=timestamp, payload=payload)
+    return SimpleNamespace(session_id=job_id, timestamp=timestamp, kind=kind, payload=payload, metadata=metadata or EventMetadata())
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +57,50 @@ class TestBuildLogs:
         assert logs[0].seq == 0
         assert logs[0].level == "info"
         assert logs[0].message == ""
+
+
+# ---------------------------------------------------------------------------
+# _build_transcript
+# ---------------------------------------------------------------------------
+
+
+class TestBuildTranscript:
+    def test_builds_tool_call_from_tf_fields_and_metadata(self) -> None:
+        ev = _event(
+            kind=EventKind.tool_call_completed,
+            tool_name="Bash",
+            arguments={"command": "echo hi"},
+            result="hi",
+            success=True,
+            turn_id="t1",
+            metadata=EventMetadata(
+                tool_display="Run echo hi",
+                duration_ms=12.5,
+                motivation=ToolMotivation(intent="Verify shell"),
+            ),
+        )
+
+        transcript = _build_transcript([ev], [], None, None, filter_deltas=True)
+
+        assert len(transcript) == 1
+        assert transcript[0].role == "tool_call"
+        assert transcript[0].tool_args == '{"command": "echo hi"}'
+        assert transcript[0].tool_result == "hi"
+        assert transcript[0].tool_success is True
+        assert transcript[0].tool_intent == "Verify shell"
+        assert transcript[0].tool_display == "Run echo hi"
+        assert transcript[0].tool_duration_ms == 12
+
+    def test_filters_hidden_tool_events(self) -> None:
+        ev = _event(
+            kind=EventKind.tool_call_completed,
+            tool_name="report_intent",
+            arguments={"intent": "Internal bookkeeping"},
+            result="ok",
+            success=True,
+        )
+
+        assert _build_transcript([ev], [], None, None, filter_deltas=True) == []
 
 
 # ---------------------------------------------------------------------------

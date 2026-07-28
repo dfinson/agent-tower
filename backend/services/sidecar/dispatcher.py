@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from backend.services.sidecar.session import SidecarSessionManager
 
 from backend.models.domain import SessionConfig, SidecarConfig
-from backend.models.events import TRANSCRIPT_KINDS, EventKind
+from backend.models.events import EventKind
 
 log = structlog.get_logger()
 
@@ -1472,21 +1472,18 @@ class SidecarDispatcher:
         payload = event.payload or {}
 
         if source == "messages":
-            # Transcript events carry role + content
-            if event.kind in TRANSCRIPT_KINDS:
-                role = payload.get("role", "")
-                if role in ("agent", "agent_delta"):
-                    return str(payload.get("content")) if payload.get("content") is not None else None
+            if event.kind in (EventKind.message_assistant, EventKind.message_delta):
+                return str(payload.get("content")) if payload.get("content") is not None else None
             return None
 
         if source == "tool_calls":
-            if event.kind in TRANSCRIPT_KINDS and payload.get("role") == "tool_call":
+            if event.kind == EventKind.tool_call_completed:
                 return str(payload.get("tool_name", ""))
             return None
 
         if source == "tool_output":
-            if event.kind in TRANSCRIPT_KINDS and payload.get("role") == "tool_call":
-                return str(payload.get("tool_result")) if payload.get("tool_result") is not None else None
+            if event.kind == EventKind.tool_call_completed:
+                return str(payload.get("result")) if payload.get("result") is not None else None
             return None
 
         return None

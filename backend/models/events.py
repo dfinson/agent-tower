@@ -154,6 +154,7 @@ TRANSCRIPT_KINDS: frozenset[EventKind] = frozenset(
 TRANSCRIPT_STREAMING_KINDS: frozenset[EventKind] = frozenset(
     {
         EventKind.message_delta,
+        EventKind.llm_thinking_chunk,
         EventKind.tool_result_chunk,
     }
 )
