@@ -1,33 +1,31 @@
 """Shared event processing pipeline for agent sessions.
 
-Both RuntimeService (managed SDK sessions) and IngestService (imported CLI
-sessions) funnel SessionEvents through this processor.  It handles:
+Both RuntimeService (managed SDK sessions) and the imported-ingestion sources
+funnel ``traceforge.SessionEvent`` values through this single processor. Events
+arrive already in TF-native shape (dotted ``kind``, TF payload fields); this
+processor does NOT translate — it annotates and publishes:
 
-  1. Diff triggering on file changes / tool completions
-  2. SessionEvent → DomainEvent translation
+  1. Diff triggering on file edits / tool completions
+  2. turn_id synthesis + rotation for producers that don't supply one
   3. StepTracker annotation (step boundaries, step_number)
   4. TrailService step_id enrichment
   5. EventBus publishing
 
-This eliminates the duplicate logic that previously lived in IngestService.
+This is the one funnel for both producers — there is exactly one event shape.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
 import structlog
 
-from backend.models.domain import SessionEvent as CPSessionEvent
-from backend.models.domain import SessionEventKind
 from backend.models.events import (
     TRANSCRIPT_KINDS,
+    TRANSCRIPT_STREAMING_KINDS,
     EventKind,
     SessionEvent,
-    new_event,
-    transcript_kind_for_role,
 )
 
 if TYPE_CHECKING:
@@ -38,12 +36,16 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
+# report_intent is an internal Copilot marker tool — it never mutates the
+# worktree, so it must not trigger a diff recalculation.
+_DIFF_SKIP_TOOL = "report_intent"
+
 
 class EventProcessor:
     """Stateless event processing shared between managed and imported sessions.
 
     Callers provide the per-job context (worktree_path, base_ref) and this
-    class applies the full processing pipeline to each SessionEvent.
+    class applies the full processing pipeline to each ``SessionEvent``.
     """
 
     def __init__(
@@ -57,8 +59,8 @@ class EventProcessor:
         self._diff_service = diff_service
         self._step_tracker = step_tracker
         self._trail_service = trail_service
-        # Synthesized turn_id per job for callers that don't provide one
-        # (SessionStateWatcher, ClaudeSessionWatcher). Rotated on agent messages.
+        # Synthesized turn_id per job for producers that don't provide one
+        # (imported CLI sessions). Rotated on completed agent messages.
         self._turn_ids: dict[str, str] = {}
 
     def register_worktree(self, job_id: str, worktree_path: str) -> None:
@@ -69,71 +71,66 @@ class EventProcessor:
     async def process_event(
         self,
         job_id: str,
-        session_event: CPSessionEvent,
+        event: SessionEvent,
         worktree_path: str | None = None,
         base_ref: str | None = None,
     ) -> SessionEvent | None:
-        """Process a SessionEvent through the standard pipeline.
+        """Process a TF-native ``SessionEvent`` through the standard pipeline.
 
-        Returns the published DomainEvent, or None if the event was consumed
-        internally (e.g. diff trigger) and no domain event was emitted.
+        Returns the published event, or ``None`` if the event was consumed
+        internally (e.g. a ``file.edited`` diff trigger) and nothing was emitted.
         """
-        diff_eligible = self._diff_service is not None and worktree_path and base_ref
+        kind = event.kind
+        diff_eligible = self._diff_service is not None and bool(worktree_path) and bool(base_ref)
 
-        # Diff recalculation on file changes
-        if diff_eligible and session_event.kind == SessionEventKind.file_changed:
-            assert self._diff_service is not None and worktree_path and base_ref
-            await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
+        # Diff recalculation on native file-edit events — consumed, not published
+        # (the FE receives file changes via the synthesized diff.updated event).
+        if kind == EventKind.file_edited:
+            if diff_eligible:
+                assert self._diff_service is not None and worktree_path and base_ref
+                await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
             return None
 
-        # Diff recalculation on tool completions (skip internal markers)
+        # Diff recalculation on tool completions (skip internal marker tools)
         if (
             diff_eligible
-            and session_event.kind == SessionEventKind.transcript
-            and session_event.payload.get("role") == "tool_call"
-            and session_event.payload.get("tool_name") != "report_intent"
+            and kind == EventKind.tool_call_completed
+            and event.payload.get("tool_name") != _DIFF_SKIP_TOOL
         ):
             assert self._diff_service is not None and worktree_path and base_ref
             await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
 
-        # Translate to DomainEvent
-        domain_event = self._translate_event(job_id, session_event)
-        if domain_event is None:
-            return None
+        is_transcript = kind in TRANSCRIPT_KINDS
 
-        # Ensure transcript events carry a turn_id for step tracking.
-        # Managed sessions (via CopilotAdapter) already include one; discovered
-        # sessions from the watchers don't.  Synthesize one here and rotate it
-        # on each completed agent message (role=="agent") to mark turn boundaries.
-        if domain_event.kind in TRANSCRIPT_KINDS:
-            payload = domain_event.payload
+        # Ensure transcript events carry a turn_id for step tracking. Managed
+        # adapters already include one; imported sessions don't — synthesize here
+        # and rotate on each completed agent message (turn boundary).
+        if is_transcript:
+            payload = event.payload
             if not payload.get("turn_id"):
                 tid = self._turn_ids.get(job_id)
                 if not tid:
                     tid = str(uuid.uuid4())
                     self._turn_ids[job_id] = tid
                 payload["turn_id"] = tid
-            role = str(payload.get("role", ""))
-            # Rotate turn_id after a full agent message (signals end of turn)
-            if role == "agent":
+            if kind == EventKind.message_assistant:
                 self._turn_ids[job_id] = str(uuid.uuid4())
 
-        # Step tracking — annotate transcript events with step boundaries
-        if domain_event.kind in TRANSCRIPT_KINDS and self._step_tracker is not None:
-            role = str(domain_event.payload.get("role", ""))
-            if role != "agent_delta":
-                await self._step_tracker.on_transcript_event(job_id, domain_event)
-                current = self._step_tracker.current_step(job_id)
-                if current:
-                    domain_event.payload["step_number"] = current.step_number
-                # TrailService is the sole step_id authority (ps-* IDs)
-                if self._trail_service is not None:
-                    plan_step_id = self._trail_service.get_active_plan_step_id(job_id)
-                    if plan_step_id:
-                        domain_event.payload["step_id"] = plan_step_id
+        # Step tracking — annotate non-streaming transcript events with step
+        # boundaries. Streaming partials (deltas, tool output chunks) are skipped.
+        if is_transcript and kind not in TRANSCRIPT_STREAMING_KINDS and self._step_tracker is not None:
+            await self._step_tracker.on_transcript_event(job_id, event)
+            current = self._step_tracker.current_step(job_id)
+            if current:
+                event.payload["step_number"] = current.step_number
+            # TrailService is the sole step_id authority (ps-* IDs)
+            if self._trail_service is not None:
+                plan_step_id = self._trail_service.get_active_plan_step_id(job_id)
+                if plan_step_id:
+                    event.payload["step_id"] = plan_step_id
 
-        await self._event_bus.publish(domain_event)
-        return domain_event
+        await self._event_bus.publish(event)
+        return event
 
     async def on_job_terminal(self, job_id: str, outcome: str) -> None:
         """Notify step tracker of job terminal state."""
@@ -147,26 +144,3 @@ class EventProcessor:
             self._step_tracker.cleanup(job_id)
         if self._diff_service is not None:
             self._diff_service.cleanup(job_id)
-
-    @staticmethod
-    def _translate_event(job_id: str, event: CPSessionEvent) -> SessionEvent | None:
-        """Translate a SessionEvent into a DomainEvent."""
-        mapping: dict[SessionEventKind, EventKind] = {
-            SessionEventKind.log: EventKind.log_line_emitted,
-            SessionEventKind.approval_request: EventKind.approval_requested,
-            SessionEventKind.error: EventKind.job_failed,
-            SessionEventKind.model_downgraded: EventKind.model_downgraded,
-        }
-        kind: EventKind | None
-        if event.kind == SessionEventKind.transcript:
-            kind = transcript_kind_for_role(str(event.payload.get("role", "")))
-        else:
-            kind = mapping.get(event.kind)
-        if kind is None:
-            return None
-        return new_event(
-            session_id=job_id,
-            timestamp=datetime.now(UTC),
-            kind=kind,
-            payload=cast("dict[str, Any]", event.payload),
-        )

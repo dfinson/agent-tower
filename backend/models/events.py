@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "TRANSCRIPT_KINDS",
+    "TRANSCRIPT_STREAMING_KINDS",
     "EventKind",
     "EventMetadata",
     "EventPayload",
@@ -42,12 +43,32 @@ class EventKind(StrEnum):
     job_setup_progress = "job.setup_progress"
     workspace_prepared = "workspace.prepared"
     agent_session_started = "agent.session_started"
-    # --- Transcript family (one CP transcript event per agent role) ---
+    # --- Transcript family (dotted vendor kinds, emitted natively by both
+    #     producers: managed adapters + imported TF mappings) ---
     message_user = "message.user"
     message_assistant = "message.assistant"
+    message_system = "message.system"
     message_delta = "message.delta"
+    reasoning_started = "reasoning.started"
+    llm_thinking_chunk = "llm.thinking.chunk"
+    planning_started = "planning.started"
     tool_call_started = "tool.call.started"
     tool_call_completed = "tool.call.completed"
+    tool_result_chunk = "tool.result.chunk"
+    # --- Imported/native session lifecycle (TF mapping outputs consumed by
+    #     the ingest sources for finalization/abort) ---
+    session_started = "session.started"
+    session_ended = "session.ended"
+    session_error = "session.error"
+    session_idle = "session.idle"
+    session_abort = "session.abort"
+    turn_started = "turn.started"
+    turn_ended = "turn.ended"
+    permission_granted = "permission.granted"
+    # --- Telemetry (native TF usage record) ---
+    telemetry_usage = "telemetry.usage"
+    # --- File edits (native TF file kind; drives diff recalculation) ---
+    file_edited = "file.edited"
     # --- Logs / diffs ---
     log_line_emitted = "log"
     diff_updated = "diff.updated"
@@ -109,17 +130,31 @@ class EventKind(StrEnum):
     job_mode_changed = "job.mode_changed"
 
 
-# The transcript family: one CP "transcript" event fans out to a role-specific
-# dotted kind. Role is retained in ``payload["role"]`` so consumers that branch
-# on role continue to work; kind-level "is this a transcript event" checks use
-# this set.
+# The transcript family: dotted vendor kinds that represent conversation/tool
+# activity to display and step-track. Both producers (managed adapters, imported
+# TF mappings) emit these dotted kinds natively — consumers branch on ``kind``,
+# never on a ``role`` field. ``message.delta`` and ``tool.result.chunk`` are
+# streaming partials (skipped by step tracking); the rest are complete blocks.
 TRANSCRIPT_KINDS: frozenset[EventKind] = frozenset(
     {
         EventKind.message_user,
         EventKind.message_assistant,
+        EventKind.message_system,
         EventKind.message_delta,
+        EventKind.reasoning_started,
+        EventKind.llm_thinking_chunk,
         EventKind.tool_call_started,
         EventKind.tool_call_completed,
+        EventKind.tool_result_chunk,
+    }
+)
+
+# Streaming partials within the transcript family — display them, but do not
+# advance step/turn tracking on them (they are token-by-token fragments).
+TRANSCRIPT_STREAMING_KINDS: frozenset[EventKind] = frozenset(
+    {
+        EventKind.message_delta,
+        EventKind.tool_result_chunk,
     }
 )
 
@@ -190,20 +225,23 @@ class LogLinePayloadDict(_BasePayload, total=False):
 
 
 class TranscriptPayloadDict(_BasePayload, total=False):
+    """TF-native transcript/tool payload.
+
+    Dotted ``kind`` (on the event) replaces the old ``role`` field. Tool fields
+    use TF names (``arguments``/``result``/``success``). Presentation/motivation
+    enrichment (``tool_display``/intent/``duration_ms``) lives on
+    ``event.metadata`` (``tool_display``/``motivation``/``duration_ms``), not here.
+    """
+
     seq: int
     timestamp: str
-    role: str
     content: str
     title: str | None
     tool_name: str | None
-    tool_args: str | None
-    tool_result: str | None
-    tool_success: bool | None
-    tool_issue: str | None
-    tool_intent: str | None
-    tool_title: str | None
-    tool_display: str | None
-    tool_duration_ms: int | None
+    tool_call_id: str | None
+    arguments: Any
+    result: str | None
+    success: bool | None
 
 
 class DiffFilePayloadDict(TypedDict, total=False):
