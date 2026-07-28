@@ -47,7 +47,7 @@ export function handleApprovalResolved(state: AppState, payload: Record<string, 
 export function handleBatchApprovalRequested(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
   const actions = (payload.actions as Array<Record<string, unknown>>) ?? [];
   const batch: BatchApproval = {
-    batchId: payload.batch_id as string,
+    batchId: payload.batchId as string,
     jobId: payload.jobId as string,
     actions: actions.map((a) => ({
       id: a.id as string,
@@ -56,7 +56,7 @@ export function handleBatchApprovalRequested(state: AppState, payload: Record<st
       reason: a.reason as string,
       reversible: a.reversible as boolean,
       contained: a.contained as boolean,
-      checkpointRef: (a.checkpoint_ref as string | null) ?? null,
+      checkpointRef: (a.checkpointRef as string | null) ?? null,
       description: a.description as string,
     })),
     summary: (payload.summary as string) ?? "",
@@ -70,7 +70,7 @@ export function handleBatchApprovalRequested(state: AppState, payload: Record<st
 }
 
 export function handleBatchApprovalResolved(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
-  const batchId = payload.batch_id as string;
+  const batchId = payload.batchId as string;
   const existing = state.batchApprovals[batchId];
   if (existing) {
     return {
@@ -88,8 +88,8 @@ export function handleBatchApprovalResolved(state: AppState, payload: Record<str
 }
 
 export const approvalHandlers: Record<string, SSEHandler> = {
-  approval_requested: handleApprovalRequested,
-  approval_resolved: handleApprovalResolved,
-  batch_approval_requested: handleBatchApprovalRequested,
-  batch_approval_resolved: handleBatchApprovalResolved,
+  "permission.requested": handleApprovalRequested,
+  "permission.resolved": handleApprovalResolved,
+  "permission.batch.requested": handleBatchApprovalRequested,
+  "permission.batch.resolved": handleBatchApprovalResolved,
 };

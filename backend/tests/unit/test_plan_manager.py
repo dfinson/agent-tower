@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, SessionEvent
 from backend.services.events.event_bus import EventBus
 from backend.services.trail.models import (
     PlanStep,
@@ -118,10 +118,10 @@ class TestInferPlan:
             }
         )
 
-        events: list[DomainEvent] = []
+        events: list[SessionEvent] = []
 
-        async def _handler(e: DomainEvent) -> None:
-            if e.kind == DomainEventKind.plan_step_updated:
+        async def _handler(e: SessionEvent) -> None:
+            if e.kind == EventKind.plan_step_updated:
                 events.append(e)
 
         event_bus.subscribe(_handler)
@@ -269,10 +269,10 @@ class TestClassifyAndUpdatePlan:
             }
         )
 
-        events: list[DomainEvent] = []
+        events: list[SessionEvent] = []
 
-        async def _handler(e: DomainEvent) -> None:
-            if e.kind == DomainEventKind.step_entries_reassigned:
+        async def _handler(e: SessionEvent) -> None:
+            if e.kind == EventKind.step_entries_reassigned:
                 events.append(e)
 
         event_bus.subscribe(_handler)
@@ -311,10 +311,10 @@ class TestFeedNativePlan:
         state = _state()
         job_state["j1"] = state
 
-        events: list[DomainEvent] = []
+        events: list[SessionEvent] = []
 
-        async def _handler(e: DomainEvent) -> None:
-            if e.kind == DomainEventKind.plan_step_updated:
+        async def _handler(e: SessionEvent) -> None:
+            if e.kind == EventKind.plan_step_updated:
                 events.append(e)
 
         event_bus.subscribe(_handler)

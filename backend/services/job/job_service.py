@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from backend.config import CPLConfig
-    from backend.models.events import DomainEvent, DomainEventKind
+    from backend.models.events import EventKind, SessionEvent
     from backend.persistence.event_repo import EventRepository
     from backend.persistence.job_repo import JobRepository
     from backend.services.coderecon.coderecon_service import CodeReconService
@@ -126,9 +126,9 @@ class JobService:
     async def list_events_by_job(
         self,
         job_id: str,
-        kinds: list[DomainEventKind],
+        kinds: list[EventKind],
         limit: int = 2000,
-    ) -> list[DomainEvent]:
+    ) -> list[SessionEvent]:
         """Query domain events for a job, filtered by kind.
 
         Delegates to the event repository so that API routes never need
@@ -410,7 +410,7 @@ class JobService:
         Returns the updated Job.
         Raises JobNotFoundError / StateConflictError on bad state.
         """
-        from backend.models.events import DomainEvent, DomainEventKind
+        from backend.models.events import EventKind, new_event
 
         if self._git is None:
             raise ServiceInitError("GitService required for workspace setup")
@@ -424,11 +424,10 @@ class JobService:
         async def _emit_progress(step: str) -> None:
             if self._event_bus is not None:
                 await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=job_id,
+                    new_event(
+                        session_id=job_id,
                         timestamp=datetime.now(UTC),
-                        kind=DomainEventKind.job_setup_progress,
+                        kind=EventKind.job_setup_progress,
                         payload={"step": step},
                     )
                 )
@@ -658,13 +657,13 @@ class JobService:
         job: Job,
         action: str,
         merge_service: MergeService,
-    ) -> tuple[Resolution, str | None, list[str] | None, str | None, list[DomainEvent]]:
+    ) -> tuple[Resolution, str | None, list[str] | None, str | None, list[SessionEvent]]:
         """Full resolve protocol: execute merge, persist result, build events.
 
         Returns (resolution, pr_url, conflict_files, error, events_to_publish).
         The caller should commit the session and then publish the events.
         """
-        from backend.models.events import DomainEvent, DomainEventKind
+        from backend.models.events import EventKind, new_event
 
         resolution, pr_url, conflict_files, error = await self.execute_resolve(
             job=job,
@@ -672,7 +671,7 @@ class JobService:
             merge_service=merge_service,
         )
 
-        events: list[DomainEvent] = [
+        events: list[SessionEvent] = [
             self.build_job_resolved_event(
                 job.id,
                 resolution,
@@ -684,11 +683,10 @@ class JobService:
 
         if resolution in (Resolution.merged, Resolution.pr_created, Resolution.discarded):
             events.append(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job.id,
+                new_event(
+                    session_id=job.id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.job_completed,
+                    kind=EventKind.job_completed,
                     payload={
                         "resolution": resolution,
                         "merge_status": resolution,
@@ -705,11 +703,11 @@ class JobService:
         Fetches the latest merge_conflict event for the job to identify
         conflicting files, then constructs a structured resolution prompt.
         """
-        from backend.models.events import DomainEventKind
+        from backend.models.events import EventKind
 
         conflict_events = await self.list_events_by_job(
             job_id,
-            kinds=[DomainEventKind.merge_conflict],
+            kinds=[EventKind.merge_conflict],
         )
         conflict_files: list[str] = []
         if conflict_events:
@@ -740,9 +738,9 @@ class JobService:
         pr_url: str | None = None,
         conflict_files: list[str] | None = None,
         error: str | None = None,
-    ) -> DomainEvent:
+    ) -> SessionEvent:
         """Build a job_resolved event for publication after the caller commits."""
-        from backend.models.events import DomainEvent, DomainEventKind
+        from backend.models.events import EventKind, new_event
 
         payload: dict[str, object] = {"resolution": resolution}
         if pr_url:
@@ -752,12 +750,8 @@ class JobService:
         if error:
             payload["error"] = error
 
-        return DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=datetime.now(UTC),
-            kind=DomainEventKind.job_resolved,
-            payload=payload,
+        return new_event(
+            session_id=job_id, timestamp=datetime.now(UTC), kind=EventKind.job_resolved, payload=payload
         )
 
     async def archive_job(self, job_id: str) -> Job:
@@ -791,14 +785,8 @@ class JobService:
 
         return await self.get_job(job_id)
 
-    def build_job_archived_event(self, job_id: str) -> DomainEvent:
+    def build_job_archived_event(self, job_id: str) -> SessionEvent:
         """Build a job_archived event for publication after the caller commits."""
-        from backend.models.events import DomainEvent, DomainEventKind
+        from backend.models.events import EventKind, new_event
 
-        return DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=datetime.now(UTC),
-            kind=DomainEventKind.job_archived,
-            payload={},
-        )
+        return new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=EventKind.job_archived, payload={})

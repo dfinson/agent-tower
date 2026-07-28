@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import TrailConfig
 from backend.models.db import TrailNodeRow
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, new_event
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.story.motivation import (
     _EDIT_SYSTEM_PROMPT,
@@ -263,11 +263,10 @@ class TrailEnricher:
                 # the activity tracker will handle emission when it runs.
                 if activity_id:
                     await self._event_bus.publish(
-                        DomainEvent(
-                            event_id=DomainEvent.make_event_id(),
-                            job_id=node.job_id,
+                        new_event(
+                            session_id=node.job_id,
                             timestamp=node.timestamp,
-                            kind=DomainEventKind.turn_summary,
+                            kind=EventKind.turn_summary,
                             payload={
                                 "turn_id": node.turn_id,
                                 "title": title,

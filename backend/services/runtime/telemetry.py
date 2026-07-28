@@ -16,7 +16,7 @@ from sqlalchemy.exc import DBAPIError
 
 from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import JobState
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, new_event
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -100,11 +100,10 @@ class RuntimeTelemetry:
         async with best_effort(log, "execution_phase_event", job_id=job_id):
             self._resolve_adapter(config.sdk).set_execution_phase(job_id, ExecutionPhase.finalization)
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.execution_phase_changed,
+                    kind=EventKind.execution_phase_changed,
                     payload={"phase": ExecutionPhase.finalization},
                 )
             )
@@ -158,11 +157,10 @@ class RuntimeTelemetry:
 
             # Signal clients that final telemetry is available
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.telemetry_updated,
+                    kind=EventKind.telemetry_updated,
                     payload={"job_id": job_id},
                 )
             )
@@ -242,7 +240,7 @@ class RuntimeTelemetry:
                     from backend.persistence.event_repo import EventRepository
 
                     event_repo = EventRepository(session)
-                    log_events = await event_repo.list_all_by_job(job_id, [DomainEventKind.log_line_emitted])
+                    log_events = await event_repo.list_all_by_job(job_id, [EventKind.log_line_emitted])
                     if log_events:
                         await artifact_svc.store_log_artifact(
                             job_id,

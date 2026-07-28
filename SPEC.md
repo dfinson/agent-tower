@@ -973,108 +973,38 @@ data: {json_payload}
 
 ### 5.3 Event Types
 
-| Event Type | Payload Summary |
+Runtime events are `traceforge.SessionEvent` objects (see §11). The SSE wire carries them **as-is** — there is no translation to a separate SSE vocabulary:
+
+- **`event:`** — the event's dotted `kind` (e.g. `job.created`, `message.assistant`, `tool.call.completed`, `permission.requested`). This is the same `EventKind` value used on the event bus and in persistence.
+- **`data:`** — the `SessionEvent` serialized verbatim (`SessionEvent.model_dump_json()`):
+
+```json
+{
+  "id": "<event uuid>",
+  "session_id": "<job id>",
+  "kind": "job.created",
+  "payload": { "...": "kind-specific fields — see §11.1" },
+  "metadata": { "sequence": 12, "timestamp": "...", "turn_id": "...", "event_id": "..." }
+}
+```
+
+- **`id:`** — `metadata.sequence` (the SQLite autoincrement), falling back to the event id; drives `Last-Event-ID` replay.
+
+The frontend consumes this shape directly (`useSSE.ts`), reading `payload.*` and deriving job-state transitions from the dotted `kind` — the server does **not** emit the paired synthetic state-change frames the retired model did. The sole state event is the dotted `job.state_changed` kind, emitted on real transitions.
+
+The one non-`SessionEvent` frame is `snapshot`, sent on reconnect (see §5.4). It omits `id:` and its `data:` is a bespoke `{ jobs: JobResponse[], pending_approvals: ApprovalResponse[] }` payload.
+
+### 5.3.1 Broadcast Rules
+
+Not every kind reaches clients. `SSEManager` gates delivery (`_BROADCAST_KINDS` in `sse_manager.py` is the source of truth):
+
+| Rule | Effect |
 |---|---|
-| `job_state_changed` | `{ job_id, previous_state, new_state, timestamp }` |
-| `log_line` | `{ job_id, seq, timestamp, level, message, context }` |
-| `transcript_update` | `{ job_id, seq, timestamp, role, content }` |
-| `diff_update` | `{ job_id, changed_files: DiffFile[] }` |
-| `approval_requested` | `{ job_id, approval_id, description, proposed_action, tier, reversible, contained }` |
-| `approval_resolved` | `{ job_id, approval_id, resolution, timestamp }` |
-| `batch_approval_requested` | `{ job_id, batch_id, actions[] }` |
-| `batch_approval_resolved` | `{ job_id, batch_id, resolution }` |
-| `session_heartbeat` | `{ job_id, session_id, timestamp }` |
-| `snapshot` | `{ jobs: JobResponse[], pending_approvals: ApprovalResponse[] }` |
-| `job_resolved` | `{ jobId, resolution, prUrl?, conflictFiles? }` |
-| `job_archived` | `{ jobId }` |
-| `job_review` | `{ jobId, prUrl?, mergeStatus?, resolution? }` |
-| `job_completed` | `{ jobId }` |
-| `job_failed` | `{ jobId, reason }` |
-| `merge_completed` | `{ jobId, branch, baseRef, strategy }` |
-| `merge_conflict` | `{ jobId, branch, baseRef, conflictFiles, fallback }` |
-| `session_resumed` | `{ jobId, sessionNumber }` |
-| `job_title_updated` | `{ jobId, title?, branch?, description? }` |
-| `progress_headline` | `{ jobId, headline }` |
-| `model_downgraded` | `{ jobId, requestedModel, actualModel }` |
-| `tool_group_summary` | `{ jobId, turnId, summary }` |
-| `agent_plan_updated` | `{ jobId, steps[] }` |
-| `execution_phase_changed` | `{ jobId, phase }` |
-| `telemetry_updated` | `{ jobId, ... }` |
-| `step_started` | `{ jobId, stepId, stepNumber }` |
-| `step_completed` | `{ jobId, stepId }` |
-| `step_title_generated` | `{ jobId, stepId, title }` |
-| `step_group_updated` | `{ jobId, stepId }` |
-| `plan_step_updated` | `{ jobId, stepId }` |
-| `turn_summary` | `{ jobId, turnId, summary }` |
-| `action_classified` | `{ jobId, tier, kind, description }` |
-| `policy_settings_changed` | `{ preset, ... }` |
-| `repo_index_progress` | `{ repo, progress }` |
-| `repo_index_complete` | `{ repo }` |
-| `structural_warning` | `{ jobId, warning }` |
-| `stall_detected` | `{ jobId }` |
-| `monitor_approved` | `{ jobId, action }` |
-| `monitor_rejected` | `{ jobId, action }` |
-| `monitor_escalated` | `{ jobId, action }` |
-| `sidecar_transcript` | `{ jobId, sidecarName, content }` |
-| `sidecar_agent_message` | `{ jobId, sidecarName, message }` |
-| `sidecar_gate_verdict` | `{ jobId, sidecarName, verdict }` |
-| `sidecar_metadata_update` | `{ jobId, sidecarName, metadata }` |
-| `job_setup_progress` | `{ jobId, step }` |
+| **Broadcast allowlist** | Only allow-listed dotted kinds are sent. Internal-only kinds — `workspace.prepared`, `agent.session_started`, the `step.*` internals, `plan.updated`, `execution.phase_changed`, `progress.headline`, `sidecar.*`, `monitor.*` — are dropped at the boundary; their effect surfaces via other broadcast events or the job snapshot. |
+| **Selective suppression** | When >20 jobs are active, high-frequency kinds (`log`, `diff.updated`, `session.heartbeat`, and the transcript family) are suppressed for global/dashboard connections. |
+| **Job-scoped only** | `telemetry.updated` and `secondary_session.entry` are delivered only to a connection scoped to that job, never to global/dashboard connections. |
 
-### 5.3.1 Domain Event to SSE Event Mapping
-
-The `SSEManager` translates internal domain events into SSE events as follows:
-
-| Domain Event | SSE Event | Notes |
-|---|---|---|
-| `JobCreated` | `job_state_changed` | `previous_state: null, new_state: preparing or queued` |
-| `JobSetupProgress` | `job_setup_progress` | 1:1 mapping |
-| `WorkspacePrepared` | _(none)_ | Internal only; workspace info is in the job response |
-| `AgentSessionStarted` | _(none)_ | Internal only |
-| `LogLineEmitted` | `log_line` | 1:1 mapping |
-| `TranscriptUpdated` | `transcript_update` | 1:1 mapping |
-| `DiffUpdated` | `diff_update` | 1:1 mapping |
-| `ApprovalRequested` | `approval_requested` + `job_state_changed` | Two SSE events emitted |
-| `ApprovalResolved` | `approval_resolved` + `job_state_changed` | Two SSE events emitted |
-| `BatchApprovalRequested` | `batch_approval_requested` + `job_state_changed` | Two SSE events emitted |
-| `BatchApprovalResolved` | `batch_approval_resolved` + `job_state_changed` | Two SSE events emitted |
-| `JobReview` | `job_review` + `job_state_changed` | Two SSE events emitted |
-| `JobCompleted` | `job_completed` + `job_state_changed` | Two SSE events emitted |
-| `JobFailed` | `job_failed` + `job_state_changed` | Two SSE events emitted |
-| `JobCanceled` | `job_state_changed` | `new_state: canceled` |
-| `JobStateChanged` | `job_state_changed` | 1:1 mapping |
-| `SessionHeartbeat` | `session_heartbeat` | 1:1 mapping |
-| `MergeCompleted` | `merge_completed` | 1:1 mapping |
-| `MergeConflict` | `merge_conflict` | 1:1 mapping |
-| `SessionResumed` | `session_resumed` | 1:1 mapping |
-| `JobResolved` | `job_resolved` | 1:1 mapping |
-| `JobArchived` | `job_archived` | 1:1 mapping |
-| `JobTitleUpdated` | `job_title_updated` | 1:1 mapping |
-| `ProgressHeadline` | `progress_headline` | 1:1 mapping |
-| `ModelDowngraded` | `model_downgraded` | 1:1 mapping |
-| `ToolGroupSummary` | `tool_group_summary` | 1:1 mapping |
-| `AgentPlanUpdated` | `agent_plan_updated` | 1:1 mapping |
-| `ExecutionPhaseChanged` | `execution_phase_changed` | 1:1 mapping |
-| `TelemetryUpdated` | `telemetry_updated` | 1:1 mapping |
-| `StepStarted` | `step_started` | 1:1 mapping |
-| `StepCompleted` | `step_completed` | 1:1 mapping |
-| `StepTitleGenerated` | `step_title_generated` | 1:1 mapping |
-| `StepGroupUpdated` | `step_group_updated` | 1:1 mapping |
-| `PlanStepUpdated` | `plan_step_updated` | 1:1 mapping |
-| `TurnSummary` | `turn_summary` | 1:1 mapping |
-| `ActionClassified` | `action_classified` | 1:1 mapping |
-| `PolicySettingsChanged` | `policy_settings_changed` | 1:1 mapping |
-| `RepoIndexProgress` | `repo_index_progress` | 1:1 mapping |
-| `RepoIndexComplete` | `repo_index_complete` | 1:1 mapping |
-| `StructuralWarning` | `structural_warning` | 1:1 mapping |
-| `StallDetected` | `stall_detected` | 1:1 mapping |
-| `MonitorApproved` | `monitor_approved` | 1:1 mapping |
-| `MonitorRejected` | `monitor_rejected` | 1:1 mapping |
-| `MonitorEscalated` | `monitor_escalated` | 1:1 mapping |
-| `SidecarTranscript` | `sidecar_transcript` | 1:1 mapping |
-| `SidecarAgentMessage` | `sidecar_agent_message` | 1:1 mapping |
-| `SidecarGateVerdict` | `sidecar_gate_verdict` | 1:1 mapping |
-| `SidecarMetadataUpdate` | `sidecar_metadata_update` | 1:1 mapping |
+A job-scoped connection (a client viewing one job's detail) always receives full streaming for that job.
 
 ### 5.4 Reconnection and Replay
 
@@ -1121,7 +1051,7 @@ When more than 20 jobs are active concurrently, the SSE manager switches to a **
 | Condition | Behavior |
 |---|---|
 | Job card is open (Job Detail screen) | Full event streaming for that job continues normally |
-| Dashboard view with >20 active jobs | Job cards receive only `job_state_changed` events (no logs, transcripts, or diffs) |
+| Dashboard view with >20 active jobs | Job cards receive only `job.state_changed` events (no logs, transcripts, or diffs) |
 | Dashboard with >20 active jobs | A "Refresh page for latest updates" banner is shown above the Kanban board |
 
 This means:
@@ -1141,7 +1071,7 @@ When a job is created:
 
 1. `JobService` validates the request and persists the job in `preparing` state
 2. `GitService` creates the worktree and branch
-3. `JobService` persists a `JobCreated` event and a `WorkspacePrepared` event
+3. `JobService` persists a `job.created` event and a `workspace.prepared` event
 4. `RuntimeService` is asked to run the job
 5. If at capacity, job transitions to `queued`; otherwise proceeds immediately
 6. `RuntimeService` creates an asyncio task and job transitions to `running`
@@ -1167,17 +1097,17 @@ When an operator sends a message to a running job:
 1. `POST /api/jobs/{job_id}/messages` received
 2. Route delegates to `JobService.send_operator_message()`
 3. Service calls `adapter.send_message(session_id, message)`
-4. A `TranscriptUpdated` event is published with `role="operator"`
+4. A `message.user` transcript event is published with `role="operator"`
 
 ### 6.4 Approval Pause
 
 When the agent SDK raises a permission request (e.g., Copilot SDK calls `on_permission_request`):
 
-1. Adapter translates to `ApprovalRequested` domain event
+1. Adapter translates to `permission.requested` domain event
 2. Event bus delivers to `ApprovalService`
 3. `ApprovalService` persists the request; adapter holds the SDK callback pending
 4. Job transitions to `waiting_for_approval`
-5. `ApprovalRequested` SSE event sent to frontend
+5. `permission.requested` SSE event sent to frontend
 6. Operator approves or rejects via `POST /api/approvals/{approval_id}/resolve`
 7. `ApprovalService` records resolution; adapter returns the decision to the SDK callback
 
@@ -1188,7 +1118,7 @@ When the backend process receives `SIGTERM` or `SIGINT` (e.g., operator presses 
 1. Stop accepting new job creation requests (return `503 Service Unavailable`)
 2. For each running job:
    a. Call `adapter.abort_session(session_id)`
-   b. Publish a `JobCanceled` event with `reason: "server_shutdown"`
+   b. Publish a `job.canceled` event with `reason: "server_shutdown"`
    c. Transition the job to `canceled`
 3. Close all SSE connections
 4. Allow up to 10 seconds for in-flight requests to complete
@@ -1202,7 +1132,7 @@ Queued jobs remain in `queued` state and are picked up on next startup.
 On startup, before accepting requests, the backend runs recovery:
 
 1. Query for all jobs in `running` or `waiting_for_approval` state
-2. Transition each to `failed` with a `JobFailed` event containing `reason: "process_restarted"`
+2. Transition each to `failed` with a `job.failed` event containing `reason: "process_restarted"`
 3. Log each recovered job as a warning
 
 The system does not attempt to reconnect to orphaned agent sessions. Asyncio tasks from a previous process cannot be reconstructed. The operator can rerun any recovered job using the rerun button.
@@ -1397,7 +1327,7 @@ The flow:
    - **GitHub MCP server** (if configured in `.vscode/mcp.json` or `tools.mcp` global config) — the agent uses the MCP `create_pull_request` tool
    - **`gh` CLI** (if available on `$PATH`) — the agent runs `gh pr create` with the branch name, prompt-derived title, and a summary body
 3. If neither `gh` CLI nor GitHub MCP tools are available, the step is skipped silently and the branch remains on disk for the operator to push manually
-4. The PR URL (if created) is included in the `JobReview` event payload and displayed on the Job Detail screen
+4. The PR URL (if created) is included in the `job.review` event payload and displayed on the Job Detail screen
 
 This is a best-effort operation — if PR creation fails (e.g., no remote configured, auth issues), the job is still considered successful. The failure is logged as a warning.
 
@@ -1792,122 +1722,144 @@ Provided in the job creation request body:
 
 ## 11. Canonical Internal Event Model
 
-All runtime activity is represented as structured domain events. Every event has a shared envelope:
+All runtime activity is represented as `traceforge.SessionEvent` objects — the single canonical event model, end to end (event bus, persistence, and the SSE wire). CodePlane defines no bespoke event dataclass; it uses TraceForge's `SessionEvent` + `EventMetadata` directly. Event `kind` is an open dotted string in TraceForge's grammar; CodePlane's own control-plane kinds are named constants in the `EventKind` StrEnum (TraceForge-canonical strings are reused where semantics match — e.g. `log`, `message.*`, `tool.call.*`, `permission.*`):
 
 ```python
-class DomainEventKind(str, Enum):
-    job_created = "JobCreated"
-    job_setup_progress = "JobSetupProgress"
-    workspace_prepared = "WorkspacePrepared"
-    agent_session_started = "AgentSessionStarted"
-    log_line_emitted = "LogLineEmitted"
-    transcript_updated = "TranscriptUpdated"
-    diff_updated = "DiffUpdated"
-    approval_requested = "ApprovalRequested"
-    approval_resolved = "ApprovalResolved"
-    batch_approval_requested = "BatchApprovalRequested"
-    batch_approval_resolved = "BatchApprovalResolved"
-    job_review = "JobReview"
-    job_completed = "JobCompleted"
-    job_failed = "JobFailed"
-    job_canceled = "JobCanceled"
-    job_state_changed = "JobStateChanged"
-    session_heartbeat = "SessionHeartbeat"
-    merge_completed = "MergeCompleted"
-    merge_conflict = "MergeConflict"
-    session_resumed = "SessionResumed"
-    job_resolved = "JobResolved"
-    job_archived = "JobArchived"
-    job_title_updated = "JobTitleUpdated"
-    progress_headline = "ProgressHeadline"
-    model_downgraded = "ModelDowngraded"
-    tool_group_summary = "ToolGroupSummary"
-    agent_plan_updated = "AgentPlanUpdated"
-    execution_phase_changed = "ExecutionPhaseChanged"
-    telemetry_updated = "TelemetryUpdated"
-    step_started = "StepStarted"
-    step_completed = "StepCompleted"
-    step_title_generated = "StepTitleGenerated"
-    step_group_updated = "StepGroupUpdated"
-    plan_step_updated = "PlanStepUpdated"
-    step_entries_reassigned = "StepEntriesReassigned"
-    turn_summary = "TurnSummary"
-    action_classified = "ActionClassified"
-    policy_settings_changed = "PolicySettingsChanged"
-    repo_index_progress = "RepoIndexProgress"
-    repo_index_complete = "RepoIndexComplete"
-    structural_warning = "StructuralWarning"
-    stall_detected = "StallDetected"
-    monitor_approved = "MonitorApproved"
-    monitor_rejected = "MonitorRejected"
-    monitor_escalated = "MonitorEscalated"
-    sidecar_transcript = "SidecarTranscript"
-    sidecar_agent_message = "SidecarAgentMessage"
-    sidecar_gate_verdict = "SidecarGateVerdict"
-    sidecar_metadata_update = "SidecarMetadataUpdate"
+from enum import StrEnum
 
-@dataclass
-class DomainEvent:
-    event_id: str       # UUID
-    job_id: str
-    timestamp: datetime
-    kind: DomainEventKind
-    payload: dict
+from traceforge.types import EventMetadata, SessionEvent
+
+
+class EventKind(StrEnum):
+    """CodePlane control-plane kinds as open dotted TraceForge kinds."""
+
+    # Job lifecycle
+    job_created = "job.created"
+    job_setup_progress = "job.setup_progress"
+    workspace_prepared = "workspace.prepared"
+    agent_session_started = "agent.session_started"
+    # Transcript family — one CP transcript event fans out per agent role
+    message_user = "message.user"
+    message_assistant = "message.assistant"
+    message_delta = "message.delta"
+    tool_call_started = "tool.call.started"
+    tool_call_completed = "tool.call.completed"
+    # Logs / diffs
+    log_line_emitted = "log"
+    diff_updated = "diff.updated"
+    # Approvals (TraceForge-canonical permission.* grammar)
+    approval_requested = "permission.requested"
+    approval_resolved = "permission.resolved"
+    batch_approval_requested = "permission.batch.requested"
+    batch_approval_resolved = "permission.batch.resolved"
+    # Job state / outcomes
+    job_review = "job.review"
+    job_completed = "job.completed"
+    job_failed = "job.failed"
+    job_canceled = "job.canceled"
+    job_state_changed = "job.state_changed"
+    session_heartbeat = "session.heartbeat"
+    merge_completed = "merge.completed"
+    merge_conflict = "merge.conflict"
+    session_resumed = "session.resumed"
+    job_resolved = "job.resolved"
+    job_archived = "job.archived"
+    job_title_updated = "job.title_updated"
+    progress_headline = "progress.headline"
+    model_downgraded = "model.downgraded"
+    tool_group_summary = "tool.group_summary"
+    agent_plan_updated = "plan.updated"
+    execution_phase_changed = "execution.phase_changed"
+    telemetry_updated = "telemetry.updated"
+    # Steps / plan
+    step_started = "step.started"
+    step_completed = "step.completed"
+    step_title_generated = "step.title_generated"
+    step_group_updated = "step.group_updated"
+    plan_step_updated = "plan.step_updated"
+    step_entries_reassigned = "step.entries_reassigned"
+    turn_summary = "turn.summary"
+    action_classified = "action.classified"
+    policy_settings_changed = "policy.settings_changed"
+    # Repo index
+    repo_index_progress = "repo.index_progress"
+    repo_index_complete = "repo.index_complete"
+    # Structural health
+    structural_warning = "structural.warning"
+    stall_detected = "stall.detected"
+    # Monitors
+    monitor_approved = "monitor.approved"
+    monitor_rejected = "monitor.rejected"
+    monitor_escalated = "monitor.escalated"
+    # Sidecars
+    sidecar_transcript = "sidecar.transcript"
+    sidecar_agent_message = "sidecar.agent_message"
+    sidecar_gate_verdict = "sidecar.gate_verdict"
+    sidecar_metadata_update = "sidecar.metadata_update"
+    # Secondary sessions (preflight, sidecars, monitors)
+    secondary_session_started = "secondary_session.started"
+    secondary_session_entry = "secondary_session.entry"
+    secondary_session_completed = "secondary_session.completed"
+    # Context handoff / mode
+    context_handoff = "context.handoff"
+    job_mode_changed = "job.mode_changed"
 ```
+
+The `SessionEvent` envelope (from `traceforge.types`) carries `session_id` (the CodePlane job id), `kind` (dotted string), `payload` (CodePlane's event-specific fields), and `metadata` (`EventMetadata`: `timestamp`, `sequence`, `turn_id`, `event_id`, plus TraceForge annotations). Fields that once lived on a bespoke `DomainEvent` now ride `payload`; `turn_id` lives on `metadata.turn_id`.
 
 ### 11.1 Event Types
 
 | Event Kind | Trigger | Key Payload Fields |
 |---|---|---|
-| `JobCreated` | Job creation request accepted | `repo`, `prompt`, `base_ref` |
-| `JobSetupProgress` | Workspace setup step progress | `step` |
-| `WorkspacePrepared` | Worktree and branch created | `worktree_path`, `branch` |
-| `AgentSessionStarted` | Agent session created | `session_id` |
-| `LogLineEmitted` | Agent or system log output | `seq`, `level`, `message`, `context` |
-| `TranscriptUpdated` | Agent reasoning or operator message | `seq`, `role`, `content` |
-| `DiffUpdated` | File changes detected in worktree | `changed_files` (list of DiffFile) |
-| `ApprovalRequested` | SDK permission request intercepted | `approval_id`, `description`, `proposed_action`, `tier` |
-| `ApprovalResolved` | Operator approves or rejects | `approval_id`, `resolution` |
-| `BatchApprovalRequested` | Action policy batch awaiting approval | `batch_id`, `actions` |
-| `BatchApprovalResolved` | Batch approved or rejected | `batch_id`, `resolution` |
-| `JobReview` | Session completed, awaiting operator review | `pr_url`, `merge_status`, `resolution` |
-| `JobCompleted` | Job resolved to terminal state | |
-| `JobFailed` | Session terminated with error | `reason` |
-| `JobCanceled` | Operator canceled the job | `reason` |
-| `JobStateChanged` | Job transitions between states | `previous_state`, `new_state` |
-| `SessionHeartbeat` | Periodic heartbeat from running session | `session_id` |
-| `MergeCompleted` | Merge-back succeeded | `branch`, `base_ref`, `strategy` |
-| `MergeConflict` | Merge-back hit conflicts | `branch`, `conflict_files`, `fallback` |
-| `SessionResumed` | Agent session resumed after failure | `session_number` |
-| `JobResolved` | Operator resolved a completed job | `resolution`, `pr_url`, `conflict_files` |
-| `JobArchived` | Job moved to archive | _(none)_ |
-| `JobTitleUpdated` | LLM generated or updated job title | `title`, `branch`, `description` |
-| `ProgressHeadline` | Agent progress summary | `headline` |
-| `ModelDowngraded` | Requested model unavailable, fallback used | `requested_model`, `actual_model` |
-| `ToolGroupSummary` | AI-generated summary for tool group | `turn_id`, `summary` |
-| `AgentPlanUpdated` | Agent plan steps updated | `steps` |
-| `ExecutionPhaseChanged` | Execution phase transition | `phase` |
-| `TelemetryUpdated` | Cost/token metrics updated | telemetry fields |
-| `StepStarted` | Plan step started | `step_id`, `step_number` |
-| `StepCompleted` | Plan step finished | `step_id` |
-| `StepTitleGenerated` | Step title generated by LLM | `step_id`, `title` |
-| `StepGroupUpdated` | Step grouping changed | `step_id` |
-| `PlanStepUpdated` | Plan step detail updated | `step_id` |
-| `StepEntriesReassigned` | Entries moved to different step | `old_step_id`, `new_step_id` |
-| `TurnSummary` | AI-generated turn summary | `turn_id`, `summary` |
-| `ActionClassified` | Action policy classification | `tier`, `kind`, `description` |
-| `PolicySettingsChanged` | Policy configuration changed | `preset` |
-| `RepoIndexProgress` | Repo structural indexing progress | `repo`, `progress` |
-| `RepoIndexComplete` | Repo structural indexing complete | `repo` |
-| `StructuralWarning` | Code structure warning detected | `warning` |
-| `StallDetected` | Agent stall detected by arbiter sidecar | |
-| `MonitorApproved` | Monitor sidecar auto-approved action | `action` |
-| `MonitorRejected` | Monitor sidecar auto-rejected action | `action` |
-| `MonitorEscalated` | Monitor sidecar escalated to human | `action` |
-| `SidecarTranscript` | Sidecar session output | `sidecar_name`, `content` |
-| `SidecarAgentMessage` | Sidecar agent message | `sidecar_name`, `message` |
-| `SidecarGateVerdict` | Sidecar gate decision | `sidecar_name`, `verdict` |
-| `SidecarMetadataUpdate` | Sidecar metadata changed | `sidecar_name`, `metadata` |
+| `job.created` | Job creation request accepted | `repo`, `prompt`, `base_ref` |
+| `job.setup_progress` | Workspace setup step progress | `step` |
+| `workspace.prepared` | Worktree and branch created | `worktree_path`, `branch` |
+| `agent.session_started` | Agent session created | `session_id` |
+| `log` | Agent or system log output | `seq`, `level`, `message`, `context` |
+| `message.user` / `message.assistant` / `message.delta` / `tool.call.started` / `tool.call.completed` | Agent/operator transcript, fanned out by role | `seq`, `role`, `content` |
+| `diff.updated` | File changes detected in worktree | `changed_files` (list of DiffFile) |
+| `permission.requested` | SDK permission request intercepted | `approval_id`, `description`, `proposed_action`, `tier` |
+| `permission.resolved` | Operator approves or rejects | `approval_id`, `resolution` |
+| `permission.batch.requested` | Action policy batch awaiting approval | `batch_id`, `actions` |
+| `permission.batch.resolved` | Batch approved or rejected | `batch_id`, `resolution` |
+| `job.review` | Session completed, awaiting operator review | `pr_url`, `merge_status`, `resolution` |
+| `job.completed` | Job resolved to terminal state | |
+| `job.failed` | Session terminated with error | `reason` |
+| `job.canceled` | Operator canceled the job | `reason` |
+| `job.state_changed` | Job transitions between states | `previous_state`, `new_state` |
+| `session.heartbeat` | Periodic heartbeat from running session | `session_id` |
+| `merge.completed` | Merge-back succeeded | `branch`, `base_ref`, `strategy` |
+| `merge.conflict` | Merge-back hit conflicts | `branch`, `conflict_files`, `fallback` |
+| `session.resumed` | Agent session resumed after failure | `session_number` |
+| `job.resolved` | Operator resolved a completed job | `resolution`, `pr_url`, `conflict_files` |
+| `job.archived` | Job moved to archive | _(none)_ |
+| `job.title_updated` | LLM generated or updated job title | `title`, `branch`, `description` |
+| `progress.headline` | Agent progress summary | `headline` |
+| `model.downgraded` | Requested model unavailable, fallback used | `requested_model`, `actual_model` |
+| `tool.group_summary` | AI-generated summary for tool group | `turn_id`, `summary` |
+| `plan.updated` | Agent plan steps updated | `steps` |
+| `execution.phase_changed` | Execution phase transition | `phase` |
+| `telemetry.updated` | Cost/token metrics updated | telemetry fields |
+| `step.started` | Plan step started | `step_id`, `step_number` |
+| `step.completed` | Plan step finished | `step_id` |
+| `step.title_generated` | Step title generated by LLM | `step_id`, `title` |
+| `step.group_updated` | Step grouping changed | `step_id` |
+| `plan.step_updated` | Plan step detail updated | `step_id` |
+| `step.entries_reassigned` | Entries moved to different step | `old_step_id`, `new_step_id` |
+| `turn.summary` | AI-generated turn summary | `turn_id`, `summary` |
+| `action.classified` | Action policy classification | `tier`, `kind`, `description` |
+| `policy.settings_changed` | Policy configuration changed | `preset` |
+| `repo.index_progress` | Repo structural indexing progress | `repo`, `progress` |
+| `repo.index_complete` | Repo structural indexing complete | `repo` |
+| `structural.warning` | Code structure warning detected | `warning` |
+| `stall.detected` | Agent stall detected by arbiter sidecar | |
+| `monitor.approved` | Monitor sidecar auto-approved action | `action` |
+| `monitor.rejected` | Monitor sidecar auto-rejected action | `action` |
+| `monitor.escalated` | Monitor sidecar escalated to human | `action` |
+| `sidecar.transcript` | Sidecar session output | `sidecar_name`, `content` |
+| `sidecar.agent_message` | Sidecar agent message | `sidecar_name`, `message` |
+| `sidecar.gate_verdict` | Sidecar gate decision | `sidecar_name`, `verdict` |
+| `sidecar.metadata_update` | Sidecar metadata changed | `sidecar_name`, `metadata` |
 
 ### 11.2 Event Consumers
 
@@ -1916,9 +1868,9 @@ class DomainEvent:
 | `JobStateMachine` | All state-relevant events | Applies state transitions |
 | `PersistenceSubscriber` | All events | Persists to SQLite event log |
 | `SSEManager` | All events | Pushes to connected SSE clients |
-| `ApprovalService` | `ApprovalRequested` | Persists request, awaits operator resolution |
-| `DiffService` | `WorkspacePrepared`, `JobReview` | Generates and stores diff snapshots |
-| `ArtifactService` | `JobReview` | Collects and stores artifacts |
+| `ApprovalService` | `permission.requested` | Persists request, awaits operator resolution |
+| `DiffService` | `workspace.prepared`, `job.review` | Generates and stores diff snapshots |
+| `ArtifactService` | `job.review` | Collects and stores artifacts |
 | `TimelineBuilder` | All events | Updates job timeline view |
 
 ---
@@ -1955,23 +1907,23 @@ Jobs in `review` carry a **resolution status** that tracks how the job's changes
 
 | From | Event | To |
 |---|---|---|
-| _(none)_ | `JobCreated` | `preparing` |
-| _(none)_ | `JobCreated` (external CLI session) | `running` or `queued` |
-| `preparing` | `WorkspacePrepared` + capacity available | `queued` |
+| _(none)_ | `job.created` | `preparing` |
+| _(none)_ | `job.created` (external CLI session) | `running` or `queued` |
+| `preparing` | `workspace.prepared` + capacity available | `queued` |
 | `preparing` | Workspace creation failed | `failed` |
-| `preparing` | `JobCanceled` | `canceled` |
+| `preparing` | `job.canceled` | `canceled` |
 | `queued` | Capacity opens | `running` |
-| `queued` | `JobCanceled` | `canceled` |
-| `running` | `ApprovalRequested` | `waiting_for_approval` |
-| `running` | `JobReview` (agent done) | `review` |
-| `running` | `JobFailed` | `failed` |
-| `running` | `JobCanceled` | `canceled` |
-| `waiting_for_approval` | `ApprovalResolved` (approved) | `running` |
-| `waiting_for_approval` | `ApprovalResolved` (rejected) | `failed` |
-| `waiting_for_approval` | `JobCanceled` | `canceled` |
+| `queued` | `job.canceled` | `canceled` |
+| `running` | `permission.requested` | `waiting_for_approval` |
+| `running` | `job.review` (agent done) | `review` |
+| `running` | `job.failed` | `failed` |
+| `running` | `job.canceled` | `canceled` |
+| `waiting_for_approval` | `permission.resolved` (approved) | `running` |
+| `waiting_for_approval` | `permission.resolved` (rejected) | `failed` |
+| `waiting_for_approval` | `job.canceled` | `canceled` |
 | `review` | Operator resolves (merge/PR/discard) | `completed` |
 | `review` | Operator resumes with instructions | `running` |
-| `review` | `JobCanceled` | `canceled` |
+| `review` | `job.canceled` | `canceled` |
 
 Terminal states (`completed`, `failed`, `canceled`) can transition back to `running` for job resumption.
 
@@ -1987,10 +1939,10 @@ Rerunning a job creates a new job record. The original job is not mutated. The n
 
 | Phase | Description | Example events |
 |---|---|---|
-| `environment_setup` | Workspace creation, branch, dependency install | `WorkspacePrepared`, `LogLineEmitted` |
-| `agent_reasoning` | Agent reads code, thinks, plans, and writes changes | `TranscriptUpdated`, `DiffUpdated`, `ApprovalRequested` |
-| `verification` | Post-task verification and self-review passes | `TranscriptUpdated`, `DiffUpdated` |
-| `finalization` | Final diff snapshot, artifact collection | `DiffUpdated`, `JobReview` |
+| `environment_setup` | Workspace creation, branch, dependency install | `workspace.prepared`, `log` |
+| `agent_reasoning` | Agent reads code, thinks, plans, and writes changes | `message.assistant`, `diff.updated`, `permission.requested` |
+| `verification` | Post-task verification and self-review passes | `message.assistant`, `diff.updated` |
+| `finalization` | Final diff snapshot, artifact collection | `diff.updated`, `job.review` |
 | `post_completion` | Operator reviews, approves, or reruns | _(no agent events)_ |
 
 Artifacts and timeline entries carry the phase in which they were produced. The frontend uses phase labels to group the execution timeline.
@@ -2566,8 +2518,8 @@ class JobRepository:
     def update_state(self, job_id: str, new_state: str, updated_at: datetime) -> None: ...
 
 class EventRepository:
-    def append(self, event: DomainEvent) -> None: ...
-    def list_after(self, after_id: int, job_id: str | None = None) -> list[DomainEvent]: ...
+    def append(self, event: SessionEvent) -> None: ...
+    def list_after(self, after_id: int, job_id: str | None = None) -> list[SessionEvent]: ...
 
 class ArtifactRepository:
     def create(self, artifact: Artifact) -> Artifact: ...
@@ -3259,13 +3211,13 @@ The adapter normalizes whichever fields the SDK provides into this common shape.
    a. `ApprovalService` persists the request
    b. `approval_request` event emitted
    c. Job transitions to `waiting_for_approval`
-   d. `ApprovalRequested` SSE event sent to frontend
+   d. `permission.requested` SSE event sent to frontend
    e. Frontend renders approval banner on Job Detail screen
    f. Operator clicks Approve or Reject
    g. `POST /api/approvals/{id}/resolve` called
    h. `ApprovalService` persists the resolution and unblocks the adapter's Future
    i. Adapter returns the decision to the SDK
-   j. `ApprovalResolved` domain event published
+   j. `permission.resolved` domain event published
    k. Job transitions back to `running`
 
 The SDK's `on_permission_request` callback is **async** — it blocks the SDK at the callback level while waiting for the operator's response. This ensures the action does not proceed until approved.
@@ -3312,7 +3264,7 @@ Parser responsibilities:
 
 ### 19.3 Diff Updates
 
-`DiffUpdated` events are emitted:
+`diff.updated` events are emitted:
 
 - When the agent writes a file (debounced)
 - When a validation phase completes
@@ -3333,7 +3285,7 @@ Diff recalculation is triggered by the adapter's `file_changed` events (emitted 
 
 At job completion, a final diff snapshot is stored in the `diff_snapshots` table. This snapshot represents the full set of changes produced by the job.
 
-Diff snapshots are not exposed via a dedicated REST endpoint. The frontend receives live diffs via SSE `diff_update` events during execution, and the final diff is available as a `diff_snapshot` artifact via `GET /api/jobs/{job_id}/artifacts`. Historical intermediate snapshots are stored for future features (e.g., diff timeline playback) but are not served in v1.
+Diff snapshots are not exposed via a dedicated REST endpoint. The frontend receives live diffs via SSE `diff.updated` events during execution, and the final diff is available as a `diff_snapshot` artifact via `GET /api/jobs/{job_id}/artifacts`. Historical intermediate snapshots are stored for future features (e.g., diff timeline playback) but are not served in v1.
 
 ### 19.5 Frontend Diff Rendering
 
@@ -3403,7 +3355,7 @@ This provides an at-a-glance operational view without overwhelming the terminal.
 
 When a job enters `failed` state, the Job Detail screen shows:
 
-- The error message from the `JobFailed` event payload
+- The error message from the `job.failed` event payload
 - The traceback (if available)
 - The last log lines before failure
 - The last transcript entries
@@ -4005,7 +3957,7 @@ This section documents genuinely open questions that require further investigati
 
 **Resolved:** Session cancellation uses `session.abort()` which aborts the current message processing. The session remains valid after abort. Operator message injection uses `session.send(MessageOptions)` with `mode="immediate"` to send a follow-up message while the session is active.
 
-**Resolved:** Subprocess crash detection relies on EOF/broken pipe on the JSON-RPC stdout stream. The SDK's background read loop detects the closed stream, polls the process exit code, captures stderr, and raises `ProcessExitedError` on all pending futures. The adapter catches this exception and emits a `JobFailed` event with the error details. No heartbeat mechanism exists — crash detection is immediate via the broken pipe.
+**Resolved:** Subprocess crash detection relies on EOF/broken pipe on the JSON-RPC stdout stream. The SDK's background read loop detects the closed stream, polls the process exit code, captures stderr, and raises `ProcessExitedError` on all pending futures. The adapter catches this exception and emits a `job.failed` event with the error details. No heartbeat mechanism exists — crash detection is immediate via the broken pipe.
 
 ---
 
@@ -4017,7 +3969,7 @@ This section documents genuinely open questions that require further investigati
 
 ### 25.3 SSE Scalability Constraint
 
-**Resolved:** Documented as a known constraint. Beyond ~20 concurrent jobs, the SSE manager switches to selective streaming: only `job_state_changed` events are broadcast to the dashboard, while the currently open Job Detail screen continues to receive full event streaming. A "Refresh page for latest updates" banner is shown on the dashboard. See Section 5.6.
+**Resolved:** Documented as a known constraint. Beyond ~20 concurrent jobs, the SSE manager switches to selective streaming: only `job.state_changed` events are broadcast to the dashboard, while the currently open Job Detail screen continues to receive full event streaming. A "Refresh page for latest updates" banner is shown on the dashboard. See Section 5.6.
 
 ---
 

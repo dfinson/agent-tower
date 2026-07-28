@@ -40,11 +40,12 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.models.domain import SidecarLifetime, SidecarPhase
-    from backend.models.events import DomainEvent
+    from backend.models.events import SessionEvent
     from backend.services.events.event_bus import EventBus
     from backend.services.sidecar.session import SidecarSessionManager
 
 from backend.models.domain import SessionConfig, SidecarConfig
+from backend.models.events import TRANSCRIPT_KINDS, EventKind
 
 log = structlog.get_logger()
 
@@ -642,11 +643,11 @@ class SidecarDispatcher:
 
     # -- Trigger entry points -----------------------------------------------
 
-    async def handle_event(self, event: DomainEvent) -> None:
+    async def handle_event(self, event: SessionEvent) -> None:
         """EventBus subscriber.  Evaluate event/regex/content/file conditions."""
         for job_id, state in list(self._jobs.items()):
             # Only update activity for events belonging to this job (or global events)
-            if not event.job_id or event.job_id == job_id:
+            if not event.session_id or event.session_id == job_id:
                 state.last_activity = time.monotonic()
 
             # Recursion guard: if this job is already inside a pipeline execution,
@@ -669,7 +670,7 @@ class SidecarDispatcher:
                             if not all(str(payload.get(k)) == v for k, v in cond.event_filter.items()):
                                 continue
                         # Check job_id match (events carry job_id)
-                        if hasattr(event, "job_id") and event.job_id and event.job_id != job_id:
+                        if hasattr(event, "job_id") and event.session_id and event.session_id != job_id:
                             continue
                         if cond.once and (defn.name, idx) in state.fired_once:
                             continue
@@ -683,7 +684,7 @@ class SidecarDispatcher:
                         content = self._extract_content(event, cond.source)
                         if content is None:
                             continue
-                        if hasattr(event, "job_id") and event.job_id and event.job_id != job_id:
+                        if hasattr(event, "job_id") and event.session_id and event.session_id != job_id:
                             continue
                         match = (cond._compiled or re.compile(cond.pattern)).search(content)  # noqa: SLF001
                         if not match:
@@ -700,7 +701,7 @@ class SidecarDispatcher:
                         content = self._extract_content(event, cond.source)
                         if content is None:
                             continue
-                        if hasattr(event, "job_id") and event.job_id and event.job_id != job_id:
+                        if hasattr(event, "job_id") and event.session_id and event.session_id != job_id:
                             continue
                         check_content = content if cond.case_sensitive else content.lower()
                         matched = any(
@@ -716,9 +717,9 @@ class SidecarDispatcher:
 
                     # FilePatternCondition — match changed file paths from diff events
                     elif isinstance(cond, FilePatternCondition):
-                        if event.kind != "DiffUpdated":
+                        if event.kind != EventKind.diff_updated:
                             continue
-                        if hasattr(event, "job_id") and event.job_id and event.job_id != job_id:
+                        if hasattr(event, "job_id") and event.session_id and event.session_id != job_id:
                             continue
                         changed_files = self._extract_changed_files(event)
                         if not changed_files:
@@ -1194,7 +1195,7 @@ class SidecarDispatcher:
         route: OutputRoute,
     ) -> None:
         """Deliver parsed output to a destination."""
-        from backend.models.events import DomainEvent, DomainEventKind
+        from backend.models.events import EventKind, new_event
 
         if isinstance(route, EventBusRoute):
             payload: dict[str, Any] = {"sidecar_name": defn.name}
@@ -1209,11 +1210,10 @@ class SidecarDispatcher:
             else:
                 payload["result"] = parsed
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind(route.event_kind),
+                    kind=EventKind(route.event_kind),
                     payload=payload,
                 )
             )
@@ -1222,13 +1222,12 @@ class SidecarDispatcher:
             # Publish a metadata update event — consumers (job service) handle persistence
             value = parsed if isinstance(parsed, str) else json.dumps(parsed)
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.job_title_updated
+                    kind=EventKind.job_title_updated
                     if route.field_name == "title"
-                    else DomainEventKind.sidecar_metadata_update,
+                    else EventKind.sidecar_metadata_update,
                     payload={"field": route.field_name, "value": value, "sidecar_name": defn.name},
                 )
             )
@@ -1257,7 +1256,7 @@ class SidecarDispatcher:
             # Publish unified secondary session events for visibility
             import uuid as _uuid
 
-            from backend.models.events import DomainEvent, DomainEventKind
+            from backend.models.events import EventKind, new_event
             from backend.models.secondary_session import EntryKind, SecondarySessionKind, SecondarySessionStatus
 
             _sess_id = str(_uuid.uuid4())
@@ -1296,11 +1295,10 @@ class SidecarDispatcher:
                     output=content,
                 )
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=_now,
-                    kind=DomainEventKind.secondary_session_started,
+                    kind=EventKind.secondary_session_started,
                     payload={
                         "session_id": _sess_id,
                         "kind": SecondarySessionKind.sidecar.value,
@@ -1310,11 +1308,10 @@ class SidecarDispatcher:
                 )
             )
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=_now,
-                    kind=DomainEventKind.secondary_session_completed,
+                    kind=EventKind.secondary_session_completed,
                     payload={
                         "session_id": _sess_id,
                         "status": SecondarySessionStatus.completed.value,
@@ -1369,11 +1366,10 @@ class SidecarDispatcher:
             verdict = str(raw_verdict).lower().strip()
             reason = str(parsed.get(route.reason_field, ""))
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.sidecar_gate_verdict,
+                    kind=EventKind.sidecar_gate_verdict,
                     payload={
                         "sidecar_name": defn.name,
                         "verdict": verdict,
@@ -1396,7 +1392,7 @@ class SidecarDispatcher:
         """Publish secondary session events so the sidecar's output appears in the feed."""
         import uuid
 
-        from backend.models.events import DomainEvent, DomainEventKind
+        from backend.models.events import EventKind, new_event
         from backend.models.secondary_session import EntryKind, SecondarySessionKind, SecondarySessionStatus
 
         content = parsed if isinstance(parsed, str) else json.dumps(parsed)
@@ -1432,11 +1428,10 @@ class SidecarDispatcher:
 
         # Always emit SSE events for live frontend display
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.secondary_session_started,
+                kind=EventKind.secondary_session_started,
                 payload={
                     "session_id": session_id,
                     "kind": SecondarySessionKind.sidecar.value,
@@ -1446,11 +1441,10 @@ class SidecarDispatcher:
             )
         )
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.secondary_session_completed,
+                kind=EventKind.secondary_session_completed,
                 payload={
                     "session_id": session_id,
                     "status": SecondarySessionStatus.completed.value,
@@ -1473,33 +1467,33 @@ class SidecarDispatcher:
         return not result.get(gate_field, True)
 
     @staticmethod
-    def _extract_content(event: DomainEvent, source: str) -> str | None:
+    def _extract_content(event: SessionEvent, source: str) -> str | None:
         """Extract text content from a domain event for regex/content matching."""
         payload = event.payload or {}
 
         if source == "messages":
-            # TranscriptUpdated events carry role + content
-            if event.kind == "TranscriptUpdated":
+            # Transcript events carry role + content
+            if event.kind in TRANSCRIPT_KINDS:
                 role = payload.get("role", "")
                 if role in ("agent", "agent_delta"):
                     return str(payload.get("content")) if payload.get("content") is not None else None
             return None
 
         if source == "tool_calls":
-            if event.kind == "TranscriptUpdated" and payload.get("role") == "tool_call":
+            if event.kind in TRANSCRIPT_KINDS and payload.get("role") == "tool_call":
                 return str(payload.get("tool_name", ""))
             return None
 
         if source == "tool_output":
-            if event.kind == "TranscriptUpdated" and payload.get("role") == "tool_call":
+            if event.kind in TRANSCRIPT_KINDS and payload.get("role") == "tool_call":
                 return str(payload.get("tool_result")) if payload.get("tool_result") is not None else None
             return None
 
         return None
 
     @staticmethod
-    def _extract_changed_files(event: DomainEvent) -> list[dict[str, str]]:
-        """Extract file change info from a DiffUpdated event."""
+    def _extract_changed_files(event: SessionEvent) -> list[dict[str, str]]:
+        """Extract file change info from a diff.updated event."""
         payload = event.payload or {}
         files = payload.get("files") or payload.get("changed_files") or []
         if isinstance(files, list):

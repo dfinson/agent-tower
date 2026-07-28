@@ -310,11 +310,17 @@ export function handleToolGroupSummary(state: AppState, payload: Record<string, 
 }
 
 export const transcriptHandlers: Record<string, SSEHandler> = {
-  log_line: handleLogLine,
-  transcript_update: handleTranscriptUpdate,
-  tool_group_summary: handleToolGroupSummary,
-  sidecar_transcript: handleSidecarTranscript,
-  secondary_session_started: handleSecondarySessionStarted,
-  secondary_session_entry: handleSecondarySessionEntry,
-  secondary_session_completed: handleSecondarySessionCompleted,
+  log: handleLogLine,
+  // All transcript kinds route to the same handler, which branches on the
+  // preserved `payload.role`. The backend splits transcript events into these
+  // role-specific dotted kinds (see `transcript_kind_for_role`).
+  "message.user": handleTranscriptUpdate,
+  "message.assistant": handleTranscriptUpdate,
+  "message.delta": handleTranscriptUpdate,
+  "tool.call.started": handleTranscriptUpdate,
+  "tool.call.completed": handleTranscriptUpdate,
+  "tool.group_summary": handleToolGroupSummary,
+  "secondary_session.started": handleSecondarySessionStarted,
+  "secondary_session.entry": handleSecondarySessionEntry,
+  "secondary_session.completed": handleSecondarySessionCompleted,
 };

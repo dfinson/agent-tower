@@ -101,7 +101,7 @@ describe("AppStore", () => {
         jobs: { "job-1": makeJob() },
       });
 
-      useStore.getState().dispatchSSEEvent("job_state_changed", {
+      useStore.getState().dispatchSSEEvent("job.state_changed", {
         jobId: "job-1",
         newState: "review",
         timestamp: "2025-01-01T01:00:00Z",
@@ -113,7 +113,7 @@ describe("AppStore", () => {
     });
 
     it("ignores job_state_changed for unknown job", () => {
-      useStore.getState().dispatchSSEEvent("job_state_changed", {
+      useStore.getState().dispatchSSEEvent("job.state_changed", {
         jobId: "job-999",
         newState: "review",
         timestamp: "2025-01-01T01:00:00Z",
@@ -123,7 +123,7 @@ describe("AppStore", () => {
     });
 
     it("handles log_line", () => {
-      useStore.getState().dispatchSSEEvent("log_line", {
+      useStore.getState().dispatchSSEEvent("log", {
         jobId: "job-1",
         seq: 1,
         timestamp: "2025-01-01T00:00:00Z",
@@ -138,7 +138,7 @@ describe("AppStore", () => {
     });
 
     it("appends log lines to existing logs", () => {
-      useStore.getState().dispatchSSEEvent("log_line", {
+      useStore.getState().dispatchSSEEvent("log", {
         jobId: "job-1",
         seq: 1,
         timestamp: "2025-01-01T00:00:00Z",
@@ -146,7 +146,7 @@ describe("AppStore", () => {
         message: "first",
         context: null,
       });
-      useStore.getState().dispatchSSEEvent("log_line", {
+      useStore.getState().dispatchSSEEvent("log", {
         jobId: "job-1",
         seq: 2,
         timestamp: "2025-01-01T00:00:01Z",
@@ -159,7 +159,7 @@ describe("AppStore", () => {
     });
 
     it("handles transcript_update", () => {
-      useStore.getState().dispatchSSEEvent("transcript_update", {
+      useStore.getState().dispatchSSEEvent("message.assistant", {
         jobId: "job-1",
         seq: 1,
         timestamp: "2025-01-01T00:00:00Z",
@@ -175,7 +175,7 @@ describe("AppStore", () => {
     });
 
     it("handles approval_requested", () => {
-      useStore.getState().dispatchSSEEvent("approval_requested", {
+      useStore.getState().dispatchSSEEvent("permission.requested", {
         approvalId: "apr-1",
         jobId: "job-1",
         description: "Delete file?",
@@ -190,7 +190,7 @@ describe("AppStore", () => {
     });
 
     it("approval_requested falls back to now when timestamp missing", () => {
-      useStore.getState().dispatchSSEEvent("approval_requested", {
+      useStore.getState().dispatchSSEEvent("permission.requested", {
         approvalId: "apr-2",
         jobId: "job-1",
         description: "No timestamp",
@@ -222,7 +222,7 @@ describe("AppStore", () => {
         },
       });
 
-      useStore.getState().dispatchSSEEvent("approval_resolved", {
+      useStore.getState().dispatchSSEEvent("permission.resolved", {
         approvalId: "apr-1",
         resolution: "approved",
         timestamp: "2025-01-01T01:00:00Z",
@@ -234,7 +234,7 @@ describe("AppStore", () => {
     });
 
     it("ignores approval_resolved for unknown approval", () => {
-      useStore.getState().dispatchSSEEvent("approval_resolved", {
+      useStore.getState().dispatchSSEEvent("permission.resolved", {
         approvalId: "apr-999",
         resolution: "approved",
         timestamp: "2025-01-01T01:00:00Z",
@@ -261,7 +261,7 @@ describe("AppStore", () => {
         "disconnected"
       );
 
-      useStore.getState().dispatchSSEEvent("session_heartbeat", {
+      useStore.getState().dispatchSSEEvent("session.heartbeat", {
         jobId: "job-1",
         sessionId: "sess-1",
         timestamp: "2025-01-01T00:00:00Z",
@@ -275,7 +275,7 @@ describe("AppStore", () => {
     it("session_heartbeat is no-op when already connected", () => {
       useStore.getState().setConnectionStatus("connected");
 
-      useStore.getState().dispatchSSEEvent("session_heartbeat", {
+      useStore.getState().dispatchSSEEvent("session.heartbeat", {
         jobId: "job-1",
         sessionId: "sess-1",
         timestamp: "2025-01-01T00:00:00Z",
@@ -288,7 +288,7 @@ describe("AppStore", () => {
 
     it("handles diff_update without error", () => {
       const beforeState = useStore.getState();
-      useStore.getState().dispatchSSEEvent("diff_update", {
+      useStore.getState().dispatchSSEEvent("diff.updated", {
         jobId: "job-1",
         changedFiles: ["src/app.ts"],
       });
@@ -326,7 +326,7 @@ describe("AppStore", () => {
         },
       });
 
-      useStore.getState().dispatchSSEEvent("session_resumed", {
+      useStore.getState().dispatchSSEEvent("session.resumed", {
         jobId: "job-1",
         timestamp: "2025-06-02T00:00:00Z",
         session_number: 2,
@@ -373,7 +373,7 @@ describe("AppStore", () => {
       });
 
       // Same timestamp triggers dedup branch
-      useStore.getState().dispatchSSEEvent("session_resumed", {
+      useStore.getState().dispatchSSEEvent("session.resumed", {
         jobId: "job-1",
         timestamp: "2025-06-02T00:00:00Z",
         session_number: 2,

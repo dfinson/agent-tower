@@ -1,4 +1,11 @@
-"""Tests for the SSE manager — connection tracking, broadcast, selective streaming, replay."""
+"""Tests for the SSE manager — connection tracking, broadcast, selective streaming, replay.
+
+Post-nuke contract: the SSE wire carries the ``traceforge.SessionEvent`` as-is —
+``event:`` is the dotted ``kind`` and ``data:`` is the TF event serialized verbatim
+(snake_case ``session_id`` / ``payload`` / ``metadata``). There is no translation to any
+legacy payload model, and no derived ``job_state_changed`` frames (the frontend derives
+job state from the dotted kinds).
+"""
 
 from __future__ import annotations
 
@@ -10,31 +17,31 @@ import pytest
 
 from backend.models.api_schemas import SnapshotPayload
 from backend.models.domain import Job
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.events.sse_manager import (
     MAX_REPLAY_AGE,
     MAX_REPLAY_EVENTS,
     SSEConnection,
     SSEManager,
-    _build_sse_data,
     _format_sse,
+    _serialize_tf_event,
 )
 
 
 def _make_event(
-    kind: DomainEventKind = DomainEventKind.job_created,
+    kind: EventKind = EventKind.job_created,
     job_id: str = "job-1",
     event_id: str = "evt-1",
     payload: dict[str, object] | None = None,
     db_id: int | None = None,
-) -> DomainEvent:
-    return DomainEvent(
+) -> SessionEvent:
+    return new_event(
         event_id=event_id,
-        job_id=job_id,
+        session_id=job_id,
         timestamp=datetime.now(UTC),
         kind=kind,
         payload=payload or {"test": True},
-        db_id=db_id,
+        sequence=db_id,
     )
 
 
@@ -54,13 +61,20 @@ def _make_job_domain(job_id: str = "job-1", state: str = "running") -> Job:
     )
 
 
+def _frames(conn: SSEConnection) -> list[str]:
+    out: list[str] = []
+    while not conn.queue.empty():
+        out.append(conn.queue.get_nowait())
+    return out
+
+
 # --- Unit tests for helper functions ---
 
 
 class TestFormatSSE:
     def test_basic_format(self) -> None:
-        result = _format_sse("42", "job_state_changed", '{"hello":"world"}')
-        assert result == 'id: 42\nevent: job_state_changed\ndata: {"hello":"world"}\n\n'
+        result = _format_sse("42", "job.created", '{"hello":"world"}')
+        assert result == 'id: 42\nevent: job.created\ndata: {"hello":"world"}\n\n'
 
     def test_json_data(self) -> None:
         data = json.dumps({"job_id": "job-1", "state": "running"})
@@ -76,34 +90,27 @@ class TestFormatSSE:
         assert 'data: {"jobs":[]}\n' in result
 
 
-class TestBuildSSEData:
-    def test_serializes_log_line_camel_case(self) -> None:
+class TestSerializeTFEvent:
+    def test_serializes_dotted_kind_and_payload(self) -> None:
         event = _make_event(
-            kind=DomainEventKind.log_line_emitted,
+            kind=EventKind.log_line_emitted,
             payload={"seq": 1, "message": "hello", "level": "info"},
         )
-        result = _build_sse_data(event, "log_line")
-        parsed = json.loads(result)
-        # CamelModel serialization: keys must be camelCase
-        assert "jobId" in parsed
-        assert parsed["message"] == "hello"
+        parsed = json.loads(_serialize_tf_event(event))
+        # Wire carries the TF event as-is: dotted kind + verbatim snake_case payload.
+        assert parsed["kind"] == "log"
+        assert parsed["session_id"] == "job-1"
+        assert parsed["payload"]["message"] == "hello"
+        assert parsed["payload"]["level"] == "info"
 
-    def test_serializes_job_state_changed(self) -> None:
-        event = _make_event(kind=DomainEventKind.job_review)
-        result = _build_sse_data(event, "job_state_changed")
-        parsed = json.loads(result)
-        assert parsed["newState"] == "review"
-        assert "jobId" in parsed
+    def test_carries_metadata_sequence(self) -> None:
+        event = _make_event(kind=EventKind.job_created, db_id=7)
+        parsed = json.loads(_serialize_tf_event(event))
+        assert parsed["metadata"]["sequence"] == 7
 
-    def test_job_created_maps_to_running(self) -> None:
-        event = _make_event(kind=DomainEventKind.job_created)
-        result = _build_sse_data(event, "job_state_changed")
-        parsed = json.loads(result)
-        assert parsed["newState"] == "running"
-
-    def test_transcript_update_includes_tool_issue(self) -> None:
+    def test_transcript_payload_is_verbatim(self) -> None:
         event = _make_event(
-            kind=DomainEventKind.transcript_updated,
+            kind=EventKind.tool_call_completed,
             payload={
                 "seq": 3,
                 "role": "tool_call",
@@ -113,23 +120,12 @@ class TestBuildSSEData:
                 "tool_issue": "oldString not found",
             },
         )
-        result = _build_sse_data(event, "transcript_update")
-        parsed = json.loads(result)
-        assert parsed["toolSuccess"] is False
-        assert parsed["toolIssue"] == "oldString not found"
-
-    def test_job_resolved_includes_error(self) -> None:
-        event = _make_event(
-            kind=DomainEventKind.job_resolved,
-            payload={
-                "resolution": "unresolved",
-                "error": "Cherry-pick failed without conflict markers; check git configuration or hooks",
-            },
-        )
-        result = _build_sse_data(event, "job_resolved")
-        parsed = json.loads(result)
-        assert parsed["resolution"] == "unresolved"
-        assert parsed["error"] == "Cherry-pick failed without conflict markers; check git configuration or hooks"
+        parsed = json.loads(_serialize_tf_event(event))
+        assert parsed["kind"] == "tool.call.completed"
+        # No camelCase remapping — payload keys are exactly as authored.
+        assert parsed["payload"]["tool_success"] is False
+        assert parsed["payload"]["tool_issue"] == "oldString not found"
+        assert parsed["payload"]["role"] == "tool_call"
 
 
 # --- SSEConnection tests ---
@@ -189,12 +185,32 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        event = _make_event(kind=DomainEventKind.job_created, db_id=42)
+        event = _make_event(kind=EventKind.job_created, db_id=42)
         await mgr.broadcast_domain_event(event)
 
         data = conn.queue.get_nowait()
-        assert "event: job_state_changed" in data
+        # Wire event type is the dotted kind; id is the metadata.sequence cursor.
+        assert "event: job.created" in data
         assert "id: 42\n" in data
+
+    @pytest.mark.asyncio
+    async def test_broadcast_emits_single_frame(self) -> None:
+        """No derived secondary frames — exactly one frame per broadcast event."""
+        mgr = SSEManager()
+        conn = SSEConnection()
+        mgr.register(conn)
+
+        event = _make_event(
+            kind=EventKind.approval_requested,
+            payload={"approval_id": "apr-1", "description": "approve?"},
+            db_id=5,
+        )
+        await mgr.broadcast_domain_event(event)
+
+        frames = _frames(conn)
+        assert len(frames) == 1
+        assert "event: permission.requested" in frames[0]
+        assert "id: 5\n" in frames[0]
 
     @pytest.mark.asyncio
     async def test_broadcast_domain_event_routes_to_scoped_connection(self) -> None:
@@ -204,7 +220,7 @@ class TestSSEManager:
         mgr.register(conn1)
         mgr.register(conn2)
 
-        event = _make_event(kind=DomainEventKind.job_created, job_id="job-1", db_id=10)
+        event = _make_event(kind=EventKind.job_created, job_id="job-1", db_id=10)
         await mgr.broadcast_domain_event(event)
 
         assert not conn1.queue.empty()
@@ -216,7 +232,7 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        event = _make_event(kind=DomainEventKind.workspace_prepared)
+        event = _make_event(kind=EventKind.workspace_prepared)
         await mgr.broadcast_domain_event(event)
 
         assert conn.queue.empty()
@@ -227,8 +243,20 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        event = _make_event(kind=DomainEventKind.agent_session_started)
+        event = _make_event(kind=EventKind.agent_session_started)
         await mgr.broadcast_domain_event(event)
+
+        assert conn.queue.empty()
+
+    @pytest.mark.asyncio
+    async def test_step_events_are_internal(self) -> None:
+        """Step-system kinds stay internal — never broadcast to the frontend."""
+        mgr = SSEManager()
+        conn = SSEConnection()
+        mgr.register(conn)
+
+        for kind in (EventKind.step_started, EventKind.step_completed, EventKind.agent_plan_updated):
+            await mgr.broadcast_domain_event(_make_event(kind=kind))
 
         assert conn.queue.empty()
 
@@ -241,10 +269,11 @@ class TestSSEManager:
         mgr.register(conn)
 
         for kind in [
-            DomainEventKind.log_line_emitted,
-            DomainEventKind.transcript_updated,
-            DomainEventKind.diff_updated,
-            DomainEventKind.session_heartbeat,
+            EventKind.log_line_emitted,
+            EventKind.message_assistant,
+            EventKind.tool_call_completed,
+            EventKind.diff_updated,
+            EventKind.session_heartbeat,
         ]:
             await mgr.broadcast_domain_event(_make_event(kind=kind))
 
@@ -258,7 +287,7 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        await mgr.broadcast_domain_event(_make_event(kind=DomainEventKind.job_review))
+        await mgr.broadcast_domain_event(_make_event(kind=EventKind.job_review))
         assert not conn.queue.empty()
 
     @pytest.mark.asyncio
@@ -269,7 +298,7 @@ class TestSSEManager:
         conn = SSEConnection(job_id="job-1")
         mgr.register(conn)
 
-        await mgr.broadcast_domain_event(_make_event(kind=DomainEventKind.log_line_emitted, job_id="job-1"))
+        await mgr.broadcast_domain_event(_make_event(kind=EventKind.log_line_emitted, job_id="job-1"))
         assert not conn.queue.empty()
 
     @pytest.mark.asyncio
@@ -280,73 +309,22 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        await mgr.broadcast_domain_event(_make_event(kind=DomainEventKind.log_line_emitted))
+        await mgr.broadcast_domain_event(_make_event(kind=EventKind.log_line_emitted))
         assert not conn.queue.empty()
 
     @pytest.mark.asyncio
-    async def test_approval_requested_emits_secondary_state_event(self) -> None:
+    async def test_job_scoped_only_kinds_skip_global(self) -> None:
+        """telemetry.updated / secondary_session.entry only reach job-scoped connections."""
         mgr = SSEManager()
-        conn = SSEConnection()
-        mgr.register(conn)
+        global_conn = SSEConnection()
+        scoped_conn = SSEConnection(job_id="job-1")
+        mgr.register(global_conn)
+        mgr.register(scoped_conn)
 
-        event = _make_event(
-            kind=DomainEventKind.approval_requested,
-            payload={"approval_id": "apr-1", "description": "approve?"},
-        )
-        await mgr.broadcast_domain_event(event)
+        await mgr.broadcast_domain_event(_make_event(kind=EventKind.telemetry_updated, job_id="job-1"))
 
-        # Should have 2 frames: approval_requested + job_state_changed
-        frames = []
-        while not conn.queue.empty():
-            frames.append(conn.queue.get_nowait())
-
-        assert len(frames) == 2
-        assert "event: approval_requested" in frames[0]
-        assert "event: job_state_changed" in frames[1]
-        assert "waiting_for_approval" in frames[1]
-        # Secondary frame must not carry an id: line (would break replay)
-        assert "id:" not in frames[1]
-
-    @pytest.mark.asyncio
-    async def test_approval_resolved_approved_emits_running(self) -> None:
-        mgr = SSEManager()
-        conn = SSEConnection()
-        mgr.register(conn)
-
-        event = _make_event(
-            kind=DomainEventKind.approval_resolved,
-            payload={"resolution": "approved"},
-        )
-        await mgr.broadcast_domain_event(event)
-
-        frames = []
-        while not conn.queue.empty():
-            frames.append(conn.queue.get_nowait())
-
-        assert len(frames) == 2
-        assert "event: approval_resolved" in frames[0]
-        assert "event: job_state_changed" in frames[1]
-        assert '"running"' in frames[1] or "running" in frames[1]
-
-    @pytest.mark.asyncio
-    async def test_approval_resolved_rejected_emits_failed(self) -> None:
-        mgr = SSEManager()
-        conn = SSEConnection()
-        mgr.register(conn)
-
-        event = _make_event(
-            kind=DomainEventKind.approval_resolved,
-            payload={"resolution": "rejected"},
-        )
-        await mgr.broadcast_domain_event(event)
-
-        frames = []
-        while not conn.queue.empty():
-            frames.append(conn.queue.get_nowait())
-
-        assert len(frames) == 2
-        state_data = frames[1]
-        assert "failed" in state_data
+        assert global_conn.queue.empty()
+        assert not scoped_conn.queue.empty()
 
     @pytest.mark.asyncio
     async def test_closed_connections_skipped(self) -> None:
@@ -390,24 +368,23 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        # Create mock repos
         now = datetime.now(UTC)
         events = [
-            DomainEvent(
+            new_event(
                 event_id="evt-1",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=now,
-                kind=DomainEventKind.job_created,
+                kind=EventKind.job_created,
                 payload={"state": "running"},
-                db_id=1,
+                sequence=1,
             ),
-            DomainEvent(
+            new_event(
                 event_id="evt-2",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=now,
-                kind=DomainEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": 1, "message": "hello"},
-                db_id=2,
+                sequence=2,
             ),
         ]
 
@@ -418,13 +395,13 @@ class TestSSEManager:
 
         await mgr.replay_events(conn, event_repo, job_repo, last_event_id=0)
 
-        # Should have 2 replayed frames with numeric IDs
-        frames = []
-        while not conn.queue.empty():
-            frames.append(conn.queue.get_nowait())
+        # Should have 2 replayed frames with numeric IDs and dotted event types.
+        frames = _frames(conn)
         assert len(frames) == 2
         assert "id: 1\n" in frames[0]
+        assert "event: job.created" in frames[0]
         assert "id: 2\n" in frames[1]
+        assert "event: log" in frames[1]
 
     @pytest.mark.asyncio
     async def test_replay_events_sends_snapshot_on_overflow(self) -> None:
@@ -434,13 +411,12 @@ class TestSSEManager:
         mgr.register(conn)
 
         now = datetime.now(UTC)
-        # Create MAX_REPLAY_EVENTS + 1 events to trigger snapshot
         events = [
-            DomainEvent(
+            new_event(
                 event_id=f"evt-{i}",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=now,
-                kind=DomainEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": i},
             )
             for i in range(MAX_REPLAY_EVENTS + 1)
@@ -455,11 +431,7 @@ class TestSSEManager:
 
         await mgr.replay_events(conn, event_repo, job_repo, last_event_id=0)
 
-        frames = []
-        while not conn.queue.empty():
-            frames.append(conn.queue.get_nowait())
-
-        # First frame should be a snapshot
+        frames = _frames(conn)
         assert len(frames) > 0
         assert "event: snapshot" in frames[0]
 
@@ -472,12 +444,8 @@ class TestSSEManager:
 
         old_time = datetime.now(UTC) - MAX_REPLAY_AGE - timedelta(minutes=1)
         events = [
-            DomainEvent(
-                event_id="evt-old",
-                job_id="job-1",
-                timestamp=old_time,
-                kind=DomainEventKind.job_created,
-                payload={},
+            new_event(
+                event_id="evt-old", session_id="job-1", timestamp=old_time, kind=EventKind.job_created, payload={}
             ),
         ]
 
@@ -490,10 +458,7 @@ class TestSSEManager:
 
         await mgr.replay_events(conn, event_repo, job_repo, last_event_id=0)
 
-        frames = []
-        while not conn.queue.empty():
-            frames.append(conn.queue.get_nowait())
-
+        frames = _frames(conn)
         assert any("event: snapshot" in f for f in frames)
 
     @pytest.mark.asyncio
@@ -505,12 +470,8 @@ class TestSSEManager:
 
         now = datetime.now(UTC)
         events = [
-            DomainEvent(
-                event_id="evt-1",
-                job_id="job-1",
-                timestamp=now,
-                kind=DomainEventKind.workspace_prepared,
-                payload={},
+            new_event(
+                event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.workspace_prepared, payload={}
             ),
         ]
 
@@ -523,70 +484,33 @@ class TestSSEManager:
         assert conn.queue.empty()
 
     @pytest.mark.asyncio
-    async def test_all_mappable_event_types(self) -> None:
-        """Every domain event kind that maps to an SSE type gets delivered."""
+    async def test_all_broadcast_kinds_deliver_one_frame_each(self) -> None:
+        """Every allowlisted kind is delivered as exactly one frame (no secondaries)."""
         mgr = SSEManager()
         conn = SSEConnection()
         mgr.register(conn)
 
-        mappable_kinds = [
-            DomainEventKind.job_created,
-            DomainEventKind.log_line_emitted,
-            DomainEventKind.transcript_updated,
-            DomainEventKind.diff_updated,
-            DomainEventKind.approval_requested,
-            DomainEventKind.approval_resolved,
-            DomainEventKind.job_review,
-            DomainEventKind.job_completed,
-            DomainEventKind.job_failed,
-            DomainEventKind.job_canceled,
-            DomainEventKind.session_heartbeat,
-            DomainEventKind.job_resolved,
-            DomainEventKind.job_archived,
+        kinds = [
+            EventKind.job_created,
+            EventKind.log_line_emitted,
+            EventKind.message_assistant,
+            EventKind.diff_updated,
+            EventKind.approval_requested,
+            EventKind.approval_resolved,
+            EventKind.job_review,
+            EventKind.job_completed,
+            EventKind.job_failed,
+            EventKind.job_canceled,
+            EventKind.session_heartbeat,
+            EventKind.job_resolved,
+            EventKind.job_archived,
         ]
 
-        for i, kind in enumerate(mappable_kinds):
-            payload: dict[str, object] = {}
-            if kind == DomainEventKind.approval_resolved:
-                payload = {"resolution": "approved"}
-            if kind == DomainEventKind.job_failed:
-                payload = {"reason": "test error"}
-            if kind == DomainEventKind.job_resolved:
-                payload = {"resolution": "merged"}
-            await mgr.broadcast_domain_event(_make_event(kind=kind, event_id=f"evt-{i}", payload=payload))
+        for i, kind in enumerate(kinds):
+            await mgr.broadcast_domain_event(_make_event(kind=kind, event_id=f"evt-{i}"))
 
-        frames = []
-        while not conn.queue.empty():
-            frames.append(conn.queue.get_nowait())
-
-        # 13 kinds. approval_requested/resolved produce 2 each (secondary job_state_changed).
-        # job_review/job_completed/job_failed produce 2 each (secondary job_state_changed).
-        # That's 13 primary + 5 secondary = 18 total.
-        assert len(frames) == 18
-
-    @pytest.mark.asyncio
-    async def test_approval_resolved_secondary_frame_has_no_id(self) -> None:
-        """Secondary job_state_changed from approval_resolved must omit id: line."""
-        mgr = SSEManager()
-        conn = SSEConnection()
-        mgr.register(conn)
-
-        event = _make_event(
-            kind=DomainEventKind.approval_resolved,
-            payload={"resolution": "approved"},
-            db_id=99,
-        )
-        await mgr.broadcast_domain_event(event)
-
-        frames = []
-        while not conn.queue.empty():
-            frames.append(conn.queue.get_nowait())
-
-        assert len(frames) == 2
-        # Primary frame has the db_id
-        assert "id: 99\n" in frames[0]
-        # Secondary frame must NOT have an id: line (same as approval_requested)
-        assert "id:" not in frames[1]
+        frames = _frames(conn)
+        assert len(frames) == len(kinds)
 
     @pytest.mark.asyncio
     async def test_replay_scoped_connection_uses_job_repo_get(self) -> None:
@@ -596,13 +520,12 @@ class TestSSEManager:
         mgr.register(conn)
 
         now = datetime.now(UTC)
-        # Create overflow to trigger snapshot
         events = [
-            DomainEvent(
+            new_event(
                 event_id=f"evt-{i}",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=now,
-                kind=DomainEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": i},
             )
             for i in range(MAX_REPLAY_EVENTS + 1)
@@ -621,13 +544,8 @@ class TestSSEManager:
         job_repo.get.assert_called_once_with("job-1")
         job_repo.list.assert_not_called()
 
-        frames = []
-        while not conn.queue.empty():
-            frames.append(conn.queue.get_nowait())
-
-        # First frame is a snapshot
+        frames = _frames(conn)
         assert "event: snapshot" in frames[0]
-        # Snapshot should contain the scoped job
         assert "job-1" in frames[0]
 
     @pytest.mark.asyncio
@@ -639,11 +557,11 @@ class TestSSEManager:
 
         now = datetime.now(UTC)
         events = [
-            DomainEvent(
+            new_event(
                 event_id=f"evt-{i}",
-                job_id="deleted-job",
+                session_id="deleted-job",
                 timestamp=now,
-                kind=DomainEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": i},
             )
             for i in range(MAX_REPLAY_EVENTS + 1)
@@ -658,11 +576,7 @@ class TestSSEManager:
 
         await mgr.replay_events(conn, event_repo, job_repo, last_event_id=0)
 
-        frames = []
-        while not conn.queue.empty():
-            frames.append(conn.queue.get_nowait())
-
-        # Snapshot with empty jobs list
+        frames = _frames(conn)
         assert "event: snapshot" in frames[0]
         assert '"jobs": []' in frames[0] or '"jobs":[]' in frames[0]
 
@@ -677,11 +591,11 @@ class TestSSEManager:
 
         now = datetime.now(UTC)
         events = [
-            DomainEvent(
+            new_event(
                 event_id=f"evt-{i}",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=now,
-                kind=DomainEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": i},
             )
             for i in range(MAX_REPLAY_EVENTS + 1)
@@ -713,10 +627,7 @@ class TestSSEManager:
             approval_repo=approval_repo,
         )
 
-        frames: list[str] = []
-        while not conn.queue.empty():
-            frames.append(conn.queue.get_nowait())
-
+        frames = _frames(conn)
         assert "event: snapshot" in frames[0]
         snapshot_data = json.loads(frames[0].split("data: ", 1)[1].split("\n")[0])
         assert len(snapshot_data["pendingApprovals"]) == 1
@@ -724,166 +635,3 @@ class TestSSEManager:
         assert snapshot_data["pendingApprovals"][0]["description"] == "Delete file?"
         assert snapshot_data["pendingApprovals"][0]["proposedAction"] == "rm file.txt"
         approval_repo.list_pending.assert_called_once_with(job_id="job-1")
-
-    """Test _build_sse_data for every SSE event type."""
-
-    def test_approval_requested_payload(self) -> None:
-        event = _make_event(
-            kind=DomainEventKind.approval_requested,
-            payload={
-                "approval_id": "apr-1",
-                "description": "Delete file?",
-                "proposed_action": "rm file.txt",
-            },
-        )
-        result = _build_sse_data(event, "approval_requested")
-        parsed = json.loads(result)
-        assert parsed["jobId"] == "job-1"
-        assert parsed["approvalId"] == "apr-1"
-        assert parsed["description"] == "Delete file?"
-        assert parsed["proposedAction"] == "rm file.txt"
-        assert "timestamp" in parsed
-
-    def test_approval_requested_missing_fields_use_defaults(self) -> None:
-        event = _make_event(
-            kind=DomainEventKind.approval_requested,
-            payload={},
-        )
-        result = _build_sse_data(event, "approval_requested")
-        parsed = json.loads(result)
-        assert parsed["approvalId"] == ""
-        assert parsed["description"] == ""
-        assert parsed["proposedAction"] is None
-
-    def test_approval_resolved_payload(self) -> None:
-        event = _make_event(
-            kind=DomainEventKind.approval_resolved,
-            payload={
-                "approval_id": "apr-1",
-                "resolution": "approved",
-            },
-        )
-        result = _build_sse_data(event, "approval_resolved")
-        parsed = json.loads(result)
-        assert parsed["approvalId"] == "apr-1"
-        assert parsed["resolution"] == "approved"
-        assert "timestamp" in parsed
-
-    def test_diff_update_payload(self) -> None:
-        sample_file = {
-            "path": "src/main.py",
-            "status": "modified",
-            "additions": 3,
-            "deletions": 1,
-            "hunks": [],
-        }
-        event = _make_event(
-            kind=DomainEventKind.diff_updated,
-            payload={"changed_files": [sample_file]},
-        )
-        result = _build_sse_data(event, "diff_update")
-        parsed = json.loads(result)
-        assert parsed["jobId"] == "job-1"
-        assert len(parsed["changedFiles"]) == 1
-        assert parsed["changedFiles"][0]["path"] == "src/main.py"
-
-    def test_session_heartbeat_payload(self) -> None:
-        event = _make_event(
-            kind=DomainEventKind.session_heartbeat,
-            payload={"session_id": "sess-1"},
-        )
-        result = _build_sse_data(event, "session_heartbeat")
-        parsed = json.loads(result)
-        assert parsed["jobId"] == "job-1"
-        assert parsed["sessionId"] == "sess-1"
-        assert "timestamp" in parsed
-
-    def test_transcript_update_payload(self) -> None:
-        event = _make_event(
-            kind=DomainEventKind.transcript_updated,
-            payload={"seq": 5, "role": "agent", "content": "I found the bug"},
-        )
-        result = _build_sse_data(event, "transcript_update")
-        parsed = json.loads(result)
-        assert parsed["jobId"] == "job-1"
-        assert parsed["seq"] == 5
-        assert parsed["role"] == "agent"
-        assert parsed["content"] == "I found the bug"
-
-    def test_fallback_for_unknown_type(self) -> None:
-        event = _make_event(payload={"custom": "data"})
-        result = _build_sse_data(event, "unknown_type")
-        parsed = json.loads(result)
-        assert parsed["custom"] == "data"
-
-
-class TestReplayDerivedFrames:
-    """Replay must emit derived job_state_changed frames for approval events."""
-
-    @pytest.mark.asyncio
-    async def test_replay_approval_requested_emits_derived_frame(self) -> None:
-        mgr = SSEManager()
-        conn = SSEConnection()
-        mgr.register(conn)
-
-        now = datetime.now(UTC)
-        events = [
-            DomainEvent(
-                event_id="evt-1",
-                job_id="job-1",
-                timestamp=now,
-                kind=DomainEventKind.approval_requested,
-                payload={"approval_id": "apr-1", "description": "ok?"},
-                db_id=10,
-            ),
-        ]
-        event_repo = AsyncMock()
-        event_repo.list_after.return_value = events
-        job_repo = AsyncMock()
-
-        await mgr.replay_events(conn, event_repo, job_repo, last_event_id=0)
-
-        frames: list[str] = []
-        while not conn.queue.empty():
-            frames.append(conn.queue.get_nowait())
-
-        assert len(frames) == 2
-        assert "event: approval_requested" in frames[0]
-        assert "event: job_state_changed" in frames[1]
-        assert "waiting_for_approval" in frames[1]
-        # Derived frame reuses the same SSE id (no cursor advancement)
-        assert "id: 10\n" in frames[1]
-
-    @pytest.mark.asyncio
-    async def test_replay_approval_resolved_emits_derived_frame(self) -> None:
-        mgr = SSEManager()
-        conn = SSEConnection()
-        mgr.register(conn)
-
-        now = datetime.now(UTC)
-        events = [
-            DomainEvent(
-                event_id="evt-2",
-                job_id="job-1",
-                timestamp=now,
-                kind=DomainEventKind.approval_resolved,
-                payload={"approval_id": "apr-1", "resolution": "rejected"},
-                db_id=20,
-            ),
-        ]
-        event_repo = AsyncMock()
-        event_repo.list_after.return_value = events
-        job_repo = AsyncMock()
-
-        await mgr.replay_events(conn, event_repo, job_repo, last_event_id=0)
-
-        frames: list[str] = []
-        while not conn.queue.empty():
-            frames.append(conn.queue.get_nowait())
-
-        assert len(frames) == 2
-        assert "event: approval_resolved" in frames[0]
-        assert "event: job_state_changed" in frames[1]
-        # rejected → failed
-        assert '"failed"' in frames[1] or "failed" in frames[1]
-        assert "id: 20\n" in frames[1]

@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from backend.lifespan import _persist_event_with_retry
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, SessionEvent, new_event
 
 
 class _FakeSession:
@@ -32,12 +32,12 @@ class _FakeSessionContext:
         return None
 
 
-def _make_event() -> DomainEvent:
-    return DomainEvent(
+def _make_event() -> SessionEvent:
+    return new_event(
         event_id="evt-1",
-        job_id="job-1",
+        session_id="job-1",
         timestamp=datetime.now(UTC),
-        kind=DomainEventKind.job_state_changed,
+        kind=EventKind.job_state_changed,
         payload={"state": "running"},
     )
 
@@ -56,7 +56,7 @@ async def test_persist_event_retries_sqlite_lock(monkeypatch: pytest.MonkeyPatch
         def __init__(self, session: _FakeSession) -> None:
             self._session = session
 
-        async def append(self, event: DomainEvent) -> None:
+        async def append(self, event: SessionEvent) -> None:
             nonlocal append_attempts
             append_attempts += 1
             if append_attempts == 1:
@@ -98,7 +98,7 @@ async def test_persist_event_does_not_retry_non_lock_errors(monkeypatch: pytest.
         def __init__(self, session: _FakeSession) -> None:
             self._session = session
 
-        async def append(self, event: DomainEvent) -> None:
+        async def append(self, event: SessionEvent) -> None:
             raise OperationalError("INSERT", {}, Exception("disk I/O error"))
 
     monkeypatch.setattr("backend.lifespan.EventRepository", _FakeRepo)

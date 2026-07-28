@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, new_event
 from backend.services.steps.persistence import StepPersistenceSubscriber
 
 
@@ -25,11 +25,11 @@ class TestStepPersistence:
     @pytest.mark.asyncio
     async def test_step_started_persists_row(self, subscriber: StepPersistenceSubscriber, step_repo: AsyncMock) -> None:
         now = datetime.now(UTC)
-        event = DomainEvent(
+        event = new_event(
             event_id="evt-1",
-            job_id="job-1",
+            session_id="job-1",
             timestamp=now,
-            kind=DomainEventKind.step_started,
+            kind=EventKind.step_started,
             payload={
                 "step_id": "step-1",
                 "step_number": 1,
@@ -52,11 +52,11 @@ class TestStepPersistence:
         step_repo: AsyncMock,
     ) -> None:
         now = datetime.now(UTC)
-        event = DomainEvent(
+        event = new_event(
             event_id="evt-2",
-            job_id="job-1",
+            session_id="job-1",
             timestamp=now,
-            kind=DomainEventKind.step_completed,
+            kind=EventKind.step_completed,
             payload={
                 "step_id": "step-1",
                 "status": "done",
@@ -70,12 +70,8 @@ class TestStepPersistence:
     @pytest.mark.asyncio
     async def test_unrelated_event_is_noop(self, subscriber: StepPersistenceSubscriber, step_repo: AsyncMock) -> None:
         now = datetime.now(UTC)
-        event = DomainEvent(
-            event_id="evt-3",
-            job_id="job-1",
-            timestamp=now,
-            kind=DomainEventKind.job_created,
-            payload={},
+        event = new_event(
+            event_id="evt-3", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={}
         )
         await subscriber(event)
         step_repo.create.assert_not_called()

@@ -19,7 +19,7 @@ from backend.services.watcher.claude import ClaudeSessionStateWatcher
 router = APIRouter(tags=["hooks"], route_class=DishkaRoute)
 
 
-@router.post("/hooks/claude")
+@router.post("/hooks/claude", response_model=None)
 async def claude_stop_hook(
     request: Request,
     watcher: FromDishka[ClaudeSessionStateWatcher],

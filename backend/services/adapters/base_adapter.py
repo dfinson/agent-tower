@@ -227,7 +227,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         totals: dict[str, float | int] | None = None,
     ) -> None:
         """Publish telemetry_updated if debounce interval has elapsed."""
-        from backend.models.events import DomainEvent, DomainEventKind
+        from backend.models.events import EventKind, new_event
 
         if self._event_bus is None:
             return
@@ -243,12 +243,8 @@ class BaseAgentAdapter(AgentAdapterInterface):
             payload["input_tokens"] = totals.get("input_tokens", 0)
             payload["output_tokens"] = totals.get("output_tokens", 0)
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
-                timestamp=datetime.now(UTC),
-                kind=DomainEventKind.telemetry_updated,
-                payload=payload,
+            new_event(
+                session_id=job_id, timestamp=datetime.now(UTC), kind=EventKind.telemetry_updated, payload=payload
             )
         )
 
@@ -465,15 +461,14 @@ class BaseAgentAdapter(AgentAdapterInterface):
         # Emit action_classified event for timeline tier indicators
         tier_str = decision.tier.value if decision.tier else None
         if tier_str and self._event_bus is not None:
-            from backend.models.events import DomainEvent, DomainEventKind
+            from backend.models.events import EventKind, new_event
 
             cls = decision.classification
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.action_classified,
+                    kind=EventKind.action_classified,
                     payload={
                         "tier": tier_str,
                         "tool_name": tool_name or request.kind,

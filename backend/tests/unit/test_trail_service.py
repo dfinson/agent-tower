@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.models.db import Base, JobTelemetrySpanRow, TrailNodeRow
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.events.event_bus import EventBus
 from backend.services.trail import TrailService
@@ -52,23 +52,17 @@ def trail_repo(session_factory):
 
 
 def _make_event(
-    kind: DomainEventKind = DomainEventKind.job_state_changed,
+    kind: EventKind = EventKind.job_state_changed,
     job_id: str = "job-1",
     payload: dict | None = None,
-) -> DomainEvent:
-    return DomainEvent(
-        event_id=DomainEvent.make_event_id(),
-        job_id=job_id,
-        timestamp=datetime.now(UTC),
-        kind=kind,
-        payload=payload or {},
-    )
+) -> SessionEvent:
+    return new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=kind, payload=payload or {})
 
 
-def _job_started_event(job_id: str = "job-1") -> DomainEvent:
+def _job_started_event(job_id: str = "job-1") -> SessionEvent:
     """Create a job_state_changed event that triggers goal node creation."""
     return _make_event(
-        DomainEventKind.job_state_changed,
+        EventKind.job_state_changed,
         job_id=job_id,
         payload={"previous_state": "queued", "new_state": "running"},
     )
@@ -155,7 +149,7 @@ class TestTrailServiceStepNodes:
         await trail_service.handle_event(_job_started_event())
 
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             payload={
                 "step_id": "step-1",
                 "files_written": ["auth.py", "config.py"],
@@ -183,7 +177,7 @@ class TestTrailServiceStepNodes:
         await trail_service.handle_event(_job_started_event())
 
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             payload={"step_id": "step-1", "files_read": ["main.py"]},
         )
         await trail_service.handle_event(event)
@@ -195,7 +189,7 @@ class TestTrailServiceStepNodes:
         await trail_service.handle_event(_job_started_event())
 
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             payload={"step_id": "step-1"},
         )
         await trail_service.handle_event(event)
@@ -206,7 +200,7 @@ class TestTrailServiceStepNodes:
     async def test_step_without_job_start_is_skipped(self, trail_service, trail_repo):
         """Steps for unknown jobs (started before trail service) are silently skipped."""
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             job_id="unknown-job",
             payload={"step_id": "step-1"},
         )
@@ -221,7 +215,7 @@ class TestTrailServicePhaseNodes:
         await trail_service.handle_event(_job_started_event())
 
         event = _make_event(
-            DomainEventKind.execution_phase_changed,
+            EventKind.execution_phase_changed,
             payload={"phase": "agent_reasoning"},
         )
         await trail_service.handle_event(event)
@@ -238,7 +232,7 @@ class TestTrailServiceTerminalNodes:
     async def test_job_completed_creates_terminal_summarize(self, trail_service, trail_repo):
         await trail_service.handle_event(_job_started_event())
 
-        event = _make_event(DomainEventKind.job_completed, payload={})
+        event = _make_event(EventKind.job_completed, payload={})
         await trail_service.handle_event(event)
 
         nodes = await trail_repo.get_by_job("job-1")
@@ -251,7 +245,7 @@ class TestTrailServiceTerminalNodes:
     async def test_job_failed_creates_terminal_summarize(self, trail_service, trail_repo):
         await trail_service.handle_event(_job_started_event())
 
-        event = _make_event(DomainEventKind.job_failed, payload={"reason": "timeout"})
+        event = _make_event(EventKind.job_failed, payload={"reason": "timeout"})
         await trail_service.handle_event(event)
 
         nodes = await trail_repo.get_by_job("job-1")
@@ -262,7 +256,7 @@ class TestTrailServiceTerminalNodes:
         await trail_service.handle_event(_job_started_event())
         assert "job-1" in trail_service._job_state
 
-        await trail_service.handle_event(_make_event(DomainEventKind.job_completed))
+        await trail_service.handle_event(_make_event(EventKind.job_completed))
         assert "job-1" not in trail_service._job_state
 
 
@@ -273,14 +267,14 @@ class TestTrailServiceApprovalNodes:
         # Start a step
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_started,
+                EventKind.step_started,
                 payload={"step_id": "step-1", "step_number": 1},
             )
         )
         # Approval arrives mid-step
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.approval_requested,
+                EventKind.approval_requested,
                 payload={"description": "Need approval for deploy"},
             )
         )
@@ -292,7 +286,7 @@ class TestTrailServiceApprovalNodes:
         # Step completes — should flush the deferred approval
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 payload={"step_id": "step-1", "files_read": ["a.py"]},
             )
         )
@@ -311,7 +305,7 @@ class TestTrailServiceSequencing:
         for i in range(5):
             await trail_service.handle_event(
                 _make_event(
-                    DomainEventKind.step_completed,
+                    EventKind.step_completed,
                     payload={"step_id": f"step-{i}", "files_read": [f"f{i}.py"]},
                 )
             )
@@ -505,7 +499,7 @@ class TestTrailServiceQueries:
         await trail_service.handle_event(_job_started_event())
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 payload={"step_id": "step-1", "files_read": ["a.py"]},
             )
         )
@@ -521,7 +515,7 @@ class TestTrailServiceQueries:
         await trail_service.handle_event(_job_started_event())
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 payload={"step_id": "step-1", "files_read": ["a.py"]},
             )
         )
@@ -536,11 +530,11 @@ class TestTrailServiceQueries:
         for i in range(3):
             await trail_service.handle_event(
                 _make_event(
-                    DomainEventKind.step_completed,
+                    EventKind.step_completed,
                     payload={"step_id": f"step-{i}", "files_read": [f"f{i}.py"]},
                 )
             )
-        await trail_service.handle_event(_make_event(DomainEventKind.job_completed))
+        await trail_service.handle_event(_make_event(EventKind.job_completed))
 
         summary = await trail_service.get_summary("job-1")
         assert summary["job_id"] == "job-1"
@@ -564,7 +558,7 @@ class TestTrailFullLifecycle:
         # Phase change
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.execution_phase_changed,
+                EventKind.execution_phase_changed,
                 job_id=job_id,
                 payload={"phase": "agent_reasoning"},
             )
@@ -573,14 +567,14 @@ class TestTrailFullLifecycle:
         # Step 1: explore
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_started,
+                EventKind.step_started,
                 job_id=job_id,
                 payload={"step_id": "step-1", "step_number": 1},
             )
         )
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 job_id=job_id,
                 payload={"step_id": "step-1", "files_read": ["auth.py", "config.py"]},
             )
@@ -589,14 +583,14 @@ class TestTrailFullLifecycle:
         # Step 2: modify
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_started,
+                EventKind.step_started,
                 job_id=job_id,
                 payload={"step_id": "step-2", "step_number": 2},
             )
         )
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 job_id=job_id,
                 payload={
                     "step_id": "step-2",
@@ -610,14 +604,14 @@ class TestTrailFullLifecycle:
         # Step 3: shell (no file tools)
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_started,
+                EventKind.step_started,
                 job_id=job_id,
                 payload={"step_id": "step-3", "step_number": 3},
             )
         )
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 job_id=job_id,
                 payload={"step_id": "step-3"},
             )
@@ -626,7 +620,7 @@ class TestTrailFullLifecycle:
         # Job completes
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.job_completed,
+                EventKind.job_completed,
                 job_id=job_id,
             )
         )
@@ -777,7 +771,7 @@ class TestWriteSubNodes:
         # Fire step_completed with files_written
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 payload={
                     "step_id": "step-1",
                     "turn_id": "turn-1",
@@ -827,7 +821,7 @@ class TestWriteSubNodes:
 
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 payload={
                     "step_id": "step-1",
                     "turn_id": "turn-1",
@@ -851,7 +845,7 @@ class TestWriteSubNodes:
 
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 payload={
                     "step_id": "step-1",
                     "turn_id": "turn-1",
@@ -885,7 +879,7 @@ class TestWriteSubNodes:
 
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 payload={
                     "step_id": "step-1",
                     "turn_id": "turn-1",
@@ -912,7 +906,7 @@ class TestWriteSubNodes:
 
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 payload={
                     "step_id": "step-1",
                     # no turn_id
@@ -952,7 +946,7 @@ class TestWriteSubNodes:
 
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 payload={
                     "step_id": "step-1",
                     "turn_id": "turn-1",
@@ -964,7 +958,7 @@ class TestWriteSubNodes:
         # Another step
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 payload={
                     "step_id": "step-2",
                     "turn_id": "turn-2",
@@ -1335,7 +1329,7 @@ class TestNodeBuilderToolCall:
         # Set up: start a job and create a write sub-node
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.job_state_changed,
+                EventKind.job_state_changed,
                 payload={"new_state": "running"},
             )
         )
@@ -1359,7 +1353,7 @@ class TestNodeBuilderToolCall:
         # Fire tool_call transcript event
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.transcript_updated,
+                EventKind.tool_call_completed,
                 payload={
                     "role": "tool_call",
                     "content": "str_replace_editor",
@@ -1384,7 +1378,7 @@ class TestNodeBuilderToolCall:
         """tool_call with tool_name='report_intent' is silently skipped."""
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.job_state_changed,
+                EventKind.job_state_changed,
                 payload={"new_state": "running"},
             )
         )
@@ -1392,7 +1386,7 @@ class TestNodeBuilderToolCall:
         # Fire report_intent — should be ignored
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.transcript_updated,
+                EventKind.tool_call_completed,
                 payload={
                     "role": "tool_call",
                     "content": "report_intent",
@@ -1413,14 +1407,14 @@ class TestNodeBuilderToolCall:
         """assistant transcript events update the recent_messages buffer."""
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.job_state_changed,
+                EventKind.job_state_changed,
                 payload={"new_state": "running"},
             )
         )
 
         await trail_service.handle_event(
             _make_event(
-                DomainEventKind.transcript_updated,
+                EventKind.message_assistant,
                 payload={
                     "role": "assistant",
                     "content": "I will now refactor the module.",

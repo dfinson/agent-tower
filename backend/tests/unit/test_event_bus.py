@@ -7,17 +7,13 @@ from datetime import UTC, datetime
 
 import pytest
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.events.event_bus import EventBus
 
 
-def _make_event(kind: DomainEventKind = DomainEventKind.job_created) -> DomainEvent:
-    return DomainEvent(
-        event_id="evt-1",
-        job_id="job-1",
-        timestamp=datetime.now(UTC),
-        kind=kind,
-        payload={"hello": "world"},
+def _make_event(kind: EventKind = EventKind.job_created) -> SessionEvent:
+    return new_event(
+        event_id="evt-1", session_id="job-1", timestamp=datetime.now(UTC), kind=kind, payload={"hello": "world"}
     )
 
 
@@ -25,9 +21,9 @@ class TestEventBus:
     @pytest.mark.asyncio
     async def test_publish_to_single_subscriber(self) -> None:
         bus = EventBus()
-        received: list[DomainEvent] = []
+        received: list[SessionEvent] = []
 
-        async def handler(event: DomainEvent) -> None:
+        async def handler(event: SessionEvent) -> None:
             received.append(event)
 
         bus.subscribe(handler)
@@ -40,13 +36,13 @@ class TestEventBus:
     @pytest.mark.asyncio
     async def test_publish_to_multiple_subscribers(self) -> None:
         bus = EventBus()
-        received_a: list[DomainEvent] = []
-        received_b: list[DomainEvent] = []
+        received_a: list[SessionEvent] = []
+        received_b: list[SessionEvent] = []
 
-        async def handler_a(event: DomainEvent) -> None:
+        async def handler_a(event: SessionEvent) -> None:
             received_a.append(event)
 
-        async def handler_b(event: DomainEvent) -> None:
+        async def handler_b(event: SessionEvent) -> None:
             received_b.append(event)
 
         bus.subscribe(handler_a)
@@ -65,9 +61,9 @@ class TestEventBus:
     @pytest.mark.asyncio
     async def test_unsubscribe_removes_handler(self) -> None:
         bus = EventBus()
-        received: list[DomainEvent] = []
+        received: list[SessionEvent] = []
 
-        async def handler(event: DomainEvent) -> None:
+        async def handler(event: SessionEvent) -> None:
             received.append(event)
 
         bus.subscribe(handler)
@@ -80,7 +76,7 @@ class TestEventBus:
     async def test_unsubscribe_unknown_handler_is_noop(self) -> None:
         bus = EventBus()
 
-        async def handler(event: DomainEvent) -> None:
+        async def handler(event: SessionEvent) -> None:
             pass
 
         # Should not raise
@@ -89,12 +85,12 @@ class TestEventBus:
     @pytest.mark.asyncio
     async def test_subscriber_error_does_not_block_others(self) -> None:
         bus = EventBus()
-        received: list[DomainEvent] = []
+        received: list[SessionEvent] = []
 
-        async def failing_handler(event: DomainEvent) -> None:
+        async def failing_handler(event: SessionEvent) -> None:
             raise RuntimeError("boom")
 
-        async def good_handler(event: DomainEvent) -> None:
+        async def good_handler(event: SessionEvent) -> None:
             received.append(event)
 
         bus.subscribe(failing_handler)
@@ -110,11 +106,11 @@ class TestEventBus:
         bus = EventBus()
         order: list[str] = []
 
-        async def slow_handler(event: DomainEvent) -> None:
+        async def slow_handler(event: SessionEvent) -> None:
             await asyncio.sleep(0.05)
             order.append("slow")
 
-        async def fast_handler(event: DomainEvent) -> None:
+        async def fast_handler(event: SessionEvent) -> None:
             order.append("fast")
 
         bus.subscribe(slow_handler)
@@ -129,7 +125,7 @@ class TestEventBus:
         bus = EventBus()
         count = 0
 
-        async def handler(event: DomainEvent) -> None:
+        async def handler(event: SessionEvent) -> None:
             nonlocal count
             count += 1
 

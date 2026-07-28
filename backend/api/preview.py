@@ -44,6 +44,7 @@ _BLOCKED_RESPONSE_HEADERS = frozenset({"transfer-encoding", "connection", "conte
     "/preview/{port:int}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"],
     response_class=Response,
+    response_model=None,
 )
 async def preview_proxy(port: int, path: str, request: Request, client: FromDishka[PreviewHttpClient]) -> Response:
     """Reverse-proxy a request to a local development server."""

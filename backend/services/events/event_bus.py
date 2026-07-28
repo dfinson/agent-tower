@@ -8,17 +8,16 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 import structlog
-
-from backend.models.events import DomainEvent
+from traceforge.types import SessionEvent
 
 log = structlog.get_logger()
 
-# Subscriber signature: async callable accepting a DomainEvent
-Subscriber = Callable[[DomainEvent], Coroutine[Any, Any, None]]
+# Subscriber signature: async callable accepting a traceforge SessionEvent
+Subscriber = Callable[[SessionEvent], Coroutine[Any, Any, None]]
 
 
 class EventBus:
-    """In-process async pub/sub for domain events.
+    """In-process async pub/sub for canonical ``traceforge.SessionEvent``s.
 
     Subscribers are async callables. Publishing fans out to all subscribers
     concurrently via ``asyncio.gather``. Subscriber exceptions are logged
@@ -41,7 +40,7 @@ class EventBus:
         with contextlib.suppress(ValueError):
             self._subscribers.remove(handler)
 
-    async def publish(self, event: DomainEvent) -> None:
+    async def publish(self, event: SessionEvent) -> None:
         """Fan-out *event* to every subscriber concurrently."""
         if self._muted or not self._subscribers:
             return

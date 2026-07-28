@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 from backend.models.db import Base
 from backend.models.domain import Artifact
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, new_event
 from backend.persistence.artifact_repo import ArtifactRepository
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.event_repo import EventRepository
@@ -151,11 +151,11 @@ async def test_event_append_and_list(session: AsyncSession) -> None:
 
     event_repo = EventRepository(session)
     now = datetime.now(UTC)
-    event = DomainEvent(
+    event = new_event(
         event_id="evt-1",
-        job_id="job-1",
+        session_id="job-1",
         timestamp=now,
-        kind=DomainEventKind.job_created,
+        kind=EventKind.job_created,
         payload={"repo": "/repos/test"},
     )
     await event_repo.append(event)
@@ -163,8 +163,8 @@ async def test_event_append_and_list(session: AsyncSession) -> None:
 
     events = await event_repo.list_after(0)
     assert len(events) == 1
-    assert events[0].event_id == "evt-1"
-    assert events[0].kind == DomainEventKind.job_created
+    assert events[0].id == "evt-1"
+    assert events[0].kind == EventKind.job_created
     assert events[0].payload == {"repo": "/repos/test"}
 
 
@@ -178,11 +178,11 @@ async def test_event_list_after_filters_by_id(session: AsyncSession) -> None:
     now = datetime.now(UTC)
     for i in range(5):
         await event_repo.append(
-            DomainEvent(
+            new_event(
                 event_id=f"evt-{i}",
-                job_id="job-1",
+                session_id="job-1",
                 timestamp=now,
-                kind=DomainEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": i},
             )
         )
@@ -203,16 +203,16 @@ async def test_event_list_after_scoped_to_job(session: AsyncSession) -> None:
     event_repo = EventRepository(session)
     now = datetime.now(UTC)
     await event_repo.append(
-        DomainEvent(event_id="evt-1", job_id="job-1", timestamp=now, kind=DomainEventKind.job_created, payload={})
+        new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={})
     )
     await event_repo.append(
-        DomainEvent(event_id="evt-2", job_id="job-2", timestamp=now, kind=DomainEventKind.job_created, payload={})
+        new_event(event_id="evt-2", session_id="job-2", timestamp=now, kind=EventKind.job_created, payload={})
     )
     await session.commit()
 
     events = await event_repo.list_after(0, job_id="job-1")
     assert len(events) == 1
-    assert events[0].job_id == "job-1"
+    assert events[0].session_id == "job-1"
 
 
 # --- ArtifactRepository tests ---

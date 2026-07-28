@@ -128,22 +128,22 @@ class TestDeadLetterRetry:
     async def test_dead_letter_retries_and_succeeds(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         """Simulate event persist failure then success on retry."""
         from backend.lifespan import _persist_event_with_retry
-        from backend.models.events import DomainEvent, DomainEventKind
+        from backend.models.events import EventKind, new_event
 
-        event = DomainEvent(
+        event = new_event(
             event_id="test-evt-1",
-            job_id="job-1",
+            session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=DomainEventKind.log_line_emitted,
+            kind=EventKind.log_line_emitted,
             payload={"seq": 1, "message": "test", "level": "info"},
         )
 
         # First call should succeed normally
-        await _persist_event_with_retry(
+        db_id = await _persist_event_with_retry(
             event=event,
             session_factory=session_factory,
         )
-        assert event.db_id is not None
+        assert db_id is not None
 
     @pytest.mark.asyncio
     async def test_persist_retries_on_lock_error(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
@@ -151,21 +151,21 @@ class TestDeadLetterRetry:
         from sqlalchemy.exc import OperationalError
 
         from backend.lifespan import _persist_event_with_retry
-        from backend.models.events import DomainEvent, DomainEventKind
+        from backend.models.events import EventKind, SessionEvent, new_event
         from backend.persistence.event_repo import EventRepository
 
-        event = DomainEvent(
+        event = new_event(
             event_id="test-evt-retry",
-            job_id="job-1",
+            session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=DomainEventKind.log_line_emitted,
+            kind=EventKind.log_line_emitted,
             payload={"seq": 1, "message": "retry test", "level": "info"},
         )
 
         call_count = 0
         original_append = EventRepository.append
 
-        async def flaky_append(self: EventRepository, evt: DomainEvent) -> int:
+        async def flaky_append(self: EventRepository, evt: SessionEvent) -> int:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -175,11 +175,11 @@ class TestDeadLetterRetry:
         _lock = asyncio.Lock()
 
         with patch.object(EventRepository, "append", flaky_append):
-            await _persist_event_with_retry(
+            db_id = await _persist_event_with_retry(
                 event=event,
                 session_factory=session_factory,
                 retry_delay_s=0.01,
             )
 
         assert call_count == 2  # Failed once, succeeded on retry
-        assert event.db_id is not None
+        assert db_id is not None

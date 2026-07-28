@@ -36,10 +36,10 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 from rich.text import Text
 
-from backend.models.events import DomainEventKind
+from backend.models.events import EventKind
 
 if TYPE_CHECKING:
-    from backend.models.events import DomainEvent
+    from backend.models.events import SessionEvent
 
 # ---------------------------------------------------------------------------
 # Display constants
@@ -176,7 +176,7 @@ class ConsoleLog:
     # EventBus subscriber
     # ------------------------------------------------------------------
 
-    async def handle_event(self, event: DomainEvent) -> None:
+    async def handle_event(self, event: SessionEvent) -> None:
         """Async EventBus subscriber — prints one line per significant event."""
         self._apply_event(event)
 
@@ -207,31 +207,31 @@ class ConsoleLog:
     # Internal: map domain event → printed line
     # ------------------------------------------------------------------
 
-    def _apply_event(self, event: DomainEvent) -> None:
+    def _apply_event(self, event: SessionEvent) -> None:
         ts = datetime.now(UTC).strftime("%H:%M:%S")
         kind = event.kind
-        job_id = event.job_id
+        job_id = event.session_id
         if not job_id:
             return
 
-        if kind == DomainEventKind.job_created:
+        if kind == EventKind.job_created:
             self._jobs[job_id] = _JobInfo(job_id)
 
-        elif kind == DomainEventKind.job_state_changed:
+        elif kind == EventKind.job_state_changed:
             new_state = str(event.payload.get("new_state", ""))
             if job_id not in self._jobs:
                 self._jobs[job_id] = _JobInfo(job_id)
 
         elif kind in (
-            DomainEventKind.job_completed,
-            DomainEventKind.job_failed,
-            DomainEventKind.job_canceled,
+            EventKind.job_completed,
+            EventKind.job_failed,
+            EventKind.job_canceled,
         ):
             new_state = {
-                DomainEventKind.job_completed: "completed",
-                DomainEventKind.job_failed: "failed",
-                DomainEventKind.job_canceled: "canceled",
-            }[kind]
+                EventKind.job_completed: "completed",
+                EventKind.job_failed: "failed",
+                EventKind.job_canceled: "canceled",
+            }[EventKind(kind)]
             job = self._jobs.get(job_id)
             elapsed = f"  ({job.elapsed()})" if job else ""
             title = f'  "{job.title}"' if job and job.title else ""
@@ -239,16 +239,16 @@ class ConsoleLog:
             self._print_event(ts, icon, new_state, job_id, new_state + elapsed + title)
             self._jobs.pop(job_id, None)
 
-        elif kind == DomainEventKind.job_title_updated:
+        elif kind == EventKind.job_title_updated:
             updated_title: str | None = str(event.payload.get("title")) if event.payload.get("title") else None
             if updated_title and job_id in self._jobs:
                 self._jobs[job_id].title = updated_title
 
-        elif kind == DomainEventKind.progress_headline:
+        elif kind == EventKind.progress_headline:
             # Shown in the UI kanban board; suppress from terminal.
             pass
 
-        elif kind == DomainEventKind.approval_requested:
+        elif kind == EventKind.approval_requested:
             desc = str(event.payload.get("description") or "approval needed")
             self._print_event(ts, "⏸", "waiting_for_approval", job_id, f"approval needed · {desc}")
 

@@ -16,7 +16,7 @@ from sqlalchemy.exc import DBAPIError
 from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT
 from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import CodePlaneError, SessionConfig
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import TRANSCRIPT_KINDS, EventKind, new_event
 
 if TYPE_CHECKING:
     from backend.services.runtime.service import RuntimeService
@@ -83,11 +83,11 @@ async def run_followup_turn(
                 host._session_ids[job_id] = new_session_id
                 await host._persist_sdk_session_id(job_id, new_session_id)
 
-            if domain_event.kind == DomainEventKind.log_line_emitted:
+            if domain_event.kind == EventKind.log_line_emitted:
                 domain_event.payload.setdefault("session_number", session_number)
 
             # Step tracking for follow-up turns
-            if domain_event.kind == DomainEventKind.transcript_updated and host._step_tracker is not None:
+            if domain_event.kind in TRANSCRIPT_KINDS and host._step_tracker is not None:
                 role = domain_event.payload.get("role", "")
                 if role != "agent_delta":
                     await host._step_tracker.on_transcript_event(job_id, domain_event)
@@ -143,11 +143,10 @@ async def run_verify_review(
     # Emit verification phase change
     host._resolve_adapter(base_config.sdk).set_execution_phase(job_id, ExecutionPhase.verification)
     await host._event_bus.publish(
-        DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
+        new_event(
+            session_id=job_id,
             timestamp=datetime.now(UTC),
-            kind=DomainEventKind.execution_phase_changed,
+            kind=EventKind.execution_phase_changed,
             payload={"phase": ExecutionPhase.verification},
         )
     )

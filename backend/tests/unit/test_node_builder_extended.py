@@ -18,7 +18,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.models.db import Base, JobRow, JobTelemetrySpanRow, TrailNodeRow
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.trail.models import (
     MESSAGE_SIGNAL_BUFFER_SIZE,
@@ -71,22 +71,16 @@ def builder(session_factory, job_state, trail_repo):
 
 
 def _make_event(
-    kind: DomainEventKind = DomainEventKind.job_state_changed,
+    kind: EventKind = EventKind.job_state_changed,
     job_id: str = "job-1",
     payload: dict | None = None,
-) -> DomainEvent:
-    return DomainEvent(
-        event_id=DomainEvent.make_event_id(),
-        job_id=job_id,
-        timestamp=datetime.now(UTC),
-        kind=kind,
-        payload=payload or {},
-    )
+) -> SessionEvent:
+    return new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=kind, payload=payload or {})
 
 
-def _started_event(job_id: str = "job-1") -> DomainEvent:
+def _started_event(job_id: str = "job-1") -> SessionEvent:
     return _make_event(
-        DomainEventKind.job_state_changed,
+        EventKind.job_state_changed,
         job_id=job_id,
         payload={"previous_state": "queued", "new_state": "running"},
     )
@@ -242,13 +236,13 @@ class TestClassifyStepExtended:
 class TestHandleEventDispatch:
     async def test_unknown_event_kind_ignored(self, builder):
         """Events not in the dispatch table are silently ignored."""
-        event = _make_event(DomainEventKind.diff_updated, payload={"diff": "..."})
+        event = _make_event(EventKind.diff_updated, payload={"diff": "..."})
         await builder.handle_event(event)  # should not raise
 
     async def test_job_state_changed_non_running_ignored(self, builder, job_state):
         """job_state_changed with new_state != 'running' does nothing."""
         event = _make_event(
-            DomainEventKind.job_state_changed,
+            EventKind.job_state_changed,
             payload={"new_state": "queued"},
         )
         await builder.handle_event(event)
@@ -271,7 +265,7 @@ class TestHandleEventDispatch:
         # Patch repo.create to explode
         trail_repo.create = AsyncMock(side_effect=RuntimeError("boom"))
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             payload={"step_id": "s1", "files_read": ["a.py"]},
         )
         # Should not raise
@@ -310,7 +304,7 @@ class TestStepStarted:
     async def test_step_started_sets_active_step_id(self, builder, job_state):
         job_state["job-1"] = TrailJobState()
         event = _make_event(
-            DomainEventKind.step_started,
+            EventKind.step_started,
             payload={"step_id": "step-42"},
         )
         await builder.handle_event(event)
@@ -318,7 +312,7 @@ class TestStepStarted:
 
     async def test_step_started_unknown_job_ignored(self, builder, job_state):
         event = _make_event(
-            DomainEventKind.step_started,
+            EventKind.step_started,
             job_id="no-such-job",
             payload={"step_id": "s1"},
         )
@@ -336,7 +330,7 @@ class TestStepCompleted:
         """Steps with status='canceled' produce no trail node."""
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             payload={"step_id": "s1", "status": "canceled"},
         )
         await builder.handle_event(event)
@@ -347,7 +341,7 @@ class TestStepCompleted:
         """tool_names from payload are JSON-serialized on the node."""
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             payload={
                 "step_id": "s1",
                 "tool_names": ["read_file", "write_file"],
@@ -364,7 +358,7 @@ class TestStepCompleted:
         """diff_additions and diff_deletions are stored from payload."""
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             payload={
                 "step_id": "s1",
                 "files_written": ["a.py"],
@@ -381,14 +375,14 @@ class TestStepCompleted:
         """Pending events accumulated before step_completed are flushed."""
         state = TrailJobState(active_goal_id="g1", active_step_id="s1")
         pending_event = _make_event(
-            DomainEventKind.approval_requested,
+            EventKind.approval_requested,
             payload={"description": "Deploy to prod?"},
         )
         state.pending_events.append(pending_event)
         job_state["job-1"] = state
 
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             payload={"step_id": "s1", "files_read": ["a.py"]},
         )
         await builder.handle_event(event)
@@ -402,11 +396,11 @@ class TestStepCompleted:
     async def test_step_completed_clears_pending(self, builder, job_state):
         """After flushing, pending_events is empty."""
         state = TrailJobState(active_goal_id="g1", active_step_id="s1")
-        state.pending_events.append(_make_event(DomainEventKind.approval_requested, payload={"description": "x"}))
+        state.pending_events.append(_make_event(EventKind.approval_requested, payload={"description": "x"}))
         job_state["job-1"] = state
         await builder.handle_event(
             _make_event(
-                DomainEventKind.step_completed,
+                EventKind.step_completed,
                 payload={"step_id": "s1"},
             )
         )
@@ -416,7 +410,7 @@ class TestStepCompleted:
         """files list is deduped with writes first."""
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             payload={
                 "step_id": "s1",
                 "files_written": ["b.py", "a.py"],
@@ -439,7 +433,7 @@ class TestPhaseChanged:
     async def test_phase_updates_state(self, builder, job_state, trail_repo):
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
-            DomainEventKind.execution_phase_changed,
+            EventKind.execution_phase_changed,
             payload={"phase": "verification"},
         )
         await builder.handle_event(event)
@@ -450,7 +444,7 @@ class TestPhaseChanged:
 
     async def test_phase_changed_no_state_ignored(self, builder, job_state, trail_repo):
         event = _make_event(
-            DomainEventKind.execution_phase_changed,
+            EventKind.execution_phase_changed,
             job_id="unknown",
             payload={"phase": "coding"},
         )
@@ -469,7 +463,7 @@ class TestApprovalRequested:
         """Without active_step_id, approval creates node immediately."""
         job_state["job-1"] = TrailJobState(active_goal_id="g1", active_step_id=None)
         event = _make_event(
-            DomainEventKind.approval_requested,
+            EventKind.approval_requested,
             payload={"description": "Run tests?"},
         )
         await builder.handle_event(event)
@@ -483,7 +477,7 @@ class TestApprovalRequested:
         state = TrailJobState(active_goal_id="g1", active_step_id="s1")
         job_state["job-1"] = state
         event = _make_event(
-            DomainEventKind.approval_requested,
+            EventKind.approval_requested,
             payload={"description": "Deploy?"},
         )
         await builder.handle_event(event)
@@ -491,7 +485,7 @@ class TestApprovalRequested:
 
     async def test_approval_no_state_ignored(self, builder, job_state):
         event = _make_event(
-            DomainEventKind.approval_requested,
+            EventKind.approval_requested,
             job_id="ghost",
             payload={"description": "hi"},
         )
@@ -507,7 +501,7 @@ class TestApprovalRequested:
 class TestJobTerminal:
     async def test_job_canceled_status(self, builder, trail_repo, job_state):
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
-        event = _make_event(DomainEventKind.job_canceled, payload={})
+        event = _make_event(EventKind.job_canceled, payload={})
         await builder.handle_event(event)
         nodes = await trail_repo.get_by_job("job-1")
         assert nodes[0].intent == "Job canceled"
@@ -515,14 +509,14 @@ class TestJobTerminal:
 
     async def test_job_review_status(self, builder, trail_repo, job_state):
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
-        event = _make_event(DomainEventKind.job_review, payload={})
+        event = _make_event(EventKind.job_review, payload={})
         await builder.handle_event(event)
         nodes = await trail_repo.get_by_job("job-1")
         assert nodes[0].intent == "Job failed"
         assert "job-1" not in job_state
 
     async def test_job_terminal_no_state_ignored(self, builder, trail_repo, job_state):
-        event = _make_event(DomainEventKind.job_completed, job_id="no-state", payload={})
+        event = _make_event(EventKind.job_completed, job_id="no-state", payload={})
         await builder.handle_event(event)
         nodes = await trail_repo.get_by_job("no-state")
         assert len(nodes) == 0
@@ -537,7 +531,7 @@ class TestTranscriptOperator:
     async def test_operator_creates_request_node(self, builder, trail_repo, job_state):
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.message_user,
             payload={"role": "operator", "content": "Focus on auth module"},
         )
         await builder.handle_event(event)
@@ -549,7 +543,7 @@ class TestTranscriptOperator:
     async def test_user_role_also_creates_request_node(self, builder, trail_repo, job_state):
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.message_user,
             payload={"role": "user", "content": "Please check"},
         )
         await builder.handle_event(event)
@@ -560,7 +554,7 @@ class TestTranscriptOperator:
     async def test_operator_empty_content_skipped(self, builder, trail_repo, job_state):
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.message_user,
             payload={"role": "operator", "content": "   "},
         )
         await builder.handle_event(event)
@@ -571,7 +565,7 @@ class TestTranscriptOperator:
         state = TrailJobState(active_goal_id="g1")
         job_state["job-1"] = state
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.message_user,
             payload={"role": "operator", "content": "hello"},
         )
         await builder.handle_event(event)
@@ -582,7 +576,7 @@ class TestTranscriptOperator:
         state.recent_messages = [f"msg-{i}" for i in range(MESSAGE_SIGNAL_BUFFER_SIZE)]
         job_state["job-1"] = state
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.message_user,
             payload={"role": "operator", "content": "overflow"},
         )
         await builder.handle_event(event)
@@ -595,7 +589,7 @@ class TestTranscriptAssistant:
         state = TrailJobState(active_goal_id="g1")
         job_state["job-1"] = state
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.message_assistant,
             payload={"role": "assistant", "content": "I will fix the bug"},
         )
         await builder.handle_event(event)
@@ -605,7 +599,7 @@ class TestTranscriptAssistant:
         state = TrailJobState(active_goal_id="g1")
         job_state["job-1"] = state
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.message_assistant,
             payload={"role": "agent", "content": "Working on it"},
         )
         await builder.handle_event(event)
@@ -615,7 +609,7 @@ class TestTranscriptAssistant:
         state = TrailJobState(active_goal_id="g1")
         job_state["job-1"] = state
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.message_assistant,
             payload={"role": "assistant", "content": ""},
         )
         await builder.handle_event(event)
@@ -626,7 +620,7 @@ class TestTranscriptAssistant:
         job_state["job-1"] = state
         long_msg = "x" * 500
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.message_assistant,
             payload={"role": "assistant", "content": long_msg},
         )
         await builder.handle_event(event)
@@ -639,7 +633,7 @@ class TestTranscriptAssistant:
         state.recent_messages = [f"m{i}" for i in range(MESSAGE_SIGNAL_BUFFER_SIZE)]
         job_state["job-1"] = state
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.message_assistant,
             payload={"role": "assistant", "content": "newest"},
         )
         await builder.handle_event(event)
@@ -667,7 +661,7 @@ class TestTranscriptToolCall:
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
 
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.tool_call_completed,
             payload={
                 "role": "tool_call",
                 "turn_id": "turn-1",
@@ -688,7 +682,7 @@ class TestTranscriptToolCall:
         """report_intent tool calls are skipped."""
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.tool_call_completed,
             payload={
                 "role": "tool_call",
                 "turn_id": "turn-1",
@@ -701,7 +695,7 @@ class TestTranscriptToolCall:
     async def test_tool_call_empty_tool_name_skipped(self, builder, job_state):
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.tool_call_completed,
             payload={"role": "tool_call", "turn_id": "t1", "tool_name": ""},
         )
         await builder.handle_event(event)
@@ -709,7 +703,7 @@ class TestTranscriptToolCall:
     async def test_tool_call_no_turn_id_skipped(self, builder, job_state):
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.tool_call_completed,
             payload={"role": "tool_call", "tool_name": "write_file"},
         )
         await builder.handle_event(event)
@@ -718,7 +712,7 @@ class TestTranscriptToolCall:
         """tool_call with no job_id on the event is skipped."""
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.tool_call_completed,
             job_id="job-1",
             payload={
                 "role": "tool_call",
@@ -726,8 +720,8 @@ class TestTranscriptToolCall:
                 "tool_name": "write_file",
             },
         )
-        # Override event job_id to None to test the guard
-        event.job_id = None
+        # Override event session_id to empty to test the guard
+        event = event.model_copy(update={"session_id": ""})
         await builder.handle_event(event)
 
     async def test_tool_success_false(self, builder, trail_repo, job_state):
@@ -748,7 +742,7 @@ class TestTranscriptToolCall:
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
 
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.tool_call_completed,
             payload={
                 "role": "tool_call",
                 "turn_id": "turn-1",
@@ -763,7 +757,7 @@ class TestTranscriptToolCall:
     async def test_transcript_unknown_role_ignored(self, builder, job_state, trail_repo):
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.message_assistant,
             payload={"role": "system", "content": "internal"},
         )
         await builder.handle_event(event)
@@ -772,7 +766,7 @@ class TestTranscriptToolCall:
 
     async def test_transcript_no_state_ignored(self, builder, job_state):
         event = _make_event(
-            DomainEventKind.transcript_updated,
+            EventKind.message_user,
             job_id="ghost",
             payload={"role": "operator", "content": "hi"},
         )
@@ -800,7 +794,7 @@ class TestClassifyAndEmit:
         job_state["job-1"] = state
 
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             payload={"step_id": "s1", "files_read": ["a.py"]},
         )
         # Should not raise
@@ -828,7 +822,7 @@ class TestClassifyAndEmit:
         job_state["job-1"] = state
 
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             payload={
                 "step_id": "s1",
                 "turn_id": "turn-1",
@@ -873,7 +867,7 @@ class TestWriteSubNodeErrors:
         trail_repo.create_many = AsyncMock(side_effect=DBAPIError("fake", {}, Exception("db down")))
 
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             payload={
                 "step_id": "s1",
                 "turn_id": "turn-1",
@@ -950,7 +944,7 @@ class TestSessionResumed:
     async def test_session_resumed_already_tracked_is_noop(self, builder, job_state):
         """If job is already in _job_state, session_resumed does nothing."""
         job_state["job-1"] = TrailJobState(next_seq=42)
-        event = _make_event(DomainEventKind.session_resumed, payload={})
+        event = _make_event(EventKind.session_resumed, payload={})
         await builder.handle_event(event)
         assert job_state["job-1"].next_seq == 42  # unchanged
 
@@ -976,7 +970,7 @@ class TestSessionResumed:
             trail_state_snapshot=snapshot_json,
         )
 
-        event = _make_event(DomainEventKind.session_resumed, payload={})
+        event = _make_event(EventKind.session_resumed, payload={})
         await builder.handle_event(event)
 
         restored = job_state["job-1"]
@@ -1003,7 +997,7 @@ class TestSessionResumed:
         )
         await trail_repo.create(node)
 
-        event = _make_event(DomainEventKind.session_resumed, payload={})
+        event = _make_event(EventKind.session_resumed, payload={})
         await builder.handle_event(event)
 
         assert job_state["job-1"].next_seq == 11  # max_seq(10) + 1
@@ -1044,7 +1038,7 @@ class TestSessionResumed:
         )
         await trail_repo.create(work)
 
-        event = _make_event(DomainEventKind.session_resumed, payload={})
+        event = _make_event(EventKind.session_resumed, payload={})
         await builder.handle_event(event)
 
         restored = job_state["job-1"]
@@ -1060,7 +1054,7 @@ class TestSessionResumed:
     async def test_session_resumed_lossy_no_goal(self, builder, session_factory, job_state, trail_repo):
         """Lossy fallback without a goal node still initializes state."""
         await _insert_job_row(session_factory, "job-1", prompt="test")
-        event = _make_event(DomainEventKind.session_resumed, payload={})
+        event = _make_event(EventKind.session_resumed, payload={})
         await builder.handle_event(event)
         restored = job_state["job-1"]
         assert restored.next_seq == 1  # no nodes → max_seq = 0, next = 1
@@ -1076,11 +1070,10 @@ class TestSessionResumed:
         async with session_factory() as session:
             event_repo = EventRepository(session)
             for i, status in enumerate(["pending", "active"]):
-                ev = DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id="job-1",
+                ev = new_event(
+                    session_id="job-1",
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.plan_step_updated,
+                    kind=EventKind.plan_step_updated,
                     payload={
                         "plan_step_id": f"ps-{i}",
                         "label": f"Step {i}",
@@ -1091,7 +1084,7 @@ class TestSessionResumed:
                 await event_repo.append(ev)
             await session.commit()
 
-        event = _make_event(DomainEventKind.session_resumed, payload={})
+        event = _make_event(EventKind.session_resumed, payload={})
         await builder.handle_event(event)
 
         restored = job_state["job-1"]
@@ -1124,7 +1117,7 @@ class TestSessionResumed:
             )
             await trail_repo.create(node)
 
-        event = _make_event(DomainEventKind.session_resumed, payload={})
+        event = _make_event(EventKind.session_resumed, payload={})
         await builder.handle_event(event)
 
         restored = job_state["job-1"]
@@ -1145,7 +1138,7 @@ class TestJobTerminalSnapshot:
         state = TrailJobState(active_goal_id="g1", next_seq=5, job_prompt="Fix it")
         job_state["job-1"] = state
 
-        event = _make_event(DomainEventKind.job_completed, payload={})
+        event = _make_event(EventKind.job_completed, payload={})
         await builder.handle_event(event)
 
         # State should be cleaned up
@@ -1177,7 +1170,7 @@ class TestStepCompletedIntegration:
 
         # Complete a step
         event = _make_event(
-            DomainEventKind.step_completed,
+            EventKind.step_completed,
             payload={"step_id": "s1", "files_read": ["a.py"]},
         )
         await builder.handle_event(event)

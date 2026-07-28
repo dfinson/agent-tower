@@ -211,8 +211,8 @@ class TestEventPublishing:
         await diff_service.on_worktree_file_modified("job-1", "/work", "main")
         mock_event_bus.publish.assert_called_once()
         event = mock_event_bus.publish.call_args[0][0]
-        assert event.kind.value == "DiffUpdated"
-        assert event.job_id == "job-1"
+        assert str(event.kind) == "diff.updated"
+        assert event.session_id == "job-1"
 
     @pytest.mark.asyncio
     async def test_empty_diff_still_publishes(

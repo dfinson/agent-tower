@@ -30,7 +30,7 @@ parse_message = cast("Any", _message_parser).parse_message
 MessageParseError = cast("type[Exception]", getattr(_message_parser, "MessageParseError", ValueError))
 
 from backend.models.domain import Job, JobSource, JobState, SessionEvent  # noqa: E402
-from backend.models.events import DomainEvent, DomainEventKind  # noqa: E402
+from backend.models.events import EventKind, new_event  # noqa: E402
 from backend.services.events.event_pipeline import EventPipeline  # noqa: E402
 from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin  # noqa: E402
 
@@ -571,11 +571,10 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                         session_id=session_id,
                     )
                     await self._event_bus.publish(
-                        DomainEvent(
-                            event_id=DomainEvent.make_event_id(),
-                            job_id=job_id,
+                        new_event(
+                            session_id=job_id,
                             timestamp=now,
-                            kind=DomainEventKind.job_state_changed,
+                            kind=EventKind.job_state_changed,
                             payload={"state": JobState.running, "new_state": JobState.running},
                         )
                     )
@@ -621,11 +620,10 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
         # Publish creation events
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.job_created,
+                kind=EventKind.job_created,
                 payload={
                     "repo": repo_path,
                     "branch": branch,
@@ -636,11 +634,10 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             )
         )
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.job_state_changed,
+                kind=EventKind.job_state_changed,
                 payload={"state": JobState.running, "new_state": JobState.running},
             )
         )
@@ -1027,22 +1024,20 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             return
 
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.job_state_changed,
+                kind=EventKind.job_state_changed,
                 payload={"state": new_state, "new_state": new_state},
             )
         )
 
         if new_state == JobState.review:
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=now,
-                    kind=DomainEventKind.job_review,
+                    kind=EventKind.job_review,
                     payload={"resolution": "unresolved"},
                 )
             )

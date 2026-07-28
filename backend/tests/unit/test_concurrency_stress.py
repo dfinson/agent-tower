@@ -195,7 +195,7 @@ class TestConcurrentEventAppends:
 
     @pytest.mark.asyncio
     async def test_concurrent_appends_all_persisted(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        from backend.models.events import DomainEvent, DomainEventKind
+        from backend.models.events import EventKind, new_event
         from backend.persistence.event_repo import EventRepository
 
         # Create a job for FK
@@ -205,11 +205,11 @@ class TestConcurrentEventAppends:
             await session.commit()
 
         async def append_event(seq: int) -> int:
-            event = DomainEvent(
+            event = new_event(
                 event_id=f"evt-{seq}",
-                job_id="ev-job",
+                session_id="ev-job",
                 timestamp=datetime.now(UTC),
-                kind=DomainEventKind.log_line_emitted,
+                kind=EventKind.log_line_emitted,
                 payload={"seq": seq, "message": f"line-{seq}", "level": "info"},
             )
             async with session_factory() as session:
@@ -225,9 +225,9 @@ class TestConcurrentEventAppends:
 
         async with session_factory() as session:
             event_repo = EventRepository(session)
-            events = await event_repo.list_by_job("ev-job", [DomainEventKind.log_line_emitted], limit=100)
+            events = await event_repo.list_by_job("ev-job", [EventKind.log_line_emitted], limit=100)
         assert len(events) == 20
 
         # IDs should be monotonically increasing
-        event_ids = [e.db_id for e in events if e.db_id is not None]
+        event_ids = [e.metadata.sequence for e in events if e.metadata.sequence is not None]
         assert event_ids == sorted(event_ids)

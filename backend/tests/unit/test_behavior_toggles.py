@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.models.db import Base, JobRow
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.events.event_bus import EventBus
 from backend.services.trail import TrailService
 
@@ -49,17 +49,11 @@ def trail_service(session_factory, event_bus):
 
 
 def _make_event(
-    kind: DomainEventKind,
+    kind: EventKind,
     job_id: str = "job-1",
     payload: dict | None = None,
-) -> DomainEvent:
-    return DomainEvent(
-        event_id=DomainEvent.make_event_id(),
-        job_id=job_id,
-        timestamp=datetime.now(UTC),
-        kind=kind,
-        payload=payload or {},
-    )
+) -> SessionEvent:
+    return new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=kind, payload=payload or {})
 
 
 # ===================================================================
@@ -115,7 +109,7 @@ class TestPlanTrackingToggle:
         """Transcript events for disabled jobs skip plan feed but still run node_builder."""
         # Initialize job state so the event handler doesn't bail early
         start_event = _make_event(
-            DomainEventKind.job_state_changed,
+            EventKind.job_state_changed,
             payload={"previous_state": "queued", "new_state": "running"},
         )
         await trail_service.handle_event(start_event)
@@ -124,7 +118,7 @@ class TestPlanTrackingToggle:
 
         with patch.object(trail_service._plan_manager, "feed_transcript", new_callable=AsyncMock) as feed_mock:
             event = _make_event(
-                DomainEventKind.transcript_updated,
+                EventKind.message_assistant,
                 payload={"role": "agent", "content": "I will do stuff"},
             )
             await trail_service.handle_event(event)
@@ -134,7 +128,7 @@ class TestPlanTrackingToggle:
     async def test_handle_event_skips_native_plan_for_disabled_job(self, trail_service: TrailService) -> None:
         """Native plan tool calls are ignored for disabled jobs."""
         start_event = _make_event(
-            DomainEventKind.job_state_changed,
+            EventKind.job_state_changed,
             payload={"previous_state": "queued", "new_state": "running"},
         )
         await trail_service.handle_event(start_event)
@@ -143,7 +137,7 @@ class TestPlanTrackingToggle:
 
         with patch.object(trail_service._plan_manager, "feed_native_plan", new_callable=AsyncMock) as plan_mock:
             event = _make_event(
-                DomainEventKind.transcript_updated,
+                EventKind.tool_call_completed,
                 payload={
                     "role": "tool_call",
                     "tool_name": "manage_todo_list",

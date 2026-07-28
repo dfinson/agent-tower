@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, new_event
 from backend.services.trail.models import (
     CONTEXT_WINDOW_SIZE,
     MESSAGE_SIGNAL_BUFFER_SIZE,
@@ -224,11 +224,10 @@ class PlanManager:
         stamped_step_id = steps[active_idx].plan_step_id
         if target_idx != active_idx and turn_id and ps.plan_step_id != stamped_step_id:
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=now,
-                    kind=DomainEventKind.step_entries_reassigned,
+                    kind=EventKind.step_entries_reassigned,
                     payload={
                         "turn_id": turn_id,
                         "old_step_id": stamped_step_id,
@@ -537,22 +536,20 @@ class PlanManager:
 
     async def _emit_plan_step(self, job_id: str, ps: PlanStep) -> None:
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=DomainEventKind.plan_step_updated,
+                kind=EventKind.plan_step_updated,
                 payload=ps.to_event_payload(),
             )
         )
 
     async def _emit_card_headline(self, job_id: str, ps: PlanStep) -> None:
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=DomainEventKind.progress_headline,
+                kind=EventKind.progress_headline,
                 payload={
                     "headline": ps.label,
                     "headline_past": ps.label,

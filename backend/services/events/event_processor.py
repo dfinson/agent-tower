@@ -20,8 +20,15 @@ from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
-from backend.models.domain import SessionEvent, SessionEventKind
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.domain import SessionEvent as CPSessionEvent
+from backend.models.domain import SessionEventKind
+from backend.models.events import (
+    TRANSCRIPT_KINDS,
+    EventKind,
+    SessionEvent,
+    new_event,
+    transcript_kind_for_role,
+)
 
 if TYPE_CHECKING:
     from backend.services.artifacts.diff_service import DiffService
@@ -62,10 +69,10 @@ class EventProcessor:
     async def process_event(
         self,
         job_id: str,
-        session_event: SessionEvent,
+        session_event: CPSessionEvent,
         worktree_path: str | None = None,
         base_ref: str | None = None,
-    ) -> DomainEvent | None:
+    ) -> SessionEvent | None:
         """Process a SessionEvent through the standard pipeline.
 
         Returns the published DomainEvent, or None if the event was consumed
@@ -98,7 +105,7 @@ class EventProcessor:
         # Managed sessions (via CopilotAdapter) already include one; discovered
         # sessions from the watchers don't.  Synthesize one here and rotate it
         # on each completed agent message (role=="agent") to mark turn boundaries.
-        if domain_event.kind == DomainEventKind.transcript_updated:
+        if domain_event.kind in TRANSCRIPT_KINDS:
             payload = domain_event.payload
             if not payload.get("turn_id"):
                 tid = self._turn_ids.get(job_id)
@@ -112,7 +119,7 @@ class EventProcessor:
                 self._turn_ids[job_id] = str(uuid.uuid4())
 
         # Step tracking — annotate transcript events with step boundaries
-        if domain_event.kind == DomainEventKind.transcript_updated and self._step_tracker is not None:
+        if domain_event.kind in TRANSCRIPT_KINDS and self._step_tracker is not None:
             role = str(domain_event.payload.get("role", ""))
             if role != "agent_delta":
                 await self._step_tracker.on_transcript_event(job_id, domain_event)
@@ -142,21 +149,23 @@ class EventProcessor:
             self._diff_service.cleanup(job_id)
 
     @staticmethod
-    def _translate_event(job_id: str, event: SessionEvent) -> DomainEvent | None:
+    def _translate_event(job_id: str, event: CPSessionEvent) -> SessionEvent | None:
         """Translate a SessionEvent into a DomainEvent."""
-        mapping: dict[SessionEventKind, DomainEventKind] = {
-            SessionEventKind.log: DomainEventKind.log_line_emitted,
-            SessionEventKind.transcript: DomainEventKind.transcript_updated,
-            SessionEventKind.approval_request: DomainEventKind.approval_requested,
-            SessionEventKind.error: DomainEventKind.job_failed,
-            SessionEventKind.model_downgraded: DomainEventKind.model_downgraded,
+        mapping: dict[SessionEventKind, EventKind] = {
+            SessionEventKind.log: EventKind.log_line_emitted,
+            SessionEventKind.approval_request: EventKind.approval_requested,
+            SessionEventKind.error: EventKind.job_failed,
+            SessionEventKind.model_downgraded: EventKind.model_downgraded,
         }
-        kind = mapping.get(event.kind)
+        kind: EventKind | None
+        if event.kind == SessionEventKind.transcript:
+            kind = transcript_kind_for_role(str(event.payload.get("role", "")))
+        else:
+            kind = mapping.get(event.kind)
         if kind is None:
             return None
-        return DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
+        return new_event(
+            session_id=job_id,
             timestamp=datetime.now(UTC),
             kind=kind,
             payload=cast("dict[str, Any]", event.payload),

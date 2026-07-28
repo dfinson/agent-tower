@@ -24,12 +24,10 @@ from backend.services.completers.summarization_service import (
 
 def _make_event(role: str, content: str, *, kind: str = "transcript_entry") -> Any:
     """Build a minimal DomainEvent-like object."""
-    from backend.models.events import DomainEvent
+    from backend.models.events import new_event
 
-    return DomainEvent.for_job(
-        job_id="j1",
-        kind=kind,
-        payload={"role": role, "content": content, "timestamp": "2025-01-01T00:00:00Z"},
+    return new_event(
+        session_id="j1", kind=kind, payload={"role": role, "content": content, "timestamp": "2025-01-01T00:00:00Z"}
     )
 
 

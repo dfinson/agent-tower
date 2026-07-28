@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from sqlalchemy import select as sa_select
 from sqlalchemy.exc import DBAPIError
 
 from backend.models.db import JobRow, TrailNodeRow
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import TRANSCRIPT_KINDS, EventKind, SessionEvent
 from backend.services.trail.models import (
     MESSAGE_SIGNAL_BUFFER_SIZE,
     Activity,
@@ -123,9 +123,9 @@ class TrailNodeBuilder:
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
 
-    async def handle_event(self, event: DomainEvent) -> None:
+    async def handle_event(self, event: SessionEvent) -> None:
         """Domain event subscriber — builds deterministic trail nodes."""
-        job_id = event.job_id
+        job_id = event.session_id
         if not job_id:
             return
 
@@ -139,39 +139,39 @@ class TrailNodeBuilder:
 
         async with lock:
             try:
-                if event.kind == DomainEventKind.job_state_changed:
+                if event.kind == EventKind.job_state_changed:
                     new_state = (event.payload or {}).get("new_state")
-                    if new_state == "running" and event.job_id not in self._job_state:
+                    if new_state == "running" and event.session_id not in self._job_state:
                         await self._on_job_started(event)
-                elif event.kind == DomainEventKind.session_resumed:
+                elif event.kind == EventKind.session_resumed:
                     await self._on_session_resumed(event)
-                elif event.kind == DomainEventKind.step_completed:
+                elif event.kind == EventKind.step_completed:
                     await self._on_step_completed(event)
-                elif event.kind == DomainEventKind.step_started:
+                elif event.kind == EventKind.step_started:
                     self._on_step_started(event)
-                elif event.kind == DomainEventKind.execution_phase_changed:
+                elif event.kind == EventKind.execution_phase_changed:
                     await self._on_phase_changed(event)
-                elif event.kind == DomainEventKind.transcript_updated:
+                elif event.kind in TRANSCRIPT_KINDS:
                     await self._on_transcript_updated(event)
-                elif event.kind == DomainEventKind.approval_requested:
+                elif event.kind == EventKind.approval_requested:
                     await self._on_approval_requested(event)
                 elif event.kind in (
-                    DomainEventKind.job_completed,
-                    DomainEventKind.job_failed,
-                    DomainEventKind.job_canceled,
-                    DomainEventKind.job_review,
+                    EventKind.job_completed,
+                    EventKind.job_failed,
+                    EventKind.job_canceled,
+                    EventKind.job_review,
                 ):
                     await self._on_job_terminal(event)
             except Exception:  # Safety-net: protect event loop from unexpected failures
-                log.warning("trail_event_error", event_kind=event.kind, job_id=event.job_id, exc_info=True)
+                log.warning("trail_event_error", event_kind=event.kind, job_id=event.session_id, exc_info=True)
 
-    async def _on_session_resumed(self, event: DomainEvent) -> None:
+    async def _on_session_resumed(self, event: SessionEvent) -> None:
         """Rehydrate trail state when a job session resumes.
 
         §13.5: Try loading from persisted snapshot first (lossless).
         Fall back to reconstruction from trail nodes (lossy).
         """
-        job_id = event.job_id
+        job_id = event.session_id
         assert job_id is not None
         if job_id in self._job_state:
             return
@@ -216,19 +216,19 @@ class TrailNodeBuilder:
             # 200 provides ~3× headroom over observed maximums.
             plan_events = await event_repo.list_by_job(
                 job_id,
-                [DomainEventKind.plan_step_updated],
+                [EventKind.plan_step_updated],
                 limit=200,
             )
         if plan_events:
-            latest_by_id: dict[str, DomainEvent] = {}
+            latest_by_id: dict[str, SessionEvent] = {}
             for ev in plan_events:
-                p = cast("dict[str, Any]", ev.payload)
+                p = ev.payload
                 ps_id = p.get("plan_step_id")
                 if ps_id:
                     latest_by_id[ps_id] = ev
             steps: list[PlanStep] = []
             for ps_id, ev in latest_by_id.items():
-                p = cast("dict[str, Any]", ev.payload)
+                p = ev.payload
                 ps = PlanStep(
                     plan_step_id=ps_id,
                     label=str(p.get("label", "")),
@@ -285,9 +285,9 @@ class TrailNodeBuilder:
             activities=len(state.activities),
         )
 
-    async def _on_job_started(self, event: DomainEvent) -> None:
+    async def _on_job_started(self, event: SessionEvent) -> None:
         """Create the goal node for a new job."""
-        job_id = event.job_id
+        job_id = event.session_id
         assert job_id is not None
         state = TrailJobState()
         self._job_state[job_id] = state
@@ -332,23 +332,23 @@ class TrailNodeBuilder:
         await self._repo.create(node)
         log.debug("trail_goal_created", job_id=job_id, node_id=node_id)
 
-    def _on_step_started(self, event: DomainEvent) -> None:
+    def _on_step_started(self, event: SessionEvent) -> None:
         """Track the currently active step for approval anchoring."""
-        job_id = event.job_id
+        job_id = event.session_id
         assert job_id is not None
         state = self._job_state.get(job_id)
         if state:
             state.active_step_id = event.payload.get("step_id")
 
-    async def _on_step_completed(self, event: DomainEvent) -> None:
+    async def _on_step_completed(self, event: SessionEvent) -> None:
         """Create a deterministic trail node from step completion data."""
-        job_id = event.job_id
+        job_id = event.session_id
         assert job_id is not None
         state = self._job_state.get(job_id)
         if not state:
             return
 
-        payload = cast("dict[str, Any]", event.payload)
+        payload = event.payload
         if payload.get("status") == "canceled":
             return
 
@@ -598,12 +598,12 @@ class TrailNodeBuilder:
 
     async def _emit_pending_event(
         self,
-        event: DomainEvent,
+        event: SessionEvent,
         state: TrailJobState,
         anchor_seq: int,
     ) -> None:
         """Emit a deferred event (e.g. approval_requested before step_completed)."""
-        job_id = event.job_id
+        job_id = event.session_id
         assert job_id is not None
         node_id = make_node_id()
         seq = state.next_seq
@@ -626,7 +626,7 @@ class TrailNodeBuilder:
         await self._repo.create(node)
         log.debug("trail_request_node_created", job_id=job_id, node_id=node_id)
 
-    async def _on_transcript_updated(self, event: DomainEvent) -> None:
+    async def _on_transcript_updated(self, event: SessionEvent) -> None:
         """Create or update trail nodes for transcript messages.
 
         Handles three transcript roles:
@@ -635,7 +635,7 @@ class TrailNodeBuilder:
           (tool_display, tool_intent, tool_success) per §13.3.
         - agent/assistant: Updates step node agent_message if not already set.
         """
-        job_id = event.job_id
+        job_id = event.session_id
         assert job_id is not None
         state = self._job_state.get(job_id)
         if not state:
@@ -653,11 +653,11 @@ class TrailNodeBuilder:
 
     async def _handle_operator_transcript(
         self,
-        event: DomainEvent,
+        event: SessionEvent,
         state: TrailJobState,
     ) -> None:
         """Create a request node for an operator/user transcript message."""
-        job_id = event.job_id
+        job_id = event.session_id
         assert job_id is not None
         payload = event.payload or {}
         content = str(payload.get("content", "")).strip()
@@ -692,7 +692,7 @@ class TrailNodeBuilder:
 
     async def _handle_tool_call_transcript(
         self,
-        event: DomainEvent,
+        event: SessionEvent,
         state: TrailJobState,
     ) -> None:
         """Update matching write sub-node with tool metadata (§13.3).
@@ -701,7 +701,7 @@ class TrailNodeBuilder:
         matching (job_id, turn_id, tool_name) and populate tool_display,
         tool_intent, tool_success. Skips report_intent (frontend-only).
         """
-        payload = cast("dict[str, Any]", event.payload or {})
+        payload = event.payload or {}
         tool_name = payload.get("tool_name", "")
         if not tool_name or tool_name == "report_intent":
             return
@@ -709,7 +709,7 @@ class TrailNodeBuilder:
         turn_id = payload.get("turn_id")
         if not turn_id:
             return
-        if not event.job_id:
+        if not event.session_id:
             return
 
         tool_display = payload.get("tool_display") or None
@@ -719,7 +719,7 @@ class TrailNodeBuilder:
             tool_success = bool(tool_success)
 
         updated = await self._repo.update_tool_metadata(
-            event.job_id,
+            event.session_id,
             turn_id,
             tool_name,
             tool_display=tool_display,
@@ -729,14 +729,14 @@ class TrailNodeBuilder:
         if updated:
             log.debug(
                 "trail_tool_metadata_updated",
-                job_id=event.job_id,
+                job_id=event.session_id,
                 turn_id=turn_id,
                 tool_name=tool_name,
             )
 
     async def _handle_assistant_transcript(
         self,
-        event: DomainEvent,
+        event: SessionEvent,
         state: TrailJobState,
     ) -> None:
         """Track assistant message content for activity boundary detection.
@@ -757,9 +757,9 @@ class TrailNodeBuilder:
         if len(state.recent_messages) > MESSAGE_SIGNAL_BUFFER_SIZE:
             state.recent_messages = state.recent_messages[-MESSAGE_SIGNAL_BUFFER_SIZE:]
 
-    async def _on_phase_changed(self, event: DomainEvent) -> None:
+    async def _on_phase_changed(self, event: SessionEvent) -> None:
         """Create a summarize node for execution phase transitions."""
-        job_id = event.job_id
+        job_id = event.session_id
         assert job_id is not None
         state = self._job_state.get(job_id)
         if not state:
@@ -788,9 +788,9 @@ class TrailNodeBuilder:
         await self._repo.create(node)
         log.debug("trail_summarize_created", job_id=job_id, phase=phase)
 
-    async def _on_approval_requested(self, event: DomainEvent) -> None:
+    async def _on_approval_requested(self, event: SessionEvent) -> None:
         """Create a request node or defer if step hasn't completed yet."""
-        job_id = event.job_id
+        job_id = event.session_id
         assert job_id is not None
         state = self._job_state.get(job_id)
         if not state:
@@ -820,9 +820,9 @@ class TrailNodeBuilder:
             await self._repo.create(node)
             log.debug("trail_request_created", job_id=job_id, node_id=node_id)
 
-    async def _on_job_terminal(self, event: DomainEvent) -> None:
+    async def _on_job_terminal(self, event: SessionEvent) -> None:
         """Create a terminal summarize node and clean up."""
-        job_id = event.job_id
+        job_id = event.session_id
         assert job_id is not None
         state = self._job_state.get(job_id)
         if not state:
@@ -840,8 +840,8 @@ class TrailNodeBuilder:
         seq = state.next_seq
         state.next_seq += 1
 
-        status = "completed" if event.kind == DomainEventKind.job_completed else "failed"
-        if event.kind == DomainEventKind.job_canceled:
+        status = "completed" if event.kind == EventKind.job_completed else "failed"
+        if event.kind == EventKind.job_canceled:
             status = "canceled"
 
         node = TrailNodeRow(

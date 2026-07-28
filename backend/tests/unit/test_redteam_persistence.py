@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 from backend.models.db import Base
 from backend.models.domain import Artifact, Job, JobNotFoundError, JobState
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, new_event
 from backend.persistence.artifact_repo import ArtifactRepository
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.event_repo import EventRepository
@@ -127,11 +127,11 @@ class TestSQLInjection:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         evil_payload = {"key": "'; DROP TABLE events; --", "nested": {"sql": "1=1"}}
-        event = DomainEvent(
+        event = new_event(
             event_id="evt-1",
-            job_id="job-1",
+            session_id="job-1",
             timestamp=now,
-            kind=DomainEventKind.log_line_emitted,
+            kind=EventKind.log_line_emitted,
             payload=evil_payload,
         )
         await event_repo.append(event)
@@ -150,12 +150,8 @@ class TestFKViolations:
     async def test_event_for_nonexistent_job_fails(self, session: AsyncSession) -> None:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
-        event = DomainEvent(
-            event_id="evt-1",
-            job_id="nonexistent-job",
-            timestamp=now,
-            kind=DomainEventKind.job_created,
-            payload={},
+        event = new_event(
+            event_id="evt-1", session_id="nonexistent-job", timestamp=now, kind=EventKind.job_created, payload={}
         )
         # flush() inside append() triggers the FK check
         with pytest.raises(IntegrityError):
@@ -203,13 +199,15 @@ class TestDuplicatePKs:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         await event_repo.append(
-            DomainEvent(event_id="evt-dup", job_id="job-1", timestamp=now, kind=DomainEventKind.job_created, payload={})
+            new_event(
+                event_id="evt-dup", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={}
+            )
         )
         await session.flush()
         with pytest.raises(IntegrityError):
             await event_repo.append(
-                DomainEvent(
-                    event_id="evt-dup", job_id="job-1", timestamp=now, kind=DomainEventKind.job_created, payload={}
+                new_event(
+                    event_id="evt-dup", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={}
                 )
             )
             await session.flush()
@@ -454,7 +452,7 @@ class TestPaginationEdgeCases:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         await event_repo.append(
-            DomainEvent(event_id="evt-1", job_id="job-1", timestamp=now, kind=DomainEventKind.job_created, payload={})
+            new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={})
         )
         await session.commit()
 
@@ -471,7 +469,7 @@ class TestPaginationEdgeCases:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         await event_repo.append(
-            DomainEvent(event_id="evt-1", job_id="job-1", timestamp=now, kind=DomainEventKind.job_created, payload={})
+            new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={})
         )
         await session.commit()
 
@@ -537,7 +535,7 @@ class TestEventPayloadEdgeCases:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         await event_repo.append(
-            DomainEvent(event_id="evt-1", job_id="job-1", timestamp=now, kind=DomainEventKind.job_created, payload={})
+            new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={})
         )
         await session.commit()
         events = await event_repo.list_after(0)
@@ -559,7 +557,9 @@ class TestEventPayloadEdgeCases:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         await event_repo.append(
-            DomainEvent(event_id="evt-1", job_id="job-1", timestamp=now, kind=DomainEventKind.job_created, payload=deep)
+            new_event(
+                event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload=deep
+            )
         )
         await session.commit()
         events = await event_repo.list_after(0)
@@ -583,8 +583,8 @@ class TestEventPayloadEdgeCases:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         await event_repo.append(
-            DomainEvent(
-                event_id="evt-1", job_id="job-1", timestamp=now, kind=DomainEventKind.job_created, payload=payload
+            new_event(
+                event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload=payload
             )
         )
         await session.commit()

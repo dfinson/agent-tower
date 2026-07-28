@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, SessionEvent, new_event, transcript_kind_for_role
 from backend.services.completers.summarization_service import (
     SummarizationService,
     _clean_transcript,
@@ -23,24 +23,24 @@ from backend.services.completers.summarization_service import (
 # ---------------------------------------------------------------------------
 
 
-def _transcript_event(role: str, content: str, timestamp: str = "2024-01-01T00:00:00Z") -> DomainEvent:
+def _transcript_event(role: str, content: str, timestamp: str = "2024-01-01T00:00:00Z") -> SessionEvent:
     """Create a transcript_updated DomainEvent for testing."""
-    return DomainEvent(
+    return new_event(
         event_id="evt-test",
-        job_id="job-1",
+        session_id="job-1",
         timestamp=datetime.now(UTC),
-        kind=DomainEventKind.transcript_updated,
+        kind=transcript_kind_for_role(role),
         payload={"role": role, "content": content, "timestamp": timestamp},
     )
 
 
-def _diff_event(changed_files: list[dict[str, object]]) -> DomainEvent:
+def _diff_event(changed_files: list[dict[str, object]]) -> SessionEvent:
     """Create a diff_updated DomainEvent for testing."""
-    return DomainEvent(
+    return new_event(
         event_id="evt-diff",
-        job_id="job-1",
+        session_id="job-1",
         timestamp=datetime.now(UTC),
-        kind=DomainEventKind.diff_updated,
+        kind=EventKind.diff_updated,
         payload={"changed_files": changed_files},
     )
 
@@ -148,22 +148,22 @@ class TestCleanTranscript:
         assert result[0]["content"] == "spaced content"
 
     def test_none_content_treated_as_empty(self) -> None:
-        ev = DomainEvent(
+        ev = new_event(
             event_id="evt-test",
-            job_id="job-1",
+            session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=DomainEventKind.transcript_updated,
+            kind=EventKind.message_assistant,
             payload={"role": "agent", "content": None},
         )
         result = _clean_transcript([ev])
         assert result == []
 
     def test_missing_role_skipped(self) -> None:
-        ev = DomainEvent(
+        ev = new_event(
             event_id="evt-test",
-            job_id="job-1",
+            session_id="job-1",
             timestamp=datetime.now(UTC),
-            kind=DomainEventKind.transcript_updated,
+            kind=EventKind.message_assistant,
             payload={"content": "no role here"},
         )
         result = _clean_transcript([ev])

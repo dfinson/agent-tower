@@ -243,7 +243,7 @@ class AgenticSidecarSession:
         final_text = ""
         try:
             async for event in self._adapter.stream_events(session_id):
-                if event.kind.value != "transcript" or not isinstance(event.payload, dict):
+                if str(event.kind) != "transcript" or not isinstance(event.payload, dict):
                     continue
                 role = str(event.payload.get("role", ""))
                 if role in ("agent", "assistant"):

@@ -25,7 +25,7 @@ from backend.models.api_schemas import (
     TurnSummaryPayload,
 )
 from backend.models.domain import JobState
-from backend.models.events import DomainEventKind
+from backend.models.events import TRANSCRIPT_KINDS, EventKind
 from backend.services.git.git_service import GitError
 from backend.services.steps.tracker import hydrate_plan_steps
 
@@ -51,7 +51,7 @@ HEADLINE_QUERY_LIMIT = 200
 def _build_logs(log_events: list[Any]) -> list[LogLinePayload]:
     return [
         LogLinePayload(
-            job_id=e.job_id,
+            job_id=e.session_id,
             seq=e.payload.get("seq", 0),
             timestamp=e.payload.get("timestamp", e.timestamp),
             level=e.payload.get("level", "info"),
@@ -77,7 +77,7 @@ def _build_transcript(
     }
     result = [
         TranscriptPayload(
-            job_id=e.job_id,
+            job_id=e.session_id,
             seq=e.payload.get("seq", 0),
             timestamp=e.payload.get("timestamp", e.timestamp),
             role=e.payload.get("role", "agent"),
@@ -136,7 +136,7 @@ def _build_timeline(timeline_events: list[Any]) -> list[ProgressHeadlinePayload]
             milestones = milestones[:-replaces] if replaces < len(milestones) else []
         milestones.append(
             ProgressHeadlinePayload(
-                job_id=event.job_id,
+                job_id=event.session_id,
                 headline=event.payload.get("headline", ""),
                 headline_past=event.payload.get("headline_past", ""),
                 summary=event.payload.get("summary", ""),
@@ -156,7 +156,7 @@ async def _build_diff(
         with contextlib.suppress(GitError, OSError):
             diff = await diff_service.calculate_diff(job.worktree_path, job.base_ref)
     if not diff:
-        diff_events = await svc.list_events_by_job(job.id, [DomainEventKind.diff_updated])
+        diff_events = await svc.list_events_by_job(job.id, [EventKind.diff_updated])
         if diff_events:
             raw_files = cast("list[Any]", diff_events[-1].payload.get("changed_files", []))
             diff = [DiffFileModel.model_validate(f) for f in raw_files]
@@ -287,14 +287,14 @@ async def assemble_snapshot(
         turn_summary_events,
         handoff_events,
     ) = await asyncio.gather(
-        svc.list_events_by_job(job_id, [DomainEventKind.log_line_emitted], limit=EVENT_QUERY_DEFAULT),
-        svc.list_events_by_job(job_id, [DomainEventKind.transcript_updated], limit=EVENT_QUERY_DEFAULT),
-        svc.list_events_by_job(job_id, [DomainEventKind.progress_headline], limit=HEADLINE_QUERY_LIMIT),
-        svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=EVENT_QUERY_CEILING),
-        svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=EVENT_QUERY_CEILING),
-        svc.list_events_by_job(job_id, [DomainEventKind.step_entries_reassigned], limit=EVENT_QUERY_CEILING),
-        svc.list_events_by_job(job_id, [DomainEventKind.turn_summary], limit=EVENT_QUERY_CEILING),
-        svc.list_events_by_job(job_id, [DomainEventKind.context_handoff], limit=EVENT_QUERY_CEILING),
+        svc.list_events_by_job(job_id, [EventKind.log_line_emitted], limit=EVENT_QUERY_DEFAULT),
+        svc.list_events_by_job(job_id, list(TRANSCRIPT_KINDS), limit=EVENT_QUERY_DEFAULT),
+        svc.list_events_by_job(job_id, [EventKind.progress_headline], limit=HEADLINE_QUERY_LIMIT),
+        svc.list_events_by_job(job_id, [EventKind.tool_group_summary], limit=EVENT_QUERY_CEILING),
+        svc.list_events_by_job(job_id, [EventKind.plan_step_updated], limit=EVENT_QUERY_CEILING),
+        svc.list_events_by_job(job_id, [EventKind.step_entries_reassigned], limit=EVENT_QUERY_CEILING),
+        svc.list_events_by_job(job_id, [EventKind.turn_summary], limit=EVENT_QUERY_CEILING),
+        svc.list_events_by_job(job_id, [EventKind.context_handoff], limit=EVENT_QUERY_CEILING),
     )
 
     logs = _build_logs(log_events)

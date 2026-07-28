@@ -18,6 +18,7 @@ import pytest
 
 from backend.models.db import EventRow
 from backend.models.domain import JobNotFoundError, StateConflictError
+from backend.models.events import EventKind
 
 if TYPE_CHECKING:
     from httpx import AsyncClient
@@ -177,7 +178,7 @@ class TestJobsCrud:
                 EventRow(
                     event_id=f"evt-{uuid4().hex}",
                     job_id=jid,
-                    kind="ProgressHeadline",
+                    kind=EventKind.progress_headline.value,
                     timestamp=datetime.now(UTC),
                     payload=(
                         '{"headline":"Audit keyboard shortcuts",'
@@ -252,7 +253,7 @@ class TestJobsCrud:
                 EventRow(
                     event_id=f"evt-{uuid4().hex}",
                     job_id=jid,
-                    kind="ProgressHeadline",
+                    kind=EventKind.progress_headline.value,
                     timestamp=datetime.now(UTC),
                     payload=(
                         '{"headline":"Finalize shortcut audit",'

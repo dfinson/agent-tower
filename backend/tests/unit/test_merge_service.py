@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.config import CompletionConfig, CPLConfig
 from backend.models.db import Base
 from backend.models.domain import Job
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, SessionEvent
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
 from backend.services.events.event_bus import EventBus
@@ -142,9 +142,9 @@ class TestFastForwardMerge:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -162,7 +162,7 @@ class TestFastForwardMerge:
         assert result.strategy == "ff_only"
         assert (repo / "new_file.py").exists()
 
-        merge_events = [e for e in published if e.kind == DomainEventKind.merge_completed]
+        merge_events = [e for e in published if e.kind == EventKind.merge_completed]
         assert len(merge_events) == 1
         assert merge_events[0].payload["strategy"] == "ff_only"
 
@@ -260,9 +260,9 @@ class TestConflictFallback:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -280,7 +280,7 @@ class TestConflictFallback:
         assert result.conflict_files is not None
         assert len(result.conflict_files) > 0
 
-        conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
+        conflict_events = [e for e in published if e.kind == EventKind.merge_conflict]
         assert len(conflict_events) == 1
 
         # Main worktree should be back on main (not stuck in merge state)
@@ -387,9 +387,9 @@ class TestFalsePositiveConflicts:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -402,7 +402,7 @@ class TestFalsePositiveConflicts:
             "Cherry-pick stopped because one or more branch commits are already present on the "
             "base branch; rebase the branch or create a PR"
         )
-        conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
+        conflict_events = [e for e in published if e.kind == EventKind.merge_conflict]
         assert conflict_events == [], "No merge_conflict event should be published for already-applied commits"
 
     async def test_smart_merge_real_conflict_still_detected(
@@ -425,9 +425,9 @@ class TestFalsePositiveConflicts:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -436,7 +436,7 @@ class TestFalsePositiveConflicts:
 
         assert result.status == "conflict"
         assert result.conflict_files  # should list the conflicting file
-        conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
+        conflict_events = [e for e in published if e.kind == EventKind.merge_conflict]
         assert len(conflict_events) == 1
 
     async def test_auto_merge_hook_failure_is_not_a_conflict(
@@ -469,9 +469,9 @@ class TestFalsePositiveConflicts:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -486,7 +486,7 @@ class TestFalsePositiveConflicts:
         )
 
         assert str(result.status) == "error", f"Expected error, got {result.status!r}"
-        conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
+        conflict_events = [e for e in published if e.kind == EventKind.merge_conflict]
         assert conflict_events == [], "No merge_conflict event should be published for non-conflict merge failures"
 
         async with session_factory() as session:
@@ -521,9 +521,9 @@ class TestOperatorMerge:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -531,7 +531,7 @@ class TestOperatorMerge:
         result = await service.resolve_job(_make_job(str(repo)), "merge")
 
         assert result.status == "error"
-        conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
+        conflict_events = [e for e in published if e.kind == EventKind.merge_conflict]
         assert conflict_events == []
 
         async with session_factory() as session:
@@ -559,9 +559,9 @@ class TestOperatorMerge:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect(e: DomainEvent) -> None:
+        async def _collect(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect)
@@ -571,7 +571,7 @@ class TestOperatorMerge:
         assert result.status == "conflict"
         assert result.conflict_files
 
-        conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
+        conflict_events = [e for e in published if e.kind == EventKind.merge_conflict]
         assert len(conflict_events) == 1
 
         # merge_status must be persisted in the DB
@@ -610,9 +610,9 @@ class TestOperatorMerge:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        published: list[DomainEvent] = []
+        published: list[SessionEvent] = []
 
-        async def _collect2(e: DomainEvent) -> None:
+        async def _collect2(e: SessionEvent) -> None:
             published.append(e)
 
         event_bus.subscribe(_collect2)
@@ -622,7 +622,7 @@ class TestOperatorMerge:
         assert result.status == "conflict"
         assert result.conflict_files
 
-        conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
+        conflict_events = [e for e in published if e.kind == EventKind.merge_conflict]
         assert len(conflict_events) == 1
 
         # merge_status must be persisted in the DB

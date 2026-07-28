@@ -26,7 +26,7 @@ from backend.models.domain import (
     Resolution,
     StateConflictError,
 )
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, new_event, transcript_kind_for_role
 from backend.persistence.job_repo import JobRepository
 
 if TYPE_CHECKING:
@@ -201,11 +201,10 @@ async def recover_active_job(
 
     now = datetime.now(UTC)
     await host._event_bus.publish(
-        DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
+        new_event(
+            session_id=job_id,
             timestamp=now,
-            kind=DomainEventKind.session_resumed,
+            kind=EventKind.session_resumed,
             payload={
                 "session_number": new_session_count,
                 "instruction": instruction,
@@ -424,11 +423,10 @@ async def resume_job(host: RuntimeService, job_id: str, instruction: str | None 
     # see a false-positive resume when task initialization fails.
     now = datetime.now(UTC)
     await host._event_bus.publish(
-        DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
+        new_event(
+            session_id=job_id,
             timestamp=now,
-            kind=DomainEventKind.session_resumed,
+            kind=EventKind.session_resumed,
             payload={
                 "session_number": new_session_count,
                 "instruction": normalized_instruction,
@@ -441,11 +439,10 @@ async def resume_job(host: RuntimeService, job_id: str, instruction: str | None 
     if resume_sdk_session_id is None:
         # Summarization-based resume — context was compiled from prior session
         await host._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.context_handoff,
+                kind=EventKind.context_handoff,
                 payload={
                     "source": "resume",
                     "summary": f"Carried forward context from session {previous_session_count}",
@@ -456,11 +453,10 @@ async def resume_job(host: RuntimeService, job_id: str, instruction: str | None 
     else:
         # Native SDK resume — full conversation history intact
         await host._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.context_handoff,
+                kind=EventKind.context_handoff,
                 payload={
                     "source": "resume_native",
                     "summary": f"Resumed SDK session (full history from session {previous_session_count})",
@@ -470,11 +466,10 @@ async def resume_job(host: RuntimeService, job_id: str, instruction: str | None 
         )
 
     await host._event_bus.publish(
-        DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
+        new_event(
+            session_id=job_id,
             timestamp=now,
-            kind=DomainEventKind.transcript_updated,
+            kind=transcript_kind_for_role(TranscriptRole.operator),
             payload={
                 "job_id": job_id,
                 "seq": 0,
@@ -552,11 +547,10 @@ async def create_followup_job(host: RuntimeService, job_id: str, instruction: st
 
         # Emit context_handoff for the new follow-up job
         await host._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=followup.id,
+            new_event(
+                session_id=followup.id,
                 timestamp=datetime.now(UTC),
-                kind=DomainEventKind.context_handoff,
+                kind=EventKind.context_handoff,
                 payload={
                     "source": "followup",
                     "summary": f"Continuing from parent job '{parent_label}'",

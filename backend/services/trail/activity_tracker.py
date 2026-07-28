@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import EventKind, new_event
 from backend.services.trail.models import (
     Activity,
     ActivityStep,
@@ -125,11 +125,10 @@ class ActivityTracker:
             prev_step.title = title
             prev_step.turn_id = turn_id
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.turn_summary,
+                    kind=EventKind.turn_summary,
                     payload={
                         "turn_id": turn_id,
                         "title": title,
@@ -176,11 +175,10 @@ class ActivityTracker:
         state.activity_steps.append(step)
 
         await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
+            new_event(
+                session_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=DomainEventKind.turn_summary,
+                kind=EventKind.turn_summary,
                 payload={
                     "turn_id": turn_id,
                     "title": title,

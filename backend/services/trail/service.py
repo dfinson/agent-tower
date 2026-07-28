@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from backend.config import TrailConfig
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import TRANSCRIPT_KINDS, EventKind, SessionEvent, new_event
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.tools.parsing_utils import ensure_dict
 from backend.services.trail.activity_tracker import ActivityTracker
@@ -108,7 +108,7 @@ class TrailService:
     # Event handling (delegate to node builder + plan feed)
     # ==================================================================
 
-    async def handle_event(self, event: DomainEvent) -> None:
+    async def handle_event(self, event: SessionEvent) -> None:
         """Domain event subscriber — single entry point for all enrichment.
 
         Both managed (RuntimeService) and imported (IngestService) jobs
@@ -118,19 +118,19 @@ class TrailService:
         """
         await self._node_builder.handle_event(event)
 
-        if event.kind == DomainEventKind.transcript_updated:
+        if event.kind in TRANSCRIPT_KINDS:
             await self._on_transcript_event(event)
 
-    async def _on_transcript_event(self, event: DomainEvent) -> None:
+    async def _on_transcript_event(self, event: SessionEvent) -> None:
         """Feed plan manager and capture native plans from transcript events."""
-        payload = cast("dict[str, Any]", event.payload or {})
+        payload = event.payload or {}
         role = str(payload.get("role", ""))
 
         # Skip ephemeral streaming deltas — no plan value
         if role == "agent_delta":
             return
 
-        job_id = event.job_id
+        job_id = event.session_id
         if not job_id:
             return
         content = str(payload.get("content", ""))
@@ -220,11 +220,10 @@ class TrailService:
                 await session.commit()
 
             await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
+                new_event(
+                    session_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.job_title_updated,
+                    kind=EventKind.job_title_updated,
                     payload={"title": title},
                 )
             )

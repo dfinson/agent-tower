@@ -98,7 +98,7 @@ async def get_workspace_file(
     return WorkspaceFileResponse(path=path, content=content)
 
 
-@router.get("/jobs/{job_id}/workspace/file/raw", response_class=FileResponse)
+@router.get("/jobs/{job_id}/workspace/file/raw", response_class=FileResponse, response_model=None)
 async def get_workspace_file_raw(
     job_id: str,
     svc: FromDishka[JobService],
