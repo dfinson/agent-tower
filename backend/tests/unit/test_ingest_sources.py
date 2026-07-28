@@ -127,7 +127,9 @@ class TestClaudeControlPlane:
         assert "abort" in messages[0].lower()
 
     def test_scan_finds_managed_session(self, claude_watcher: ClaudeSessionStateWatcher, tmp_path: Path) -> None:
-        project_dir = tmp_path / _encode_cwd("C:\\repo\\myproject")
+        repo_path = "/home/user/repos/myproject"
+        claude_watcher._config.repos = [repo_path]
+        project_dir = tmp_path / _encode_cwd(repo_path)
         project_dir.mkdir(parents=True)
         session_file = project_dir / "a1b2c3d4-e5f6-7890-abcd-ef1234567890.jsonl"
         session_file.write_text("", encoding="utf-8")
@@ -136,7 +138,7 @@ class TestClaudeControlPlane:
         with patch("backend.services.ingest.claude_source._CLAUDE_PROJECTS_DIR", tmp_path):
             results = claude_watcher._scan_for_new_sessions()
 
-        assert results == [("a1b2c3d4-e5f6-7890-abcd-ef1234567890", session_file, "C:\\repo\\myproject")]
+        assert results == [("a1b2c3d4-e5f6-7890-abcd-ef1234567890", session_file, repo_path)]
 
     def test_cross_platform_liveness_smoke(self, tmp_path: Path) -> None:
         assert _is_pid_alive(999999999) is False

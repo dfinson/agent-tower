@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from traceforge.types import EventMetadata, ToolMotivation
 
+from backend.models.api_schemas import ExecutionPhase
 from backend.models.db import Base, JobRow
 from backend.models.domain import JobState
 from backend.models.events import EventKind, new_event
@@ -32,7 +33,6 @@ class _Harness:
         self.subscriber = TelemetrySubscriber(
             session_factory=factory,
             schedule_write=self.pending.append,
-            sdk="copilot",
         )
 
     async def handle_and_drain(self, event: Any) -> None:
@@ -40,6 +40,17 @@ class _Harness:
         while self.pending:
             coro = self.pending.pop(0)
             await coro
+
+
+class _MetricRecorder:
+    def __init__(self) -> None:
+        self.calls: list[tuple[float, dict[str, Any]]] = []
+
+    def add(self, value: float, attrs: dict[str, Any]) -> None:
+        self.calls.append((value, attrs))
+
+    def record(self, value: float, attrs: dict[str, Any]) -> None:
+        self.calls.append((value, attrs))
 
 
 @pytest.fixture
@@ -75,13 +86,30 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
 @pytest.mark.asyncio
 async def test_subscriber_persists_usage_tools_files_and_messages(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from backend.services.analytics import telemetry as tel
+
     harness = _Harness(session_factory)
     harness.subscriber.set_job_start_time("job-1", 100.0)
+    message_metrics = _MetricRecorder()
+    tool_metrics = _MetricRecorder()
+    monkeypatch.setattr(tel, "messages_counter", message_metrics)
+    monkeypatch.setattr(tel, "tool_duration", tool_metrics)
 
     events = [
-        new_event("job-1", EventKind.message_user, {"content": "please update app"}),
-        new_event("job-1", EventKind.message_assistant, {"content": "I'll edit it."}),
+        new_event(
+            "job-1",
+            EventKind.message_user,
+            {"content": "please update app"},
+            metadata=EventMetadata(source_framework="copilot"),
+        ),
+        new_event(
+            "job-1",
+            EventKind.message_assistant,
+            {"content": "I'll edit it."},
+            metadata=EventMetadata(source_framework="copilot"),
+        ),
         new_event(
             "job-1",
             EventKind.telemetry_usage,
@@ -96,6 +124,7 @@ async def test_subscriber_persists_usage_tools_files_and_messages(
                 "premium_requests": 2,
                 "advance_turn": True,
             },
+            metadata=EventMetadata(source_framework="copilot"),
         ),
         new_event(
             "job-1",
@@ -106,10 +135,11 @@ async def test_subscriber_persists_usage_tools_files_and_messages(
                 "result": "wrote file",
                 "success": True,
                 "tool_call_id": "tool-1",
+                "turn_id": "turn-1",
             },
             metadata=EventMetadata(
+                source_framework="copilot",
                 duration_ms=20.8,
-                turn_id="turn-1",
                 motivation=ToolMotivation(intent="Update app", reasoning="Need to change behavior"),
             ),
         ),
@@ -122,8 +152,9 @@ async def test_subscriber_persists_usage_tools_files_and_messages(
                 "result": "error: command not found",
                 "success": False,
                 "tool_call_id": "tool-2",
+                "turn_id": "turn-1",
             },
-            metadata=EventMetadata(duration_ms=30.2, turn_id="turn-1"),
+            metadata=EventMetadata(source_framework="claude", duration_ms=30.2),
         ),
     ]
 
@@ -214,6 +245,8 @@ async def test_subscriber_persists_usage_tools_files_and_messages(
                 "turn_number": 1,
             }
         ]
+    assert [attrs["sdk"] for _, attrs in message_metrics.calls] == ["copilot", "copilot"]
+    assert [attrs["sdk"] for _, attrs in tool_metrics.calls] == ["copilot", "claude"]
 
 
 @pytest.mark.asyncio
@@ -222,7 +255,14 @@ async def test_subscribe_attaches_to_event_bus(session_factory: async_sessionmak
     bus = EventBus()
     harness.subscriber.subscribe(bus)
 
-    await bus.publish(new_event("job-1", EventKind.message_user, {"content": "hello"}))
+    await bus.publish(
+        new_event(
+            "job-1",
+            EventKind.message_user,
+            {"content": "hello"},
+            metadata=EventMetadata(source_framework="claude"),
+        )
+    )
     while harness.pending:
         await harness.pending.pop(0)
 
@@ -233,9 +273,54 @@ async def test_subscribe_attaches_to_event_bus(session_factory: async_sessionmak
 
 
 @pytest.mark.asyncio
+async def test_execution_phase_changed_feeds_span_phase(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    harness = _Harness(session_factory)
+    bus = EventBus()
+    harness.subscriber.subscribe(bus)
+
+    await bus.publish(
+        new_event(
+            "job-1",
+            EventKind.execution_phase_changed,
+            {"phase": ExecutionPhase.verification},
+            metadata=EventMetadata(source_framework="copilot"),
+        )
+    )
+    await bus.publish(
+        new_event(
+            "job-1",
+            EventKind.tool_call_completed,
+            {
+                "tool_name": "bash",
+                "arguments": {"command": "uv run pytest"},
+                "result": "passed",
+                "success": True,
+                "tool_call_id": "tool-phase",
+                "turn_id": "turn-phase",
+            },
+            metadata=EventMetadata(source_framework="copilot", duration_ms=42.0),
+        )
+    )
+    while harness.pending:
+        await harness.pending.pop(0)
+
+    async with session_factory() as session:
+        spans = await TelemetrySpansRepository(session).list_for_job("job-1")
+        assert len(spans) == 1
+        assert spans[0]["execution_phase"] == "verification"
+
+
+@pytest.mark.asyncio
 async def test_cleanup_removes_per_job_state(session_factory: async_sessionmaker[AsyncSession]) -> None:
     harness = _Harness(session_factory)
-    await harness.handle_and_drain(new_event("job-1", EventKind.telemetry_usage, {"advance_turn": True}))
+    await harness.handle_and_drain(
+        new_event(
+            "job-1",
+            EventKind.telemetry_usage,
+            {"advance_turn": True},
+            metadata=EventMetadata(source_framework="copilot"),
+        )
+    )
     assert harness.subscriber.get_turn("job-1") == 1
 
     harness.subscriber.cleanup("job-1")
@@ -248,6 +333,5 @@ def test_scheduler_can_create_tasks(session_factory: async_sessionmaker[AsyncSes
     subscriber = TelemetrySubscriber(
         session_factory=session_factory,
         schedule_write=lambda coro: pending.append(asyncio.create_task(coro)),
-        sdk="copilot",
     )
     assert subscriber.get_turn("job-1") == 0

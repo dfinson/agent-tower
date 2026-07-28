@@ -9,11 +9,8 @@ import uuid
 from typing import TYPE_CHECKING, Any, cast
 
 import structlog
-from traceforge.types import EventMetadata, ToolMotivation
+from traceforge.types import ToolMotivation
 
-from backend.models.domain import (
-    SessionConfig,
-)
 from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.adapters.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionResult
 from backend.services.adapters.base_adapter import (
@@ -51,6 +48,7 @@ if TYPE_CHECKING:
     from copilot.session import CopilotSession, PermissionRequestResult, SystemMessageAppendConfig
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from backend.models.domain import SessionConfig
     from backend.services.events.event_bus import EventBus
     from backend.services.job.approval_service import ApprovalService
 
@@ -63,6 +61,8 @@ class CopilotAdapter(BaseAgentAdapter):
     Uses a callback-to-iterator bridge: SDK callbacks push SessionEvent
     items onto an asyncio.Queue; stream_events() yields from the queue.
     """
+
+    _source_framework = "copilot"
 
     def __init__(
         self,
@@ -81,41 +81,6 @@ class CopilotAdapter(BaseAgentAdapter):
         # Populated on tool.execution_start, drained on tool.execution_complete to
         # compute duration_ms and carry start-time context (re-homed from EventPipeline).
         self._tool_buf: dict[str, dict[str, Any]] = {}
-        # Per-job monotonic sequence for adapter-emitted log lines.
-        self._log_seq: dict[str, int] = {}
-
-    def _emit_tf(
-        self,
-        session_id: str,
-        job_id: str,
-        kind: EventKind,
-        payload: dict[str, Any],
-        *,
-        duration_ms: float | None = None,
-        motivation: ToolMotivation | None = None,
-        partial: bool = False,
-    ) -> None:
-        """Build a native traceforge.SessionEvent and enqueue it for the session."""
-        metadata = EventMetadata(
-            source_framework="copilot",
-            duration_ms=duration_ms,
-            motivation=motivation,
-            partial=partial or None,
-        )
-        self._enqueue(session_id, new_event(session_id=job_id, kind=kind, payload=payload, metadata=metadata))
-
-    def _emit_log_line(self, session_id: str, job_id: str, message: str, level: str = "info") -> None:
-        """Emit a native log event (re-homed from EventPipeline._emit_log)."""
-        from datetime import UTC, datetime
-
-        seq = self._log_seq.get(job_id, 0) + 1
-        self._log_seq[job_id] = seq
-        self._emit_tf(
-            session_id,
-            job_id,
-            EventKind.log_line_emitted,
-            {"seq": seq, "timestamp": datetime.now(UTC).isoformat(), "level": level, "message": message},
-        )
 
     def _cleanup_session(self, session_id: str) -> None:
         """Remove session and queue references for a completed/aborted session.
@@ -130,7 +95,7 @@ class CopilotAdapter(BaseAgentAdapter):
         # Drop any un-drained tool-buffer entries for this job.
         job_id = self._session_to_job.get(session_id)
         if job_id:
-            self._log_seq.pop(job_id, None)
+            self._log_seqs.pop(job_id, None)
             for cid in [c for c, v in self._tool_buf.items() if v.get("job_id") == job_id]:
                 self._tool_buf.pop(cid, None)
         super()._cleanup_session_state(session_id)
@@ -453,14 +418,14 @@ class CopilotAdapter(BaseAgentAdapter):
             if cc:
                 pre = int(cc.pre_compaction_tokens or 0)
                 post = int(cc.post_compaction_tokens or 0)
-                delta = max(0, pre - post)
+                compacted = max(0, pre - post)
                 from backend.services.analytics import telemetry as tel
 
                 attrs: dict[str, Any] = {"job_id": job_id, "sdk": "copilot"}
                 tel.compactions_counter.add(1, attrs)
-                tel.tokens_compacted.add(delta, attrs)
+                tel.tokens_compacted.add(compacted, attrs)
                 self._schedule_db_write(
-                    self._db_write_increment(job_id=job_id, compactions=1, tokens_compacted=delta)
+                    self._db_write_increment(job_id=job_id, compactions=1, tokens_compacted=compacted)
                 )
                 if post:
                     tel.context_tokens_gauge.set(post, attrs)
@@ -666,12 +631,14 @@ class CopilotAdapter(BaseAgentAdapter):
         queue = self._queues.get(session_id)
         if queue is None:
             log.error("copilot_stream_no_queue", session_id=session_id)
+            from traceforge.types import EventMetadata
+
             job_id = self._session_to_job.get(session_id, session_id)
             yield new_event(
                 session_id=job_id,
                 kind=EventKind.job_failed,
                 payload={"message": "No queue for session"},
-                metadata=EventMetadata(source_framework="copilot"),
+                metadata=EventMetadata(source_framework=self._source_framework),
             )
             return
         try:

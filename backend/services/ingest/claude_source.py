@@ -366,6 +366,7 @@ class ClaudeSessionStateWatcher(TraceForgeIngestBase):
                 existing = await repo.get(job_id)
                 if existing is not None:
                     self._finalizing.discard(job_id)
+                    self._finalized_jobs.discard(job_id)
                     await repo.update_state(job_id, JobState.running, updated_at=now)
                     await self._publish_lifecycle(
                         job_id,

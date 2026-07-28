@@ -12,7 +12,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from backend.models.api_schemas import ExecutionPhase
-    from backend.models.domain import SessionConfig, SessionEvent
+    from backend.models.domain import SessionConfig
+    from backend.models.events import SessionEvent
 
 
 @dataclass(slots=True)

@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Coroutine
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    from traceforge.types import ToolMotivation
 
     from backend.models.api_schemas import ExecutionPhase
     from backend.services.action_policy.classifier import CostContext
@@ -75,6 +76,10 @@ class BaseAgentAdapter(AgentAdapterInterface):
     _MAX_PENDING_WRITES = 20  # limit concurrent fire-and-forget DB tasks
     _TELEMETRY_BROADCAST_INTERVAL = 2.0  # seconds — debounce SSE broadcasts
 
+    # Framework label stamped into EventMetadata.source_framework for every
+    # event this adapter emits. Concrete adapters override this.
+    _source_framework: ClassVar[str] = "unknown"
+
     def __init__(
         self,
         approval_service: ApprovalService | None = None,
@@ -97,6 +102,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._last_telemetry_broadcast: dict[str, float] = {}
         self._current_phases: dict[str, str] = {}
         self._write_tasks: list[asyncio.Task[None]] = []
+        self._log_seqs: dict[str, int] = {}  # job_id → monotonic log-line sequence
 
     # ------------------------------------------------------------------
     # Queue management
@@ -106,6 +112,44 @@ class BaseAgentAdapter(AgentAdapterInterface):
         q = self._queues.get(session_id)
         if q is not None:
             q.put_nowait(event)
+
+    def _emit_tf(
+        self,
+        session_id: str,
+        job_id: str,
+        kind: EventKind,
+        payload: dict[str, Any],
+        *,
+        duration_ms: float | None = None,
+        motivation: ToolMotivation | None = None,
+        partial: bool = False,
+    ) -> None:
+        """Build a native ``traceforge.SessionEvent`` and enqueue it for *session_id*.
+
+        The single event-construction point for managed adapters; ``kind`` is a
+        dotted CodePlane ``EventKind`` and *payload*/*metadata* carry TF-native
+        fields consumed by ``EventProcessor`` and downstream consumers.
+        """
+        from traceforge.types import EventMetadata
+
+        metadata = EventMetadata(
+            source_framework=self._source_framework,
+            duration_ms=duration_ms,
+            motivation=motivation,
+            partial=partial or None,
+        )
+        self._enqueue(session_id, new_event(session_id=job_id, kind=kind, payload=payload, metadata=metadata))
+
+    def _emit_log_line(self, session_id: str, job_id: str, message: str, level: str = "info") -> None:
+        """Emit a native ``log`` event (re-homed from EventPipeline._emit_log)."""
+        seq = self._log_seqs.get(job_id, 0) + 1
+        self._log_seqs[job_id] = seq
+        self._emit_tf(
+            session_id,
+            job_id,
+            EventKind.log_line_emitted,
+            {"seq": seq, "timestamp": datetime.now(UTC).isoformat(), "level": level, "message": message},
+        )
 
     # ------------------------------------------------------------------
     # Session state

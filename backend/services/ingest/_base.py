@@ -58,6 +58,7 @@ class TraceForgeIngestBase:
         self._prompt_captured: set[str] = set()
         self._bg_tasks: set[asyncio.Task[Any]] = set()
         self._emitted_counts: dict[str, int] = {}
+        self._finalized_jobs: set[str] = set()
 
     async def _stop_common(self) -> None:
         self._running = False
@@ -194,6 +195,9 @@ class TraceForgeIngestBase:
         await self._event_processor.process_event(job_id, new_event(job_id, kind, payload))
 
     async def _finalize_session(self, job_id: str, *, error_reason: str | None = None) -> None:
+        if job_id in self._finalized_jobs:
+            return
+        self._finalized_jobs.add(job_id)
         now = datetime.now(UTC)
         new_state = JobState.failed if error_reason else JobState.review
         try:

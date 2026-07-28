@@ -78,12 +78,10 @@ class TelemetrySubscriber:
         *,
         session_factory: async_sessionmaker[AsyncSession],
         schedule_write: Callable[[Coroutine[Any, Any, None]], None],
-        sdk: str,
         model_pricing: ModelPricingService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._schedule_write = schedule_write
-        self._sdk = sdk
         self._model_pricing = model_pricing
 
         self._job_start_times: dict[str, float] = {}
@@ -103,18 +101,24 @@ class TelemetrySubscriber:
         if not job_id:
             return
 
+        metadata = event.metadata
+        sdk = (metadata.source_framework if metadata is not None else None) or "unknown"
         kind = str(event.kind)
-        if kind == EventKind.telemetry_usage:
-            self._record_usage(job_id, event.payload)
+        if kind == EventKind.execution_phase_changed:
+            phase = event.payload.get("phase")
+            if phase:
+                self.set_execution_phase(job_id, str(phase))
+        elif kind == EventKind.telemetry_usage:
+            self._record_usage(job_id, event.payload, sdk)
         elif kind == EventKind.tool_call_completed:
-            self._record_completed_tool(job_id, event)
+            self._record_completed_tool(job_id, event, sdk)
         elif kind == EventKind.message_user:
             self._buffer_message(job_id, "operator", event.payload)
-            self._record_message_count(job_id, "operator")
+            self._record_message_count(job_id, "operator", sdk)
         elif kind == EventKind.message_assistant:
             self.set_job_start_time(job_id)
             self._buffer_message(job_id, "agent", event.payload)
-            self._record_message_count(job_id, "agent")
+            self._record_message_count(job_id, "agent", sdk)
 
     def cleanup(self, job_id: str) -> None:
         """Remove all per-job telemetry subscriber state."""
@@ -143,7 +147,7 @@ class TelemetrySubscriber:
         """Return the current per-job turn counter."""
         return self._turn_counters.get(job_id, 0)
 
-    def _record_usage(self, job_id: str, payload: dict[str, Any]) -> None:
+    def _record_usage(self, job_id: str, payload: dict[str, Any], sdk: str) -> None:
         from backend.services.analytics import telemetry as tel
 
         input_tokens = int(payload.get("input_tokens") or 0)
@@ -164,7 +168,7 @@ class TelemetrySubscriber:
             cache_write_tokens,
         )
 
-        attrs: dict[str, Any] = {"job_id": job_id, "sdk": self._sdk}
+        attrs: dict[str, Any] = {"job_id": job_id, "sdk": sdk}
         tel.tokens_input.add(input_tokens, {**attrs, "model": model})
         tel.tokens_output.add(output_tokens, {**attrs, "model": model})
         tel.tokens_cache_read.add(cache_read_tokens, attrs)
@@ -194,7 +198,7 @@ class TelemetrySubscriber:
             db_counters["premium_requests"] = float(premium_requests)
             tel.premium_requests_counter.add(float(premium_requests), attrs)
 
-        self._schedule_write(self._db_increment(job_id, **db_counters))
+        self._schedule_write(self._db_increment(job_id, sdk=sdk, **db_counters))
 
         if advance_turn:
             for _ in range(num_turns):
@@ -213,6 +217,7 @@ class TelemetrySubscriber:
                 cache_read_tokens,
                 cache_write_tokens,
                 cost_usd,
+                sdk,
             )
 
     def _resolve_cost_usd(
@@ -236,14 +241,15 @@ class TelemetrySubscriber:
             cache_write_tokens,
         )
 
-    def _record_completed_tool(self, job_id: str, event: SessionEvent) -> None:
+    def _record_completed_tool(self, job_id: str, event: SessionEvent, sdk: str) -> None:
         payload = event.payload
         tool_name = str(payload.get("tool_name") or "tool")
         tool_args_str = self._stringify_tool_arguments(payload.get("arguments"))
         success = bool(payload.get("success"))
         result_text = str(payload.get("result") or "")
         duration_ms = float(event.metadata.duration_ms or 0.0)
-        turn_id = event.metadata.turn_id
+        turn_id = payload.get("turn_id")
+        turn_id = str(turn_id) if turn_id is not None else None
         tool_call_id = payload.get("tool_call_id")
         if tool_call_id:
             self._tool_turn_ids.setdefault(job_id, {})[str(tool_call_id)] = turn_id
@@ -258,6 +264,7 @@ class TelemetrySubscriber:
             result_text=result_text,
             turn_id=turn_id,
             motivation_summary=self._motivation_summary(event.metadata.motivation),
+            sdk=sdk,
         )
 
     def _record_tool_telemetry(
@@ -271,6 +278,7 @@ class TelemetrySubscriber:
         result_text: str,
         turn_id: str | None = None,
         motivation_summary: str | None = None,
+        sdk: str,
     ) -> None:
         from backend.services.analytics import telemetry as tel
         from backend.services.job.retry_tracker import RetryTracker
@@ -283,7 +291,7 @@ class TelemetrySubscriber:
 
         attrs: dict[str, Any] = {
             "job_id": job_id,
-            "sdk": self._sdk,
+            "sdk": sdk,
             "tool_name": tool_name,
             "success": bool(success),
         }
@@ -325,6 +333,7 @@ class TelemetrySubscriber:
         self._schedule_write(
             self._db_increment(
                 job_id,
+                sdk=sdk,
                 tool_call_count=1,
                 tool_failure_count=0 if success else 1,
                 total_tool_duration_ms=int(duration_ms),
@@ -372,7 +381,9 @@ class TelemetrySubscriber:
         cache_read: int,
         cache_write: int,
         cost_usd: float,
+        sdk: str,
     ) -> None:
+        _ = sdk
         turn_num = self._turn_counters.get(job_id, 0)
         current_phase = self._current_phases.get(job_id, "agent_reasoning")
         job_start = self._job_start_times.get(job_id, time.monotonic())
@@ -402,12 +413,12 @@ class TelemetrySubscriber:
             )
         )
 
-    def _record_message_count(self, job_id: str, role: str) -> None:
+    def _record_message_count(self, job_id: str, role: str, sdk: str) -> None:
         from backend.services.analytics import telemetry as tel
 
-        tel.messages_counter.add(1, {"job_id": job_id, "sdk": self._sdk, "role": role})
+        tel.messages_counter.add(1, {"job_id": job_id, "sdk": sdk, "role": role})
         key = "agent_messages" if role == "agent" else "operator_messages"
-        self._schedule_write(self._db_increment(job_id, **{key: 1}))
+        self._schedule_write(self._db_increment(job_id, sdk=sdk, **{key: 1}))
 
     def _buffer_message(self, job_id: str, role: str, payload: dict[str, Any]) -> None:
         content = payload.get("content", "")
@@ -498,7 +509,7 @@ class TelemetrySubscriber:
         parts = [str(part) for part in (intent, reasoning) if part]
         return "\n".join(parts) if parts else None
 
-    async def _db_increment(self, job_id: str, **counters: Any) -> None:
+    async def _db_increment(self, job_id: str, *, sdk: str, **counters: Any) -> None:
         try:
             async with self._get_db_session() as session:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
@@ -506,7 +517,7 @@ class TelemetrySubscriber:
                 repo = TelemetrySummaryRepository(session)
                 totals = await repo.increment(job_id=job_id, **counters)
                 if not totals.get("_row_found") and counters:
-                    await repo.init_job(job_id, sdk=self._sdk)
+                    await repo.init_job(job_id, sdk=sdk)
                     await repo.increment(job_id=job_id, **counters)
         except Exception:
             log.warning("telemetry_subscriber_db_write_failed", fn="increment", exc_info=True)
