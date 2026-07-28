@@ -24,7 +24,7 @@ const SHARED_SNAPSHOT = {
       jobId: "job-1",
       seq: 1,
       timestamp: NOW,
-      role: "agent",
+      kind: "message.assistant",
       content: "I fixed the authentication issue by adding token validation.",
       turnId: "turn-1",
       title: "Fix applied",

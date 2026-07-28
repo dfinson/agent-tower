@@ -13,7 +13,7 @@
  * handlers keep reading the camelCase fields they always have. It:
  *   1. deep-converts payload keys snake_case -> camelCase (`normalizeTFEvent`);
  *   2. injects the envelope-derived fields handlers expect (`jobId` from
- *      `session_id`, `timestamp`, `turnId` from `metadata.turn_id`);
+ *      `session_id`, `timestamp`, `turnId`/tool enrichment from `metadata`);
  *   3. re-derives the job-state transitions the backend previously emitted as a
  *      secondary `job_state_changed` frame — those are now computed on the FE
  *      from the dotted kind (`deriveJobStateFrame`).
@@ -41,8 +41,7 @@ function snakeKeyToCamel(key: string): string {
 /**
  * Recursively convert object keys from snake_case to camelCase.
  *
- * - Only keys are transformed; values are left untouched (so a discriminator
- *   like `role: "agent_delta"` survives verbatim).
+ * - Only keys are transformed; values are left untouched.
  * - Recurses through nested objects and arrays (transcript entries, approval
  *   actions, plan steps, diff hunks, symbols, ...).
  * - Idempotent: already-camel and single-word keys are unchanged.
@@ -75,12 +74,29 @@ export function normalizeTFEvent(ev: TFSessionEvent): Record<string, unknown> {
     payload.timestamp = ev.timestamp;
   }
 
-  // turn_id lives on EventMetadata; carry it as camelCase `turnId` unless the
-  // payload already provides one.
+  // The event kind is the transcript discriminator in the TF shape; carry it
+  // into the FE payload view unless REST-style payload data already provided it.
+  if (payload.kind === undefined) {
+    payload.kind = ev.kind;
+  }
+
+  // Metadata enrichment lives on EventMetadata; carry it into the camelCase
+  // payload view unless the payload already provides the field.
   const meta = ev.metadata;
-  const metaTurnId = meta == null ? undefined : (meta as Record<string, unknown>).turn_id;
+  const metadata = meta == null ? undefined : (meta as Record<string, unknown>);
+  const metaTurnId = metadata?.turn_id;
   if (payload.turnId === undefined && metaTurnId != null) {
     payload.turnId = metaTurnId;
+  }
+  if (payload.toolDisplay === undefined && metadata?.tool_display != null) {
+    payload.toolDisplay = metadata.tool_display;
+  }
+  if (payload.toolDurationMs === undefined && metadata?.duration_ms != null) {
+    payload.toolDurationMs = metadata.duration_ms;
+  }
+  const motivation = metadata?.motivation as Record<string, unknown> | undefined;
+  if (payload.toolIntent === undefined && motivation?.intent != null) {
+    payload.toolIntent = motivation.intent;
   }
 
   return payload;

@@ -252,14 +252,14 @@ describe("dispatchSSEEvent — additional events", () => {
       jobId: "job-1",
       seq: 1,
       timestamp: "2025-01-01T00:00:00Z",
-      role: "agent",
+      kind: "message.assistant",
       content: "Hello",
     });
     useStore.getState().dispatchSSEEvent("message.assistant", {
       jobId: "job-1",
       seq: 1,
       timestamp: "2025-01-01T00:00:00Z",
-      role: "agent",
+      kind: "message.assistant",
       content: "Hello",
     });
     expect(selectJobTranscript("job-1")(useStore.getState())).toHaveLength(1);

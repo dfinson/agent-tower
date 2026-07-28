@@ -211,13 +211,13 @@ export function fetchJobTimeline(jobId: string, limit = 200): Promise<import("..
 export function fetchTranscriptSearch(
   jobId: string,
   q: string,
-  opts?: { roles?: string[]; stepId?: string; limit?: number },
-): Promise<Array<{ seq: number; role: string; content: string; toolName: string | null; stepId: string | null; stepNumber: number | null; timestamp: string }>> {
+  opts?: { kinds?: string[]; stepId?: string; limit?: number },
+): Promise<Array<{ seq: number; kind: string; content: string; toolName: string | null; stepId: string | null; stepNumber: number | null; timestamp: string }>> {
   const params = new URLSearchParams({ q });
-  if (opts?.roles) opts.roles.forEach((r) => params.append("roles", r));
+  if (opts?.kinds) opts.kinds.forEach((k) => params.append("kinds", k));
   if (opts?.stepId) params.set("step_id", opts.stepId);
   if (opts?.limit) params.set("limit", String(opts.limit));
-  return request<{ items: Array<{ seq: number; role: string; content: string; toolName: string | null; stepId: string | null; stepNumber: number | null; timestamp: string }> }>(`/jobs/${encodeURIComponent(jobId)}/transcript/search?${params}`).then((r) => r.items);
+  return request<{ items: Array<{ seq: number; kind: string; content: string; toolName: string | null; stepId: string | null; stepNumber: number | null; timestamp: string }> }>(`/jobs/${encodeURIComponent(jobId)}/transcript/search?${params}`).then((r) => r.items);
 }
 
 export function restoreToSha(jobId: string, sha: string): Promise<{ restored: boolean; sha: string }> {

@@ -7454,7 +7454,8 @@ export interface components {
              * Format: date-time
              */
             timestamp: string;
-            role: components["schemas"]["TranscriptRole"];
+            /** Kind */
+            kind: string;
             /** Content */
             content: string;
             /** Title */
@@ -7463,12 +7464,12 @@ export interface components {
             turnId?: string | null;
             /** Toolname */
             toolName?: string | null;
-            /** Toolargs */
-            toolArgs?: string | null;
-            /** Toolresult */
-            toolResult?: string | null;
-            /** Toolsuccess */
-            toolSuccess?: boolean | null;
+            /** Arguments */
+            arguments?: string | null;
+            /** Result */
+            result?: string | null;
+            /** Success */
+            success?: boolean | null;
             /** Toolissue */
             toolIssue?: string | null;
             /** Toolintent */
@@ -7498,11 +7499,6 @@ export interface components {
             /** Sidecartemplateid */
             sidecarTemplateId?: string | null;
         };
-        /**
-         * TranscriptRole
-         * @enum {string}
-         */
-        TranscriptRole: "agent" | "agent_delta" | "operator" | "tool_call" | "tool_running" | "tool_output_delta" | "reasoning" | "reasoning_delta" | "divider" | "sidecar";
         /** TranscriptSearchListResponse */
         TranscriptSearchListResponse: {
             /** Items */
@@ -7515,8 +7511,8 @@ export interface components {
         TranscriptSearchResult: {
             /** Seq */
             seq: number;
-            /** Role */
-            role: string;
+            /** Kind */
+            kind: string;
             /** Content */
             content: string;
             /** Toolname */
@@ -8515,7 +8511,7 @@ export interface operations {
         parameters: {
             query: {
                 q: string;
-                roles?: string[] | null;
+                kinds?: string[] | null;
                 step_id?: string | null;
                 limit?: number;
             };

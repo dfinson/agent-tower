@@ -422,12 +422,12 @@ export const useStore = create<AppState>((set, get) => ({
       // of in-flight tool_running entries for the same tool name.
       const completedCallKeys = new Set<string>();
       for (const e of snapshot.transcript) {
-        if (e.role === "tool_call" && e.toolName) {
+        if (e.kind === "tool.call.completed" && e.toolName) {
           completedCallKeys.add(e.turnId ? `${e.toolName}::${e.turnId}` : e.toolName);
         }
       }
       const deduped = snapshot.transcript.filter((e) => {
-        if (e.role !== "tool_running" || !e.toolName) return true;
+        if (e.kind !== "tool.call.started" || !e.toolName) return true;
         const key = e.turnId ? `${e.toolName}::${e.turnId}` : e.toolName;
         return !completedCallKeys.has(key);
       });
@@ -493,7 +493,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (eventType === "snapshot") {
       const handler = sseHandlers[eventType];
       if (handler) {
-        const update = handler(get(), payload, get);
+        const update = handler(get(), payload, get, eventType);
         if (update !== null) set(update);
       }
       return;
@@ -503,7 +503,7 @@ export const useStore = create<AppState>((set, get) => ({
     // job.canceled, which are expressed purely as a derived state frame).
     const handler = sseHandlers[eventType];
     if (handler) {
-      const update = handler(get(), payload, get);
+      const update = handler(get(), payload, get, eventType);
       if (update !== null) set(update);
     }
 
@@ -513,7 +513,7 @@ export const useStore = create<AppState>((set, get) => ({
     const derived = deriveJobStateFrame(eventType, payload);
     if (derived) {
       const stateHandler = sseHandlers["job.state_changed"];
-      const update = stateHandler ? stateHandler(get(), derived, get) : null;
+      const update = stateHandler ? stateHandler(get(), derived, get, "job.state_changed") : null;
       if (update !== null) set(update);
     }
 
@@ -640,4 +640,3 @@ export const useStore = create<AppState>((set, get) => ({
 if (typeof window !== "undefined") {
   (window as unknown as Record<string, unknown>)["__codeplane_store"] = useStore;
 }
-

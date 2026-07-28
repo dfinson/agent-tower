@@ -163,7 +163,7 @@ describe("AppStore", () => {
         jobId: "job-1",
         seq: 1,
         timestamp: "2025-01-01T00:00:00Z",
-        role: "agent",
+        kind: "message.assistant",
         content: "I fixed the bug",
       });
 
@@ -365,7 +365,7 @@ describe("AppStore", () => {
               jobId: "job-1",
               seq: -99,
               timestamp: "2025-06-02T00:00:00Z",
-              role: "divider",
+              kind: "divider",
               content: "Session",
             },
           ],

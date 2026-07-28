@@ -116,7 +116,7 @@ export function ReasoningBlock({ entry }: { entry: TranscriptEntry }) {
 
 export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
   const toolName = stripMcpPrefix(entry.toolName ?? "");
-  const args = parseArgs(entry.toolArgs);
+  const args = parseArgs(entry.arguments);
 
   switch (toolName) {
     case "Bash":
@@ -127,13 +127,13 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
         <div className="font-mono text-xs">
           <div className={cn(
             "px-3 py-1.5 border-b border-border/30",
-            entry.toolSuccess === false ? "bg-red-950/30" : "bg-zinc-950/50",
+            entry.success === false ? "bg-red-950/30" : "bg-zinc-950/50",
           )}>
             <span className="text-muted-foreground">$ </span>
             <span className="text-foreground/90">{command}</span>
           </div>
-          {entry.toolResult && (
-            <SyntaxBlock content={stripAnsi(entry.toolResult)} language="bash" maxLength={600} />
+          {entry.result && (
+            <SyntaxBlock content={stripAnsi(entry.result)} language="bash" maxLength={600} />
           )}
         </div>
       );
@@ -143,20 +143,20 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
       const filePath = (args.filePath ?? args.file_path ?? args.path ?? "") as string;
       const startLine = (args.startLine ?? args.start_line) as number | undefined;
       const endLine = (args.endLine ?? args.end_line) as number | undefined;
-      const lines = countLines(entry.toolResult);
+      const lines = countLines(entry.result);
       const shortPath = abbreviatePath(filePath);
       const range = startLine && endLine ? `lines ${startLine}–${endLine}` : null;
       return (
         <div className="font-mono text-xs">
-          <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.toolResult && "border-b border-border/30")}>
+          <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.result && "border-b border-border/30")}>
             <Codicon name="file-code" size={11} className="text-blue-400 shrink-0" />
             <span className="text-foreground/80">{shortPath}</span>
             {range && <span className="text-muted-foreground">{range}</span>}
             {lines != null && <span className="text-muted-foreground/60">({lines} lines)</span>}
           </div>
-          {entry.toolResult && (
+          {entry.result && (
             <div className="px-3 py-1.5">
-              <TruncatedPayload content={entry.toolResult} maxLength={800} />
+              <TruncatedPayload content={entry.result} maxLength={800} />
             </div>
           )}
         </div>
@@ -178,7 +178,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
             <Codicon name="edit" size={11} className="text-amber-400 shrink-0" />
             <span className="font-mono text-foreground/80">{shortPath}</span>
             <span className="text-muted-foreground">
-              {entry.toolSuccess !== false ? "→ applied" : "→ failed"}
+              {entry.success !== false ? "→ applied" : "→ failed"}
             </span>
           </div>
           {typeof oldStr === "string" && typeof newStr === "string" && (
@@ -208,7 +208,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
             <Codicon name="edit" size={11} className="text-amber-400 shrink-0" />
             <span className="font-mono text-foreground/80">{label}</span>
             <span className="text-muted-foreground">
-              {entry.toolSuccess !== false ? "→ applied" : "→ failed"}
+              {entry.success !== false ? "→ applied" : "→ failed"}
             </span>
           </div>
           {edits.slice(0, 3).map((e, i) => {
@@ -239,16 +239,16 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
     case "semantic_search":
     case "file_search": {
       const query = (args.query ?? args.pattern ?? "") as string;
-      const lines = countLines(entry.toolResult);
+      const lines = countLines(entry.result);
       return (
         <div className="font-mono text-xs">
-          <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.toolResult && "border-b border-border/30")}>
+          <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.result && "border-b border-border/30")}>
             <Codicon name="search" size={11} className="text-blue-400 shrink-0" />
             <span className="text-foreground/80">&ldquo;{query}&rdquo;</span>
             {lines != null && <span className="text-muted-foreground">→ {lines} matches</span>}
           </div>
-          {entry.toolResult && (
-            <SyntaxBlock content={entry.toolResult} maxLength={800} />
+          {entry.result && (
+            <SyntaxBlock content={entry.result} maxLength={800} />
           )}
         </div>
       );
@@ -268,22 +268,22 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
     case "view": {
       const path = (args.path as string) ?? "";
       const viewRange = args.view_range as [number, number] | undefined;
-      const lines = countLines(entry.toolResult);
+      const lines = countLines(entry.result);
       const range = Array.isArray(viewRange) && viewRange.length >= 2
         ? `lines ${viewRange[0]}–${viewRange[1] === -1 ? "end" : viewRange[1]}`
         : null;
       const lang = detectLanguage(path);
       return (
         <div className="font-mono text-xs">
-          <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.toolResult && "border-b border-border/30")}>
+          <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.result && "border-b border-border/30")}>
             <Codicon name="file-code" size={11} className="text-blue-400 shrink-0" />
             <span className="text-foreground/80">{abbreviatePath(path)}</span>
             {range && <span className="text-muted-foreground">{range}</span>}
             {lines != null && <span className="text-muted-foreground/60">({lines} lines)</span>}
           </div>
-          {entry.toolResult && (
+          {entry.result && (
             <SyntaxBlock
-              content={entry.toolResult}
+              content={entry.result}
               language={lang}
               maxLength={800}
               showLineNumbers={!!viewRange}
@@ -297,17 +297,17 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
     case "glob": {
       const pattern = (args.pattern as string) ?? "";
       const searchPath = (args.path as string) ?? "";
-      const lines = countLines(entry.toolResult);
+      const lines = countLines(entry.result);
       return (
         <div className="font-mono text-xs">
-          <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.toolResult && "border-b border-border/30")}>
+          <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.result && "border-b border-border/30")}>
             <Codicon name="search" size={11} className="text-blue-400 shrink-0" />
             <span className="text-foreground/80">{pattern}</span>
             {searchPath && <span className="text-muted-foreground/60">in {abbreviatePath(searchPath)}</span>}
             {lines != null && <span className="text-muted-foreground">→ {lines} files</span>}
           </div>
-          {entry.toolResult && (
-            <SyntaxBlock content={entry.toolResult} maxLength={800} />
+          {entry.result && (
+            <SyntaxBlock content={entry.result} maxLength={800} />
           )}
         </div>
       );
@@ -317,10 +317,10 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
       const pattern = (args.pattern ?? args.query ?? "") as string;
       const searchPath = (args.path as string) ?? "";
       const globFilter = (args.glob as string) ?? "";
-      const lines = countLines(entry.toolResult);
+      const lines = countLines(entry.result);
       return (
         <div className="font-mono text-xs">
-          <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.toolResult && "border-b border-border/30")}>
+          <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.result && "border-b border-border/30")}>
             <Codicon name="search" size={11} className="text-blue-400 shrink-0" />
             <span className="text-foreground/80">&ldquo;{pattern}&rdquo;</span>
             {(globFilter || searchPath) && (
@@ -328,8 +328,8 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
             )}
             {lines != null && <span className="text-muted-foreground">→ {lines} matches</span>}
           </div>
-          {entry.toolResult && (
-            <SyntaxBlock content={entry.toolResult} maxLength={800} />
+          {entry.result && (
+            <SyntaxBlock content={entry.result} maxLength={800} />
           )}
         </div>
       );
@@ -337,16 +337,16 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
     case "LS":
     case "list_dir": {
       const path = (args.path as string) ?? "";
-      const lines = countLines(entry.toolResult);
+      const lines = countLines(entry.result);
       return (
         <div className="font-mono text-xs">
-          <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.toolResult && "border-b border-border/30")}>
+          <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.result && "border-b border-border/30")}>
             <Codicon name="file-code" size={11} className="text-blue-400 shrink-0" />
             <span className="text-foreground/80">{abbreviatePath(path) || "."}</span>
             {lines != null && <span className="text-muted-foreground/60">({lines} entries)</span>}
           </div>
-          {entry.toolResult && (
-            <SyntaxBlock content={entry.toolResult} maxLength={600} />
+          {entry.result && (
+            <SyntaxBlock content={entry.result} maxLength={600} />
           )}
         </div>
       );
@@ -360,18 +360,18 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
         <div className="font-mono text-xs">
           <div className={cn(
             "px-3 py-1.5 flex items-center gap-2",
-            entry.toolResult && "border-b border-border/30",
+            entry.result && "border-b border-border/30",
           )}>
             <Codicon name="robot" size={11} className="text-purple-400 shrink-0" />
             <span className="text-foreground/80">{displayName}</span>
-            {entry.toolResult && (
+            {entry.result && (
               <span className="text-muted-foreground">
-                {entry.toolSuccess !== false ? "→ done" : "→ failed"}
+                {entry.success !== false ? "→ done" : "→ failed"}
               </span>
             )}
           </div>
-          {entry.toolResult && (
-            <SyntaxBlock content={entry.toolResult} maxLength={400} />
+          {entry.result && (
+            <SyntaxBlock content={entry.result} maxLength={400} />
           )}
         </div>
       );
@@ -406,7 +406,7 @@ export function hasStructuredRenderer(toolName?: string): boolean {
 export function ToolDetail({ entry }: { entry: TranscriptEntry }) {
   return (
     <div className="ml-0 mt-1 mb-2 rounded border border-border/40 bg-muted/20 text-[13px] sm:text-xs overflow-hidden">
-      {entry.toolSuccess === false && entry.toolIssue && (
+      {entry.success === false && entry.toolIssue && (
         <div className="px-3 py-1.5 bg-red-500/5 border-b border-border/30">
           <span className="text-red-400 font-medium">{entry.toolIssue}</span>
         </div>
@@ -414,16 +414,16 @@ export function ToolDetail({ entry }: { entry: TranscriptEntry }) {
       <StructuredToolContent entry={entry} />
       {!hasStructuredRenderer(entry.toolName) && (
         <>
-          {entry.toolArgs && (
+          {entry.arguments && (
             <div className="px-3 py-1.5 border-b border-border/30">
               <span className="text-muted-foreground font-medium text-[10px] uppercase">Input</span>
-              <pre className="mt-0.5 whitespace-pre-wrap break-all text-xs">{prettifyJson(entry.toolArgs)}</pre>
+              <pre className="mt-0.5 whitespace-pre-wrap break-all text-xs">{prettifyJson(entry.arguments)}</pre>
             </div>
           )}
-          {entry.toolResult && (
+          {entry.result && (
             <div className="px-3 py-1.5">
               <span className="text-muted-foreground font-medium text-[10px] uppercase">Output</span>
-              <SyntaxBlock content={entry.toolResult} maxLength={500} />
+              <SyntaxBlock content={entry.result} maxLength={500} />
             </div>
           )}
         </>
@@ -471,7 +471,7 @@ export function groupToolCalls(calls: TranscriptEntry[]): ToolSegment[] {
     if (isSubagentTool(call.toolName)) {
       const children: TranscriptEntry[] = [];
 
-      if (call.role === "tool_running") {
+      if (call.kind === "tool.call.started") {
         i++;
         while (i < calls.length) {
           children.push(calls[i]!);
@@ -540,10 +540,10 @@ export function SubAgentSection({
   isActive: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const isRunning = entry.role === "tool_running";
-  const failed = entry.toolSuccess === false;
+  const isRunning = entry.kind === "tool.call.started";
+  const failed = entry.success === false;
 
-  const args = parseArgs(entry.toolArgs);
+  const args = parseArgs(entry.arguments);
   const rawLabel = entry.toolDisplayFull
     ?? entry.toolDisplay
     ?? (typeof args.description === "string" ? args.description : null)
@@ -558,7 +558,7 @@ export function SubAgentSection({
   const iconColor = failed ? "text-red-400"
     : isRunning || isActive ? "text-violet-400"
     : "text-violet-400/70";
-  const hasContent = childCalls.length > 0 || (!isRunning && entry.toolResult);
+  const hasContent = childCalls.length > 0 || (!isRunning && entry.result);
 
   return (
     <div className="relative pl-4 sm:pl-5">
@@ -629,8 +629,8 @@ export function SubAgentSection({
             </div>
           )}
 
-          {!isRunning && entry.toolResult && (
-            <SubAgentResult result={entry.toolResult} />
+          {!isRunning && entry.result && (
+            <SubAgentResult result={entry.result} />
           )}
         </div>
       )}
@@ -647,8 +647,8 @@ export function ToolStep({ entry, isActive }: {
   isActive: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const failed = entry.toolSuccess === false;
-  const isRunning = entry.role === "tool_running";
+  const failed = entry.success === false;
+  const isRunning = entry.kind === "tool.call.started";
   const label = entry.toolIntent || entry.toolTitle || entry.toolDisplayFull || entry.toolDisplay || entry.toolName || entry.content;
   const icon = resolveToolIcon(entry.toolName);
 
@@ -739,9 +739,9 @@ export function ToolStepList({ calls, isActive }: { calls: TranscriptEntry[]; is
 
 export function extractReportIntent(calls: TranscriptEntry[]): string | null {
   const intentCall = calls.find((c) => c.toolName === "report_intent");
-  if (!intentCall?.toolArgs) return null;
+  if (!intentCall?.arguments) return null;
   try {
-    const args = JSON.parse(intentCall.toolArgs) as Record<string, unknown>;
+    const args = JSON.parse(intentCall.arguments) as Record<string, unknown>;
     return typeof args.intent === "string" ? args.intent : null;
   } catch {
     return null;

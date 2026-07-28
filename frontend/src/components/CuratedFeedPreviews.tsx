@@ -85,7 +85,7 @@ export function PhaseBox({
   const files = useMemo(() => deduplicateByFile(cluster.entries), [cluster.entries]);
   const totalDuration = cluster.entries.reduce((sum, e) => sum + (e.toolDurationMs ?? 0), 0);
   const hasEdits = cluster.kind === "write" || cluster.kind === "create";
-  const hasFailure = cluster.entries.some((e) => e.toolSuccess === false);
+  const hasFailure = cluster.entries.some((e) => e.success === false);
 
   const firstSeq = cluster.entries[0]?.seq;
   const turnId = cluster.entries[0]?.turnId;
@@ -208,14 +208,14 @@ export function SubAgentBubble({
 }) {
   const [expanded, setExpanded] = useState(false);
 
-  const completedEntry = cluster.entries.find((e) => e.role === "tool_call");
-  const runningEntry = cluster.entries.find((e) => e.role === "tool_running");
+  const completedEntry = cluster.entries.find((e) => e.kind === "tool.call.completed");
+  const runningEntry = cluster.entries.find((e) => e.kind === "tool.call.started");
   const entry = completedEntry ?? runningEntry ?? cluster.entries[cluster.entries.length - 1]!;
 
-  const args = parseArgs(entry.toolArgs);
+  const args = parseArgs(entry.arguments);
   const description = (args.description as string) || entry.toolDisplay?.replace(/^Task:\s*/i, "") || "Sub-agent task";
   const isRunning = !completedEntry && !!runningEntry;
-  const result = completedEntry?.toolResult ?? entry.toolResult;
+  const result = completedEntry?.result ?? entry.result;
   const totalDuration = cluster.entries.reduce((sum, e) => sum + (e.toolDurationMs ?? 0), 0);
   const hasResult = !!result?.trim();
 
@@ -282,8 +282,8 @@ export function FileChip({
   selected: boolean;
   onClick: () => void;
 }) {
-  const failed = file.entries.some((e) => e.toolSuccess === false);
-  const isRunning = file.entries.some((e) => e.role === "tool_running");
+  const failed = file.entries.some((e) => e.success === false);
+  const isRunning = file.entries.some((e) => e.kind === "tool.call.started");
   const editCount = file.entries.length > 1 ? file.entries.length : undefined;
 
   return (
@@ -342,10 +342,10 @@ function InlinePreviewContent({ entries, kind, filePath }: { entries: Transcript
 
 function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
   const entry = entries[entries.length - 1]!;
-  const args = parseArgs(entry.toolArgs);
+  const args = parseArgs(entry.arguments);
   const command = trimWorktreePaths((args.command as string) ?? "");
-  const failed = entry.toolSuccess === false;
-  const isRunning = entry.role === "tool_running";
+  const failed = entry.success === false;
+  const isRunning = entry.kind === "tool.call.started";
   const jobs = useStore((s) => s.jobs);
   const createTerminalSession = useStore((s) => s.createTerminalSession);
   const job = jobs[entry.jobId];
@@ -404,9 +404,9 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
       {isRunning && (
         <RunningToolIndicator jobId={entry.jobId} startedAt={entry.timestamp} />
       )}
-      {entry.toolResult && (
+      {entry.result && (
         <div className="px-3 py-1.5">
-          <SyntaxBlock content={stripAnsi(trimWorktreePaths(entry.toolResult))} language="bash" maxLength={600} />
+          <SyntaxBlock content={stripAnsi(trimWorktreePaths(entry.result))} language="bash" maxLength={600} />
         </div>
       )}
       {failed && entry.toolIssue && (
@@ -476,9 +476,9 @@ function EditPreview({ entries }: { entries: TranscriptEntry[]; filePath?: strin
   return (
     <div className="text-[13px] sm:text-xs space-y-0">
       {entries.map((entry, i) => {
-        const args = parseArgs(entry.toolArgs);
+        const args = parseArgs(entry.arguments);
         const name = stripMcpPrefix(entry.toolName ?? "");
-        const failed = entry.toolSuccess === false;
+        const failed = entry.success === false;
 
         if (name === "multi_replace_string_in_file" || name === "MultiEdit") {
           const edits = (args.replacements ?? args.edits ?? []) as Array<Record<string, unknown>>;
@@ -531,7 +531,7 @@ function EditPreview({ entries }: { entries: TranscriptEntry[]; filePath?: strin
 
 function ReadPreview({ entries, filePath }: { entries: TranscriptEntry[]; filePath?: string }) {
   const entry = entries[entries.length - 1]!;
-  const args = parseArgs(entry.toolArgs);
+  const args = parseArgs(entry.arguments);
   const startLine = (args.startLine ?? args.start_line) as number | undefined;
   const endLine = (args.endLine ?? args.end_line) as number | undefined;
   const range = startLine && endLine ? `lines ${startLine}–${endLine}` : null;
@@ -542,9 +542,9 @@ function ReadPreview({ entries, filePath }: { entries: TranscriptEntry[]; filePa
       {range && (
         <div className="px-3 py-1 text-muted-foreground/60">{range}</div>
       )}
-      {entry.toolResult && (
+      {entry.result && (
         <SyntaxBlock
-          content={trimWorktreePaths(entry.toolResult)}
+          content={trimWorktreePaths(entry.result)}
           language={lang}
           maxLength={800}
           showLineNumbers={!!startLine}
@@ -561,7 +561,7 @@ function ReadPreview({ entries, filePath }: { entries: TranscriptEntry[]; filePa
 
 function CreatePreview({ entries, filePath }: { entries: TranscriptEntry[]; filePath?: string }) {
   const entry = entries[0]!;
-  const args = parseArgs(entry.toolArgs);
+  const args = parseArgs(entry.arguments);
   const fileContent = (args.content ?? args.file_text) as string | undefined;
   const lang = detectLanguage(filePath);
 
@@ -578,9 +578,9 @@ function CreatePreview({ entries, filePath }: { entries: TranscriptEntry[]; file
         <div className="mt-1 border-l-2 border-green-500/30">
           <SyntaxBlock content={trimWorktreePaths(fileContent)} language={lang} maxLength={800} />
         </div>
-      ) : entry.toolResult ? (
+      ) : entry.result ? (
         <div className="mt-1 font-mono">
-          <TruncatedPayload content={trimWorktreePaths(entry.toolResult)} maxLength={400} />
+          <TruncatedPayload content={trimWorktreePaths(entry.result)} maxLength={400} />
         </div>
       ) : null}
     </div>
@@ -593,15 +593,15 @@ function CreatePreview({ entries, filePath }: { entries: TranscriptEntry[]; file
 
 function SearchPreview({ entries }: { entries: TranscriptEntry[] }) {
   const entry = entries[entries.length - 1]!;
-  const lines = entry.toolResult?.split("\n").filter((l) => l.trim()).length;
+  const lines = entry.result?.split("\n").filter((l) => l.trim()).length;
 
   return (
     <div className="text-[13px] sm:text-xs">
       {lines != null && (
         <div className="px-3 py-1 text-muted-foreground/60">→ {lines} results</div>
       )}
-      {entry.toolResult && (
-        <SyntaxBlock content={trimWorktreePaths(entry.toolResult)} maxLength={600} />
+      {entry.result && (
+        <SyntaxBlock content={trimWorktreePaths(entry.result)} maxLength={600} />
       )}
     </div>
   );
@@ -618,8 +618,8 @@ function GenericPreview({ entries }: { entries: TranscriptEntry[] }) {
       {entry.toolDisplay && (
         <div className="text-muted-foreground mb-1">{entry.toolDisplay}</div>
       )}
-      {entry.toolResult && (
-        <SyntaxBlock content={trimWorktreePaths(entry.toolResult)} maxLength={400} />
+      {entry.result && (
+        <SyntaxBlock content={trimWorktreePaths(entry.result)} maxLength={400} />
       )}
     </div>
   );

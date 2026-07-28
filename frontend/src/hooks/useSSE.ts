@@ -105,14 +105,19 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "model.downgraded",
         "merge.completed",
         "merge.conflict",
-        // Transcript / logs (role-split dotted kinds all route to the
-        // transcript handler, which branches on payload.role)
+        // Transcript / logs (dotted kinds all route to the transcript handler)
         "log",
         "message.user",
         "message.assistant",
+        "message.system",
         "message.delta",
+        "reasoning.started",
+        "llm.thinking.chunk",
         "tool.call.started",
         "tool.call.completed",
+        "tool.result.chunk",
+        "sidecar.transcript",
+        "sidecar.agent_message",
         "tool.group_summary",
         // Diffs
         "diff.updated",
