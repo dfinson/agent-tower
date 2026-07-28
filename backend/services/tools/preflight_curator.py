@@ -16,7 +16,7 @@ import contextlib
 import json
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -26,7 +26,6 @@ from backend.models.events import EventKind
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from backend.models.events import SessionEvent
     from backend.services.adapters.agent_adapter import AgentAdapterInterface
     from backend.services.coderecon.coderecon_service import CodeReconService
 
@@ -271,7 +270,7 @@ class PreflightCurator:
         try:
             async with asyncio.timeout(_SESSION_TIMEOUT_S):
                 async for event in self._adapter.stream_events(session_id):
-                    tf_event = cast("SessionEvent", event)
+                    tf_event = event
                     if tf_event.kind in (EventKind.message_assistant, EventKind.tool_call_completed):
                         payload = tf_event.payload
                         if isinstance(payload, dict):

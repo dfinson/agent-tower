@@ -77,7 +77,7 @@ def _fire_and_forget(coro: Any, *, name: str) -> asyncio.Task[Any]:
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Coroutine
 
     from fastapi import FastAPI
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -277,6 +277,7 @@ class _CoreServices:
     runtime_service: RuntimeService
     git_service: GitService
     diff_service: DiffService
+    step_tracker: StepTracker
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +482,13 @@ async def _wire_core_services(
     # Plan-step orchestration is now handled by TrailService (unified timeline)
     # ProgressTrackingService has been retired.
 
+    # StepTracker is shared between RuntimeService (managed pre-step context)
+    # and the EventProcessor funnel (wired in lifespan once TrailService exists).
+    step_tracker = StepTracker(
+        event_bus=event_bus,
+        git_service=git_service,
+    )
+
     runtime_service = RuntimeService(
         session_factory=session_factory,
         event_bus=event_bus,
@@ -493,10 +501,7 @@ async def _wire_core_services(
         summarization_service=summarization_service,
         platform_registry=platform_registry,
         sidecar_sessions=sidecar_sessions,
-        step_tracker=StepTracker(
-            event_bus=event_bus,
-            git_service=git_service,
-        ),
+        step_tracker=step_tracker,
         coderecon_service=coderecon_service,
         sidecar_dispatcher=sidecar_dispatcher,
     )
@@ -531,6 +536,7 @@ async def _wire_core_services(
         runtime_service=runtime_service,
         git_service=git_service,
         diff_service=diff_service,
+        step_tracker=step_tracker,
     )
 
 
@@ -811,6 +817,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     event_bus.subscribe(trail_service.handle_event)
     services.runtime_service.set_trail_service(trail_service)
     trail_task = asyncio.create_task(trail_service.drain_loop(), name="trail-enrichment-drain")
+
+    # --- EventProcessor (the one funnel) ---
+    # Both producers (managed SDK adapters via RuntimeService, and the imported
+    # ingest sources) route their native traceforge.SessionEvent through this
+    # single processor: diff triggering, turn_id synthesis, step/trail
+    # annotation, and EventBus publishing.
+    from backend.services.events.event_processor import EventProcessor
+
+    event_processor = EventProcessor(
+        event_bus=event_bus,
+        diff_service=services.diff_service,
+        step_tracker=services.step_tracker,
+        trail_service=trail_service,
+    )
+    services.runtime_service.set_event_processor(event_processor)
 
     # Recover orphaned jobs from a previous crash (background — don't block startup).
     # Must run AFTER the trail service is subscribed so it receives SessionResumed events.
@@ -1140,6 +1161,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await model_pricing_service.refresh()
     model_pricing_service.start_background_refresh()
 
+    # --- TelemetrySubscriber (read-side telemetry persistence) ---
+    # Persists TelemetrySummary/Spans/file-access rows off the canonical
+    # event bus for BOTH producers (managed + imported), replacing the
+    # per-producer EventPipeline telemetry writes. Per-message cost is computed
+    # via ModelPricingService only when the SDK/mapping did not supply one.
+    from backend.services.events.telemetry_subscriber import TelemetrySubscriber
+
+    def _telemetry_schedule_write(coro: Coroutine[Any, Any, None]) -> None:
+        _fire_and_forget(coro, name="telemetry-write")
+
+    telemetry_subscriber = TelemetrySubscriber(
+        session_factory=session_factory,
+        schedule_write=_telemetry_schedule_write,
+        model_pricing=model_pricing_service,
+    )
+    telemetry_subscriber.subscribe(event_bus)
+    services.runtime_service.set_telemetry_subscriber(telemetry_subscriber)
+
     # --- Story pre-generation drain loop (background) ---
     from backend.services.story.service import StoryService as _StoryServiceCls
 
@@ -1152,14 +1191,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     _story_drain_task = asyncio.create_task(story_drain_service.drain_loop(), name="story-drain")
 
-    # --- SessionStateWatcher (auto-discover Copilot --remote sessions) ---
-    # Watchers feed events through RuntimeService so imported sessions get the
-    # full pipeline: sidecar sessions, heartbeat, stall detection, plan
-    # inference, turn classification, and trail enrichment.
-    from backend.services.watcher.copilot import SessionStateWatcher
+    # --- Copilot ingest source (auto-discover Copilot --remote sessions) ---
+    # TF-native ingestion: FileWatchSource tail + MappedJsonAdapter parse feeds
+    # traceforge.SessionEvent straight into the shared EventProcessor funnel.
+    from backend.services.ingest.copilot_source import SessionStateWatcher
 
     session_state_watcher = SessionStateWatcher(
-        event_bus=event_bus,
+        event_processor=event_processor,
         runtime_service=services.runtime_service,
         session_factory=session_factory,
         config=config,
@@ -1169,11 +1207,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     await session_state_watcher.start()
 
-    # --- ClaudeSessionStateWatcher (auto-discover Claude CLI sessions) ---
-    from backend.services.watcher.claude import ClaudeSessionStateWatcher
+    # --- Claude ingest source (auto-discover Claude CLI sessions) ---
+    from backend.services.ingest.claude_source import ClaudeSessionStateWatcher
 
     claude_session_watcher = ClaudeSessionStateWatcher(
-        event_bus=event_bus,
+        event_processor=event_processor,
         runtime_service=services.runtime_service,
         session_factory=session_factory,
         config=config,

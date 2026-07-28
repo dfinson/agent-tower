@@ -25,7 +25,6 @@ __all__ = [
     "EventPayload",
     "SessionEvent",
     "new_event",
-    "transcript_kind_for_role",
 ]
 
 
@@ -158,27 +157,6 @@ TRANSCRIPT_STREAMING_KINDS: frozenset[EventKind] = frozenset(
         EventKind.tool_result_chunk,
     }
 )
-
-
-def transcript_kind_for_role(role: str) -> EventKind:
-    """Map a transcript ``role`` to its dotted CodePlane event kind.
-
-    Roles emitted by the adapters/watchers: ``operator``/``user`` (human input),
-    ``agent``/``assistant`` (complete agent message), ``agent_delta`` (streaming
-    partial), ``tool_running`` (a tool began), ``tool_call`` (a tool completed).
-    """
-    if role in ("operator", "user"):
-        return EventKind.message_user
-    if role in ("agent", "assistant"):
-        return EventKind.message_assistant
-    if role == "agent_delta":
-        return EventKind.message_delta
-    if role == "tool_running":
-        return EventKind.tool_call_started
-    if role == "tool_call":
-        return EventKind.tool_call_completed
-    # Unknown roles default to a full assistant message (safest for display).
-    return EventKind.message_assistant
 
 
 # ---------------------------------------------------------------------------

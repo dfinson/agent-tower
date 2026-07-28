@@ -20,8 +20,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.services.completers.copilot_steer import CopilotSteerClient
-    from backend.services.watcher.claude import ClaudeSessionStateWatcher
-    from backend.services.watcher.copilot import SessionStateWatcher
+    from backend.services.ingest.claude_source import ClaudeSessionStateWatcher
+    from backend.services.ingest.copilot_source import SessionStateWatcher
 
 log = structlog.get_logger()
 

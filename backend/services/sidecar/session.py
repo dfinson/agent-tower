@@ -28,7 +28,7 @@ import contextlib
 import secrets
 import time
 from collections import OrderedDict, deque
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -37,7 +37,6 @@ from backend.services.completers.lightweight_completer import LightweightComplet
 
 if TYPE_CHECKING:
     from backend.models.domain import SessionConfig, SidecarConfig
-    from backend.models.events import SessionEvent
     from backend.services.adapters.agent_adapter import AgentAdapterInterface
 
 log = structlog.get_logger()
@@ -245,7 +244,7 @@ class AgenticSidecarSession:
         final_text = ""
         try:
             async for event in self._adapter.stream_events(session_id):
-                tf_event = cast("SessionEvent", event)
+                tf_event = event
                 if tf_event.kind != EventKind.message_assistant or not isinstance(tf_event.payload, dict):
                     continue
                 content = tf_event.payload.get("content")

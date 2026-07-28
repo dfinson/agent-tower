@@ -219,16 +219,6 @@ class Preset(StrEnum):
     locked = "locked"
 
 
-class SessionEventKind(StrEnum):
-    log = "log"
-    transcript = "transcript"
-    file_changed = "file_changed"
-    approval_request = "approval_request"
-    model_downgraded = "model_downgraded"
-    done = "done"
-    error = "error"
-
-
 # Valid values for SessionConfig.session_kind — used for telemetry grouping.
 SessionKind = Literal["job", "planning", "preflight", "memory_extraction", "memory_compaction", "narrator", "sidecar"]
 
@@ -281,72 +271,6 @@ class SidecarTemplate:
     created_at: datetime
     last_used_at: datetime | None = None
     enabled: bool = True
-
-
-# -- Payload TypedDicts per SessionEventKind ----------------------------------
-
-
-class LogPayload(TypedDict, total=False):
-    seq: int
-    timestamp: str
-    level: str
-    message: str
-
-
-class TranscriptPayload(TypedDict, total=False):
-    role: str
-    content: str
-    turn_id: str
-    title: str | None
-    tool_name: str
-    tool_args: str | None
-    tool_result: str | None
-    tool_success: bool
-    tool_issue: str | None
-    tool_intent: str | None
-    tool_title: str | None
-    tool_display: str | None
-    tool_display_full: str | None
-    tool_duration_ms: int | None
-    tool_visibility: str
-    tool_call_id: str
-
-
-class FileChangedPayload(TypedDict):
-    path: str
-
-
-class ApprovalRequestPayload(TypedDict, total=False):
-    description: str
-    proposed_action: str | None
-    approval_id: str
-    requires_explicit_approval: bool
-
-
-class ModelDowngradedPayload(TypedDict):
-    requested_model: str
-    actual_model: str
-
-
-class DonePayload(TypedDict, total=False):
-    result: str
-
-
-class ErrorPayload(TypedDict, total=False):
-    message: str
-    result: str
-
-
-SessionEventPayload = (
-    LogPayload
-    | TranscriptPayload
-    | FileChangedPayload
-    | ApprovalRequestPayload
-    | ModelDowngradedPayload
-    | DonePayload
-    | ErrorPayload
-    | dict[str, Any]
-)
 
 
 # -- Telemetry TypedDicts -----------------------------------------------------
@@ -667,12 +591,6 @@ class ModelComparisonRow(TypedDict, total=False):
     cost_per_turn: float
     cost_per_tool_call: float
     cost_per_diff_line: float
-
-
-@dataclass
-class SessionEvent:
-    kind: SessionEventKind
-    payload: SessionEventPayload
 
 
 @dataclass

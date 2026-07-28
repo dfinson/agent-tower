@@ -89,6 +89,7 @@ if TYPE_CHECKING:
     from backend.services.coderecon.coderecon_service import CodeReconService
     from backend.services.events.event_processor import EventProcessor
     from backend.services.events.ingest_service import IngestService
+    from backend.services.events.telemetry_subscriber import TelemetrySubscriber
     from backend.services.sidecar.dispatcher import SidecarDispatcher
     from backend.services.steps.tracker import StepTracker
     from backend.services.terminal.terminal_service import TerminalService
@@ -275,6 +276,9 @@ class RuntimeService:
         # The one funnel — both managed (here) and imported (ingest sources)
         # producers route their TF-native events through this processor.
         self._event_processor = event_processor
+        # Telemetry bus-subscriber — wired late; runtime only clears its per-job
+        # state at true job end (after retries/verify).
+        self._telemetry_subscriber: TelemetrySubscriber | None = None
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._agent_sessions: dict[str, AgentSession] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
@@ -323,6 +327,15 @@ class RuntimeService:
     def set_event_processor(self, processor: EventProcessor) -> None:
         """Wire the shared EventProcessor funnel (late binding)."""
         self._event_processor = processor
+
+    def set_telemetry_subscriber(self, subscriber: TelemetrySubscriber) -> None:
+        """Wire the telemetry bus-subscriber for per-job state cleanup (late binding).
+
+        The subscriber persists telemetry off the canonical event bus; the runtime
+        only needs to clear its per-job state at the true end of the job lifecycle
+        (after retries + verify), which the bus-level terminal events can't pinpoint.
+        """
+        self._telemetry_subscriber = subscriber
 
     def set_terminal_service(self, svc: TerminalService) -> None:
         """Wire the TerminalService for job terminals."""
@@ -1297,6 +1310,8 @@ class RuntimeService:
             self._step_tracker.cleanup(job_id)
         if self._event_processor is not None:
             self._event_processor.cleanup(job_id)
+        if self._telemetry_subscriber is not None:
+            self._telemetry_subscriber.cleanup(job_id)
         self._tasks.pop(job_id, None)
         self._agent_sessions.pop(job_id, None)
         self._last_activity.pop(job_id, None)
@@ -1629,6 +1644,8 @@ class RuntimeService:
             self._diff_service.cleanup(job_id)
         if self._event_processor is not None:
             self._event_processor.cleanup(job_id)
+        if self._telemetry_subscriber is not None:
+            self._telemetry_subscriber.cleanup(job_id)
 
         # Clean up in-memory state
         self._last_activity.pop(job_id, None)

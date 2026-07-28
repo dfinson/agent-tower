@@ -48,6 +48,7 @@ dependencies = [
     # on purpose — it force-checks-out the LFS monorepo and trips a missing LFS
     # object on the remote (tracked as an upstream defect).
     "traceforge-toolkit>=0.1.1,<0.2",
+    "psutil>=7.2.2",
 ]
 
 [project.optional-dependencies]
