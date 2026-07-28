@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import shlex
 import time
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -51,6 +52,62 @@ _INSTALL_PACKAGE_RE = re.compile(
     r"\s+([a-zA-Z0-9_@/-]+)",
     re.IGNORECASE,
 )
+
+# Regex to extract a host (incl. hosts without a dot, e.g. localhost) from a URL
+# positional argument. Used by _extract_target_hosts for host-trust enforcement.
+_URL_HOST_RE = re.compile(
+    r"(?:https?://|//)([a-zA-Z0-9._-]+(?::\d+)?)",
+)
+
+
+def _shlex_split(command: str) -> list[str]:
+    """shlex.split with fallback to naive split on parse errors."""
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return command.split()
+
+
+def _extract_target_hosts(command: str) -> list[str]:
+    """Extract ALL target hosts from a curl/wget command.
+
+    Parses positional arguments (URLs) rather than matching 'localhost'
+    anywhere in the command string (which would match inside headers,
+    query params, or comments). Skips flag values like ``-H "http://..."``
+    so a spoofed header host is not mistaken for the request target.
+    """
+    tokens = _shlex_split(command)
+    hosts: list[str] = []
+    skip_next = False
+    for token in tokens[1:]:  # skip the binary itself
+        if skip_next:
+            skip_next = False
+            continue
+        if token.startswith("-"):
+            if token in (
+                "-X",
+                "--request",
+                "-o",
+                "--output",
+                "-H",
+                "--header",
+                "-u",
+                "--user",
+                "-A",
+                "--user-agent",
+                "-e",
+                "--referer",
+            ):
+                skip_next = True
+                continue
+            if token == "--url":
+                skip_next = False
+                continue
+            continue
+        m = _URL_HOST_RE.search(token)
+        if m:
+            hosts.append(m.group(1).lower())
+    return hosts
 
 _MONITOR_SYSTEM_PROMPT = """\
 You are a security monitor for a coding agent. You decide whether an agent \
@@ -361,11 +418,7 @@ class MonitorSession:
         """
         if action.command:
             # Use the same positional-argument parser as the shell
-            # classifier — it skips flag values like -H "...".
-            from backend.services.action_policy.shell_classifier import (
-                _extract_target_hosts,
-            )
-
+            # host extractor — it skips flag values like -H "...".
             hosts = _extract_target_hosts(action.command)
             return hosts[0] if hosts else None
 
