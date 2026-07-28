@@ -754,6 +754,40 @@ class TestTranscriptToolCall:
         updated = await trail_repo.get("w2")
         assert updated.tool_success is False
 
+    async def test_tool_call_failed_kind_routes_to_tool_handler(self, builder, trail_repo, job_state):
+        """A tool.call.failed event routes to the tool handler by kind (role stays tool_call)."""
+        node = TrailNodeRow(
+            id="w3",
+            job_id="job-1",
+            seq=1,
+            anchor_seq=1,
+            kind="write",
+            deterministic_kind="write",
+            timestamp=datetime.now(UTC),
+            enrichment="complete",
+            parent_id="p1",
+            turn_id="turn-1",
+            tool_name="run_command",
+        )
+        await trail_repo.create(node)
+        job_state["job-1"] = TrailJobState(active_goal_id="g1")
+
+        event = _make_event(
+            EventKind.tool_call_failed,
+            payload={
+                "role": "tool_call",
+                "turn_id": "turn-1",
+                "tool_name": "run_command",
+                "tool_display": "Run tests",
+                "tool_intent": "Verify",
+                "tool_success": False,
+            },
+        )
+        await builder.handle_event(event)
+        updated = await trail_repo.get("w3")
+        assert updated.tool_display == "Run tests"
+        assert updated.tool_success is False
+
     async def test_transcript_unknown_role_ignored(self, builder, job_state, trail_repo):
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(

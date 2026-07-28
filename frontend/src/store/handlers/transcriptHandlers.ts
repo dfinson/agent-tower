@@ -319,6 +319,7 @@ export const transcriptHandlers: Record<string, SSEHandler> = {
   "message.delta": handleTranscriptUpdate,
   "tool.call.started": handleTranscriptUpdate,
   "tool.call.completed": handleTranscriptUpdate,
+  "tool.call.failed": handleTranscriptUpdate,
   "tool.group_summary": handleToolGroupSummary,
   "secondary_session.started": handleSecondarySessionStarted,
   "secondary_session.entry": handleSecondarySessionEntry,

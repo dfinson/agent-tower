@@ -629,11 +629,19 @@ class TrailNodeBuilder:
     async def _on_transcript_updated(self, event: SessionEvent) -> None:
         """Create or update trail nodes for transcript messages.
 
-        Handles three transcript roles:
-        - operator/user: Creates request nodes (operator messages).
-        - tool_call: Updates matching write sub-nodes with tool metadata
-          (tool_display, tool_intent, tool_success) per §13.3.
-        - agent/assistant: Updates step node agent_message if not already set.
+        Routes on the granular transcript kind:
+        - ``message.user``: creates request nodes (operator messages).
+        - ``tool.call.completed`` / ``tool.call.failed``: updates matching write
+          sub-nodes with tool metadata (tool_display, tool_intent, tool_success)
+          per §13.3. Both share ``role == "tool_call"`` and carry ``tool_success``.
+        - ``message.assistant`` (with an agent/assistant role): updates the step
+          node agent_message if not already set.
+
+        Streaming/partial transcript kinds (``message.delta``, ``tool.call.started``)
+        produce no trail nodes. The reasoning sub-stream shares the
+        ``message.assistant`` kind but carries a reasoning role, so the assistant
+        branch is role-refined to exclude it — preserving the prior behavior where
+        only complete agent messages reached the assistant handler.
         """
         job_id = event.session_id
         assert job_id is not None
@@ -642,13 +650,13 @@ class TrailNodeBuilder:
             return
 
         payload = event.payload or {}
-        role = payload.get("role", "")
+        role = str(payload.get("role", ""))
 
-        if role in ("operator", "user"):
+        if event.kind == EventKind.message_user:
             await self._handle_operator_transcript(event, state)
-        elif role == "tool_call":
+        elif event.kind in (EventKind.tool_call_completed, EventKind.tool_call_failed):
             await self._handle_tool_call_transcript(event, state)
-        elif role in ("agent", "assistant"):
+        elif event.kind == EventKind.message_assistant and role in ("agent", "assistant"):
             await self._handle_assistant_transcript(event, state)
 
     async def _handle_operator_transcript(
