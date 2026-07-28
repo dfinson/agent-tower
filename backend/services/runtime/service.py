@@ -14,22 +14,22 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import enum
+import json
 import time
 import uuid
 from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from sqlalchemy.exc import DBAPIError
 
 from backend.config import build_session_config
-from backend.models.api_schemas import ExecutionPhase, TranscriptRole
+from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import (
     TERMINAL_STATES,
     ApprovalResolution,
-    CodePlaneError,
     GitMergeOutcome,
     Job,
     JobMode,
@@ -39,17 +39,12 @@ from backend.models.domain import (
     Resolution,
     ServiceInitError,
     SessionConfig,
-    SessionEventKind,
-)
-from backend.models.domain import (
-    SessionEvent as CPSessionEvent,
 )
 from backend.models.events import (
     TRANSCRIPT_KINDS,
     EventKind,
     SessionEvent,
     new_event,
-    transcript_kind_for_role,
 )
 from backend.persistence.job_repo import JobRepository
 from backend.services.job.job_service import JobService
@@ -92,6 +87,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from backend.services.coderecon.coderecon_service import CodeReconService
+    from backend.services.events.event_processor import EventProcessor
     from backend.services.events.ingest_service import IngestService
     from backend.services.sidecar.dispatcher import SidecarDispatcher
     from backend.services.steps.tracker import StepTracker
@@ -115,7 +111,7 @@ class AgentSession:
         self,
         config: SessionConfig,
         adapter: AgentAdapterInterface,
-    ) -> AsyncIterator[CPSessionEvent]:
+    ) -> AsyncIterator[SessionEvent]:
         self._adapter = adapter
         self._session_id = await adapter.create_session(config)
         async for event in adapter.stream_events(self._session_id):
@@ -217,18 +213,27 @@ Respond with ONLY one JSON object:
 """
 
 
-def _session_event_counts_as_resume_progress(event: CPSessionEvent) -> bool:
+def _session_event_counts_as_resume_progress(event: SessionEvent) -> bool:
     """Return True once a resumed session has produced real agent work."""
     if event.kind in (
-        SessionEventKind.file_changed,
-        SessionEventKind.approval_request,
-        SessionEventKind.model_downgraded,
+        EventKind.file_edited,
+        EventKind.approval_requested,
+        EventKind.model_downgraded,
     ):
         return True
-    if event.kind != SessionEventKind.transcript:
-        return False
-    role = str(event.payload.get("role", ""))
-    return role != TranscriptRole.operator
+    return event.kind in TRANSCRIPT_KINDS
+
+
+def _stringify_tool_args(args: object) -> str:
+    """Render TF tool ``arguments`` (dict | str | None) as a string for heartbeat."""
+    if args is None:
+        return ""
+    if isinstance(args, str):
+        return args
+    try:
+        return json.dumps(args)
+    except (TypeError, ValueError):
+        return str(args)
 
 
 class RuntimeService:
@@ -251,6 +256,7 @@ class RuntimeService:
         trail_service: TrailService | None = None,
         coderecon_service: CodeReconService | None = None,
         sidecar_dispatcher: SidecarDispatcher | None = None,
+        event_processor: EventProcessor | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._event_bus = event_bus
@@ -266,6 +272,9 @@ class RuntimeService:
         self._step_tracker = step_tracker
         self._coderecon_service = coderecon_service
         self._sidecar_dispatcher = sidecar_dispatcher
+        # The one funnel — both managed (here) and imported (ingest sources)
+        # producers route their TF-native events through this processor.
+        self._event_processor = event_processor
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._agent_sessions: dict[str, AgentSession] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
@@ -293,8 +302,6 @@ class RuntimeService:
         self._queued_resume_session_ids: dict[str, str] = {}
         # Contents to suppress when the SDK echoes them back (already published locally)
         self._echo_suppress: dict[str, set[str]] = {}
-        # Synthesized turn_id per job for SDKs that don't provide one
-        self._turn_ids: dict[str, str] = {}
         # Trail service (unified timeline, plan, activity tracking)
         self._trail_service = trail_service
         # Observer terminals: job_id → terminal session ID
@@ -312,6 +319,10 @@ class RuntimeService:
         """Wire the TrailService for plan/activity tracking (late binding)."""
         self._trail_service = svc
         self._telemetry.set_trail_service(svc)
+
+    def set_event_processor(self, processor: EventProcessor) -> None:
+        """Wire the shared EventProcessor funnel (late binding)."""
+        self._event_processor = processor
 
     def set_terminal_service(self, svc: TerminalService) -> None:
         """Wire the TerminalService for job terminals."""
@@ -1284,6 +1295,8 @@ class RuntimeService:
             self._trail_service.cleanup(job_id)
         if self._step_tracker is not None:
             self._step_tracker.cleanup(job_id)
+        if self._event_processor is not None:
+            self._event_processor.cleanup(job_id)
         self._tasks.pop(job_id, None)
         self._agent_sessions.pop(job_id, None)
         self._last_activity.pop(job_id, None)
@@ -1308,7 +1321,6 @@ class RuntimeService:
             if hasattr(adapter, "cleanup_job_policy"):
                 adapter.cleanup_job_policy(job_id)
         self._echo_suppress.pop(job_id, None)
-        self._turn_ids.pop(job_id, None)
         self._active_gates.pop(job_id, None)
         self._pending_starts.pop(job_id, None)
         self._queued_override_prompts.pop(job_id, None)
@@ -1542,51 +1554,6 @@ class RuntimeService:
             self._heartbeat_tasks[job_id] = task
         log.debug("external_session_registered", job_id=job_id)
 
-    async def feed_external_event(
-        self,
-        job_id: str,
-        session_event: CPSessionEvent,
-        worktree_path: str | None = None,
-        base_ref: str | None = None,
-    ) -> SessionEvent | None:
-        """Process a single event from an externally-managed session.
-
-        Applies the full managed-session pipeline: tool tracking, diff
-        triggering, event translation, turn_id synthesis, step annotation,
-        and EventBus publishing.  Approval events are published for UI
-        visibility but not blocked on (the external agent handles its own
-        approval flow).
-
-        Returns the published DomainEvent, or ``None`` if consumed internally.
-        """
-        action, domain_event, _error_reason = await self._process_agent_event(
-            job_id,
-            session_event,
-            agent_session=None,
-            worktree_path=worktree_path,
-            base_ref=base_ref,
-            rejection_message="",
-        )
-
-        if action == EventAction.skip or domain_event is None:
-            return None
-
-        # Step tracking — annotate transcript events with step boundaries
-        if domain_event.kind in TRANSCRIPT_KINDS and self._step_tracker is not None:
-            role = str(domain_event.payload.get("role", ""))
-            if role != "agent_delta":
-                await self._step_tracker.on_transcript_event(job_id, domain_event)
-                current = self._step_tracker.current_step(job_id)
-                if current:
-                    domain_event.payload["step_number"] = current.step_number
-                if self._trail_service is not None:
-                    plan_step_id = self._trail_service.get_active_plan_step_id(job_id)
-                    if plan_step_id:
-                        domain_event.payload["step_id"] = plan_step_id
-
-        await self._event_bus.publish(domain_event)
-        return domain_event
-
     async def finalize_external_session(
         self,
         job_id: str,
@@ -1660,13 +1627,14 @@ class RuntimeService:
             self._step_tracker.cleanup(job_id)
         if self._diff_service is not None:
             self._diff_service.cleanup(job_id)
+        if self._event_processor is not None:
+            self._event_processor.cleanup(job_id)
 
         # Clean up in-memory state
         self._last_activity.pop(job_id, None)
         self._active_tool.pop(job_id, None)
         self._stall_check_pending.discard(job_id)
         self._last_stall_check.pop(job_id, None)
-        self._turn_ids.pop(job_id, None)
 
         # Persist trail snapshot to disk
         self._start_snapshot_task(job_id)
@@ -1679,107 +1647,65 @@ class RuntimeService:
     async def _process_agent_event(
         self,
         job_id: str,
-        session_event: CPSessionEvent,
+        session_event: SessionEvent,
         agent_session: AgentSession | None,
-        worktree_path: str | None,
-        base_ref: str | None,
         rejection_message: str,
-    ) -> tuple[EventAction, SessionEvent | None, str | None]:
-        """Process a single agent session event (shared by main + follow-up loops).
+    ) -> tuple[EventAction, str | None]:
+        """Thin managed pre-step for a TF-native session event.
 
-        When *agent_session* is ``None`` (external/imported sessions), approval
-        events are published for UI visibility but not blocked on, and echo
-        suppression is skipped (external events are never echoes).
+        Handles the managed-only concerns that must run BEFORE the shared
+        ``EventProcessor`` funnel: heartbeat active-tool tracking, SDK echo
+        suppression, and synchronous approval blocking.  Diff triggering,
+        turn_id synthesis, and step/trail annotation are the funnel's job.
 
-        Returns ``(action, domain_event, error_reason)``:
+        Returns ``(action, error_reason)``:
 
-        * **skip** – event consumed internally, caller should ``continue``.
-        * **publish** – caller should emit *domain_event* via the event bus.
+        * **skip** – event consumed internally (approval handled, echo dropped);
+          caller should ``continue``.
+        * **abort** – caller should ``break``; *error_reason* explains why.
+        * **publish** – caller should forward the event to the EventProcessor.
           *error_reason* is set when the event signals a failure but the loop
           should keep draining.
-        * **abort** – caller should ``break``; *error_reason* explains why.
         """
-
         self._last_activity[job_id] = time.monotonic()
+        kind = session_event.kind
+        payload = session_event.payload
 
-        # Track active tool call for heartbeat reporting
-        if session_event.kind == SessionEventKind.transcript:
-            role = str(session_event.payload.get("role", ""))
-            if role == "tool_running":
-                tool_name = str(session_event.payload.get("tool_name", session_event.payload.get("content", "")))
-                tool_args = str(session_event.payload.get("tool_args", ""))[:500]
-                self._active_tool[job_id] = (tool_name, datetime.now(UTC).isoformat(), tool_args)
-                # Reset stall tracking for the new tool call
-                self._last_stall_check.pop(job_id, None)
-            elif role == "tool_call":
-                self._active_tool.pop(job_id, None)
-                self._last_stall_check.pop(job_id, None)
+        # Track active tool call for heartbeat reporting (TF-native kinds).
+        if kind == EventKind.tool_call_started:
+            tool_name = str(payload.get("tool_name", payload.get("content", "")))
+            tool_args = _stringify_tool_args(payload.get("arguments"))[:500]
+            self._active_tool[job_id] = (tool_name, datetime.now(UTC).isoformat(), tool_args)
+            # Reset stall tracking for the new tool call
+            self._last_stall_check.pop(job_id, None)
+        elif kind == EventKind.tool_call_completed:
+            self._active_tool.pop(job_id, None)
+            self._last_stall_check.pop(job_id, None)
 
-        _diff_eligible = self._diff_service is not None and worktree_path and base_ref
-
-        # Diff recalculation on file changes
-        if _diff_eligible and session_event.kind == SessionEventKind.file_changed:
-            assert self._diff_service is not None and worktree_path and base_ref
-            await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
-            return EventAction.skip, None, None
-
-        # Diff recalculation on tool completions (skip internal markers like report_intent)
-        if (
-            _diff_eligible
-            and session_event.kind == SessionEventKind.transcript
-            and session_event.payload.get("role") == "tool_call"
-            and session_event.payload.get("tool_name") != "report_intent"
-        ):
-            assert self._diff_service is not None and worktree_path and base_ref
-            await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
-
-        domain_event = self._translate_event(job_id, session_event)
-        if domain_event is None:
-            return EventAction.skip, None, None
-
-        # Ensure transcript events carry a turn_id for step tracking.
-        # Managed sessions (via CopilotAdapter) already include one; discovered
-        # sessions from the watchers don't.  Synthesize one and rotate it
-        # on each completed agent message (role=="agent") to mark turn boundaries.
-        if domain_event.kind in TRANSCRIPT_KINDS:
-            payload = domain_event.payload
-            if not payload.get("turn_id"):
-                tid = self._turn_ids.get(job_id)
-                if not tid:
-                    tid = str(uuid.uuid4())
-                    self._turn_ids[job_id] = tid
-                payload["turn_id"] = tid
-            if str(payload.get("role", "")) == "agent":
-                self._turn_ids[job_id] = str(uuid.uuid4())
-
-        error_reason: str | None = None
-        if domain_event.kind == EventKind.job_failed:
-            error_reason = str(domain_event.payload.get("message", "Agent error"))
-
-        # Suppress SDK echoes
-        if domain_event.kind in TRANSCRIPT_KINDS and job_id in self._echo_suppress:
-            content = str(domain_event.payload.get("content", ""))
+        # Suppress SDK echoes of operator messages already published locally.
+        if kind in TRANSCRIPT_KINDS and job_id in self._echo_suppress:
+            content = str(payload.get("content", ""))
             if content in self._echo_suppress[job_id]:
                 self._echo_suppress[job_id].discard(content)
-                return EventAction.skip, None, None
+                return EventAction.skip, None
 
-        # Handle approval requests (managed sessions only — external sessions
-        # handle their own approvals; we just publish for UI visibility).
+        # Handle approval requests (managed sessions only — external/imported
+        # sessions handle their own approvals and just publish for UI visibility).
         if (
-            domain_event.kind == EventKind.approval_requested
+            kind == EventKind.approval_requested
             and self._approval_service is not None
             and agent_session is not None
         ):
-            resolution = await self._handle_approval_request(
-                job_id,
-                domain_event,
-                rejection_message,
-            )
+            resolution = await self._handle_approval_request(job_id, session_event, rejection_message)
             if resolution == ApprovalResolution.rejected:
-                return EventAction.abort, None, rejection_message
-            return EventAction.skip, None, None
+                return EventAction.abort, rejection_message
+            return EventAction.skip, None
 
-        return EventAction.publish, domain_event, error_reason
+        error_reason: str | None = None
+        if kind == EventKind.job_failed:
+            error_reason = str(payload.get("message", "Agent error"))
+
+        return EventAction.publish, error_reason
 
     async def _execute_session_attempt(
         self,
@@ -1798,12 +1724,10 @@ class RuntimeService:
         async for session_event in agent_session.execute(config, self._resolve_adapter(config.sdk)):
             made_progress = made_progress or _session_event_counts_as_resume_progress(session_event)
 
-            action, domain_event, evt_error = await self._process_agent_event(
+            action, evt_error = await self._process_agent_event(
                 job_id,
                 session_event,
                 agent_session,
-                worktree_path,
-                base_ref,
                 "Approval rejected by operator",
             )
 
@@ -1812,9 +1736,6 @@ class RuntimeService:
             if action == EventAction.abort:
                 error_reason = evt_error
                 break
-
-            if domain_event is None:
-                raise CodePlaneError("Event publish must always provide a domain event")
 
             if evt_error:
                 error_reason = evt_error
@@ -1827,16 +1748,16 @@ class RuntimeService:
                 await self._persist_sdk_session_id(job_id, session_id)
 
             # Model downgrade: publish event, abort session, signal caller
-            if domain_event.kind == EventKind.model_downgraded:
-                requested = str(domain_event.payload.get("requested_model", ""))
-                actual = str(domain_event.payload.get("actual_model", ""))
+            if session_event.kind == EventKind.model_downgraded:
+                requested = str(session_event.payload.get("requested_model", ""))
+                actual = str(session_event.payload.get("actual_model", ""))
                 log.warning(
                     "model_downgrade_detected",
                     job_id=job_id,
                     requested=requested,
                     actual=actual,
                 )
-                await self._event_bus.publish(domain_event)
+                await self._event_bus.publish(session_event)
                 try:
                     await agent_session.abort()
                 except Exception:
@@ -1844,27 +1765,18 @@ class RuntimeService:
                 downgrade = (requested, actual)
                 break
 
-            # Step tracking — annotate transcript events with step_id
-            # (must run BEFORE publish so the payload is enriched for subscribers)
-            if domain_event.kind in TRANSCRIPT_KINDS and self._step_tracker is not None:
-                role = str(domain_event.payload.get("role", ""))
-                if role != "agent_delta":
-                    await self._step_tracker.on_transcript_event(job_id, domain_event)
-                    current = self._step_tracker.current_step(job_id)
-                    if current:
-                        domain_event.payload["step_number"] = current.step_number
-                    # TrailService is the sole step_id authority (ps-* IDs)
-                    if self._trail_service is not None:
-                        plan_step_id = self._trail_service.get_active_plan_step_id(job_id)
-                        if plan_step_id:
-                            domain_event.payload["step_id"] = plan_step_id
-
             # Tag log lines with the current session number so callers can filter
             # by session when a job has been resumed one or more times.
-            if domain_event.kind == EventKind.log_line_emitted:
-                domain_event.payload.setdefault("session_number", session_number)
+            if session_event.kind == EventKind.log_line_emitted:
+                session_event.payload.setdefault("session_number", session_number)
 
-            await self._event_bus.publish(domain_event)
+            # Forward to the one funnel — diff triggering, turn_id synthesis,
+            # step/trail annotation, and EventBus publishing all happen inside
+            # the EventProcessor (shared with the imported ingest sources).
+            if self._event_processor is not None:
+                await self._event_processor.process_event(job_id, session_event, worktree_path, base_ref)
+            else:
+                await self._event_bus.publish(session_event)
 
         return SessionAttemptResult(
             session_id=session_id,
@@ -2129,12 +2041,11 @@ class RuntimeService:
         operator_event = new_event(
             session_id=job_id,
             timestamp=now,
-            kind=transcript_kind_for_role(TranscriptRole.operator),
+            kind=EventKind.message_user,
             payload={
                 "job_id": job_id,
                 "seq": 0,
                 "timestamp": now.isoformat(),
-                "role": TranscriptRole.operator,
                 "content": message,
             },
         )
@@ -2565,26 +2476,6 @@ class RuntimeService:
                 kind=EventKind.job_setup_progress,
                 payload={"step": step},
             )
-        )
-
-    def _translate_event(self, job_id: str, event: CPSessionEvent) -> SessionEvent | None:
-        """Translate a SessionEvent into a DomainEvent."""
-        mapping: dict[SessionEventKind, EventKind] = {
-            SessionEventKind.log: EventKind.log_line_emitted,
-            SessionEventKind.approval_request: EventKind.approval_requested,
-            SessionEventKind.error: EventKind.job_failed,
-            SessionEventKind.model_downgraded: EventKind.model_downgraded,
-        }
-        kind: EventKind | None
-        if event.kind == SessionEventKind.transcript:
-            kind = transcript_kind_for_role(str(event.payload.get("role", "")))
-        else:
-            kind = mapping.get(event.kind)
-        if kind is None:
-            # 'done' events are handled at the _run_job level
-            return None
-        return new_event(
-            session_id=job_id, timestamp=datetime.now(UTC), kind=kind, payload=cast("dict[str, Any]", event.payload)
         )
 
     async def recover_on_startup(self) -> None:
