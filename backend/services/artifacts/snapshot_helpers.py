@@ -50,24 +50,6 @@ HEADLINE_QUERY_LIMIT = 200
 # ── internal helpers ────────────────────────────────────────────────────────
 
 
-def _transcript_role_for_kind(kind: EventKind | str) -> str:
-    if kind == EventKind.message_user:
-        return "operator"
-    if kind == EventKind.message_assistant:
-        return "agent"
-    if kind == EventKind.message_delta:
-        return "agent_delta"
-    if kind in (EventKind.reasoning_started, EventKind.llm_thinking_chunk):
-        return "reasoning"
-    if kind == EventKind.tool_call_started:
-        return "tool_running"
-    if kind == EventKind.tool_call_completed:
-        return "tool_call"
-    if kind == EventKind.tool_result_chunk:
-        return "tool_output_delta"
-    return "agent"
-
-
 def _tool_args_to_str(arguments: Any) -> str | None:
     if arguments is None:
         return None
@@ -157,14 +139,14 @@ def _build_transcript(
             job_id=e.session_id,
             seq=e.payload.get("seq", 0),
             timestamp=e.payload.get("timestamp", e.timestamp),
-            role=_transcript_role_for_kind(e.kind),
+            kind=str(e.kind),
             content=e.payload.get("content", ""),
             title=e.payload.get("title"),
             turn_id=e.payload.get("turn_id"),
             tool_name=e.payload.get("tool_name"),
-            tool_args=_tool_args_to_str(e.payload.get("arguments")),
-            tool_result=e.payload.get("result"),
-            tool_success=e.payload.get("success"),
+            arguments=_tool_args_to_str(e.payload.get("arguments")),
+            result=e.payload.get("result"),
+            success=e.payload.get("success"),
             tool_issue=e.payload.get("tool_issue"),
             tool_intent=_metadata_tool_intent(e),
             tool_title=e.payload.get("tool_title"),

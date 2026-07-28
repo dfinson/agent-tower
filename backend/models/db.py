@@ -77,6 +77,10 @@ class EventRow(Base):
     kind: Mapped[str] = mapped_column(String, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
     payload: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
+    # Serialized traceforge EventMetadata (turn/tool_display/motivation/duration_ms/
+    # visibility/…). Persisted so DB-replay consumers (REST transcript, snapshot,
+    # search) reconstruct the full TF event, since enrichment lives on metadata.
+    event_metadata: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")  # JSON
 
     __table_args__ = (Index("idx_events_job_id", "job_id"),)
 

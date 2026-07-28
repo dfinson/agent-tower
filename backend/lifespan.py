@@ -300,10 +300,10 @@ def _init_event_infrastructure(
     # Persist-then-broadcast subscriber: stamps the autoincrement DB id onto
     # metadata.sequence (the SSE resume cursor) before SSE frames are built.
     async def _persist_and_broadcast(event: SessionEvent) -> None:
-        # agent_delta events are ephemeral streaming chunks — broadcast
+        # message.delta events are ephemeral streaming chunks — broadcast
         # immediately without writing to DB (the complete agent message
         # that follows is the canonical persisted record).
-        if event.kind == EventKind.message_delta and event.payload.get("role") == "agent_delta":
+        if event.kind == EventKind.message_delta:
             await sse_manager.broadcast_domain_event(event)
             return
 
