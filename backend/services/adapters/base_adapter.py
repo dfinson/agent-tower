@@ -136,7 +136,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             source_framework=self._source_framework,
             duration_ms=duration_ms,
             motivation=motivation,
-            partial=partial or None,
+            partial=partial,
         )
         self._enqueue(session_id, new_event(session_id=job_id, kind=kind, payload=payload, metadata=metadata))
 
