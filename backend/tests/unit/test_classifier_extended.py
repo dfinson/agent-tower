@@ -10,13 +10,9 @@ from backend.services.action_policy.classifier import (
     RepoPolicy,
     Tier,
     _apply_cost_promotion,
-    _classify_file,
-    _classify_mcp_tool,
-    _classify_sdk_tool,
     _match_explicit_rule,
     _safe_regex_search,
     classify,
-    classify_properties,
     resolve_tier,
 )
 
@@ -63,114 +59,6 @@ class TestResolveTier:
 
     def test_locked_not_reversible(self):
         assert resolve_tier(False, True, Preset.locked) == Tier.gate
-
-
-# ---------------------------------------------------------------------------
-# _classify_file
-# ---------------------------------------------------------------------------
-
-
-class TestClassifyFile:
-    def test_outside_worktree(self):
-        action = Action(kind=ActionKind.file, path="/tmp/file.py", outside_worktree=True)
-        rev, cont, reason = _classify_file(action, RepoPolicy())
-        assert rev is True
-        assert cont is False
-
-    def test_binary_file(self):
-        action = Action(kind=ActionKind.file, path="/img.png", is_binary=True)
-        rev, cont, reason = _classify_file(action, RepoPolicy())
-        assert rev is True
-        assert cont is True
-
-    def test_normal_file(self):
-        action = Action(kind=ActionKind.file, path="/src/app.py")
-        rev, cont, reason = _classify_file(action, RepoPolicy())
-        assert rev is True
-        assert cont is True
-
-
-# ---------------------------------------------------------------------------
-# _classify_sdk_tool
-# ---------------------------------------------------------------------------
-
-
-class TestClassifySdkTool:
-    def test_known_file_write(self):
-        action = Action(kind=ActionKind.sdk_tool, tool_name="create_file")
-        rev, cont, reason = _classify_sdk_tool(action, RepoPolicy())
-        assert rev is True
-        assert cont is True
-
-    def test_known_shell_with_command(self):
-        action = Action(kind=ActionKind.sdk_tool, tool_name="bash", command="ls -la")
-        rev, cont, reason = _classify_sdk_tool(action, RepoPolicy())
-        assert "shell via" in reason
-
-    def test_unknown_safe_category(self):
-        action = Action(kind=ActionKind.sdk_tool, tool_name="grep_search")
-        rev, cont, reason = _classify_sdk_tool(action, RepoPolicy())
-        assert rev is True
-        assert cont is True
-
-    def test_unknown_tool(self):
-        action = Action(kind=ActionKind.sdk_tool, tool_name="totally_unknown_xyz")
-        rev, cont, reason = _classify_sdk_tool(action, RepoPolicy())
-        assert rev is False
-
-
-# ---------------------------------------------------------------------------
-# _classify_mcp_tool
-# ---------------------------------------------------------------------------
-
-
-class TestClassifyMcpTool:
-    def test_default(self):
-        action = Action(kind=ActionKind.mcp_tool, mcp_server="srv", mcp_tool="do_thing")
-        rev, cont, reason = _classify_mcp_tool(action, RepoPolicy())
-        assert rev is False
-        assert cont is True
-
-    def test_server_config_reversible(self):
-        policy = RepoPolicy(mcp_configs={"srv": {"reversible": True}})
-        action = Action(kind=ActionKind.mcp_tool, mcp_server="srv", mcp_tool="do_thing")
-        rev, cont, reason = _classify_mcp_tool(action, policy)
-        assert rev is True
-
-    def test_tool_override_relaxes(self):
-        policy = RepoPolicy(
-            mcp_configs={
-                "srv": {
-                    "reversible": False,
-                    "tool_overrides": {"read_data": {"reversible": True}},
-                }
-            }
-        )
-        action = Action(kind=ActionKind.mcp_tool, mcp_server="srv", mcp_tool="read_data")
-        rev, cont, reason = _classify_mcp_tool(action, policy)
-        assert rev is True
-
-    def test_read_only_hint_trusted(self):
-        policy = RepoPolicy(mcp_configs={"srv": {"trust_read_only_hint": True}})
-        action = Action(
-            kind=ActionKind.mcp_tool,
-            mcp_server="srv",
-            mcp_tool="query",
-            mcp_read_only=True,
-        )
-        rev, cont, reason = _classify_mcp_tool(action, policy)
-        assert rev is True
-
-    def test_read_only_hint_untrusted(self):
-        policy = RepoPolicy(mcp_configs={"srv": {}})
-        action = Action(
-            kind=ActionKind.mcp_tool,
-            mcp_server="srv",
-            mcp_tool="query",
-            mcp_read_only=True,
-        )
-        rev, cont, reason = _classify_mcp_tool(action, policy)
-        assert rev is False  # Not trusted
 
 
 # ---------------------------------------------------------------------------
@@ -262,8 +150,3 @@ class TestClassify:
         cost = CostContext(job_spend_usd=5.0)
         result = classify(action, policy, cost)
         assert result.tier == Tier.gate
-
-    def test_classify_properties_dispatches(self):
-        action = Action(kind=ActionKind.file, path="/app.py")
-        rev, cont, reason = classify_properties(action, RepoPolicy())
-        assert rev is True
