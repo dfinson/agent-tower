@@ -36,17 +36,16 @@ from backend.models.domain import (
     Preset,
     Resolution,
     SessionConfig,
-    SessionEvent,
-    SessionEventKind,
     StateConflictError,
 )
-from backend.models.events import TRANSCRIPT_KINDS, EventKind
+from backend.models.events import TRANSCRIPT_KINDS, EventKind, SessionEvent, new_event
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.services.adapters.adapter_registry import AdapterRegistry
 from backend.services.adapters.agent_adapter import AgentAdapterInterface, CompletionResult
 from backend.services.events.event_bus import EventBus
 from backend.services.runtime import (
     AgentSession,
+    EventAction,
     RuntimeService,
 )
 
@@ -75,26 +74,22 @@ class FakeAgentAdapter(AgentAdapterInterface):
 
     async def stream_events(self, session_id: str) -> AsyncGenerator[SessionEvent, None]:
         scripted: list[SessionEvent] = [
-            SessionEvent(
-                kind=SessionEventKind.log,
+            new_event(
+                session_id=session_id,
+                kind=EventKind.log_line_emitted,
                 payload={"level": "info", "message": "Agent session started"},
             ),
-            SessionEvent(
-                kind=SessionEventKind.transcript,
-                payload={
-                    "role": "agent",
-                    "content": "I'll analyze the codebase and implement the requested changes.",
-                },
+            new_event(
+                session_id=session_id,
+                kind=EventKind.message_assistant,
+                payload={"content": "I'll analyze the codebase and implement the requested changes."},
             ),
-            SessionEvent(
-                kind=SessionEventKind.file_changed,
-                payload={"path": "src/example.py", "action": "modified"},
+            new_event(session_id=session_id, kind=EventKind.file_edited, payload={"path": "src/example.py"}),
+            new_event(
+                session_id=session_id,
+                kind=EventKind.message_assistant,
+                payload={"content": "Changes complete. All tests pass."},
             ),
-            SessionEvent(
-                kind=SessionEventKind.transcript,
-                payload={"role": "agent", "content": "Changes complete. All tests pass."},
-            ),
-            SessionEvent(kind=SessionEventKind.done, payload={}),
         ]
         for event in scripted:
             if session_id in self._aborted:
@@ -346,21 +341,23 @@ class ResumeFallbackAdapter(AgentAdapterInterface):
         attempt = int(session_id.rsplit("-", 1)[1])
         if attempt == 1:
             if self._first_attempt_progress:
-                yield SessionEvent(
-                    kind=SessionEventKind.transcript,
-                    payload={"role": "agent", "content": "I resumed and started working."},
+                yield new_event(
+                    session_id=session_id,
+                    kind=EventKind.message_assistant,
+                    payload={"content": "I resumed and started working."},
                 )
-            yield SessionEvent(
-                kind=SessionEventKind.error,
+            yield new_event(
+                session_id=session_id,
+                kind=EventKind.job_failed,
                 payload={"message": "Execution failed: CAPIError: 400 400 Bad Request\n"},
             )
             return
 
-        yield SessionEvent(
-            kind=SessionEventKind.transcript,
-            payload={"role": "agent", "content": "Recovered via opaque handoff."},
+        yield new_event(
+            session_id=session_id,
+            kind=EventKind.message_assistant,
+            payload={"content": "Recovered via opaque handoff."},
         )
-        yield SessionEvent(kind=SessionEventKind.done, payload={})
 
     async def send_message(self, session_id: str, message: str) -> None:
         return None
@@ -436,61 +433,48 @@ class TestCapacityAndQueueing:
 
 
 # ---------------------------------------------------------------------------
-# RuntimeService — event translation
+# RuntimeService — TF-native managed pre-step
 # ---------------------------------------------------------------------------
 
 
-class TestEventTranslation:
-    def test_log_event_translated(self, runtime: RuntimeService) -> None:
-        event = SessionEvent(
-            kind=SessionEventKind.log,
-            payload={"level": "info", "message": "test"},
-        )
-        result = runtime._translate_event("job-1", event)
-        assert result is not None
-        assert result.kind == EventKind.log_line_emitted
-        assert result.session_id == "job-1"
+class TestProcessAgentEvent:
+    async def test_log_event_publishes(self, runtime: RuntimeService) -> None:
+        event = new_event("job-1", EventKind.log_line_emitted, {"level": "info", "message": "test"})
+        action, error = await runtime._process_agent_event("job-1", event, None, "rejected")
+        assert action == EventAction.publish
+        assert error is None
 
-    def test_transcript_event_translated(self, runtime: RuntimeService) -> None:
-        event = SessionEvent(
-            kind=SessionEventKind.transcript,
-            payload={"role": "agent", "content": "hello"},
-        )
-        result = runtime._translate_event("job-1", event)
-        assert result is not None
-        assert result.kind == EventKind.message_assistant
+    async def test_transcript_event_publishes(self, runtime: RuntimeService) -> None:
+        event = new_event("job-1", EventKind.message_assistant, {"content": "hello"})
+        action, error = await runtime._process_agent_event("job-1", event, None, "rejected")
+        assert action == EventAction.publish
+        assert error is None
 
-    def test_file_changed_not_translated(self, runtime: RuntimeService) -> None:
-        """file_changed events are handled by DiffService, not _translate_event."""
-        event = SessionEvent(
-            kind=SessionEventKind.file_changed,
-            payload={"path": "foo.py", "action": "modified"},
-        )
-        result = runtime._translate_event("job-1", event)
-        assert result is None
+    async def test_file_edited_publishes_to_processor_funnel(self, runtime: RuntimeService) -> None:
+        event = new_event("job-1", EventKind.file_edited, {"path": "foo.py"})
+        action, error = await runtime._process_agent_event("job-1", event, None, "rejected")
+        assert action == EventAction.publish
+        assert error is None
 
-    def test_approval_request_translated(self, runtime: RuntimeService) -> None:
-        event = SessionEvent(
-            kind=SessionEventKind.approval_request,
-            payload={"description": "need approval"},
-        )
-        result = runtime._translate_event("job-1", event)
-        assert result is not None
-        assert result.kind == EventKind.approval_requested
+    async def test_tool_events_track_active_tool(self, runtime: RuntimeService) -> None:
+        started = new_event("job-1", EventKind.tool_call_started, {"tool_name": "bash", "arguments": {"command": "ls"}})
+        action, error = await runtime._process_agent_event("job-1", started, None, "rejected")
+        assert action == EventAction.publish
+        assert error is None
+        assert runtime._active_tool["job-1"][0] == "bash"
+        assert runtime._active_tool["job-1"][2] == '{"command": "ls"}'
 
-    def test_error_event_translated(self, runtime: RuntimeService) -> None:
-        event = SessionEvent(
-            kind=SessionEventKind.error,
-            payload={"message": "boom"},
-        )
-        result = runtime._translate_event("job-1", event)
-        assert result is not None
-        assert result.kind == EventKind.job_failed
+        completed = new_event("job-1", EventKind.tool_call_completed, {"tool_name": "bash"})
+        action, error = await runtime._process_agent_event("job-1", completed, None, "rejected")
+        assert action == EventAction.publish
+        assert error is None
+        assert "job-1" not in runtime._active_tool
 
-    def test_done_event_returns_none(self, runtime: RuntimeService) -> None:
-        event = SessionEvent(kind=SessionEventKind.done, payload={})
-        result = runtime._translate_event("job-1", event)
-        assert result is None
+    async def test_error_event_reports_error_reason(self, runtime: RuntimeService) -> None:
+        event = new_event("job-1", EventKind.job_failed, {"message": "boom"})
+        action, error = await runtime._process_agent_event("job-1", event, None, "rejected")
+        assert action == EventAction.publish
+        assert error == "boom"
 
 
 # ---------------------------------------------------------------------------
@@ -625,7 +609,7 @@ class TestJobLifecycle:
 
         # The operator message should appear as a transcript entry
         transcript_events = [e for e in published if e.kind in TRANSCRIPT_KINDS]
-        operator_msgs = [e for e in transcript_events if e.payload.get("role") == "operator"]
+        operator_msgs = [e for e in transcript_events if e.kind == EventKind.message_user]
         assert any("please continue" in e.payload.get("content", "") for e in operator_msgs)
 
     async def test_send_message_auto_resumes_orphaned_running_job(
@@ -1222,12 +1206,11 @@ class TestFakeAgentAdapter:
         async for event in adapter.stream_events(session_id):
             events.append(event)
 
-        assert len(events) == 5
-        assert events[0].kind == SessionEventKind.log
-        assert events[1].kind == SessionEventKind.transcript
-        assert events[2].kind == SessionEventKind.file_changed
-        assert events[3].kind == SessionEventKind.transcript
-        assert events[4].kind == SessionEventKind.done
+        assert len(events) == 4
+        assert events[0].kind == EventKind.log_line_emitted
+        assert events[1].kind == EventKind.message_assistant
+        assert events[2].kind == EventKind.file_edited
+        assert events[3].kind == EventKind.message_assistant
 
     async def test_abort_stops_stream(self) -> None:
         adapter = FakeAgentAdapter(delay=0.1)
@@ -1264,8 +1247,8 @@ class TestAgentSession:
         async for event in session.execute(config, adapter):
             events.append(event)
 
-        assert len(events) == 5
-        assert events[-1].kind == SessionEventKind.done
+        assert len(events) == 4
+        assert events[-1].kind == EventKind.message_assistant
 
     async def test_send_message_after_execute(self) -> None:
         adapter = FakeAgentAdapter(delay=0.0)
@@ -1582,12 +1565,14 @@ class ErrorAdapter(AgentAdapterInterface):
         return "err-session"
 
     async def stream_events(self, session_id: str) -> AsyncGenerator[SessionEvent, None]:
-        yield SessionEvent(
-            kind=SessionEventKind.log,
+        yield new_event(
+            session_id=session_id,
+            kind=EventKind.log_line_emitted,
             payload={"level": "info", "message": "Starting"},
         )
-        yield SessionEvent(
-            kind=SessionEventKind.error,
+        yield new_event(
+            session_id=session_id,
+            kind=EventKind.job_failed,
             payload={"message": "Something went wrong"},
         )
 

@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from traceforge.types import EventMetadata, ToolMotivation
 
 from backend.models.db import Base, JobRow, JobTelemetrySpanRow, TrailNodeRow
 from backend.models.events import EventKind, SessionEvent, new_event
@@ -74,8 +75,15 @@ def _make_event(
     kind: EventKind = EventKind.job_state_changed,
     job_id: str = "job-1",
     payload: dict | None = None,
+    metadata: EventMetadata | None = None,
 ) -> SessionEvent:
-    return new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=kind, payload=payload or {})
+    return new_event(
+        session_id=job_id,
+        timestamp=datetime.now(UTC),
+        kind=kind,
+        payload=payload or {},
+        metadata=metadata,
+    )
 
 
 def _started_event(job_id: str = "job-1") -> SessionEvent:
@@ -663,13 +671,14 @@ class TestTranscriptToolCall:
         event = _make_event(
             EventKind.tool_call_completed,
             payload={
-                "role": "tool_call",
                 "turn_id": "turn-1",
                 "tool_name": "str_replace_editor",
-                "tool_display": "Edit main.py",
-                "tool_intent": "Fix import",
-                "tool_success": True,
+                "success": True,
             },
+            metadata=EventMetadata(
+                tool_display="Edit main.py",
+                motivation=ToolMotivation(intent="Fix import"),
+            ),
         )
         await builder.handle_event(event)
 
@@ -684,7 +693,6 @@ class TestTranscriptToolCall:
         event = _make_event(
             EventKind.tool_call_completed,
             payload={
-                "role": "tool_call",
                 "turn_id": "turn-1",
                 "tool_name": "report_intent",
             },
@@ -696,7 +704,7 @@ class TestTranscriptToolCall:
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
             EventKind.tool_call_completed,
-            payload={"role": "tool_call", "turn_id": "t1", "tool_name": ""},
+            payload={"turn_id": "t1", "tool_name": ""},
         )
         await builder.handle_event(event)
 
@@ -704,7 +712,7 @@ class TestTranscriptToolCall:
         job_state["job-1"] = TrailJobState(active_goal_id="g1")
         event = _make_event(
             EventKind.tool_call_completed,
-            payload={"role": "tool_call", "tool_name": "write_file"},
+            payload={"tool_name": "write_file"},
         )
         await builder.handle_event(event)
 
@@ -715,7 +723,6 @@ class TestTranscriptToolCall:
             EventKind.tool_call_completed,
             job_id="job-1",
             payload={
-                "role": "tool_call",
                 "turn_id": "t1",
                 "tool_name": "write_file",
             },
@@ -744,10 +751,9 @@ class TestTranscriptToolCall:
         event = _make_event(
             EventKind.tool_call_completed,
             payload={
-                "role": "tool_call",
                 "turn_id": "turn-1",
                 "tool_name": "write_file",
-                "tool_success": False,
+                "success": False,
             },
         )
         await builder.handle_event(event)

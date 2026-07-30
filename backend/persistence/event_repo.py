@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from sqlalchemy import func, select
+from traceforge.types import EventMetadata
 
 from backend.models.db import EventRow
 from backend.models.events import TRANSCRIPT_KINDS, EventKind, SessionEvent, new_event
@@ -18,12 +19,15 @@ class EventRepository(BaseRepository):
 
     @staticmethod
     def _to_domain(row: EventRow) -> SessionEvent:
+        raw_md = row.event_metadata
+        metadata = EventMetadata.model_validate(json.loads(raw_md)) if raw_md else None
         return new_event(
             event_id=row.event_id,
             session_id=row.job_id,
             timestamp=row.timestamp,
             kind=EventKind(row.kind),
             payload=json.loads(row.payload),
+            metadata=metadata,
             sequence=row.id,
         )
 
@@ -35,6 +39,7 @@ class EventRepository(BaseRepository):
             kind=str(event.kind),
             timestamp=event.timestamp,
             payload=json.dumps(dict(event.payload)),
+            event_metadata=json.dumps(event.metadata.model_dump(mode="json")),
         )
         self._session.add(row)
         await self._session.flush()
@@ -124,7 +129,7 @@ class EventRepository(BaseRepository):
         self,
         job_id: str,
         query: str,
-        roles: list[str] | None = None,
+        kinds: list[str] | None = None,
         step_id: str | None = None,
         limit: int = 50,
     ) -> list[SessionEvent]:
@@ -135,17 +140,17 @@ class EventRepository(BaseRepository):
             EventRow.job_id == job_id,
             EventRow.kind.in_([k.value for k in TRANSCRIPT_KINDS]),
         )
-        if roles:
-            role_conditions = [EventRow.payload.contains(f'"role": "{role}"') for role in roles]
-            stmt = stmt.where(or_(*role_conditions))
+        if kinds:
+            stmt = stmt.where(EventRow.kind.in_(kinds))
         if step_id:
             stmt = stmt.where(EventRow.payload.contains(f'"step_id": "{step_id}"'))
 
-        # Search only content-bearing fields, not the entire JSON payload
+        # Search only content-bearing fields, not the entire JSON payload.
+        # ``tool_display`` lives on the serialized EventMetadata, not the payload.
         like_pattern = f"%{query}%"
         content_field = func.json_extract(EventRow.payload, "$.content")
         tool_name_field = func.json_extract(EventRow.payload, "$.tool_name")
-        tool_display_field = func.json_extract(EventRow.payload, "$.tool_display")
+        tool_display_field = func.json_extract(EventRow.event_metadata, "$.tool_display")
         stmt = stmt.where(
             or_(
                 content_field.ilike(like_pattern),

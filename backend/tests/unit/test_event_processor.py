@@ -1,4 +1,9 @@
-"""Tests for event_processor — event translation and pipeline logic."""
+"""Tests for event_processor — the one TF-native funnel.
+
+Events arrive already in TraceForge shape (dotted ``kind`` + TF payload
+fields). The processor does NOT translate — it annotates (diff trigger,
+turn_id synth/rotate, step/trail) and publishes. There is no ``_translate_event``.
+"""
 
 from __future__ import annotations
 
@@ -6,11 +11,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.models.domain import SessionEvent as CPSessionEvent
-from backend.models.domain import SessionEventKind
-from backend.models.events import EventKind, SessionEvent
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.events.event_bus import EventBus
 from backend.services.events.event_processor import EventProcessor
+
+
+def _tf(kind: EventKind, payload: dict | None = None) -> SessionEvent:
+    """Build a TF-native SessionEvent for job ``j1``."""
+    return new_event(session_id="j1", kind=kind, payload=payload or {})
 
 
 @pytest.fixture
@@ -24,55 +32,7 @@ def processor(event_bus: EventBus) -> EventProcessor:
 
 
 # ---------------------------------------------------------------------------
-# _translate_event
-# ---------------------------------------------------------------------------
-
-
-class TestTranslateEvent:
-    def test_log_event(self) -> None:
-        ev = CPSessionEvent(kind=SessionEventKind.log, payload={"message": "hello"})
-        result = EventProcessor._translate_event("j1", ev)
-        assert result is not None
-        assert result.kind == EventKind.log_line_emitted
-        assert result.session_id == "j1"
-
-    def test_transcript_event(self) -> None:
-        ev = CPSessionEvent(kind=SessionEventKind.transcript, payload={"role": "agent", "content": "hi"})
-        result = EventProcessor._translate_event("j1", ev)
-        assert result is not None
-        assert result.kind == EventKind.message_assistant
-
-    def test_approval_request_event(self) -> None:
-        ev = CPSessionEvent(kind=SessionEventKind.approval_request, payload={"action": "rm -rf"})
-        result = EventProcessor._translate_event("j1", ev)
-        assert result is not None
-        assert result.kind == EventKind.approval_requested
-
-    def test_error_event(self) -> None:
-        ev = CPSessionEvent(kind=SessionEventKind.error, payload={"message": "failed"})
-        result = EventProcessor._translate_event("j1", ev)
-        assert result is not None
-        assert result.kind == EventKind.job_failed
-
-    def test_model_downgraded_event(self) -> None:
-        ev = CPSessionEvent(kind=SessionEventKind.model_downgraded, payload={"from": "a", "to": "b"})
-        result = EventProcessor._translate_event("j1", ev)
-        assert result is not None
-        assert result.kind == EventKind.model_downgraded
-
-    def test_unknown_event_returns_none(self) -> None:
-        ev = CPSessionEvent(kind=SessionEventKind.done, payload={})
-        result = EventProcessor._translate_event("j1", ev)
-        assert result is None
-
-    def test_file_changed_returns_none(self) -> None:
-        ev = CPSessionEvent(kind=SessionEventKind.file_changed, payload={"path": "a.py"})
-        result = EventProcessor._translate_event("j1", ev)
-        assert result is None
-
-
-# ---------------------------------------------------------------------------
-# process_event
+# process_event — publishing
 # ---------------------------------------------------------------------------
 
 
@@ -87,33 +47,45 @@ class TestProcessEvent:
 
         event_bus.subscribe(_handler)
 
-        ev = CPSessionEvent(kind=SessionEventKind.log, payload={"message": "test"})
-        result = await processor.process_event("j1", ev)
+        result = await processor.process_event("j1", _tf(EventKind.log_line_emitted, {"message": "test"}))
         assert result is not None
         assert len(received) == 1
 
     @pytest.mark.asyncio
-    async def test_file_changed_triggers_diff(self) -> None:
+    async def test_non_transcript_event_not_annotated(self, processor: EventProcessor) -> None:
+        # A plain log event is published verbatim — no turn_id / step_number.
+        result = await processor.process_event("j1", _tf(EventKind.log_line_emitted, {"message": "hi"}))
+        assert result is not None
+        assert "turn_id" not in result.payload
+        assert "step_number" not in result.payload
+
+    # -- diff triggering -----------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_file_edited_triggers_diff_and_consumes(self) -> None:
         bus = EventBus()
         diff_svc = AsyncMock()
         proc = EventProcessor(bus, diff_service=diff_svc)
 
-        ev = CPSessionEvent(kind=SessionEventKind.file_changed, payload={"path": "a.py"})
-        result = await proc.process_event("j1", ev, worktree_path="/w", base_ref="main")
+        result = await proc.process_event(
+            "j1", _tf(EventKind.file_edited, {"path": "a.py"}), worktree_path="/w", base_ref="main"
+        )
+        # file.edited is consumed (diff surfaces via a synthesized diff.updated).
         assert result is None
         diff_svc.on_worktree_file_modified.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_tool_call_triggers_diff(self) -> None:
+    async def test_tool_completed_triggers_diff(self) -> None:
         bus = EventBus()
         diff_svc = AsyncMock()
         proc = EventProcessor(bus, diff_service=diff_svc)
 
-        ev = CPSessionEvent(
-            kind=SessionEventKind.transcript,
-            payload={"role": "tool_call", "tool_name": "write_file"},
+        result = await proc.process_event(
+            "j1",
+            _tf(EventKind.tool_call_completed, {"tool_name": "write_file", "arguments": "{}", "success": True}),
+            worktree_path="/w",
+            base_ref="main",
         )
-        result = await proc.process_event("j1", ev, worktree_path="/w", base_ref="main")
         assert result is not None
         diff_svc.on_worktree_file_modified.assert_awaited_once()
 
@@ -123,48 +95,91 @@ class TestProcessEvent:
         diff_svc = AsyncMock()
         proc = EventProcessor(bus, diff_service=diff_svc)
 
-        ev = CPSessionEvent(
-            kind=SessionEventKind.transcript,
-            payload={"role": "tool_call", "tool_name": "report_intent"},
+        result = await proc.process_event(
+            "j1",
+            _tf(EventKind.tool_call_completed, {"tool_name": "report_intent"}),
+            worktree_path="/w",
+            base_ref="main",
         )
-        result = await proc.process_event("j1", ev, worktree_path="/w", base_ref="main")
         assert result is not None
         diff_svc.on_worktree_file_modified.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_transcript_gets_synthesized_turn_id(self, processor: EventProcessor) -> None:
-        ev = CPSessionEvent(
-            kind=SessionEventKind.transcript,
-            payload={"role": "tool_call", "content": "running"},
+    async def test_no_diff_without_worktree(self) -> None:
+        bus = EventBus()
+        diff_svc = AsyncMock()
+        proc = EventProcessor(bus, diff_service=diff_svc)
+
+        # Missing worktree_path/base_ref => not diff-eligible.
+        result = await proc.process_event(
+            "j1", _tf(EventKind.tool_call_completed, {"tool_name": "write_file"})
         )
-        result = await processor.process_event("j1", ev)
+        assert result is not None
+        diff_svc.on_worktree_file_modified.assert_not_awaited()
+
+    # -- turn_id synthesis / rotation ---------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_transcript_gets_synthesized_turn_id(self, processor: EventProcessor) -> None:
+        result = await processor.process_event(
+            "j1", _tf(EventKind.tool_call_started, {"tool_name": "grep", "content": "running"})
+        )
         assert result is not None
         assert result.payload.get("turn_id") is not None
 
     @pytest.mark.asyncio
-    async def test_turn_id_rotates_on_agent_message(self, processor: EventProcessor) -> None:
-        ev1 = CPSessionEvent(
-            kind=SessionEventKind.transcript,
-            payload={"role": "tool_call", "content": "running"},
+    async def test_supplied_turn_id_preserved(self, processor: EventProcessor) -> None:
+        result = await processor.process_event(
+            "j1", _tf(EventKind.tool_call_started, {"tool_name": "grep", "turn_id": "supplied-turn"})
         )
-        result1 = await processor.process_event("j1", ev1)
-        tid1 = result1.payload["turn_id"]
+        assert result is not None
+        assert result.payload["turn_id"] == "supplied-turn"
 
-        # Agent message rotates the turn_id
-        ev2 = CPSessionEvent(
-            kind=SessionEventKind.transcript,
-            payload={"role": "agent", "content": "done"},
-        )
-        await processor.process_event("j1", ev2)
+    @pytest.mark.asyncio
+    async def test_turn_id_stable_within_turn(self, processor: EventProcessor) -> None:
+        r1 = await processor.process_event("j1", _tf(EventKind.tool_call_started, {"tool_name": "a"}))
+        r2 = await processor.process_event("j1", _tf(EventKind.tool_call_completed, {"tool_name": "a"}))
+        assert r1 is not None and r2 is not None
+        assert r1.payload["turn_id"] == r2.payload["turn_id"]
 
-        # Next event should have a new turn_id
-        ev3 = CPSessionEvent(
-            kind=SessionEventKind.transcript,
-            payload={"role": "tool_call", "content": "another"},
-        )
-        result3 = await processor.process_event("j1", ev3)
-        tid3 = result3.payload["turn_id"]
-        assert tid3 != tid1
+    @pytest.mark.asyncio
+    async def test_turn_id_rotates_after_agent_message(self, processor: EventProcessor) -> None:
+        r1 = await processor.process_event("j1", _tf(EventKind.tool_call_started, {"tool_name": "a"}))
+        tid1 = r1.payload["turn_id"]
+
+        # A completed assistant message closes the turn.
+        await processor.process_event("j1", _tf(EventKind.message_assistant, {"content": "done"}))
+
+        r3 = await processor.process_event("j1", _tf(EventKind.tool_call_started, {"tool_name": "b"}))
+        assert r3.payload["turn_id"] != tid1
+
+    # -- step / trail annotation --------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_step_annotation_on_transcript(self) -> None:
+        bus = EventBus()
+        tracker = AsyncMock()
+        tracker.current_step = MagicMock(return_value=MagicMock(step_number=7))
+        trail = MagicMock()
+        trail.get_active_plan_step_id = MagicMock(return_value="ps-abc")
+        proc = EventProcessor(bus, step_tracker=tracker, trail_service=trail)
+
+        result = await proc.process_event("j1", _tf(EventKind.tool_call_completed, {"tool_name": "grep"}))
+        assert result is not None
+        tracker.on_transcript_event.assert_awaited_once()
+        assert result.payload["step_number"] == 7
+        assert result.payload["step_id"] == "ps-abc"
+
+    @pytest.mark.asyncio
+    async def test_streaming_kind_skips_step_tracking(self) -> None:
+        bus = EventBus()
+        tracker = AsyncMock()
+        proc = EventProcessor(bus, step_tracker=tracker)
+
+        # message.delta is a streaming partial — display, but do not advance steps.
+        result = await proc.process_event("j1", _tf(EventKind.message_delta, {"content": "par"}))
+        assert result is not None
+        tracker.on_transcript_event.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

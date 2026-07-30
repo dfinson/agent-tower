@@ -550,6 +550,7 @@ dependencies = [
     { name = "github-copilot-sdk" },
     { name = "httpx" },
     { name = "mcp" },
+    { name = "psutil" },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "python-multipart" },
@@ -628,6 +629,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.9,<2" },
     { name = "opentelemetry-api", marker = "extra == 'telemetry'", specifier = ">=1.20,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'telemetry'", specifier = ">=1.20,<2" },
+    { name = "psutil", specifier = ">=7.2.2" },
     { name = "py-vapid", marker = "extra == 'push'", specifier = ">=1.9.4" },
     { name = "pydantic", specifier = ">=2.0,<3" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.12.0,<3" },
@@ -3902,7 +3904,7 @@ wheels = [
 
 [[package]]
 name = "traceforge-toolkit"
-version = "0.1.1"
+version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "alembic" },
@@ -3928,9 +3930,9 @@ dependencies = [
     { name = "tzdata", marker = "sys_platform == 'win32'" },
     { name = "watchdog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/92/c3/fbdc6f0831b962dcaf6d2980e0f7db08f1f75a3162948a7fc7b285cc22d8/traceforge_toolkit-0.1.1.tar.gz", hash = "sha256:0a54150bd2557c0f3e5f6154a8020a3e694431883fe7402362bc4437d57ed75f", size = 28798177, upload-time = "2026-07-09T06:29:08.513Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2c/22/f4180493645ed2da791ed34ea8eeda995029491302742b0bcfcea9b4db10/traceforge_toolkit-0.1.2.tar.gz", hash = "sha256:f2a255298508b229bc3813fdfefd949e7189945e9febedf8e34c3ce611ea8af2", size = 28830372, upload-time = "2026-07-30T18:12:24.814Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/37/99/090bd5af0dac286984dab12de176b64063ef4209040c0c2380fa877fde47/traceforge_toolkit-0.1.1-py3-none-any.whl", hash = "sha256:0d42994070e0fd79ace446232d16216a2ce3b4561be88758dcf6d7a91b013144", size = 28901667, upload-time = "2026-07-09T06:29:05.159Z" },
+    { url = "https://files.pythonhosted.org/packages/5f/81/6004682910e63d60f84d603e44a18df972d994cfbbbaa5a5a603c3763f1c/traceforge_toolkit-0.1.2-py3-none-any.whl", hash = "sha256:481f17558d411bb04fe6a30c10cbe8e1ae5383023ce5f512dd8bbae1bab31e82", size = 28937409, upload-time = "2026-07-30T18:12:22.025Z" },
 ]
 
 [[package]]

@@ -13,13 +13,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import structlog
 
-from backend.models.domain import SessionConfig, SessionEventKind
+from backend.models.domain import SessionConfig
+from backend.models.events import EventKind
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -28,6 +30,16 @@ if TYPE_CHECKING:
     from backend.services.coderecon.coderecon_service import CodeReconService
 
 log = structlog.get_logger()
+
+
+def _tool_args_to_str(arguments: object) -> str | None:
+    if arguments is None:
+        return None
+    if isinstance(arguments, str):
+        return arguments
+    if isinstance(arguments, dict):
+        return json.dumps(arguments, ensure_ascii=False)
+    return str(arguments)
 
 
 # ---------------------------------------------------------------------------
@@ -258,27 +270,26 @@ class PreflightCurator:
         try:
             async with asyncio.timeout(_SESSION_TIMEOUT_S):
                 async for event in self._adapter.stream_events(session_id):
-                    if event.kind == SessionEventKind.transcript:
-                        payload = event.payload
+                    tf_event = event
+                    if tf_event.kind in (EventKind.message_assistant, EventKind.tool_call_completed):
+                        payload = tf_event.payload
                         if isinstance(payload, dict):
-                            role = payload.get("role", "")
-                            if role == "agent":
+                            if tf_event.kind == EventKind.message_assistant:
                                 content = str(payload.get("content", ""))
                                 if content and content.strip():
                                     agent_chunks.append(content)
                                     if on_reasoning is not None:
                                         await on_reasoning(content)
-                            elif role == "tool_call":
-                                raw_args = payload.get("tool_args")
-                                raw_result = payload.get("tool_result") or payload.get("content", "")
-                                sdk_success = payload.get("tool_success", True)
-                                duration_ms_raw = payload.get("duration_ms")
+                            elif tf_event.kind == EventKind.tool_call_completed:
+                                raw_result = payload.get("result") or payload.get("content", "")
+                                sdk_success = payload.get("success", True)
+                                duration_ms_raw = getattr(tf_event.metadata, "duration_ms", None)
                                 duration_ms = (
                                     float(duration_ms_raw) if isinstance(duration_ms_raw, (int, float)) else None
                                 )
                                 tc = PreflightToolCall(
                                     tool_name=str(payload.get("tool_name", "")),
-                                    tool_args=str(raw_args) if raw_args else None,
+                                    tool_args=_tool_args_to_str(payload.get("arguments")),
                                     result_text=str(raw_result) if raw_result else "",
                                     success=bool(sdk_success),
                                     duration_ms=duration_ms,
@@ -287,18 +298,18 @@ class PreflightCurator:
                                 if on_tool_call is not None:
                                     await on_tool_call(tc)
 
-                    elif event.kind == SessionEventKind.done:
+                    elif tf_event.kind == EventKind.session_ended:
                         # ResultMessage carries the complete final text
-                        if isinstance(event.payload, dict):
-                            r = str(event.payload.get("result", ""))
+                        if isinstance(tf_event.payload, dict):
+                            r = str(tf_event.payload.get("result", ""))
                             if r and r.strip():
                                 result_text = r
                         break
 
-                    elif event.kind == SessionEventKind.error:
+                    elif tf_event.kind == EventKind.session_error:
                         msg = ""
-                        if isinstance(event.payload, dict):
-                            msg = str(event.payload.get("message", ""))
+                        if isinstance(tf_event.payload, dict):
+                            msg = str(tf_event.payload.get("message", ""))
                         log.warning("preflight_curator.session_error", error=msg)
                         break
         except TimeoutError:

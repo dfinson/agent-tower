@@ -14,7 +14,7 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from backend.services.watcher.claude import ClaudeSessionStateWatcher
+from backend.services.ingest.claude_source import ClaudeSessionStateWatcher
 
 router = APIRouter(tags=["hooks"], route_class=DishkaRoute)
 

@@ -24,10 +24,18 @@ from backend.services.completers.summarization_service import (
 
 def _make_event(role: str, content: str, *, kind: str = "transcript_entry") -> Any:
     """Build a minimal DomainEvent-like object."""
-    from backend.models.events import new_event
+    from backend.models.events import EventKind, new_event
+
+    if kind == "transcript_entry":
+        if role in ("user", "operator"):
+            kind = EventKind.message_user
+        elif role == "agent":
+            kind = EventKind.message_assistant
+        else:
+            kind = EventKind.message_system
 
     return new_event(
-        session_id="j1", kind=kind, payload={"role": role, "content": content, "timestamp": "2025-01-01T00:00:00Z"}
+        session_id="j1", kind=kind, payload={"content": content, "timestamp": "2025-01-01T00:00:00Z"}
     )
 
 

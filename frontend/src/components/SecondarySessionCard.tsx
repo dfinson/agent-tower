@@ -37,7 +37,7 @@ function entriesToTranscript(entries: SecondarySessionEntry[]): TranscriptEntry[
         jobId: "",
         seq: entry.seq,
         timestamp: "",
-        role: "thinking",
+        kind: "llm.reasoning.chunk",
         content: entry.content,
       };
     }
@@ -46,14 +46,14 @@ function entriesToTranscript(entries: SecondarySessionEntry[]): TranscriptEntry[
         jobId: "",
         seq: entry.seq,
         timestamp: "",
-        role: "tool_call",
+        kind: "tool.call.completed",
         content: entry.content,
         toolName: entry.toolName ?? undefined,
-        toolArgs: entry.toolArgs ?? undefined,
-        toolResult: entry.toolResult ?? undefined,
+        arguments: entry.toolArgs ?? undefined,
+        result: entry.toolResult ?? undefined,
         toolDisplay: entry.toolDisplay ?? undefined,
         toolDisplayFull: entry.toolDisplayFull ?? undefined,
-        toolSuccess: entry.toolSuccess ?? undefined,
+        success: entry.toolSuccess ?? undefined,
         toolIssue: entry.toolIssue ?? undefined,
         toolVisibility: entry.toolVisibility ?? undefined,
         toolDurationMs: entry.durationMs ?? undefined,
@@ -64,7 +64,7 @@ function entriesToTranscript(entries: SecondarySessionEntry[]): TranscriptEntry[
         jobId: "",
         seq: entry.seq,
         timestamp: "",
-        role: "agent",
+        kind: "message.assistant",
         content: entry.content,
       };
     }
@@ -73,7 +73,7 @@ function entriesToTranscript(entries: SecondarySessionEntry[]): TranscriptEntry[
       jobId: "",
       seq: entry.seq,
       timestamp: "",
-      role: "agent",
+      kind: "message.assistant",
       content: entry.content,
     };
   });

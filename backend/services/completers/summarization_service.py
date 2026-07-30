@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import structlog
 
+from backend.models.events import EventKind
+
 
 class TranscriptTurn(TypedDict):
     role: str
@@ -326,18 +328,17 @@ def _clean_transcript(events: list[SessionEvent]) -> list[TranscriptTurn]:
     prev_content = None
 
     for ev in events:
-        role = str(ev.payload.get("role", ""))
         content = (str(ev.payload.get("content") or "")).strip()
 
-        # Skip empty, skip tool scaffolding noise (role not agent/operator/user)
+        # Skip empty, skip tool scaffolding noise.
         if not content:
             continue
-        if role not in ("agent", "operator", "user"):
-            continue
-
-        # Normalise "user" → "operator"
-        if role == "user":
+        if ev.kind == EventKind.message_assistant:
+            role = "agent"
+        elif ev.kind == EventKind.message_user:
             role = "operator"
+        else:
+            continue
 
         # Skip consecutive duplicates (same role + content)
         key = f"{role}:{content}"

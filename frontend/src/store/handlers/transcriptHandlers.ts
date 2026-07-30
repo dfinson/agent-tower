@@ -26,12 +26,12 @@ export function handleLogLine(state: AppState, payload: Record<string, unknown>)
   };
 }
 
-export function handleTranscriptUpdate(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+export function handleTranscriptUpdate(state: AppState, payload: Record<string, unknown>, _getFresh: () => AppState, eventType: string): Partial<AppState> | null {
   const jobId = payload.jobId as string;
-  const role = payload.role as string;
+  const kind = (payload.kind as string | undefined) ?? eventType;
 
-  // agent_delta: accumulate streaming text per turn, don't add to transcript
-  if (role === "agent_delta") {
+  // message.delta: accumulate streaming text per turn, don't add to transcript
+  if (kind === "message.delta") {
     const turnId = (payload.turnId as string | undefined) ?? "__default__";
     const key = `${jobId}:${turnId}`;
     const delta = (payload.content as string) ?? "";
@@ -43,8 +43,8 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
     };
   }
 
-  // tool_output_delta: accumulate streaming tool output, don't add to transcript
-  if (role === "tool_output_delta") {
+  // tool.result.chunk: accumulate streaming tool output, don't add to transcript
+  if (kind === "tool.result.chunk") {
     const toolCallId = (payload.toolCallId as string | undefined) ?? (payload.toolName as string | undefined) ?? "__tool__";
     const key = `${jobId}:${toolCallId}`;
     const chunk = (payload.content as string) ?? "";
@@ -56,8 +56,9 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
     };
   }
 
-  // reasoning_delta: accumulate streaming reasoning per turn, don't add to transcript
-  if (role === "reasoning_delta") {
+  // llm.reasoning.chunk (streaming partial): accumulate live reasoning per turn, don't add to transcript.
+  // Complete (non-partial) reasoning blocks fall through and are added to the transcript below.
+  if (kind === "llm.reasoning.chunk" && payload.partial === true) {
     const turnId = (payload.turnId as string | undefined) ?? "__default__";
     const key = `${jobId}:${turnId}`;
     const delta = (payload.content as string) ?? "";
@@ -73,14 +74,14 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
     jobId,
     seq: payload.seq as number,
     timestamp: payload.timestamp as string,
-    role,
+    kind,
     content: payload.content as string,
     title: payload.title as string | undefined,
     turnId: payload.turnId as string | undefined,
     toolName: payload.toolName as string | undefined,
-    toolArgs: payload.toolArgs as string | undefined,
-    toolResult: payload.toolResult as string | undefined,
-    toolSuccess: payload.toolSuccess as boolean | undefined,
+    arguments: payload.arguments as string | undefined,
+    result: payload.result as string | undefined,
+    success: payload.success as boolean | undefined,
     toolIssue: payload.toolIssue as string | undefined,
     toolIntent: payload.toolIntent as string | undefined,
     toolTitle: payload.toolTitle as string | undefined,
@@ -91,14 +92,14 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
   };
   const existing = state.transcript[jobId] ?? [];
 
-  // When a tool_call arrives, replace any matching tool_running entry
+  // When a tool.call.completed arrives, replace any matching tool.call.started entry
   // (same toolName, and same turnId when both are present) so the
   // in-progress placeholder is superseded.
   let base = existing;
-  if (entry.role === "tool_call") {
+  if (entry.kind === "tool.call.completed") {
     const before = base.length;
     base = base.filter((e) => {
-      if (e.role !== "tool_running" || e.toolName !== entry.toolName) return true;
+      if (e.kind !== "tool.call.started" || e.toolName !== entry.toolName) return true;
       // If both entries have a turnId, they must match to be considered the same call.
       if (entry.turnId && e.turnId && entry.turnId !== e.turnId) return true;
       return false;
@@ -114,19 +115,19 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
   }
 
   // Deduplicate: two SSE connections (global + job-scoped) may deliver
-  // the same event; skip if identical role+content+timestamp already present.
-  // For operator messages, match on role+content only (ignore timestamp) to
+  // the same event; skip if identical kind+content+timestamp already present.
+  // For user messages, match on kind+content only (ignore timestamp) to
   // suppress the SSE echo when an optimistic entry was already inserted.
-  if (entry.role === "operator"
-    ? existing.some((e) => e.role === "operator" && e.content === entry.content)
-    : existing.some((e) => e.timestamp === entry.timestamp && e.role === entry.role && e.content === entry.content)) {
+  if (entry.kind === "message.user"
+    ? existing.some((e) => e.kind === "message.user" && e.content === entry.content)
+    : existing.some((e) => e.timestamp === entry.timestamp && e.kind === entry.kind && e.content === entry.content)) {
     return null;
   }
   const updated = [...existing, entry];
 
   // When a complete agent message arrives, clear streaming state for that turn.
   let streamingMessages = state.streamingMessages;
-  if (entry.role === "agent") {
+  if (entry.kind === "message.assistant") {
     const key = entry.turnId ? `${jobId}:${entry.turnId}` : `${jobId}:__default__`;
     if (key in streamingMessages) {
       streamingMessages = { ...streamingMessages };
@@ -134,9 +135,9 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
     }
   }
 
-  // When a tool_call (completion) arrives, clear streaming tool output.
+  // When a tool.call.completed arrives, clear streaming tool output.
   let streamingToolOutput = state.streamingToolOutput;
-  if (entry.role === "tool_call") {
+  if (entry.kind === "tool.call.completed") {
     // Clear all streaming entries for this job (tool call IDs vary)
     const prefix = `${jobId}:`;
     const keys = Object.keys(streamingToolOutput).filter((k) => k.startsWith(prefix));
@@ -146,9 +147,9 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
     }
   }
 
-  // When a complete reasoning message arrives, clear streaming reasoning for that turn.
+  // When a complete reasoning block arrives, clear streaming reasoning for that turn.
   let streamingReasoning = state.streamingReasoning;
-  if (entry.role === "reasoning") {
+  if (entry.kind === "llm.reasoning.chunk") {
     const key = entry.turnId ? `${jobId}:${entry.turnId}` : `${jobId}:__default__`;
     if (key in streamingReasoning) {
       streamingReasoning = { ...streamingReasoning };
@@ -159,7 +160,7 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
   // Clear setupStep once real transcript content arrives — setup is done.
   let jobs = state.jobs;
   const job = jobs[jobId];
-  if (job?.setupStep && entry.role !== "operator") {
+  if (job?.setupStep && entry.kind !== "message.user") {
     jobs = { ...jobs, [jobId]: { ...job, setupStep: null } };
   }
 
@@ -299,7 +300,7 @@ export function handleToolGroupSummary(state: AppState, payload: Record<string, 
   if (!entries) return null;
   let changed = false;
   const patched = entries.map((e) => {
-    if (e.role === "tool_call" && e.turnId === turnId && e.toolGroupSummary !== summary) {
+    if (e.kind === "tool.call.completed" && e.turnId === turnId && e.toolGroupSummary !== summary) {
       changed = true;
       return { ...e, toolGroupSummary: summary };
     }
@@ -311,14 +312,17 @@ export function handleToolGroupSummary(state: AppState, payload: Record<string, 
 
 export const transcriptHandlers: Record<string, SSEHandler> = {
   log: handleLogLine,
-  // All transcript kinds route to the same handler, which branches on the
-  // preserved `payload.role`. The backend splits transcript events into these
-  // role-specific dotted kinds (see `transcript_kind_for_role`).
+  // All transcript kinds route to the same handler, which branches on dotted kind.
   "message.user": handleTranscriptUpdate,
   "message.assistant": handleTranscriptUpdate,
+  "message.system": handleTranscriptUpdate,
   "message.delta": handleTranscriptUpdate,
+  "llm.reasoning.chunk": handleTranscriptUpdate,
   "tool.call.started": handleTranscriptUpdate,
   "tool.call.completed": handleTranscriptUpdate,
+  "tool.result.chunk": handleTranscriptUpdate,
+  "sidecar.transcript": handleTranscriptUpdate,
+  "sidecar.agent_message": handleTranscriptUpdate,
   "tool.group_summary": handleToolGroupSummary,
   "secondary_session.started": handleSecondarySessionStarted,
   "secondary_session.entry": handleSecondarySessionEntry,

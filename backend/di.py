@@ -39,6 +39,7 @@ from backend.services.events.event_bus import EventBus
 from backend.services.events.ingest_service import IngestService
 from backend.services.events.sse_manager import SSEManager
 from backend.services.git.git_service import GitService
+from backend.services.ingest.claude_source import ClaudeSessionStateWatcher
 from backend.services.job.approval_service import ApprovalService
 from backend.services.job.job_service import JobService
 from backend.services.merge_service import MergeService
@@ -52,7 +53,6 @@ from backend.services.steps.diff_service import StepDiffService
 from backend.services.story.service import StoryService
 from backend.services.terminal.terminal_service import TerminalService
 from backend.services.trail import TrailService
-from backend.services.watcher.claude import ClaudeSessionStateWatcher
 
 # NewType wrappers for plain values that need unique DI keys
 CachedModelsBySdk = NewType("CachedModelsBySdk", dict[str, Any])

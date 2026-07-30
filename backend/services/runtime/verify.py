@@ -15,10 +15,10 @@ from sqlalchemy.exc import DBAPIError
 
 from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT
 from backend.models.api_schemas import ExecutionPhase
-from backend.models.domain import CodePlaneError, SessionConfig
-from backend.models.events import TRANSCRIPT_KINDS, EventKind, new_event
+from backend.models.events import EventKind, new_event
 
 if TYPE_CHECKING:
+    from backend.models.domain import Job, SessionConfig
     from backend.services.runtime.service import RuntimeService
 
 log = structlog.get_logger()
@@ -56,12 +56,10 @@ async def run_followup_turn(
 
     try:
         async for event in followup_session.execute(followup_config, host._resolve_adapter(base_config.sdk)):
-            action, domain_event, evt_error = await host._process_agent_event(
+            action, evt_error = await host._process_agent_event(
                 job_id,
                 event,
                 followup_session,
-                worktree_path,
-                base_ref,
                 "Approval rejected during verification",
             )
 
@@ -70,9 +68,6 @@ async def run_followup_turn(
             if action == EventAction.abort:
                 error_reason = evt_error
                 break
-
-            if domain_event is None:
-                raise CodePlaneError("Event publish must always provide a domain event")
 
             if evt_error:
                 error_reason = evt_error
@@ -83,20 +78,15 @@ async def run_followup_turn(
                 host._session_ids[job_id] = new_session_id
                 await host._persist_sdk_session_id(job_id, new_session_id)
 
-            if domain_event.kind == EventKind.log_line_emitted:
-                domain_event.payload.setdefault("session_number", session_number)
+            if event.kind == EventKind.log_line_emitted:
+                event.payload.setdefault("session_number", session_number)
 
-            # Step tracking for follow-up turns
-            if domain_event.kind in TRANSCRIPT_KINDS and host._step_tracker is not None:
-                role = domain_event.payload.get("role", "")
-                if role != "agent_delta":
-                    await host._step_tracker.on_transcript_event(job_id, domain_event)
-                    current = host._step_tracker.current_step(job_id)
-                    if current:
-                        domain_event.payload["step_id"] = current.step_id
-                        domain_event.payload["step_number"] = current.step_number
-
-            await host._event_bus.publish(domain_event)
+            # Forward to the one funnel — step/trail annotation + publish happen
+            # inside the EventProcessor (shared with the main execution loop).
+            if host._event_processor is not None:
+                await host._event_processor.process_event(job_id, event, worktree_path, base_ref)
+            else:
+                await host._event_bus.publish(event)
     except Exception:
         log.warning("followup_turn_failed", job_id=job_id, exc_info=True)
         error_reason = "Follow-up turn execution error"
@@ -114,8 +104,6 @@ async def run_verify_review(
     session_number: int = 1,
 ) -> None:
     """Run optional verify and self-review turns after the main agent session."""
-    from backend.models.domain import Job
-
     job: Job | None = None
     try:
         async with host._session_factory() as session:

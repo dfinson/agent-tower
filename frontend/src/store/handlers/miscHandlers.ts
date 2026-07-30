@@ -71,7 +71,7 @@ export function handleSessionResumed(state: AppState, payload: Record<string, un
     jobId,
     seq: -99,
     timestamp,
-    role: "divider",
+    kind: "divider",
     content: "Session",
   };
   const existing = state.transcript[jobId] ?? [];
@@ -91,7 +91,7 @@ export function handleSessionResumed(state: AppState, payload: Record<string, un
     mergeStatus: null,
     completedAt: null,
   };
-  if (existing.some((e) => e.role === "divider" && e.timestamp === divider.timestamp)) {
+  if (existing.some((e) => e.kind === "divider" && e.timestamp === divider.timestamp)) {
     return { jobs: state.jobs[jobId] ? { ...state.jobs, [jobId]: { ...state.jobs[jobId], ...resetFields } } : state.jobs };
   }
   return {

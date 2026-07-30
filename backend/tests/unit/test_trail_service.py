@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from traceforge.types import EventMetadata, ToolMotivation
 
 from backend.models.db import Base, JobTelemetrySpanRow, TrailNodeRow
 from backend.models.events import EventKind, SessionEvent, new_event
@@ -55,8 +56,15 @@ def _make_event(
     kind: EventKind = EventKind.job_state_changed,
     job_id: str = "job-1",
     payload: dict | None = None,
+    metadata: EventMetadata | None = None,
 ) -> SessionEvent:
-    return new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=kind, payload=payload or {})
+    return new_event(
+        session_id=job_id,
+        timestamp=datetime.now(UTC),
+        kind=kind,
+        payload=payload or {},
+        metadata=metadata,
+    )
 
 
 def _job_started_event(job_id: str = "job-1") -> SessionEvent:
@@ -1355,14 +1363,15 @@ class TestNodeBuilderToolCall:
             _make_event(
                 EventKind.tool_call_completed,
                 payload={
-                    "role": "tool_call",
                     "content": "str_replace_editor",
                     "tool_name": "str_replace_editor",
                     "turn_id": "turn-42",
-                    "tool_display": "Edit app.py:10",
-                    "tool_intent": "Fix the import statement",
-                    "tool_success": True,
+                    "success": True,
                 },
+                metadata=EventMetadata(
+                    tool_display="Edit app.py:10",
+                    motivation=ToolMotivation(intent="Fix the import statement"),
+                ),
             )
         )
 

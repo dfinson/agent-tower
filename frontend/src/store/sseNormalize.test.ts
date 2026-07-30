@@ -25,16 +25,16 @@ describe("deepSnakeToCamel", () => {
   });
 
   it("leaves already-camel and single-word keys unchanged", () => {
-    expect(deepSnakeToCamel({ role: "agent", jobId: "j1", content: "hi" })).toEqual({
-      role: "agent",
+    expect(deepSnakeToCamel({ kind: "message.assistant", jobId: "j1", content: "hi" })).toEqual({
+      kind: "message.assistant",
       jobId: "j1",
       content: "hi",
     });
   });
 
   it("never mutates string values (discriminators survive)", () => {
-    expect(deepSnakeToCamel({ role: "agent_delta", warning_type: "drift" })).toEqual({
-      role: "agent_delta",
+    expect(deepSnakeToCamel({ kind: "message.delta", warning_type: "drift" })).toEqual({
+      kind: "message.delta",
       warningType: "drift",
     });
   });
@@ -64,6 +64,11 @@ describe("normalizeTFEvent", () => {
     expect(out.toolName).toBe("grep");
   });
 
+  it("injects the envelope kind as the transcript discriminator", () => {
+    const out = normalizeTFEvent(ev({ kind: "message.assistant", payload: { content: "hi" } }));
+    expect(out.kind).toBe("message.assistant");
+  });
+
   it("falls back to the envelope timestamp when payload lacks one", () => {
     const out = normalizeTFEvent(ev({ payload: {} }));
     expect(out.timestamp).toBe("2025-01-01T00:00:00Z");
@@ -82,6 +87,20 @@ describe("normalizeTFEvent", () => {
   it("prefers a payload turnId over metadata", () => {
     const out = normalizeTFEvent(ev({ payload: { turn_id: "payload-turn" }, metadata: { turn_id: "meta-turn" } }));
     expect(out.turnId).toBe("payload-turn");
+  });
+
+  it("lifts TF metadata tool enrichment into the payload view", () => {
+    const out = normalizeTFEvent(ev({
+      payload: {},
+      metadata: {
+        tool_display: "Read src/main.ts",
+        duration_ms: 123,
+        motivation: { intent: "Inspect file", reasoning: "need context" },
+      },
+    }));
+    expect(out.toolDisplay).toBe("Read src/main.ts");
+    expect(out.toolDurationMs).toBe(123);
+    expect(out.toolIntent).toBe("Inspect file");
   });
 
   it("handles a null/absent payload", () => {

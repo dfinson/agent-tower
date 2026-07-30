@@ -560,11 +560,11 @@ export function CuratedFeed({
 
   const entries = useMemo<TranscriptEntry[]>(() => [
     ...(prompt
-      ? [{ jobId, seq: -1, timestamp: promptTimestamp ?? "", role: "operator", content: prompt }]
+      ? [{ jobId, seq: -1, timestamp: promptTimestamp ?? "", kind: "message.user", content: prompt }]
       : []),
     ...rawEntries.filter((e) => {
-      if (!e.content?.trim() && e.role !== "tool_call" && e.role !== "tool_running") return false;
-      if (prompt && e.role === "operator" && e.content === prompt) return false;
+      if (!e.content?.trim() && e.kind !== "tool.call.completed" && e.kind !== "tool.call.started") return false;
+      if (prompt && e.kind === "message.user" && e.content === prompt) return false;
       return true;
     }),
   ], [rawEntries, jobId, prompt, promptTimestamp]);
@@ -756,7 +756,7 @@ export function CuratedFeed({
       jobId,
       seq: 0,
       timestamp: new Date().toISOString(),
-      role: "operator",
+      kind: "message.user",
       content: text,
     };
     const state = useStore.getState();

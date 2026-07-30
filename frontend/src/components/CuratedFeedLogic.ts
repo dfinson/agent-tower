@@ -131,7 +131,7 @@ export interface PhaseFile {
 
 /** Extract a dedup key (file path or command) from a tool call entry. */
 export function extractFileKey(entry: TranscriptEntry): string {
-  const args = parseArgs(entry.toolArgs);
+  const args = parseArgs(entry.arguments);
   const kind = classifyTool(entry.toolName);
 
   if (kind === "read" || kind === "write" || kind === "create") {
@@ -196,12 +196,12 @@ export function deduplicateByFile(entries: TranscriptEntry[]): PhaseFile[] {
       let fileName: string;
       let relativePath: string;
       if (kind === "execute") {
-        const args = parseArgs(e.toolArgs);
+        const args = parseArgs(e.arguments);
         const cmd = (args.command as string) ?? "";
         fileName = cmd.length > 40 ? cmd.slice(0, 40) + "…" : cmd;
         relativePath = cmd;
       } else if (kind === "search") {
-        const args = parseArgs(e.toolArgs);
+        const args = parseArgs(e.arguments);
         const q = ((args.query ?? args.pattern ?? "") as string).slice(0, 30);
         fileName = `"${q}"`;
         relativePath = `"${q}"`;
@@ -236,13 +236,13 @@ export function buildFeedItems(
     // Deduplicate tool_running/tool_call pairs
     const completedNames = new Map<string, number>();
     for (const e of currentTurn.toolCalls) {
-      if (e.role === "tool_call" && e.toolName) {
+      if (e.kind === "tool.call.completed" && e.toolName) {
         completedNames.set(e.toolName, (completedNames.get(e.toolName) ?? 0) + 1);
       }
     }
     const runningCounts = new Map<string, number>();
     currentTurn.toolCalls = currentTurn.toolCalls.filter((e) => {
-      if (e.role !== "tool_running" || !e.toolName) return true;
+      if (e.kind !== "tool.call.started" || !e.toolName) return true;
       const limit = completedNames.get(e.toolName) ?? 0;
       if (limit <= 0) return true;
       const seen = (runningCounts.get(e.toolName) ?? 0) + 1;
@@ -292,19 +292,19 @@ export function buildFeedItems(
       }
     }
 
-    if (entry.role === "operator") {
+    if (entry.kind === "message.user") {
       flushTurn();
       items.push({ type: "operator", entry });
       continue;
     }
 
-    if (entry.role === "divider") {
+    if (entry.kind === "divider") {
       flushTurn();
       items.push({ type: "divider", entry });
       continue;
     }
 
-    if (entry.role === "thinking" || entry.role === "reasoning") {
+    if (entry.kind === "llm.reasoning.chunk") {
       if (currentTurn && entry.turnId && currentTurn.turnId && entry.turnId !== currentTurn.turnId) {
         flushTurn();
       }
@@ -316,7 +316,7 @@ export function buildFeedItems(
       continue;
     }
 
-    if (entry.role === "tool_call" || entry.role === "tool_running") {
+    if (entry.kind === "tool.call.completed" || entry.kind === "tool.call.started") {
       if (currentTurn && entry.turnId && currentTurn.turnId && entry.turnId !== currentTurn.turnId) {
         flushTurn();
       }
@@ -327,7 +327,7 @@ export function buildFeedItems(
       continue;
     }
 
-    if (entry.role === "agent") {
+    if (entry.kind === "message.assistant") {
       if (currentTurn && entry.turnId && currentTurn.turnId && entry.turnId !== currentTurn.turnId) {
         flushTurn();
       }

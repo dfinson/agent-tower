@@ -26,7 +26,7 @@ from backend.models.domain import (
     Resolution,
     StateConflictError,
 )
-from backend.models.events import EventKind, new_event, transcript_kind_for_role
+from backend.models.events import EventKind, new_event
 from backend.persistence.job_repo import JobRepository
 
 if TYPE_CHECKING:
@@ -339,8 +339,6 @@ async def resume_job(host: RuntimeService, job_id: str, instruction: str | None 
     intact, no summarization cost). Fallback: use LLM-generated session summary when the
     SDK session is no longer available (daemon restart, session expired, etc.).
     """
-    from backend.models.api_schemas import TranscriptRole
-
     resumable_states = TERMINAL_STATES | {JobState.review}
     normalized_instruction = _normalize_resume_instruction(instruction)
 
@@ -469,12 +467,11 @@ async def resume_job(host: RuntimeService, job_id: str, instruction: str | None 
         new_event(
             session_id=job_id,
             timestamp=now,
-            kind=transcript_kind_for_role(TranscriptRole.operator),
+            kind=EventKind.message_user,
             payload={
                 "job_id": job_id,
                 "seq": 0,
                 "timestamp": now.isoformat(),
-                "role": TranscriptRole.operator,
                 "content": normalized_instruction,
             },
         )

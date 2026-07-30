@@ -19,12 +19,12 @@ if TYPE_CHECKING:
 
 __all__ = [
     "TRANSCRIPT_KINDS",
+    "TRANSCRIPT_STREAMING_KINDS",
     "EventKind",
     "EventMetadata",
     "EventPayload",
     "SessionEvent",
     "new_event",
-    "transcript_kind_for_role",
 ]
 
 
@@ -42,12 +42,39 @@ class EventKind(StrEnum):
     job_setup_progress = "job.setup_progress"
     workspace_prepared = "workspace.prepared"
     agent_session_started = "agent.session_started"
-    # --- Transcript family (one CP transcript event per agent role) ---
+    # --- Transcript family (dotted vendor kinds, emitted natively by both
+    #     producers: managed adapters + imported TF mappings) ---
     message_user = "message.user"
     message_assistant = "message.assistant"
+    message_system = "message.system"
     message_delta = "message.delta"
+    # Unified TF reasoning lifecycle (traceforge-toolkit >=0.1.2): both managed
+    # producers and the bundled claude/copilot mappings emit ``llm.reasoning.chunk``
+    # for model thinking/reasoning. The started/completed/failed boundaries are
+    # registered for forward-compat with other frameworks CP may later ingest;
+    # CP's live path only emits ``llm.reasoning.chunk``.
+    llm_reasoning_started = "llm.reasoning.started"
+    llm_reasoning_chunk = "llm.reasoning.chunk"
+    llm_reasoning_completed = "llm.reasoning.completed"
+    llm_reasoning_failed = "llm.reasoning.failed"
+    planning_started = "planning.started"
     tool_call_started = "tool.call.started"
     tool_call_completed = "tool.call.completed"
+    tool_result_chunk = "tool.result.chunk"
+    # --- Imported/native session lifecycle (TF mapping outputs consumed by
+    #     the ingest sources for finalization/abort) ---
+    session_started = "session.started"
+    session_ended = "session.ended"
+    session_error = "session.error"
+    session_idle = "session.idle"
+    session_abort = "session.abort"
+    turn_started = "turn.started"
+    turn_ended = "turn.ended"
+    permission_granted = "permission.granted"
+    # --- Telemetry (native TF usage record) ---
+    telemetry_usage = "telemetry.usage"
+    # --- File edits (native TF file kind; drives diff recalculation) ---
+    file_edited = "file.edited"
     # --- Logs / diffs ---
     log_line_emitted = "log"
     diff_updated = "diff.updated"
@@ -109,40 +136,36 @@ class EventKind(StrEnum):
     job_mode_changed = "job.mode_changed"
 
 
-# The transcript family: one CP "transcript" event fans out to a role-specific
-# dotted kind. Role is retained in ``payload["role"]`` so consumers that branch
-# on role continue to work; kind-level "is this a transcript event" checks use
-# this set.
+# The transcript family: dotted vendor kinds that represent conversation/tool
+# activity to display and step-track. Both producers (managed adapters, imported
+# TF mappings) emit these dotted kinds natively — consumers branch on ``kind``,
+# never on a ``role`` field. ``message.delta`` and ``tool.result.chunk`` are
+# streaming partials (skipped by step tracking); the rest are complete blocks.
 TRANSCRIPT_KINDS: frozenset[EventKind] = frozenset(
     {
         EventKind.message_user,
         EventKind.message_assistant,
+        EventKind.message_system,
         EventKind.message_delta,
+        EventKind.llm_reasoning_started,
+        EventKind.llm_reasoning_chunk,
+        EventKind.llm_reasoning_completed,
+        EventKind.llm_reasoning_failed,
         EventKind.tool_call_started,
         EventKind.tool_call_completed,
+        EventKind.tool_result_chunk,
     }
 )
 
-
-def transcript_kind_for_role(role: str) -> EventKind:
-    """Map a transcript ``role`` to its dotted CodePlane event kind.
-
-    Roles emitted by the adapters/watchers: ``operator``/``user`` (human input),
-    ``agent``/``assistant`` (complete agent message), ``agent_delta`` (streaming
-    partial), ``tool_running`` (a tool began), ``tool_call`` (a tool completed).
-    """
-    if role in ("operator", "user"):
-        return EventKind.message_user
-    if role in ("agent", "assistant"):
-        return EventKind.message_assistant
-    if role == "agent_delta":
-        return EventKind.message_delta
-    if role == "tool_running":
-        return EventKind.tool_call_started
-    if role == "tool_call":
-        return EventKind.tool_call_completed
-    # Unknown roles default to a full assistant message (safest for display).
-    return EventKind.message_assistant
+# Streaming partials within the transcript family — display them, but do not
+# advance step/turn tracking on them (they are token-by-token fragments).
+TRANSCRIPT_STREAMING_KINDS: frozenset[EventKind] = frozenset(
+    {
+        EventKind.message_delta,
+        EventKind.llm_reasoning_chunk,
+        EventKind.tool_result_chunk,
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -190,20 +213,23 @@ class LogLinePayloadDict(_BasePayload, total=False):
 
 
 class TranscriptPayloadDict(_BasePayload, total=False):
+    """TF-native transcript/tool payload.
+
+    Dotted ``kind`` (on the event) replaces the old ``role`` field. Tool fields
+    use TF names (``arguments``/``result``/``success``). Presentation/motivation
+    enrichment (``tool_display``/intent/``duration_ms``) lives on
+    ``event.metadata`` (``tool_display``/``motivation``/``duration_ms``), not here.
+    """
+
     seq: int
     timestamp: str
-    role: str
     content: str
     title: str | None
     tool_name: str | None
-    tool_args: str | None
-    tool_result: str | None
-    tool_success: bool | None
-    tool_issue: str | None
-    tool_intent: str | None
-    tool_title: str | None
-    tool_display: str | None
-    tool_duration_ms: int | None
+    tool_call_id: str | None
+    arguments: Any
+    result: str | None
+    success: bool | None
 
 
 class DiffFilePayloadDict(TypedDict, total=False):

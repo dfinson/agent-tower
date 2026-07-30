@@ -281,31 +281,29 @@ class TestConcurrency:
 
 class TestExtractContent:
     def test_messages_agent_content(self):
-        ev = new_event("j", EventKind.message_assistant, {"role": "agent", "content": "hello"})
+        ev = new_event("j", EventKind.message_assistant, {"content": "hello"})
         assert SidecarDispatcher._extract_content(ev, "messages") == "hello"
 
     def test_messages_agent_delta_content(self):
-        ev = new_event("j", EventKind.message_delta, {"role": "agent_delta", "content": "part"})
+        ev = new_event("j", EventKind.message_delta, {"content": "part"})
         assert SidecarDispatcher._extract_content(ev, "messages") == "part"
 
     def test_messages_operator_role_ignored(self):
-        ev = new_event("j", EventKind.message_user, {"role": "operator", "content": "hi"})
+        ev = new_event("j", EventKind.message_user, {"content": "hi"})
         assert SidecarDispatcher._extract_content(ev, "messages") is None
 
     def test_messages_non_transcript_kind_ignored(self):
-        ev = new_event("j", EventKind.log_line_emitted, {"role": "agent", "content": "x"})
+        ev = new_event("j", EventKind.log_line_emitted, {"content": "x"})
         assert SidecarDispatcher._extract_content(ev, "messages") is None
 
     def test_tool_calls_returns_tool_name(self):
-        ev = new_event("j", EventKind.tool_call_completed, {"role": "tool_call", "tool_name": "Bash"})
+        ev = new_event("j", EventKind.tool_call_completed, {"tool_name": "Bash"})
         assert SidecarDispatcher._extract_content(ev, "tool_calls") == "Bash"
 
     def test_tool_output_returns_result(self):
-        ev = new_event(
-            "j", EventKind.tool_call_completed, {"role": "tool_call", "tool_result": "done"}
-        )
+        ev = new_event("j", EventKind.tool_call_completed, {"result": "done"})
         assert SidecarDispatcher._extract_content(ev, "tool_output") == "done"
 
     def test_tool_calls_non_transcript_kind_ignored(self):
-        ev = new_event("j", EventKind.diff_updated, {"role": "tool_call", "tool_name": "Bash"})
+        ev = new_event("j", EventKind.diff_updated, {"tool_name": "Bash"})
         assert SidecarDispatcher._extract_content(ev, "tool_calls") is None

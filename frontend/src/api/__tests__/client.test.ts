@@ -14,6 +14,7 @@ import {
   fetchJob,
   fetchJobLogs,
   fetchJobTranscript,
+  fetchTranscriptSearch,
   fetchJobDiff,
   createJob,
   cancelJob,
@@ -310,11 +311,24 @@ describe("fetchJobLogs", () => {
 
 describe("fetchJobTranscript", () => {
   it("fetches transcript", async () => {
-    const entries = [{ seq: 1, role: "agent", content: "Done" }];
+    const entries = [{ seq: 1, kind: "message.assistant", content: "Done" }];
     mockFetch.mockResolvedValueOnce(jsonResponse({ items: entries }));
     const result = await fetchJobTranscript("j-1");
     expect(result).toEqual(entries);
     expect(getFirstFetchUrl()).toContain("/api/jobs/j-1/transcript");
+  });
+
+  describe("fetchTranscriptSearch", () => {
+    it("passes dotted kinds and returns kind-shaped results", async () => {
+      const entries = [{ seq: 1, kind: "tool.call.completed", content: "Done", toolName: "Bash", stepId: null, stepNumber: null, timestamp: "2025-01-01T00:00:00Z" }];
+      mockFetch.mockResolvedValueOnce(jsonResponse({ items: entries }));
+      const result = await fetchTranscriptSearch("j-1", "Done", { kinds: ["tool.call.completed"], limit: 5 });
+      expect(result).toEqual(entries);
+      const url = getFirstFetchUrl();
+      expect(url).toContain("/api/jobs/j-1/transcript/search");
+      expect(url).toContain("kinds=tool.call.completed");
+      expect(url).not.toContain("roles=");
+    });
   });
 });
 

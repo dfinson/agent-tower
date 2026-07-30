@@ -12,6 +12,7 @@ from sqlalchemy.exc import DBAPIError
 
 from backend.models.db import JobRow, TrailNodeRow
 from backend.models.events import TRANSCRIPT_KINDS, EventKind, SessionEvent
+from backend.services.tool_formatters import format_tool_display
 from backend.services.trail.models import (
     MESSAGE_SIGNAL_BUFFER_SIZE,
     Activity,
@@ -629,11 +630,11 @@ class TrailNodeBuilder:
     async def _on_transcript_updated(self, event: SessionEvent) -> None:
         """Create or update trail nodes for transcript messages.
 
-        Handles three transcript roles:
-        - operator/user: Creates request nodes (operator messages).
-        - tool_call: Updates matching write sub-nodes with tool metadata
+        Handles three transcript kinds:
+        - message.user: Creates request nodes (operator messages).
+        - tool.call.completed: Updates matching write sub-nodes with tool metadata
           (tool_display, tool_intent, tool_success) per §13.3.
-        - agent/assistant: Updates step node agent_message if not already set.
+        - message.assistant: Updates step node agent_message if not already set.
         """
         job_id = event.session_id
         assert job_id is not None
@@ -641,14 +642,11 @@ class TrailNodeBuilder:
         if not state:
             return
 
-        payload = event.payload or {}
-        role = payload.get("role", "")
-
-        if role in ("operator", "user"):
+        if event.kind == EventKind.message_user:
             await self._handle_operator_transcript(event, state)
-        elif role == "tool_call":
+        elif event.kind == EventKind.tool_call_completed:
             await self._handle_tool_call_transcript(event, state)
-        elif role in ("agent", "assistant"):
+        elif event.kind == EventKind.message_assistant:
             await self._handle_assistant_transcript(event, state)
 
     async def _handle_operator_transcript(
@@ -712,9 +710,17 @@ class TrailNodeBuilder:
         if not event.session_id:
             return
 
-        tool_display = payload.get("tool_display") or None
-        tool_intent = payload.get("tool_intent") or None
-        tool_success = payload.get("tool_success")
+        tool_display = event.metadata.tool_display or None
+        if tool_display is None:
+            arguments = payload.get("arguments")
+            if isinstance(arguments, dict):
+                arguments = json.dumps(arguments, ensure_ascii=False)
+            elif arguments is not None and not isinstance(arguments, str):
+                arguments = str(arguments)
+            tool_display = format_tool_display(str(tool_name), arguments)
+        motivation = getattr(event.metadata, "motivation", None)
+        tool_intent = getattr(motivation, "intent", None) or None
+        tool_success = payload.get("success")
         if tool_success is not None:
             tool_success = bool(tool_success)
 

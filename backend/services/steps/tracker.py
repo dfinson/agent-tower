@@ -50,6 +50,14 @@ def _extract_file_path(tool_name: str, tool_args: str) -> str | None:
         return None
 
 
+def _tool_args_to_str(tool_args: Any) -> str:
+    if tool_args is None:
+        return ""
+    if isinstance(tool_args, str):
+        return tool_args
+    return json.dumps(tool_args, ensure_ascii=False)
+
+
 @dataclass
 class _StepState:
     step_id: str
@@ -106,32 +114,32 @@ class StepTracker:
     async def on_transcript_event(self, job_id: str, event: SessionEvent) -> None:
         """Process a TranscriptUpdated event."""
         payload = event.payload
-        role = payload.get("role", "")
-        content = payload.get("content", "")
+        content = str(payload.get("content", "") or "")
         turn_id = payload.get("turn_id") or ""
-        tool_intent = payload.get("tool_intent", "")
+        motivation = getattr(event.metadata, "motivation", None)
+        tool_intent = str(getattr(motivation, "intent", "") or "")
 
-        if role == "agent_delta":
+        if event.kind == EventKind.message_delta:
             return
 
         # Buffer non-delta transcript entries for preceding_context.
-        # Completed tool calls (role=tool_call with a tool_result field)
+        # Completed tool calls (tool.call.completed with a result field)
         # store the raw result content so the downstream motivation model
         # can interpret it directly — no separate summarization step.
-        if role not in ("reasoning_delta", "tool_output_delta", "tool_running"):
-            entry: dict[str, str] = {"role": role}
+        if event.kind not in (EventKind.message_delta, EventKind.tool_result_chunk, EventKind.tool_call_started):
+            entry: dict[str, str] = {"kind": str(event.kind)}
             t_name = payload.get("tool_name")
-            if role == "tool_call":
+            if event.kind == EventKind.tool_call_completed:
                 if t_name:
                     entry["tool_name"] = str(t_name)
-                t_args = payload.get("tool_args")
+                t_args = _tool_args_to_str(payload.get("arguments"))
                 if t_args:
-                    entry["tool_args"] = str(t_args)
-                raw_result = str(payload.get("tool_result", "") or "")
+                    entry["arguments"] = t_args
+                raw_result = str(payload.get("result", "") or "")
                 if raw_result:
-                    entry["tool_result"] = raw_result
+                    entry["result"] = raw_result
             else:
-                entry["content"] = str(content)
+                entry["content"] = content
                 if t_name:
                     entry["tool_name"] = str(t_name)
             buf = self._transcript_buffers.setdefault(job_id, [])
@@ -147,12 +155,10 @@ class StepTracker:
             # so the title generator can use it later.
             current = self._current.get(job_id)
             if current:
-                args_raw = payload.get("tool_args") or ""
+                args_raw = payload.get("arguments") or ""
                 if isinstance(args_raw, str):
-                    import json as _json
-
                     try:
-                        args_obj = _json.loads(args_raw)
+                        args_obj = json.loads(args_raw)
                     except (ValueError, TypeError):
                         args_obj = {}
                 else:
@@ -162,11 +168,11 @@ class StepTracker:
                     current.intent = intent_text
             return
 
-        if not turn_id and role not in ("operator", "divider"):
+        if not turn_id and event.kind != EventKind.message_user:
             log.debug(
                 "step_tracker_missing_turn_id",
                 job_id=job_id,
-                role=role,
+                kind=str(event.kind),
                 event_id=event.id,
             )
 
@@ -175,7 +181,7 @@ class StepTracker:
         new_step_trigger: str | None = None
         intent = ""
 
-        if role == "operator":
+        if event.kind == EventKind.message_user:
             new_step_trigger = "operator_message"
             first_line = content.split("\n")[0].strip()
             intent = first_line if first_line else "Operator request"
@@ -198,12 +204,12 @@ class StepTracker:
         if current:
             if turn_id and not current.turn_id:
                 current.turn_id = turn_id
-            if role == "tool_call":
+            if event.kind == EventKind.tool_call_completed:
                 current.tool_count += 1
                 tool_name = payload.get("tool_name", "")
                 if tool_name and tool_name not in current.tool_names:
                     current.tool_names.append(tool_name)
-                tool_args = payload.get("tool_args", "")
+                tool_args = _tool_args_to_str(payload.get("arguments"))
                 path = _extract_file_path(tool_name, tool_args)
                 if path:
                     # Strip worktree prefix to get repo-relative path
@@ -222,7 +228,7 @@ class StepTracker:
                         and len(current.files_written) < _MAX_FILES_PER_STEP
                     ):
                         current.files_written.append(path)
-            if role == "agent" and content.strip():
+            if event.kind == EventKind.message_assistant and content.strip():
                 current.last_agent_message = content
 
     async def on_job_terminal(self, job_id: str, outcome: str) -> None:

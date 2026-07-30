@@ -4,19 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import os
 import tempfile
+import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from backend.models.domain import (
-    SessionConfig,
-    SessionEvent,
-    SessionEventKind,
-)
+from backend.models.events import EventKind
 from backend.services.adapters.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionResult
 from backend.services.adapters.base_adapter import (
     COMPLETION_TIMEOUT_S,
@@ -25,17 +21,16 @@ from backend.services.adapters.base_adapter import (
 )
 from backend.services.auth.permission_policy import PermissionRequest
 from backend.services.claude_adapter._helpers import (
-    _HIDDEN_TOOLS,
     _kill_sdk_subprocess,
 )
-from backend.services.events.event_pipeline import EventPipeline
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from backend.models.api_schemas import ExecutionPhase
+    from backend.models.domain import SessionConfig
+    from backend.models.events import SessionEvent
     from backend.services.events.event_bus import EventBus
     from backend.services.job.approval_service import ApprovalService
 
@@ -47,9 +42,12 @@ class ClaudeAdapter(BaseAgentAdapter):
 
     Each session is backed by a ``ClaudeSDKClient`` instance that maintains
     conversation context.  A background asyncio task consumes the SDK's
-    async message iterator and pushes translated ``SessionEvent`` objects
-    onto a queue that ``stream_events()`` yields from.
+    async message iterator and builds native ``traceforge.SessionEvent``
+    objects (via the shared base ``_emit_tf`` helper) onto a queue that
+    ``stream_events()`` yields from.
     """
+
+    _source_framework = "claude"
 
     def __init__(
         self,
@@ -63,31 +61,15 @@ class ClaudeAdapter(BaseAgentAdapter):
             session_factory=session_factory,
         )
         self._consumer_tasks: dict[str, asyncio.Task[None]] = {}
-        self._current_turn_ids: dict[str, str] = {}  # session_id → turn_id
         self._requested_models: dict[str, str] = {}
         self._model_verified: dict[str, bool] = {}
         # Stderr capture files for debugging failed sessions
         self._stderr_files: dict[str, str] = {}
         self._stderr_file_objects: dict[str, Any] = {}  # session_id → open file
-        # Unified event pipeline
-        self._pipeline = EventPipeline(
-            emit=self._pipeline_emit,
-            schedule_write=self._schedule_db_write,
-            sdk="claude",
-        )
-        if session_factory:
-            self._pipeline.set_session_factory(session_factory)
-
-    # ------------------------------------------------------------------
-    # Pipeline integration
-    # ------------------------------------------------------------------
-
-    async def _pipeline_emit(self, job_id: str, event: SessionEvent) -> None:
-        """Deliver a pipeline-produced event to the session queue."""
-        for sid, jid in self._session_to_job.items():
-            if jid == job_id:
-                self._enqueue(sid, event)
-                return
+        # Tool-call buffer: tool_use_id -> {job_id, tool_name, arguments, start}
+        # Populated on ToolUseBlock, drained on ToolResultBlock to compute
+        # duration_ms and carry start-time context (re-homed from EventPipeline).
+        self._tool_buf: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -105,18 +87,15 @@ class ClaudeAdapter(BaseAgentAdapter):
         if stderr_path:
             with contextlib.suppress(OSError):
                 os.unlink(stderr_path)
-        self._current_turn_ids.pop(session_id, None)
         # Claude-specific model tracking
         job_id = self._session_to_job.get(session_id)
         if job_id:
             self._requested_models.pop(job_id, None)
             self._model_verified.pop(job_id, None)
-            self._pipeline.cleanup_job(job_id)
+            self._log_seqs.pop(job_id, None)
+            for cid in [c for c, v in self._tool_buf.items() if v.get("job_id") == job_id]:
+                self._tool_buf.pop(cid, None)
         super()._cleanup_session_state(session_id)
-
-    def set_execution_phase(self, job_id: str, phase: ExecutionPhase) -> None:
-        """Update the current execution phase for cost analytics span tagging."""
-        self._pipeline.set_execution_phase(job_id, phase)
 
     def _read_session_stderr(self, session_id: str) -> str:
         """Read captured stderr from the Claude subprocess."""
@@ -220,7 +199,12 @@ class ClaudeAdapter(BaseAgentAdapter):
                             if isinstance(message, SystemMessage):
                                 job_id = self._session_to_job.get(session_id)
                                 if job_id:
-                                    await self._pipeline.on_agent_message(job_id, "Claude session initialized")
+                                    self._emit_tf(
+                                        session_id,
+                                        job_id,
+                                        EventKind.message_assistant,
+                                        {"content": "Claude session initialized"},
+                                    )
 
                             elif isinstance(message, AssistantMessage):
                                 await self._process_assistant_message(session_id, message)
@@ -261,16 +245,15 @@ class ClaudeAdapter(BaseAgentAdapter):
                                 session_id=session_id,
                                 retries=parse_error_retries,
                             )
-                            self._enqueue(
+                            self._emit_tf(
                                 session_id,
-                                SessionEvent(
-                                    kind=SessionEventKind.error,
-                                    payload={
-                                        "message": (
-                                            f"Claude SDK: too many consecutive parse errors ({parse_error_retries})"
-                                        ),
-                                    },
-                                ),
+                                self._session_to_job.get(session_id) or session_id,
+                                EventKind.job_failed,
+                                {
+                                    "message": (
+                                        f"Claude SDK: too many consecutive parse errors ({parse_error_retries})"
+                                    ),
+                                },
                             )
                             done = True
                         else:
@@ -288,16 +271,12 @@ class ClaudeAdapter(BaseAgentAdapter):
                     error_msg = f"Claude SDK session error: {exc}"
                     if stderr_snippet:
                         error_msg += f"\n{stderr_snippet}"
-                    if job_id:
-                        await self._pipeline.on_error(job_id, {"message": error_msg})
-                    else:
-                        self._enqueue(
-                            session_id,
-                            SessionEvent(
-                                kind=SessionEventKind.error,
-                                payload={"message": error_msg},
-                            ),
-                        )
+                    self._emit_tf(
+                        session_id,
+                        job_id or session_id,
+                        EventKind.job_failed,
+                        {"message": error_msg},
+                    )
                     done = True
         except asyncio.CancelledError:
             log.info("claude_consumer_cancelled", session_id=session_id)
@@ -322,7 +301,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                 if isinstance(block, ToolResultBlock):
                     await self._process_tool_result_block(session_id, block, job_id)
         elif isinstance(content, str) and content.strip() and job_id:
-            await self._pipeline.on_user_message(job_id, content)
+            self._emit_tf(session_id, job_id, EventKind.message_user, {"content": content})
 
     async def _process_assistant_message(
         self,
@@ -336,9 +315,6 @@ class ClaudeAdapter(BaseAgentAdapter):
         model = getattr(message, "model", "") or ""
         job_id = self._session_to_job.get(session_id)
 
-        # Each AssistantMessage starts a new turn for grouping
-        self._current_turn_ids[session_id] = str(uuid.uuid4())
-
         # Lock in the main model from the first AssistantMessage that carries one
         if job_id and model:
             requested = self._requested_models.get(job_id, "")
@@ -346,13 +322,15 @@ class ClaudeAdapter(BaseAgentAdapter):
                 self._model_verified[job_id] = True
                 self._verify_and_set_model(session_id, job_id, model, requested)
 
+        if not job_id:
+            return
+
         for block in content_blocks:
             if isinstance(block, TextBlock):
                 text = block.text or ""
                 if not text.strip():
                     continue
-                if job_id:
-                    await self._pipeline.on_agent_message(job_id, text)
+                self._emit_tf(session_id, job_id, EventKind.message_assistant, {"content": text})
 
             elif isinstance(block, ToolUseBlock):
                 await self._process_tool_use_block(session_id, block, job_id)
@@ -362,8 +340,8 @@ class ClaudeAdapter(BaseAgentAdapter):
 
             elif isinstance(block, ThinkingBlock):
                 thinking = block.thinking or ""
-                if thinking.strip() and job_id:
-                    await self._pipeline.on_reasoning(job_id, thinking)
+                if thinking.strip():
+                    self._emit_tf(session_id, job_id, EventKind.llm_reasoning_chunk, {"content": thinking})
 
     async def _process_tool_use_block(
         self,
@@ -371,35 +349,32 @@ class ClaudeAdapter(BaseAgentAdapter):
         block: object,
         job_id: str | None,
     ) -> None:
-        """Handle a ToolUseBlock — route through pipeline on_tool_start."""
+        """Handle a ToolUseBlock — buffer start-time and emit tool.call.started."""
         tool_name = getattr(block, "name", "") or "tool"
         tool_id = getattr(block, "id", "") or str(uuid.uuid4())
         tool_input = getattr(block, "input", None)
+        arguments: Any = tool_input if isinstance(tool_input, dict) else None
 
-        # Serialize tool arguments
-        args_str: str | None = None
-        if isinstance(tool_input, dict):
-            try:
-                args_str = json.dumps(tool_input)
-            except (TypeError, ValueError, OverflowError):
-                args_str = str(tool_input)
+        if not job_id:
+            return
 
-        # Synthesize a turn_id for grouping (one per AssistantMessage stream)
-        turn_id = self._current_turn_ids.get(session_id, "")
-        if not turn_id:
-            turn_id = str(uuid.uuid4())
-            self._current_turn_ids[session_id] = turn_id
-
-        if job_id:
-            hidden = tool_name in _HIDDEN_TOOLS
-            await self._pipeline.on_tool_start(
-                job_id,
-                tool_id,
-                tool_name,
-                args_str,
-                hidden=hidden,
-                turn_id=turn_id,
-            )
+        self._tool_buf[tool_id] = {
+            "job_id": job_id,
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "start": time.monotonic(),
+        }
+        self._emit_tf(
+            session_id,
+            job_id,
+            EventKind.tool_call_started,
+            {
+                "tool_name": tool_name,
+                "arguments": arguments,
+                "tool_call_id": tool_id,
+                "content": tool_name,
+            },
+        )
 
     async def _process_tool_result_block(
         self,
@@ -407,31 +382,41 @@ class ClaudeAdapter(BaseAgentAdapter):
         block: object,
         job_id: str | None,
     ) -> None:
-        """Handle a ToolResultBlock — route through pipeline on_tool_complete."""
+        """Handle a ToolResultBlock — pair with buffered start and emit tool.call.completed."""
         tool_use_id = getattr(block, "tool_use_id", "") or ""
         content = getattr(block, "content", "")
         is_error = getattr(block, "is_error", False)
 
         result_text = self._extract_result_text(content)
 
-        if job_id:
-            # Correct false failures for file-edit tools
-            success = not is_error
-            if not success:
-                from backend.services.tool_formatters import correct_edit_success
+        if not job_id:
+            return
 
-                buffered = self._pipeline.get_buffered_tool(tool_use_id)
-                resolved_name = buffered.get("tool_name", "tool")
-                success = correct_edit_success(resolved_name, success, result_text)
+        buffered = self._tool_buf.pop(tool_use_id, {})
+        resolved_name = str(buffered.get("tool_name", "tool"))
 
-            hidden = self._pipeline.get_buffered_tool(tool_use_id).get("tool_name", "") in _HIDDEN_TOOLS
-            await self._pipeline.on_tool_complete(
-                job_id,
-                tool_use_id,
-                result_text,
-                success,
-                hidden=hidden,
-            )
+        # Correct false failures for file-edit tools
+        success = not is_error
+        if not success:
+            from backend.services.tool_formatters import correct_edit_success
+
+            success = correct_edit_success(resolved_name, success, result_text)
+
+        start = buffered.get("start")
+        duration_ms = (time.monotonic() - start) * 1000.0 if start else None
+        self._emit_tf(
+            session_id,
+            job_id,
+            EventKind.tool_call_completed,
+            {
+                "tool_name": resolved_name,
+                "arguments": buffered.get("arguments"),
+                "result": result_text,
+                "success": success,
+                "tool_call_id": tool_use_id,
+            },
+            duration_ms=duration_ms,
+        )
 
     async def _process_result_message(
         self,
@@ -455,41 +440,33 @@ class ClaudeAdapter(BaseAgentAdapter):
             model = self._job_main_models.get(job_id, "")
             num_turns = getattr(message, "num_turns", 0) or 1
 
-            await self._pipeline.on_usage(
+            self._emit_tf(
+                session_id,
                 job_id,
-                input_tokens=int(input_tokens),
-                output_tokens=int(output_tokens),
-                cache_read_tokens=int(cache_read),
-                cache_write_tokens=int(cache_write),
-                cost_usd=float(total_cost_usd),
-                duration_ms=float(duration_ms),
-                model=model,
-                is_subagent=False,
-                advance_turn=True,
-                num_turns=int(num_turns),
+                EventKind.telemetry_usage,
+                {
+                    "model": model,
+                    "input_tokens": int(input_tokens),
+                    "output_tokens": int(output_tokens),
+                    "cache_read_tokens": int(cache_read),
+                    "cache_write_tokens": int(cache_write),
+                    "cost_usd": float(total_cost_usd),
+                    "duration_ms": float(duration_ms),
+                    "is_subagent": False,
+                    "advance_turn": True,
+                    "num_turns": int(num_turns),
+                },
             )
 
-            if is_error:
-                await self._pipeline.on_error(
-                    job_id,
-                    {"message": "Claude session ended with error", "result": result_text},
-                )
-            else:
-                await self._pipeline.on_done(job_id)
-        else:
-            if is_error:
-                self._enqueue(
-                    session_id,
-                    SessionEvent(
-                        kind=SessionEventKind.error,
-                        payload={"message": "Claude session ended with error", "result": result_text},
-                    ),
-                )
-            else:
-                self._enqueue(
-                    session_id,
-                    SessionEvent(kind=SessionEventKind.done, payload={"result": result_text}),
-                )
+        if is_error:
+            self._emit_tf(
+                session_id,
+                job_id or session_id,
+                EventKind.job_failed,
+                {"message": "Claude session ended with error", "result": result_text},
+            )
+        # On success no explicit event is emitted; the ``done=True`` break in
+        # ``_consume_messages`` triggers the queue sentinel that ends the stream.
 
     async def _process_stream_event(
         self,
@@ -517,11 +494,17 @@ class ClaudeAdapter(BaseAgentAdapter):
             delta = event.get("delta", {})
             delta_type = delta.get("type", "")
 
-            # Thinking deltas — emit as reasoning_delta
+            # Thinking deltas — emit as streaming thinking chunk
             if delta_type == "thinking_delta":
                 thinking_chunk = delta.get("thinking", "")
                 if thinking_chunk:
-                    await self._pipeline.on_reasoning_delta(job_id, thinking_chunk)
+                    self._emit_tf(
+                        session_id,
+                        job_id,
+                        EventKind.llm_reasoning_chunk,
+                        {"content": thinking_chunk},
+                        partial=True,
+                    )
                 return
 
             chunk = delta.get("text", "") or delta.get("partial_json", "") or ""
@@ -532,7 +515,13 @@ class ClaudeAdapter(BaseAgentAdapter):
         if not chunk or not parent_id:
             return
 
-        await self._pipeline.on_tool_partial(job_id, parent_id, chunk)
+        self._emit_tf(
+            session_id,
+            job_id,
+            EventKind.tool_result_chunk,
+            {"tool_call_id": parent_id, "content": chunk},
+            partial=True,
+        )
 
     # ------------------------------------------------------------------
     # AgentAdapterInterface implementation
@@ -656,9 +645,16 @@ class ClaudeAdapter(BaseAgentAdapter):
         queue = self._queues.get(session_id)
         if queue is None:
             log.error("claude_stream_no_queue", session_id=session_id)
-            yield SessionEvent(
-                kind=SessionEventKind.error,
+            from traceforge.types import EventMetadata
+
+            from backend.models.events import new_event
+
+            job_id = self._session_to_job.get(session_id, session_id)
+            yield new_event(
+                session_id=job_id,
+                kind=EventKind.job_failed,
                 payload={"message": "No queue for session"},
+                metadata=EventMetadata(source_framework=self._source_framework),
             )
             return
         try:

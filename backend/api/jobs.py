@@ -41,6 +41,19 @@ log = structlog.get_logger()
 router = APIRouter(tags=["jobs"], route_class=DishkaRoute)
 
 
+def _stringify_tool_args(arguments: Any) -> str | None:
+    """Normalise a TF ``arguments`` payload (dict|str|None) to a display string."""
+    if arguments is None:
+        return None
+    if isinstance(arguments, str):
+        return arguments
+    if isinstance(arguments, dict):
+        import json
+
+        return json.dumps(arguments, ensure_ascii=False)
+    return str(arguments)
+
+
 def resolve_tool_display(payload: dict[str, Any]) -> str | None:
     """Return tool_display from payload, recomputing it from args if missing.
 
@@ -71,9 +84,9 @@ def _resolve_display_field(
     tool_name: str | None = payload.get("tool_name")
     if not tool_name:
         return None
-    tool_args: str | None = payload.get("tool_args")
-    tool_result = payload.get("tool_result") or None  # normalise empty string → None
-    tool_success: bool = payload.get("tool_success") is not False
+    tool_args: str | None = _stringify_tool_args(payload.get("arguments"))
+    tool_result = payload.get("result") or None  # normalise empty string → None
+    tool_success: bool = payload.get("success") is not False
     return str(formatter(tool_name, tool_args, tool_result=tool_result, tool_success=tool_success))
 
 

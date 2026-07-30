@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.models.events import EventKind, SessionEvent, new_event, transcript_kind_for_role
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.completers.summarization_service import (
     SummarizationService,
     _clean_transcript,
@@ -25,12 +25,20 @@ from backend.services.completers.summarization_service import (
 
 def _transcript_event(role: str, content: str, timestamp: str = "2024-01-01T00:00:00Z") -> SessionEvent:
     """Create a transcript_updated DomainEvent for testing."""
+    kind_by_role = {
+        "agent": EventKind.message_assistant,
+        "assistant": EventKind.message_assistant,
+        "operator": EventKind.message_user,
+        "user": EventKind.message_user,
+        "system": EventKind.message_system,
+        "tool": EventKind.tool_call_completed,
+    }
     return new_event(
         event_id="evt-test",
         session_id="job-1",
         timestamp=datetime.now(UTC),
-        kind=transcript_kind_for_role(role),
-        payload={"role": role, "content": content, "timestamp": timestamp},
+        kind=kind_by_role[role],
+        payload={"content": content, "timestamp": timestamp},
     )
 
 
@@ -153,12 +161,12 @@ class TestCleanTranscript:
             session_id="job-1",
             timestamp=datetime.now(UTC),
             kind=EventKind.message_assistant,
-            payload={"role": "agent", "content": None},
+            payload={"content": None},
         )
         result = _clean_transcript([ev])
         assert result == []
 
-    def test_missing_role_skipped(self) -> None:
+    def test_kind_controls_role_without_payload_role(self) -> None:
         ev = new_event(
             event_id="evt-test",
             session_id="job-1",
@@ -167,7 +175,7 @@ class TestCleanTranscript:
             payload={"content": "no role here"},
         )
         result = _clean_transcript([ev])
-        assert result == []
+        assert result == [{"role": "agent", "content": "no role here", "timestamp": ""}]
 
     def test_same_content_different_roles_not_deduplicated(self) -> None:
         events = [

@@ -99,15 +99,15 @@ export interface TranscriptEntry {
   jobId: string;
   seq: number;
   timestamp: string;
-  role: string;
+  kind: string;
   content: string;
-  // Rich fields — only present for specific roles
+  // Rich fields — only present for specific transcript kinds
   title?: string;        // agent messages: optional annotation title
   turnId?: string;       // groups reasoning + tool_calls + message into one turn
   toolName?: string;     // tool_call: identifier
-  toolArgs?: string;     // tool_call: JSON-serialised arguments
-  toolResult?: string;   // tool_call: text output
-  toolSuccess?: boolean; // tool_call: success flag
+  arguments?: string;    // tool_call: JSON-serialised arguments
+  result?: string;       // tool_call: text output
+  success?: boolean;     // tool_call: success flag
   toolIssue?: string;    // tool_call: short issue summary when attention is needed
   toolIntent?: string;   // tool_call: SDK-provided intent string (deterministic label)
   toolTitle?: string;    // tool_call: SDK-provided display title
@@ -117,7 +117,7 @@ export interface TranscriptEntry {
   toolVisibility?: string;  // tool_call: "hidden" | "collapsed" | "visible"
   // AI-generated group summary — patched in asynchronously via tool_group_summary SSE
   toolGroupSummary?: string;
-  // Sidecar fields — present when role === "sidecar"
+  // Sidecar fields — present for sidecar transcript kinds
   sidecarName?: string;
   sidecarIcon?: string;
   sidecarDescription?: string;

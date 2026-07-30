@@ -474,26 +474,26 @@ class TranscriptPayload(CamelModel):
     job_id: str
     seq: int
     timestamp: datetime
-    role: TranscriptRole
+    kind: str  # dotted TF event kind (e.g. "message.assistant", "tool.call.completed")
     content: str
-    # Optional rich fields — only present for specific roles
+    # Optional rich fields — only present for specific kinds
     title: str | None = None  # annotation title on agent messages
     turn_id: str | None = None  # groups reasoning + tool_calls + message
-    tool_name: str | None = None  # role=tool_call: tool identifier
-    tool_args: str | None = None  # role=tool_call: JSON-serialized arguments
-    tool_result: str | None = None  # role=tool_call: text output from tool
-    tool_success: bool | None = None  # role=tool_call: whether execution succeeded
-    tool_issue: str | None = None  # role=tool_call: short issue summary when attention is needed
-    tool_intent: str | None = None  # role=tool_call: SDK-provided intent string
-    tool_title: str | None = None  # role=tool_call: SDK-provided display title
-    tool_display: str | None = None  # role=tool_call: deterministic per-tool label (char-capped)
-    tool_display_full: str | None = None  # role=tool_call: same label, no char truncation (CSS-based)
-    tool_duration_ms: int | None = None  # role=tool_call: execution time in milliseconds
+    tool_name: str | None = None  # tool.call.*: tool identifier
+    arguments: str | None = None  # tool.call.*: JSON-serialized arguments
+    result: str | None = None  # tool.call.completed: text output from tool
+    success: bool | None = None  # tool.call.completed: whether execution succeeded
+    tool_issue: str | None = None  # tool.call.*: short issue summary when attention is needed
+    tool_intent: str | None = None  # tool.call.*: intent string (from metadata.motivation)
+    tool_title: str | None = None  # tool.call.*: SDK-provided display title
+    tool_display: str | None = None  # tool.call.*: deterministic per-tool label (char-capped)
+    tool_display_full: str | None = None  # tool.call.*: same label, no char truncation (CSS-based)
+    tool_duration_ms: int | None = None  # tool.call.*: execution time in ms (from metadata.duration_ms)
     tool_group_summary: str | None = None  # AI-generated summary for the tool group turn
     tool_visibility: str | None = None  # "hidden" | "collapsed" | "visible"
     step_id: str | None = None
     step_number: int | None = None
-    # Sidecar fields — present when role == "sidecar"
+    # Sidecar fields — present when kind is a "sidecar.*" event
     sidecar_name: str | None = None
     sidecar_icon: str | None = None
     sidecar_description: str | None = None
@@ -1044,7 +1044,7 @@ class TranscriptSearchResult(CamelModel):
     """A transcript event matching a search query."""
 
     seq: int
-    role: str
+    kind: str
     content: str
     tool_name: str | None = None
     step_id: str | None = None

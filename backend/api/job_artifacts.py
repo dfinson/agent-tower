@@ -13,7 +13,12 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full
+from backend.api.jobs import (
+    _stringify_tool_args,
+    job_to_response,
+    resolve_tool_display,
+    resolve_tool_display_full,
+)
 from backend.models.api_schemas import (
     BlastRadiusCandidate,
     BlastRadiusResponse,
@@ -366,26 +371,28 @@ async def get_job_transcript(
             job_id=event.session_id,
             seq=(p := event.payload).get("seq", 0),
             timestamp=p.get("timestamp", event.timestamp),
-            role=p.get("role", "agent"),
+            kind=str(event.kind),
             content=p.get("content", ""),
             title=p.get("title"),
             turn_id=p.get("turn_id"),
             tool_name=p.get("tool_name"),
-            tool_args=p.get("tool_args"),
-            tool_result=p.get("tool_result"),
-            tool_success=p.get("tool_success"),
+            arguments=_stringify_tool_args(p.get("arguments")),
+            result=p.get("result"),
+            success=p.get("success"),
             tool_issue=p.get("tool_issue"),
-            tool_intent=p.get("tool_intent"),
+            tool_intent=(event.metadata.motivation.intent if event.metadata.motivation else None),
             tool_title=p.get("tool_title"),
             tool_display=resolve_tool_display(p),
             tool_display_full=resolve_tool_display_full(p),
-            tool_duration_ms=p.get("tool_duration_ms"),
+            tool_duration_ms=(
+                int(event.metadata.duration_ms) if event.metadata.duration_ms is not None else None
+            ),
             tool_group_summary=group_summary_by_turn.get(p.get("turn_id") or ""),
         )
         for event in events
     ]
 
-    # Append sidecar entries with role="sidecar"
+    # Append sidecar entries (kind == "sidecar.*")
     for event in sidecar_events:
         p = event.payload
         items.append(
@@ -393,7 +400,7 @@ async def get_job_transcript(
                 job_id=event.session_id,
                 seq=p.get("seq", 0),
                 timestamp=p.get("timestamp", event.timestamp),
-                role="sidecar",
+                kind=str(event.kind),
                 content=p.get("content", ""),
                 sidecar_name=p.get("sidecar_name"),
                 sidecar_icon=p.get("sidecar_icon"),
@@ -482,25 +489,23 @@ async def search_transcript(
     job_id: str,
     event_repo: FromDishka[EventRepository],
     q: str = Query(..., min_length=2, max_length=200),  # noqa: B008
-    roles: list[str] | None = Query(None),  # noqa: B008
+    kinds: list[str] | None = Query(None),  # noqa: B008
     step_id: str | None = None,
     limit: int = Query(50, le=200),  # noqa: B008
 ) -> TranscriptSearchListResponse:
     """Full-text search within a job's transcript events."""
-    from backend.models.api_schemas import TranscriptRole
+    _valid_kinds = {k.value for k in TRANSCRIPT_KINDS}
+    if kinds:
+        kinds = [k for k in kinds if k in _valid_kinds]
 
-    _valid_roles = {r.value for r in TranscriptRole}
-    if roles:
-        roles = [r for r in roles if r in _valid_roles]
-
-    events = await event_repo.search_transcript(job_id, q, roles=roles, step_id=step_id, limit=limit)
+    events = await event_repo.search_transcript(job_id, q, kinds=kinds, step_id=step_id, limit=limit)
     results = []
     for evt in events:
         payload = evt.payload
         results.append(
             TranscriptSearchResult(
                 seq=int(payload.get("seq", 0)),
-                role=str(payload.get("role", "")),
+                kind=str(evt.kind),
                 content=str(payload.get("content", "")),
                 tool_name=str(payload.get("tool_name")) if payload.get("tool_name") else None,
                 step_id=str(payload.get("step_id")) if payload.get("step_id") else None,
