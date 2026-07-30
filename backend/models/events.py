@@ -48,8 +48,15 @@ class EventKind(StrEnum):
     message_assistant = "message.assistant"
     message_system = "message.system"
     message_delta = "message.delta"
-    reasoning_started = "reasoning.started"
-    llm_thinking_chunk = "llm.thinking.chunk"
+    # Unified TF reasoning lifecycle (traceforge-toolkit >=0.1.2): both managed
+    # producers and the bundled claude/copilot mappings emit ``llm.reasoning.chunk``
+    # for model thinking/reasoning. The started/completed/failed boundaries are
+    # registered for forward-compat with other frameworks CP may later ingest;
+    # CP's live path only emits ``llm.reasoning.chunk``.
+    llm_reasoning_started = "llm.reasoning.started"
+    llm_reasoning_chunk = "llm.reasoning.chunk"
+    llm_reasoning_completed = "llm.reasoning.completed"
+    llm_reasoning_failed = "llm.reasoning.failed"
     planning_started = "planning.started"
     tool_call_started = "tool.call.started"
     tool_call_completed = "tool.call.completed"
@@ -140,8 +147,10 @@ TRANSCRIPT_KINDS: frozenset[EventKind] = frozenset(
         EventKind.message_assistant,
         EventKind.message_system,
         EventKind.message_delta,
-        EventKind.reasoning_started,
-        EventKind.llm_thinking_chunk,
+        EventKind.llm_reasoning_started,
+        EventKind.llm_reasoning_chunk,
+        EventKind.llm_reasoning_completed,
+        EventKind.llm_reasoning_failed,
         EventKind.tool_call_started,
         EventKind.tool_call_completed,
         EventKind.tool_result_chunk,
@@ -153,7 +162,7 @@ TRANSCRIPT_KINDS: frozenset[EventKind] = frozenset(
 TRANSCRIPT_STREAMING_KINDS: frozenset[EventKind] = frozenset(
     {
         EventKind.message_delta,
-        EventKind.llm_thinking_chunk,
+        EventKind.llm_reasoning_chunk,
         EventKind.tool_result_chunk,
     }
 )

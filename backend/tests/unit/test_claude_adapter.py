@@ -609,7 +609,8 @@ class TestProcessAssistantMessage:
         event = adapter._queues[sid].get_nowait()
         assert event is not None
         assert event.kind in TRANSCRIPT_KINDS
-        assert event.kind == EventKind.reasoning_started
+        assert event.kind == EventKind.llm_reasoning_chunk
+        assert event.metadata.partial is False
         assert event.payload["content"] == "I need to think about this"
 
     @pytest.mark.asyncio
@@ -738,7 +739,8 @@ class TestProcessStreamEvent:
         event = adapter._queues[sid].get_nowait()
         assert event is not None
         assert event.kind in TRANSCRIPT_KINDS
-        assert event.kind == EventKind.llm_thinking_chunk
+        assert event.kind == EventKind.llm_reasoning_chunk
+        assert event.metadata.partial is True
         assert event.payload["content"] == "Let me consider..."
 
     @pytest.mark.asyncio

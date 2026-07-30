@@ -341,7 +341,7 @@ class ClaudeAdapter(BaseAgentAdapter):
             elif isinstance(block, ThinkingBlock):
                 thinking = block.thinking or ""
                 if thinking.strip():
-                    self._emit_tf(session_id, job_id, EventKind.reasoning_started, {"content": thinking})
+                    self._emit_tf(session_id, job_id, EventKind.llm_reasoning_chunk, {"content": thinking})
 
     async def _process_tool_use_block(
         self,
@@ -501,7 +501,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                     self._emit_tf(
                         session_id,
                         job_id,
-                        EventKind.llm_thinking_chunk,
+                        EventKind.llm_reasoning_chunk,
                         {"content": thinking_chunk},
                         partial=True,
                     )

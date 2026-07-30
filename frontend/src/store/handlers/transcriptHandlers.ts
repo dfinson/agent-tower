@@ -56,8 +56,9 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
     };
   }
 
-  // llm.thinking.chunk: accumulate streaming reasoning per turn, don't add to transcript
-  if (kind === "llm.thinking.chunk") {
+  // llm.reasoning.chunk (streaming partial): accumulate live reasoning per turn, don't add to transcript.
+  // Complete (non-partial) reasoning blocks fall through and are added to the transcript below.
+  if (kind === "llm.reasoning.chunk" && payload.partial === true) {
     const turnId = (payload.turnId as string | undefined) ?? "__default__";
     const key = `${jobId}:${turnId}`;
     const delta = (payload.content as string) ?? "";
@@ -146,9 +147,9 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
     }
   }
 
-  // When a complete reasoning message arrives, clear streaming reasoning for that turn.
+  // When a complete reasoning block arrives, clear streaming reasoning for that turn.
   let streamingReasoning = state.streamingReasoning;
-  if (entry.kind === "reasoning.started") {
+  if (entry.kind === "llm.reasoning.chunk") {
     const key = entry.turnId ? `${jobId}:${entry.turnId}` : `${jobId}:__default__`;
     if (key in streamingReasoning) {
       streamingReasoning = { ...streamingReasoning };
@@ -316,8 +317,7 @@ export const transcriptHandlers: Record<string, SSEHandler> = {
   "message.assistant": handleTranscriptUpdate,
   "message.system": handleTranscriptUpdate,
   "message.delta": handleTranscriptUpdate,
-  "reasoning.started": handleTranscriptUpdate,
-  "llm.thinking.chunk": handleTranscriptUpdate,
+  "llm.reasoning.chunk": handleTranscriptUpdate,
   "tool.call.started": handleTranscriptUpdate,
   "tool.call.completed": handleTranscriptUpdate,
   "tool.result.chunk": handleTranscriptUpdate,

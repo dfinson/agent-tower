@@ -37,7 +37,7 @@ function entriesToTranscript(entries: SecondarySessionEntry[]): TranscriptEntry[
         jobId: "",
         seq: entry.seq,
         timestamp: "",
-        kind: "reasoning.started",
+        kind: "llm.reasoning.chunk",
         content: entry.content,
       };
     }

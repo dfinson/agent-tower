@@ -26,7 +26,7 @@ def _make_event(
         "agent": EventKind.message_assistant,
         "assistant": EventKind.message_assistant,
         "agent_delta": EventKind.message_delta,
-        "reasoning": EventKind.reasoning_started,
+        "reasoning": EventKind.llm_reasoning_chunk,
         "tool_running": EventKind.tool_call_started,
         "tool_call": EventKind.tool_call_completed,
     }

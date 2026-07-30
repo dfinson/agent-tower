@@ -242,13 +242,13 @@ class CopilotAdapter(BaseAgentAdapter):
             ar = cast("AssistantReasoningData", data) if data else None
             content = (ar.content or "") if ar else ""
             if content:
-                self._emit_tf(session_id, job_id, EventKind.reasoning_started, {"content": content})
+                self._emit_tf(session_id, job_id, EventKind.llm_reasoning_chunk, {"content": content})
 
         elif kind_str == "assistant.reasoning_delta":
             rd = cast("AssistantReasoningDeltaData", data) if data else None
             delta = (rd.delta_content or "") if rd else ""
             if delta:
-                self._emit_tf(session_id, job_id, EventKind.llm_thinking_chunk, {"content": delta}, partial=True)
+                self._emit_tf(session_id, job_id, EventKind.llm_reasoning_chunk, {"content": delta}, partial=True)
 
         elif kind_str == "user.message":
             um = cast("UserMessageData", data) if data else None

@@ -98,6 +98,11 @@ export function normalizeTFEvent(ev: TFSessionEvent): Record<string, unknown> {
   if (payload.toolIntent === undefined && motivation?.intent != null) {
     payload.toolIntent = motivation.intent;
   }
+  // `partial` distinguishes a streaming delta from a complete block for kinds
+  // that share one dotted kind (e.g. llm.reasoning.chunk); carry it through.
+  if (payload.partial === undefined && metadata?.partial != null) {
+    payload.partial = metadata.partial;
+  }
 
   return payload;
 }

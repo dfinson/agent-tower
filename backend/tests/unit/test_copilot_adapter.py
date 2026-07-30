@@ -635,7 +635,8 @@ class TestOnEventCallback:
         events = self._drain_queue(queue)
         transcripts = [e for e in events if e.kind in TRANSCRIPT_KINDS]
         assert len(transcripts) == 1
-        assert transcripts[0].kind == EventKind.llm_thinking_chunk
+        assert transcripts[0].kind == EventKind.llm_reasoning_chunk
+        assert transcripts[0].metadata.partial is True
         assert transcripts[0].payload["content"] == "Let me think..."
 
     @pytest.mark.asyncio
@@ -659,7 +660,8 @@ class TestOnEventCallback:
         events = self._drain_queue(queue)
         transcripts = [e for e in events if e.kind in TRANSCRIPT_KINDS]
         assert len(transcripts) == 1
-        assert transcripts[0].kind == EventKind.reasoning_started
+        assert transcripts[0].kind == EventKind.llm_reasoning_chunk
+        assert transcripts[0].metadata.partial is False
         assert transcripts[0].payload["content"] == "Full reasoning block"
 
 

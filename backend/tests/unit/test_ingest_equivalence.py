@@ -218,17 +218,17 @@ class TestClaudeImportedEquivalence:
         assert [e.kind for e in events] == [
             EventKind.message_user,
             EventKind.message_assistant,
-            EventKind.llm_thinking_chunk,
+            EventKind.llm_reasoning_chunk,
             EventKind.tool_call_started,
             EventKind.tool_call_completed,
         ]
         # every imported Claude event is attributed to the claude framework
         assert all(e.metadata.source_framework == "claude" for e in events)
 
-        user, assistant, thinking, started, completed = events
+        user, assistant, reasoning, started, completed = events
         assert user.payload["content"] == "Fix the bug in main.py"
         assert assistant.payload["content"] == "Let me look at that file."
-        assert thinking.payload["content"] == "Analyze the code first."
+        assert reasoning.payload["content"] == "Analyze the code first."
 
         assert started.payload["tool_name"] == "Read"
         assert started.payload["arguments"] == {"path": "main.py"}
@@ -319,7 +319,7 @@ class TestCopilotImportedEquivalence:
         events = _emitted(event_processor)
         assert [e.kind for e in events] == [
             EventKind.message_user,
-            EventKind.reasoning_started,
+            EventKind.llm_reasoning_chunk,
             EventKind.message_assistant,
             EventKind.tool_call_started,
             EventKind.tool_call_completed,
@@ -331,7 +331,7 @@ class TestCopilotImportedEquivalence:
 
         by_kind = {e.kind: e for e in events}
         assert by_kind[EventKind.message_user].payload["content"] == "Fix the bug"
-        assert by_kind[EventKind.reasoning_started].payload["content"] == "Consider the edit"
+        assert by_kind[EventKind.llm_reasoning_chunk].payload["content"] == "Consider the edit"
         assert by_kind[EventKind.message_assistant].payload["content"] == "I'll edit the file"
 
         started = by_kind[EventKind.tool_call_started]

@@ -304,7 +304,7 @@ export function buildFeedItems(
       continue;
     }
 
-    if (entry.kind === "reasoning.started") {
+    if (entry.kind === "llm.reasoning.chunk") {
       if (currentTurn && entry.turnId && currentTurn.turnId && entry.turnId !== currentTurn.turnId) {
         flushTurn();
       }
