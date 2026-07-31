@@ -421,11 +421,13 @@ class TrailNodeRow(Base):
     plan_item_status: Mapped[str | None] = mapped_column(String(10), nullable=True)
     activity_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     activity_label: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Action policy classification
-    tier: Mapped[str | None] = mapped_column(String(12), nullable=True)
-    reversible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    contained: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    tier_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Action policy classification (TraceForge governance verdict — surfaced
+    # natively; the retired CodePlane tier / reversible / contained fields are gone)
+    recommended_action: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    reason_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    risk_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    risk_band: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    effect: Mapped[str | None] = mapped_column(String(12), nullable=True)
     checkpoint_ref: Mapped[str | None] = mapped_column(String(80), nullable=True)
     rollback_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Edges
@@ -467,37 +469,10 @@ class PolicyConfigRow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     preset: Mapped[str] = mapped_column(String(20), nullable=False, server_default="supervised")
     batch_window_seconds: Mapped[float] = mapped_column(Float, nullable=False, server_default="5.0")
-
-
-class PathRuleRow(Base):
-    __tablename__ = "path_rules"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    path_pattern: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
-    tier: Mapped[str] = mapped_column(String(12), nullable=False)
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[str] = mapped_column(Text, nullable=False)
-
-
-class ActionRuleRow(Base):
-    __tablename__ = "action_rules"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    match_pattern: Mapped[str] = mapped_column(Text, nullable=False)
-    tier: Mapped[str] = mapped_column(String(12), nullable=False)
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[str] = mapped_column(Text, nullable=False)
-
-
-class CostRuleRow(Base):
-    __tablename__ = "cost_rules"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    condition: Mapped[str] = mapped_column(Text, nullable=False)
-    promote_to: Mapped[str] = mapped_column(String(12), nullable=False)
-    threshold_value: Mapped[float | None] = mapped_column(Float, nullable=True)
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    # Per-preset USD ceiling overrides (JSON: {preset: {warn_usd, ceiling_usd}}).
+    # NULL/absent → the governance profile's baked default ceiling applies. The
+    # ceiling is enforced natively by JobSpendCeilingAssessor, not by CP tiers.
+    usd_ceilings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class MCPServerConfigRow(Base):
@@ -524,22 +499,6 @@ class SidecarTemplateRow(Base):
     created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
     last_used_at: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1")
-
-
-class TrustGrantRow(Base):
-    __tablename__ = "trust_grants"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    kinds_json: Mapped[str] = mapped_column(Text, nullable=False)
-    path_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
-    excludes_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    command_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
-    mcp_server: Mapped[str | None] = mapped_column(Text, nullable=True)
-    mcp_tool: Mapped[str | None] = mapped_column(Text, nullable=True)
-    expires_at: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[str] = mapped_column(Text, nullable=False)
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 # ---------------------------------------------------------------------------

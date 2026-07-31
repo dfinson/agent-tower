@@ -135,7 +135,7 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "turn.summary",
         // Step reassignment (classifier moved turn to different plan item)
         "step.entries_reassigned",
-        // Action policy tier classification
+        // Action policy governance classification
         "action.classified",
         // Policy settings changed (triggers settings panel refresh)
         "policy.settings_changed",

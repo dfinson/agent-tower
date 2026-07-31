@@ -1377,11 +1377,12 @@ class TrailNodeResponse(CamelModel):
     end_sha: str | None = None
     supersedes: str | None = None
     tags: list[str] = []
-    # Action policy fields
-    tier: str | None = None
-    reversible: bool | None = None
-    contained: bool | None = None
-    tier_reason: str | None = None
+    # Action policy fields — TraceForge governance verdict, surfaced natively
+    recommended_action: str | None = None
+    reason_code: str | None = None
+    risk_score: int | None = None
+    risk_band: str | None = None
+    effect: str | None = None
     checkpoint_ref: str | None = None
     children: list[TrailNodeResponse] = []
 

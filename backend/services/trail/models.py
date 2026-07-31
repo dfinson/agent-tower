@@ -69,10 +69,11 @@ class TrailNodeDict(TypedDict):
     plan_item_status: str | None
     activity_id: str | None
     activity_label: str | None
-    tier: str | None
-    reversible: bool | None
-    contained: bool | None
-    tier_reason: str | None
+    recommended_action: str | None
+    reason_code: str | None
+    risk_score: int | None
+    risk_band: str | None
+    effect: str | None
     checkpoint_ref: str | None
     children: list[TrailNodeDict]
 

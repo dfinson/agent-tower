@@ -1,6 +1,15 @@
-"""Action policy settings API — presets, rules, MCP configs, trust grants, export/import."""
+"""Action policy settings API — preset, batch window, per-preset USD ceilings, MCP configs, export/import.
 
-import re
+Wholesale governance adoption retired the hand-rolled path/action/cost rule editors
+and the pattern-trust grant editor: the DECISION (rules, protected paths,
+count/effect budget, reason-code trust) is owned by ``traceforge.governance``. What
+CodePlane still configures here is the product surface it owns — the preset (which
+selects a TraceForge profile), the approval batch window, the per-preset USD
+ceiling overlay (enforced natively by ``JobSpendCeilingAssessor``), and the MCP
+server launch configs. The operator "trust this whole session" action lives on
+``POST /jobs/{job_id}/approvals/trust`` (a reason-code session grant), not here.
+"""
+
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,10 +22,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.models.events import EventKind, new_event
 from backend.models.schemas.base import CamelModel
 from backend.persistence.policy_repo import PolicyRepository
+from backend.services.action_policy.preset_profiles import PROFILES, profile_for
 from backend.services.events.event_bus import EventBus
 
 router = APIRouter(prefix="/settings/policy", tags=["policy"], route_class=DishkaRoute)
 log = structlog.get_logger()
+
+_PRESET_PATTERN = r"^(autonomous|supervised|locked)$"
 
 
 async def _notify_policy_changed(event_bus: EventBus) -> None:
@@ -37,31 +49,29 @@ class PolicyConfigResponse(CamelModel):
 
 
 class UpdatePresetRequest(CamelModel):
-    preset: str = Field(pattern=r"^(autonomous|supervised|strict)$")
+    preset: str = Field(pattern=_PRESET_PATTERN)
 
 
 class UpdateConfigRequest(CamelModel):
-    preset: str | None = Field(default=None, pattern=r"^(autonomous|supervised|strict)$")
+    preset: str | None = Field(default=None, pattern=_PRESET_PATTERN)
     batch_window_seconds: float | None = None
 
 
-class PathRuleRequest(CamelModel):
-    path_pattern: str
-    tier: str = Field(pattern=r"^(observe|checkpoint|gate)$")
-    reason: str
+class UsdCeilingEntry(CamelModel):
+    """A per-preset USD ceiling: warn line and hard ceiling (either may be null)."""
+
+    warn_usd: float | None = None
+    ceiling_usd: float | None = None
 
 
-class ActionRuleRequest(CamelModel):
-    match_pattern: str
-    tier: str = Field(pattern=r"^(observe|checkpoint|gate)$")
-    reason: str
+class UsdCeilingsResponse(CamelModel):
+    """Effective per-preset ceilings (baked profile default overlaid with overrides)."""
+
+    ceilings: dict[str, UsdCeilingEntry] = Field(default_factory=dict)
 
 
-class CostRuleRequest(CamelModel):
-    condition: str
-    promote_to: str = Field(pattern=r"^(checkpoint|gate)$")
-    reason: str
-    threshold_value: float | None = None
+class UpdateUsdCeilingsRequest(CamelModel):
+    ceilings: dict[str, UsdCeilingEntry]
 
 
 class MCPServerRequest(CamelModel):
@@ -72,55 +82,6 @@ class MCPServerRequest(CamelModel):
     reversible: bool = False
     trusted: bool = False
     tool_overrides: dict[str, dict[str, bool]] = Field(default_factory=dict)
-
-
-class TrustGrantRequest(CamelModel):
-    kinds: list[str]
-    path_pattern: str | None = None
-    excludes: list[str] = Field(default_factory=list)
-    command_pattern: str | None = None
-    mcp_server: str | None = None
-    job_id: str | None = None
-    expires_at: str | None = None
-    reason: str = ""
-
-
-class PathRuleResponse(CamelModel):
-    id: str
-    path_pattern: str
-    tier: str
-    reason: str
-    created_at: str
-
-
-class ActionRuleResponse(CamelModel):
-    id: str
-    match_pattern: str
-    tier: str
-    reason: str
-    created_at: str
-
-
-class CostRuleResponse(CamelModel):
-    id: str
-    condition: str
-    promote_to: str
-    threshold_value: float | None = None
-    reason: str
-    created_at: str
-
-
-class TrustGrantResponse(CamelModel):
-    id: str
-    job_id: str | None = None
-    kinds: list[str] = Field(default_factory=list)
-    path_pattern: str | None = None
-    excludes: list[str] = Field(default_factory=list)
-    command_pattern: str | None = None
-    mcp_server: str | None = None
-    expires_at: str | None = None
-    created_at: str
-    reason: str = ""
 
 
 class MCPServerResponse(CamelModel):
@@ -137,31 +98,28 @@ class MCPServerResponse(CamelModel):
 
 class FullPolicyResponse(CamelModel):
     config: PolicyConfigResponse
-    path_rules: list[PathRuleResponse] = Field(default_factory=list)
-    action_rules: list[ActionRuleResponse] = Field(default_factory=list)
-    cost_rules: list[CostRuleResponse] = Field(default_factory=list)
+    usd_ceilings: dict[str, UsdCeilingEntry] = Field(default_factory=dict)
     mcp_servers: list[MCPServerResponse] = Field(default_factory=list)
-    trust_grants: list[TrustGrantResponse] = Field(default_factory=list)
-
-
-class PolicyExportResponse(CamelModel):
-    version: int
-    config: dict[str, Any]
-    path_rules: list[dict[str, Any]]
-    action_rules: list[dict[str, Any]]
-    cost_rules: list[dict[str, Any]]
-    mcp_servers: list[dict[str, Any]]
-    trust_grants: list[dict[str, Any]]
 
 
 class PolicyImportRequest(CamelModel):
-    version: int = 1
+    version: int = 2
     config: dict[str, Any] | None = None
-    path_rules: list[dict[str, Any]] = Field(default_factory=list)
-    action_rules: list[dict[str, Any]] = Field(default_factory=list)
-    cost_rules: list[dict[str, Any]] = Field(default_factory=list)
+    usd_ceilings: dict[str, Any] = Field(default_factory=dict)
     mcp_servers: list[dict[str, Any]] = Field(default_factory=list)
-    trust_grants: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def _effective_ceilings(overrides: dict[str, tuple[float | None, float | None]]) -> dict[str, UsdCeilingEntry]:
+    """Merge stored per-preset overrides over each profile's baked default ceiling."""
+    out: dict[str, UsdCeilingEntry] = {}
+    for preset in PROFILES:
+        profile = profile_for(preset)
+        warn, ceiling = profile.warn_usd, profile.ceiling_usd
+        if preset.value in overrides:
+            o_warn, o_ceiling = overrides[preset.value]
+            warn, ceiling = o_warn, o_ceiling
+        out[preset.value] = UsdCeilingEntry(warn_usd=warn, ceiling_usd=ceiling)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -174,13 +132,11 @@ async def get_policy(sf: FromDishka[async_sessionmaker[AsyncSession]]) -> FullPo
     async with sf() as session:
         repo = PolicyRepository(session)
         config = await repo.get_config()
+        overrides = await repo.get_usd_ceilings()
         return FullPolicyResponse(
             config=PolicyConfigResponse(**config),
-            path_rules=[PathRuleResponse(**r) for r in await repo.list_path_rules()],
-            action_rules=[ActionRuleResponse(**r) for r in await repo.list_action_rules()],
-            cost_rules=[CostRuleResponse(**r) for r in await repo.list_cost_rules()],
+            usd_ceilings=_effective_ceilings(overrides),
             mcp_servers=[MCPServerResponse(**r) for r in await repo.list_mcp_configs()],
-            trust_grants=[TrustGrantResponse(**r) for r in await repo.list_trust_grants()],
         )
 
 
@@ -214,204 +170,37 @@ async def update_config(
 
 
 # ---------------------------------------------------------------------------
-# Path rules
+# Per-preset USD ceilings (native cost-ceiling overlay)
 # ---------------------------------------------------------------------------
 
 
-@router.get("/path-rules")
-async def list_path_rules(
+@router.get("/usd-ceilings", response_model=UsdCeilingsResponse)
+async def get_usd_ceilings(
     sf: FromDishka[async_sessionmaker[AsyncSession]],
-) -> list[dict[str, Any]]:
+) -> UsdCeilingsResponse:
     async with sf() as session:
         repo = PolicyRepository(session)
-        return await repo.list_path_rules()
+        overrides = await repo.get_usd_ceilings()
+    return UsdCeilingsResponse(ceilings=_effective_ceilings(overrides))
 
 
-@router.post("/path-rules")
-async def create_path_rule(
-    body: PathRuleRequest,
-    sf: FromDishka[async_sessionmaker[AsyncSession]],
-    event_bus: FromDishka[EventBus],
-) -> dict[str, Any]:
-    async with sf() as session:
-        repo = PolicyRepository(session)
-        result = await repo.create_path_rule(body.path_pattern, body.tier, body.reason)
-        await session.commit()
-    await _notify_policy_changed(event_bus)
-    return result
-
-
-@router.put("/path-rules/{rule_id}")
-async def update_path_rule(
-    rule_id: str,
-    body: PathRuleRequest,
+@router.put("/usd-ceilings", response_model=UsdCeilingsResponse)
+async def update_usd_ceilings(
+    body: UpdateUsdCeilingsRequest,
     sf: FromDishka[async_sessionmaker[AsyncSession]],
     event_bus: FromDishka[EventBus],
-) -> dict[str, Any]:
+) -> UsdCeilingsResponse:
+    ceilings = {
+        preset: {"warn_usd": entry.warn_usd, "ceiling_usd": entry.ceiling_usd}
+        for preset, entry in body.ceilings.items()
+    }
     async with sf() as session:
         repo = PolicyRepository(session)
-        result = await repo.update_path_rule(
-            rule_id, path_pattern=body.path_pattern, tier=body.tier, reason=body.reason
-        )
-        if result is None:
-            raise HTTPException(404, "Path rule not found")
+        await repo.set_usd_ceilings(ceilings)
+        overrides = await repo.get_usd_ceilings()
         await session.commit()
     await _notify_policy_changed(event_bus)
-    return result
-
-
-@router.delete("/path-rules/{rule_id}")
-async def delete_path_rule(
-    rule_id: str,
-    sf: FromDishka[async_sessionmaker[AsyncSession]],
-    event_bus: FromDishka[EventBus],
-) -> dict[str, str]:
-    async with sf() as session:
-        repo = PolicyRepository(session)
-        deleted = await repo.delete_path_rule(rule_id)
-        if not deleted:
-            raise HTTPException(404, "Path rule not found")
-        await session.commit()
-    await _notify_policy_changed(event_bus)
-    return {"status": "deleted"}
-
-
-# ---------------------------------------------------------------------------
-# Action rules
-# ---------------------------------------------------------------------------
-
-
-@router.get("/action-rules")
-async def list_action_rules(
-    sf: FromDishka[async_sessionmaker[AsyncSession]],
-) -> list[dict[str, Any]]:
-    async with sf() as session:
-        repo = PolicyRepository(session)
-        return await repo.list_action_rules()
-
-
-@router.post("/action-rules")
-async def create_action_rule(
-    body: ActionRuleRequest,
-    sf: FromDishka[async_sessionmaker[AsyncSession]],
-    event_bus: FromDishka[EventBus],
-) -> dict[str, Any]:
-    try:
-        re.compile(body.match_pattern)
-    except re.error as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid regex: {exc}") from exc
-    async with sf() as session:
-        repo = PolicyRepository(session)
-        result = await repo.create_action_rule(body.match_pattern, body.tier, body.reason)
-        await session.commit()
-    await _notify_policy_changed(event_bus)
-    return result
-
-
-@router.put("/action-rules/{rule_id}")
-async def update_action_rule(
-    rule_id: str,
-    body: ActionRuleRequest,
-    sf: FromDishka[async_sessionmaker[AsyncSession]],
-    event_bus: FromDishka[EventBus],
-) -> dict[str, Any]:
-    try:
-        re.compile(body.match_pattern)
-    except re.error as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid regex: {exc}") from exc
-    async with sf() as session:
-        repo = PolicyRepository(session)
-        result = await repo.update_action_rule(
-            rule_id, match_pattern=body.match_pattern, tier=body.tier, reason=body.reason
-        )
-        if result is None:
-            raise HTTPException(404, "Action rule not found")
-        await session.commit()
-    await _notify_policy_changed(event_bus)
-    return result
-
-
-@router.delete("/action-rules/{rule_id}")
-async def delete_action_rule(
-    rule_id: str,
-    sf: FromDishka[async_sessionmaker[AsyncSession]],
-    event_bus: FromDishka[EventBus],
-) -> dict[str, str]:
-    async with sf() as session:
-        repo = PolicyRepository(session)
-        deleted = await repo.delete_action_rule(rule_id)
-        if not deleted:
-            raise HTTPException(404, "Action rule not found")
-        await session.commit()
-    await _notify_policy_changed(event_bus)
-    return {"status": "deleted"}
-
-
-# ---------------------------------------------------------------------------
-# Cost rules
-# ---------------------------------------------------------------------------
-
-
-@router.get("/cost-rules")
-async def list_cost_rules(
-    sf: FromDishka[async_sessionmaker[AsyncSession]],
-) -> list[dict[str, Any]]:
-    async with sf() as session:
-        repo = PolicyRepository(session)
-        return await repo.list_cost_rules()
-
-
-@router.post("/cost-rules")
-async def create_cost_rule(
-    body: CostRuleRequest,
-    sf: FromDishka[async_sessionmaker[AsyncSession]],
-    event_bus: FromDishka[EventBus],
-) -> dict[str, Any]:
-    async with sf() as session:
-        repo = PolicyRepository(session)
-        result = await repo.create_cost_rule(body.condition, body.promote_to, body.reason, body.threshold_value)
-        await session.commit()
-    await _notify_policy_changed(event_bus)
-    return result
-
-
-@router.put("/cost-rules/{rule_id}")
-async def update_cost_rule(
-    rule_id: str,
-    body: CostRuleRequest,
-    sf: FromDishka[async_sessionmaker[AsyncSession]],
-    event_bus: FromDishka[EventBus],
-) -> dict[str, Any]:
-    async with sf() as session:
-        repo = PolicyRepository(session)
-        result = await repo.update_cost_rule(
-            rule_id,
-            condition=body.condition,
-            promote_to=body.promote_to,
-            reason=body.reason,
-            threshold_value=body.threshold_value,
-        )
-        if result is None:
-            raise HTTPException(404, "Cost rule not found")
-        await session.commit()
-    await _notify_policy_changed(event_bus)
-    return result
-
-
-@router.delete("/cost-rules/{rule_id}")
-async def delete_cost_rule(
-    rule_id: str,
-    sf: FromDishka[async_sessionmaker[AsyncSession]],
-    event_bus: FromDishka[EventBus],
-) -> dict[str, str]:
-    async with sf() as session:
-        repo = PolicyRepository(session)
-        deleted = await repo.delete_cost_rule(rule_id)
-        if not deleted:
-            raise HTTPException(404, "Cost rule not found")
-        await session.commit()
-    await _notify_policy_changed(event_bus)
-    return {"status": "deleted"}
+    return UsdCeilingsResponse(ceilings=_effective_ceilings(overrides))
 
 
 # ---------------------------------------------------------------------------
@@ -496,60 +285,7 @@ async def delete_mcp_server(
 
 
 # ---------------------------------------------------------------------------
-# Trust grants
-# ---------------------------------------------------------------------------
-
-
-@router.get("/trust-grants")
-async def list_trust_grants(
-    sf: FromDishka[async_sessionmaker[AsyncSession]],
-) -> list[dict[str, Any]]:
-    async with sf() as session:
-        repo = PolicyRepository(session)
-        return await repo.list_trust_grants()
-
-
-@router.post("/trust-grants")
-async def create_trust_grant(
-    body: TrustGrantRequest,
-    sf: FromDishka[async_sessionmaker[AsyncSession]],
-    event_bus: FromDishka[EventBus],
-) -> dict[str, Any]:
-    async with sf() as session:
-        repo = PolicyRepository(session)
-        result = await repo.create_trust_grant(
-            kinds=body.kinds,
-            path_pattern=body.path_pattern,
-            excludes=body.excludes,
-            command_pattern=body.command_pattern,
-            mcp_server=body.mcp_server,
-            job_id=body.job_id,
-            expires_at=body.expires_at,
-            reason=body.reason,
-        )
-        await session.commit()
-    await _notify_policy_changed(event_bus)
-    return result
-
-
-@router.delete("/trust-grants/{grant_id}")
-async def delete_trust_grant(
-    grant_id: str,
-    sf: FromDishka[async_sessionmaker[AsyncSession]],
-    event_bus: FromDishka[EventBus],
-) -> dict[str, str]:
-    async with sf() as session:
-        repo = PolicyRepository(session)
-        deleted = await repo.delete_trust_grant(grant_id)
-        if not deleted:
-            raise HTTPException(404, "Trust grant not found")
-        await session.commit()
-    await _notify_policy_changed(event_bus)
-    return {"status": "deleted"}
-
-
-# ---------------------------------------------------------------------------
-# Export / Import (Phase 13)
+# Export / Import
 # ---------------------------------------------------------------------------
 
 

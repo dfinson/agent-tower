@@ -65,3 +65,43 @@ def is_git_reset_hard(command: str) -> bool:
     cause false positives.
     """
     return bool(_GIT_RESET_HARD_RE.search(_strip_quoted_strings(command)))
+
+
+# Matches the other SPEC §18.2 hard-gated git operations (merge / pull / rebase /
+# cherry-pick).  These bypass CodePlane's managed merge workflow or implicitly
+# merge remote changes, so they are always routed to the operator.
+_GIT_HARD_GATE_RE = re.compile(
+    r"\bgit\s+(?:merge|pull|rebase|cherry-pick)\b",
+    re.IGNORECASE,
+)
+
+# Force-pushes rewrite published history and can destroy a protected branch.
+# SPEC §18.2's table does not enumerate them, but binding condition §3 requires
+# force-push to reach a human unconditionally — and TraceForge would otherwise
+# classify it as an ordinary (waivable) network mutation.  Detecting it here, in
+# the CP structural pre-check that runs BEFORE governance scoring, keeps the hard
+# gate independent of any trust grant or budget waiver (defence in depth).
+_GIT_FORCE_PUSH_RE = re.compile(
+    r"\bgit\s+push\b[^|;&\n]*?(?:--force(?:-with-lease)?\b|\s-f\b)",
+    re.IGNORECASE,
+)
+
+
+def is_hard_gated_command(command: str) -> bool:
+    """Return True if *command* is a SPEC §18.2 hard-gated git operation.
+
+    Covers ``git merge``, ``git pull``, ``git rebase``, ``git cherry-pick``,
+    ``git reset --hard`` and force-pushes (``git push --force`` /
+    ``--force-with-lease`` / ``-f``). These are **always** routed to the operator
+    for approval regardless of the active preset, trust grants, or governance
+    budget — a defence-in-depth backstop that runs *before* governance scoring so
+    a wholesale governance verdict or a trust grant can never silently waive them
+    (binding condition §3). Quoted-string contents are stripped first to avoid
+    false positives from commit messages and other quoted arguments.
+    """
+    stripped = _strip_quoted_strings(command)
+    return bool(
+        _GIT_HARD_GATE_RE.search(stripped)
+        or _GIT_RESET_HARD_RE.search(stripped)
+        or _GIT_FORCE_PUSH_RE.search(stripped)
+    )

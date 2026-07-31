@@ -6,8 +6,8 @@ import asyncio
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock
+from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import yaml
@@ -50,6 +50,19 @@ from backend.services.runtime import (
 )
 
 log = structlog.get_logger()
+
+
+def _make_runtime(**kwargs: Any) -> RuntimeService:
+    """Build a RuntimeService with a stub governance decider wired.
+
+    Since the P5 governance cutover, ``_setup_action_policy`` hard-requires a
+    governance decider (wired via ``set_governance()`` at startup). These
+    runtime-lifecycle tests don't exercise the TraceForge decision path, so a
+    stub decider + subscriber satisfy the mandatory guard.
+    """
+    service = RuntimeService(**kwargs)
+    service.set_governance(MagicMock(), MagicMock())  # type: ignore[arg-type]
+    return service
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +192,7 @@ async def runtime(
     adapter: FakeAgentAdapter,
     config: CPLConfig,
 ) -> AsyncGenerator[RuntimeService, None]:
-    service = RuntimeService(
+    service = _make_runtime(
         session_factory=session_factory,
         event_bus=event_bus,
         adapter_registry=FakeAdapterRegistry(adapter),
@@ -749,7 +762,7 @@ class TestResumeFallback:
 
         merge_service.resolve_job.side_effect = _resolve_job
 
-        runtime = RuntimeService(
+        runtime = _make_runtime(
             session_factory=session_factory,
             event_bus=event_bus,
             adapter_registry=FakeAdapterRegistry(FakeAgentAdapter(delay=0.0)),
@@ -805,7 +818,7 @@ class TestResumeFallback:
         config: CPLConfig,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        runtime = RuntimeService(
+        runtime = _make_runtime(
             session_factory=session_factory,
             event_bus=event_bus,
             adapter_registry=FakeAdapterRegistry(FakeAgentAdapter()),
@@ -855,7 +868,7 @@ class TestResumeFallback:
         config: CPLConfig,
     ) -> None:
         adapter = ResumeFallbackAdapter()
-        runtime = RuntimeService(
+        runtime = _make_runtime(
             session_factory=session_factory,
             event_bus=event_bus,
             adapter_registry=FakeAdapterRegistry(adapter),
@@ -889,7 +902,7 @@ class TestResumeFallback:
 
         from backend.services.git.git_service import GitError, GitService
 
-        runtime = RuntimeService(
+        runtime = _make_runtime(
             session_factory=session_factory,
             event_bus=event_bus,
             adapter_registry=FakeAdapterRegistry(FakeAgentAdapter()),
@@ -928,7 +941,7 @@ class TestResumeFallback:
         config: CPLConfig,
     ) -> None:
         adapter = ResumeFallbackAdapter()
-        runtime = RuntimeService(
+        runtime = _make_runtime(
             session_factory=session_factory,
             event_bus=event_bus,
             adapter_registry=FakeAdapterRegistry(adapter),
@@ -992,7 +1005,7 @@ class TestResumeFallback:
         config: CPLConfig,
     ) -> None:
         adapter = ResumeFallbackAdapter(first_attempt_progress=True)
-        runtime = RuntimeService(
+        runtime = _make_runtime(
             session_factory=session_factory,
             event_bus=event_bus,
             adapter_registry=FakeAdapterRegistry(adapter),
@@ -1028,7 +1041,7 @@ class TestResumeFallback:
         config: CPLConfig,
     ) -> None:
         """Resolved/merged jobs can still be resumed when the worktree exists."""
-        runtime = RuntimeService(
+        runtime = _make_runtime(
             session_factory=session_factory,
             event_bus=event_bus,
             adapter_registry=FakeAdapterRegistry(FakeAgentAdapter()),
@@ -1053,7 +1066,7 @@ class TestResumeFallback:
         config: CPLConfig,
     ) -> None:
         """Archived jobs can still be resumed when the worktree exists."""
-        runtime = RuntimeService(
+        runtime = _make_runtime(
             session_factory=session_factory,
             event_bus=event_bus,
             adapter_registry=FakeAdapterRegistry(FakeAgentAdapter()),
@@ -1595,7 +1608,7 @@ class TestErrorEventCausesFailure:
     ) -> None:
         """A job whose adapter emits an error event should end as failed, not succeeded."""
         error_adapter = ErrorAdapter()
-        runtime = RuntimeService(
+        runtime = _make_runtime(
             session_factory=session_factory,
             event_bus=event_bus,
             adapter_registry=FakeAdapterRegistry(error_adapter),
@@ -1652,7 +1665,7 @@ class TestStartOrEnqueueCapacitySafety:
     ) -> None:
         """Multiple concurrent start_or_enqueue calls should not exceed max_concurrent."""
         slow_adapter = FakeAgentAdapter(delay=0.3)
-        runtime = RuntimeService(
+        runtime = _make_runtime(
             session_factory=session_factory,
             event_bus=event_bus,
             adapter_registry=FakeAdapterRegistry(slow_adapter),

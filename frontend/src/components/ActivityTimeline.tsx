@@ -28,10 +28,12 @@ function StepDot({ active }: { active: boolean }) {
   );
 }
 
-const TIER_BADGE: Record<string, { icon: string; cls: string; tip: string }> = {
-  observe: { icon: "○", cls: "text-muted-foreground/60", tip: "Observe — informational checkpoint, no action needed" },
-  checkpoint: { icon: "◐", cls: "text-amber-400", tip: "Checkpoint — notable milestone in the agent's work" },
-  gate: { icon: "●", cls: "text-red-400", tip: "Gate — requires your approval before the agent continues" },
+const ACTION_BADGE: Record<string, { icon: string; cls: string; tip: string }> = {
+  allow: { icon: "○", cls: "text-muted-foreground/60", tip: "Allow — proceeded automatically" },
+  warn: { icon: "◐", cls: "text-amber-400", tip: "Warn — proceeded with a rollback savepoint" },
+  transform: { icon: "◐", cls: "text-amber-400", tip: "Transform — advisory change suggested" },
+  escalate: { icon: "●", cls: "text-red-400", tip: "Escalate — sent for review before continuing" },
+  deny: { icon: "●", cls: "text-red-400", tip: "Deny — blocked; requires your approval" },
 };
 
 /** Renders a single step with a brief flash when its title is updated (merge). */
@@ -43,7 +45,7 @@ function StepButton({
   searchActive,
   onStepClick,
 }: {
-  step: { turnId: string; title: string; tier?: string | null };
+  step: { turnId: string; title: string; recommendedAction?: string | null };
   isActive: boolean;
   isSelected: boolean;
   isVisible: boolean;
@@ -85,7 +87,7 @@ function StepButton({
         {step.title}
       </span>
       {(() => {
-        const badge = step.tier ? TIER_BADGE[step.tier] : undefined;
+        const badge = step.recommendedAction ? ACTION_BADGE[step.recommendedAction] : undefined;
         return badge ? (
           <Tooltip content={badge.tip}>
             <span

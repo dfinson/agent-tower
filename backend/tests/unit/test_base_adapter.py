@@ -247,13 +247,11 @@ class TestEvaluatePermission:
         # Set up a policy router that always allows (simulating trust coverage)
         from unittest.mock import AsyncMock
 
-        from backend.services.action_policy.classifier import Tier
-
-        mock_decision = MagicMock(proceed=True, tier=Tier.observe, checkpoint_ref=None, classification=None)
+        mock_decision = MagicMock(proceed=True, checkpoint_ref=None, classification=None)
         mock_router = MagicMock()
         mock_router.route = AsyncMock(return_value=mock_decision)
         adapter._policy_router["j1"] = mock_router
-        adapter._repo_policies["j1"] = MagicMock(cost_rules=[])
+        adapter._repo_policies["j1"] = MagicMock()
         adapter._worktree_paths["j1"] = "/tmp"
 
         from backend.services.auth.permission_policy import PermissionRequest

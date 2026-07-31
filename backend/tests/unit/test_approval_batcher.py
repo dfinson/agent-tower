@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from unittest.mock import AsyncMock
 
+from traceforge.governance import RecommendedAction
+
 from backend.services.action_policy.batcher import (
     ApprovalBatcher,
     Batch,
@@ -27,10 +29,13 @@ class FakeAction:
 
 @dataclass
 class FakeClassification:
-    tier: str = "gate"
+    recommended_action: RecommendedAction = RecommendedAction.ESCALATE
+    reason_code: str = "blocked"
     reason: str = "blocked"
-    reversible: bool = False
-    contained: bool = True
+    risk_score: int = 0
+    risk_band: str = "low"
+    effect: str | None = None
+    mechanism: str = "unknown"
 
 
 # ── BatchResolution enum ──

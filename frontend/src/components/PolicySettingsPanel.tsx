@@ -1,71 +1,74 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Trash2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchPolicySettings,
   updatePolicyPreset,
   updatePolicyConfig,
-  createPathRule,
-  deletePathRule,
-  createActionRule,
-  deleteActionRule,
-  createCostRule,
-  deleteCostRule,
-  deleteTrustGrant,
+  updateUsdCeilings,
 } from "../api/client";
-import type { PolicyState } from "../api/client";
+import type { PolicyState, UsdCeiling } from "../api/client";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Tooltip } from "./ui/tooltip";
 import { Spinner } from "./ui/spinner";
-import { ConfirmDialog } from "./ui/confirm-dialog";
 import { useStore } from "../store";
 
 const PRESETS = [
-  { value: "autonomous", label: "Autonomous", description: "Network actions need approval. Everything else runs." },
-  { value: "supervised", label: "Supervised", description: "Network and irreversible actions need approval. Reversible local-only actions run." },
-  { value: "locked", label: "Locked", description: "Reversible local-only actions run with a rollback snapshot. Everything else needs approval." },
+  { value: "autonomous", label: "Autonomous", description: "Broad autonomy. Protected paths and destructive-op budgets still escalate to you." },
+  { value: "supervised", label: "Supervised", description: "Moderate budget and spend ceilings. Network and higher-risk actions escalate for review." },
+  { value: "locked", label: "Locked", description: "Tight budgets and spend ceilings. Protected paths are denied; most actions need approval." },
 ];
 
-const TIERS = [
-  { value: "observe", label: "Observe (○)" },
-  { value: "checkpoint", label: "Checkpoint (◐)" },
-  { value: "gate", label: "Gate (●)" },
-];
+const CEILING_PRESETS = ["autonomous", "supervised", "locked"] as const;
 
-const COST_TIERS = [
-  { value: "checkpoint", label: "Checkpoint (◐)" },
-  { value: "gate", label: "Gate (●)" },
-];
+/** A dollar field: empty string ↔ null (no limit); otherwise a non-negative number. */
+function parseUsd(raw: string): number | null {
+  const t = raw.trim();
+  if (t === "") return null;
+  const v = parseFloat(t);
+  return isNaN(v) || v < 0 ? null : v;
+}
+
+function usdToInput(v: number | null): string {
+  return v == null ? "" : String(v);
+}
 
 export function PolicySettingsPanel() {
   const [policy, setPolicy] = useState<PolicyState | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{ type: string; id: string } | null>(null);
-
-  // New rule forms
-  const [newPathRule, setNewPathRule] = useState({ pathPattern: "", tier: "gate", reason: "" });
-  const [newActionRule, setNewActionRule] = useState({ matchPattern: "", tier: "gate", reason: "" });
-  const [newCostRule, setNewCostRule] = useState({ thresholdValue: "", promoteTo: "gate", reason: "" });
 
   // Debounced batch window
   const [localBatchWindow, setLocalBatchWindow] = useState<number | null>(null);
   const batchWindowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Local per-preset USD ceiling edits (string-backed so a cleared field = no limit)
+  const [ceilingEdits, setCeilingEdits] = useState<Record<string, { warn: string; ceiling: string }>>({});
+  const [savingCeilings, setSavingCeilings] = useState(false);
+
+  const syncCeilingEdits = useCallback((ceilings: Record<string, UsdCeiling>) => {
+    const next: Record<string, { warn: string; ceiling: string }> = {};
+    for (const preset of CEILING_PRESETS) {
+      const entry = ceilings[preset] ?? { warnUsd: null, ceilingUsd: null };
+      next[preset] = { warn: usdToInput(entry.warnUsd), ceiling: usdToInput(entry.ceilingUsd) };
+    }
+    setCeilingEdits(next);
+  }, []);
 
   const load = useCallback(async () => {
     try {
       const data = await fetchPolicySettings();
       setPolicy(data);
       setLocalBatchWindow(data.config.batchWindowSeconds);
+      syncCeilingEdits(data.usdCeilings);
     } catch {
       // Policy not configured yet — show empty state
       setPolicy(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [syncCeilingEdits]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -104,61 +107,22 @@ export function PolicySettingsPanel() {
     }, 500);
   }, []);
 
-  const handleAddPathRule = async () => {
-    if (!newPathRule.pathPattern.trim()) return;
+  const handleSaveCeilings = async () => {
+    setSavingCeilings(true);
     try {
-      await createPathRule(newPathRule);
-      setNewPathRule({ pathPattern: "", tier: "gate", reason: "" });
-      await load();
-      toast.success("Path rule added");
+      const payload: Record<string, UsdCeiling> = {};
+      for (const preset of CEILING_PRESETS) {
+        const edit = ceilingEdits[preset] ?? { warn: "", ceiling: "" };
+        payload[preset] = { warnUsd: parseUsd(edit.warn), ceilingUsd: parseUsd(edit.ceiling) };
+      }
+      const result = await updateUsdCeilings(payload);
+      setPolicy((p) => p ? { ...p, usdCeilings: result.ceilings } : p);
+      syncCeilingEdits(result.ceilings);
+      toast.success("Spend ceilings saved");
     } catch (e) {
       toast.error(String(e));
-    }
-  };
-
-  const handleAddActionRule = async () => {
-    if (!newActionRule.matchPattern.trim()) return;
-    try {
-      await createActionRule(newActionRule);
-      setNewActionRule({ matchPattern: "", tier: "gate", reason: "" });
-      await load();
-      toast.success("Action rule added");
-    } catch (e) {
-      toast.error(String(e));
-    }
-  };
-
-  const handleAddCostRule = async () => {
-    const threshold = parseFloat(newCostRule.thresholdValue);
-    if (isNaN(threshold) || threshold < 0) {
-      toast.error("Threshold must be a non-negative number");
-      return;
-    }
-    try {
-      await createCostRule({
-        condition: "job_spend_usd_gte",
-        promoteTo: newCostRule.promoteTo,
-        thresholdValue: threshold,
-        reason: newCostRule.reason,
-      });
-      setNewCostRule({ thresholdValue: "", promoteTo: "gate", reason: "" });
-      await load();
-      toast.success("Cost rule added");
-    } catch (e) {
-      toast.error(String(e));
-    }
-  };
-
-  const handleDelete = async (type: string, id: string) => {
-    try {
-      if (type === "path") await deletePathRule(id);
-      else if (type === "action") await deleteActionRule(id);
-      else if (type === "cost") await deleteCostRule(id);
-      else if (type === "trust") await deleteTrustGrant(id);
-      await load();
-      toast.success("Rule deleted");
-    } catch (e) {
-      toast.error(String(e));
+    } finally {
+      setSavingCeilings(false);
     }
   };
 
@@ -206,6 +170,10 @@ export function PolicySettingsPanel() {
             </button>
           ))}
         </div>
+        <p className="text-xs text-muted-foreground">
+          Each preset selects a TraceForge governance profile — its rules, protected paths, and
+          tool-call budget. Fine-grained rule authoring is governed by TraceForge, not CodePlane.
+        </p>
       </div>
 
       {/* Batch window */}
@@ -224,204 +192,55 @@ export function PolicySettingsPanel() {
           className="w-32"
         />
         <p className="text-xs text-muted-foreground">
-          How long to accumulate gate-tier actions before presenting a batch for approval.
+          How long to accumulate actions needing approval before presenting a batch.
         </p>
       </div>
 
-      {/* Path rules */}
+      {/* Per-preset USD spend ceilings */}
       <div className="space-y-2">
-        <Tooltip content="Glob patterns that control which files require approval when the agent modifies them">
-          <Label className="cursor-help w-fit">Path Rules</Label>
+        <Tooltip content="When a job's cumulative spend reaches these dollar amounts, actions are escalated for approval. Leave blank for no limit.">
+          <Label className="cursor-help w-fit">Spend Ceilings (USD, per preset)</Label>
         </Tooltip>
-        {policy.pathRules.length === 0 && (
-          <p className="text-xs text-muted-foreground">No path rules configured.</p>
-        )}
-        {policy.pathRules.map((rule) => (
-          <div key={rule.id} className="flex items-center gap-2 text-xs bg-background border border-border/50 rounded px-2.5 py-1.5">
-            <code className="flex-1 font-mono">{rule.pathPattern}</code>
-            <span className="text-muted-foreground">{rule.tier}</span>
-            <Tooltip content="Delete this path rule">
-              <button
-                onClick={() => setDeleteTarget({ type: "path", id: rule.id })}
-                className="text-red-400 hover:text-red-300 p-1"
-                aria-label="Delete rule"
-              >
-                <Trash2 size={12} />
-              </button>
-            </Tooltip>
-          </div>
-        ))}
-        <div className="flex gap-2 items-end">
-          <Input
-            placeholder="*.lock"
-            value={newPathRule.pathPattern}
-            onChange={(e) => setNewPathRule((r) => ({ ...r, pathPattern: e.target.value }))}
-            className="flex-1 text-xs"
-          />
-          <select
-            value={newPathRule.tier}
-            onChange={(e) => setNewPathRule((r) => ({ ...r, tier: e.target.value }))}
-            className="h-9 rounded-md border border-input bg-background px-2 text-xs"
-          >
-            {TIERS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-          <Input
-            placeholder="Reason"
-            value={newPathRule.reason}
-            onChange={(e) => setNewPathRule((r) => ({ ...r, reason: e.target.value }))}
-            className="flex-1 text-xs"
-          />
-          <Button size="sm" variant="outline" onClick={handleAddPathRule} className="gap-1">
-            <Plus size={12} /> Add
-          </Button>
+        <div className="grid grid-cols-[7rem_1fr_1fr] gap-2 items-center text-xs text-muted-foreground">
+          <span />
+          <span>Warn at ($)</span>
+          <span>Escalate at ($)</span>
         </div>
-      </div>
-
-      {/* Action rules */}
-      <div className="space-y-2">
-        <Tooltip content="Patterns that match agent tool calls — controls which actions require approval">
-          <Label className="cursor-help w-fit">Action Rules</Label>
-        </Tooltip>
-        {policy.actionRules.length === 0 && (
-          <p className="text-xs text-muted-foreground">No action rules configured.</p>
-        )}
-        {policy.actionRules.map((rule) => (
-          <div key={rule.id} className="flex items-center gap-2 text-xs bg-background border border-border/50 rounded px-2.5 py-1.5">
-            <code className="flex-1 font-mono">{rule.matchPattern}</code>
-            <span className="text-muted-foreground">{rule.tier}</span>
-            <Tooltip content="Delete this action rule">
-              <button
-                onClick={() => setDeleteTarget({ type: "action", id: rule.id })}
-                className="text-red-400 hover:text-red-300 p-1"
-                aria-label="Delete rule"
-              >
-                <Trash2 size={12} />
-              </button>
-            </Tooltip>
-          </div>
-        ))}
-        <div className="flex gap-2 items-end">
-          <Input
-            placeholder="rm -rf.*"
-            value={newActionRule.matchPattern}
-            onChange={(e) => setNewActionRule((r) => ({ ...r, matchPattern: e.target.value }))}
-            className="flex-1 text-xs"
-          />
-          <select
-            value={newActionRule.tier}
-            onChange={(e) => setNewActionRule((r) => ({ ...r, tier: e.target.value }))}
-            className="h-9 rounded-md border border-input bg-background px-2 text-xs"
-          >
-            {TIERS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-          <Input
-            placeholder="Reason"
-            value={newActionRule.reason}
-            onChange={(e) => setNewActionRule((r) => ({ ...r, reason: e.target.value }))}
-            className="flex-1 text-xs"
-          />
-          <Button size="sm" variant="outline" onClick={handleAddActionRule} className="gap-1">
-            <Plus size={12} /> Add
-          </Button>
-        </div>
-      </div>
-
-      {/* Cost rules */}
-      <div className="space-y-2">
-        <Label>Cost Rules</Label>
-        <p className="text-xs text-muted-foreground">
-          Promote actions to a higher tier when cumulative job spend reaches a threshold.
-        </p>
-        {[...policy.costRules]
-          .sort((a, b) => (a.thresholdValue ?? 0) - (b.thresholdValue ?? 0))
-          .map((rule) => (
-          <div key={rule.id} className="flex items-center gap-2 text-xs bg-background border border-border/50 rounded px-2.5 py-1.5">
-            <code className="font-mono">${rule.thresholdValue?.toFixed(2) ?? "—"}</code>
-            <span className="text-muted-foreground">→ {rule.promoteTo}</span>
-            {rule.reason && <span className="text-muted-foreground flex-1 truncate">— {rule.reason}</span>}
-            {!rule.reason && <span className="flex-1" />}
-            <Tooltip content="Delete this cost rule">
-              <button
-                onClick={() => setDeleteTarget({ type: "cost", id: rule.id })}
-                className="text-red-400 hover:text-red-300 p-1"
-                aria-label="Delete cost rule"
-              >
-                <Trash2 size={12} />
-              </button>
-            </Tooltip>
-          </div>
-        ))}
-        <div className="flex gap-2 items-end">
-          <Input
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="Threshold ($)"
-            value={newCostRule.thresholdValue}
-            onChange={(e) => setNewCostRule((r) => ({ ...r, thresholdValue: e.target.value }))}
-            className="w-32 text-xs"
-          />
-          <select
-            value={newCostRule.promoteTo}
-            onChange={(e) => setNewCostRule((r) => ({ ...r, promoteTo: e.target.value }))}
-            className="h-9 rounded-md border border-input bg-background px-2 text-xs"
-          >
-            {COST_TIERS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-          <Input
-            placeholder="Reason"
-            value={newCostRule.reason}
-            onChange={(e) => setNewCostRule((r) => ({ ...r, reason: e.target.value }))}
-            className="flex-1 text-xs"
-          />
-          <Button size="sm" variant="outline" onClick={handleAddCostRule} className="gap-1">
-            <Plus size={12} /> Add
-          </Button>
-        </div>
-      </div>
-
-      {/* Trust grants */}
-      {policy.trustGrants.length > 0 && (
-        <div className="space-y-2">
-          <Tooltip content="One-time permissions previously granted — the agent won't ask again for these">
-            <Label className="cursor-help w-fit">Active Trust Grants</Label>
-          </Tooltip>
-          {policy.trustGrants.map((grant) => (
-            <div key={grant.id} className="flex items-center gap-2 text-xs bg-background border border-border/50 rounded px-2.5 py-1.5">
-              <span className="flex-1">
-                {grant.kinds.join(", ")}
-                {grant.pathPattern && <code className="ml-1 font-mono">{grant.pathPattern}</code>}
-                {grant.commandPattern && <code className="ml-1 font-mono">{grant.commandPattern}</code>}
-                {grant.reason && <span className="text-muted-foreground ml-1">— {grant.reason}</span>}
-              </span>
-              {grant.expiresAt && (
-                <span className="text-muted-foreground">expires {new Date(grant.expiresAt).toLocaleString()}</span>
-              )}
-              <Tooltip content="Revoke this trust grant">
-                <button
-                  onClick={() => setDeleteTarget({ type: "trust", id: grant.id })}
-                  className="text-red-400 hover:text-red-300 p-1"
-                  aria-label="Revoke trust"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </Tooltip>
+        {CEILING_PRESETS.map((preset) => {
+          const edit = ceilingEdits[preset] ?? { warn: "", ceiling: "" };
+          return (
+            <div key={preset} className="grid grid-cols-[7rem_1fr_1fr] gap-2 items-center">
+              <span className="text-xs capitalize text-foreground/80">{preset}</span>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="none"
+                value={edit.warn}
+                onChange={(e) => setCeilingEdits((c) => ({ ...c, [preset]: { ...edit, warn: e.target.value } }))}
+                className="text-xs"
+              />
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="none"
+                value={edit.ceiling}
+                onChange={(e) => setCeilingEdits((c) => ({ ...c, [preset]: { ...edit, ceiling: e.target.value } }))}
+                className="text-xs"
+              />
             </div>
-          ))}
+          );
+        })}
+        <div className="flex justify-end">
+          <Button size="sm" variant="outline" disabled={savingCeilings} onClick={handleSaveCeilings}>
+            {savingCeilings ? "Saving…" : "Save ceilings"}
+          </Button>
         </div>
-      )}
-
-      <ConfirmDialog
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={async () => {
-          if (deleteTarget) await handleDelete(deleteTarget.type, deleteTarget.id);
-          setDeleteTarget(null);
-        }}
-        title="Delete Rule?"
-        description="This rule will be removed. Actions will be classified using the remaining rules and defaults."
-        confirmLabel="Delete"
-      />
+        <p className="text-xs text-muted-foreground">
+          Enforced natively as a TraceForge policy assessor alongside the profile's tool-call budget.
+        </p>
+      </div>
     </div>
   );
 }

@@ -242,25 +242,25 @@ export function handleStepEntriesReassigned(state: AppState, payload: Record<str
   };
 }
 
-const TIER_PRIORITY: Record<string, number> = { observe: 1, checkpoint: 2, gate: 3 };
+const ACTION_PRIORITY: Record<string, number> = { allow: 1, transform: 2, warn: 2, escalate: 3, deny: 4 };
 
 export function handleActionClassified(_state: AppState, payload: Record<string, unknown>, getFresh: () => AppState): Partial<AppState> | null {
   const jobId = payload.jobId as string;
-  const tier = payload.tier as string | undefined;
-  if (!jobId || !tier) return null;
+  const recommendedAction = payload.recommendedAction as string | undefined;
+  if (!jobId || !recommendedAction) return null;
 
   const freshTimeline = getFresh().activityTimelines[jobId];
   if (!freshTimeline || freshTimeline.activities.length === 0) return null;
 
-  // Update the last step (current turn) with the highest tier
+  // Update the last step (current turn) with the highest-severity recommendation
   const activities = freshTimeline.activities.map((a, ai) => {
     if (ai !== freshTimeline.activities.length - 1) return a;
     const steps = a.steps.map((s, si) => {
       if (si !== a.steps.length - 1) return s;
-      const currentPriority = TIER_PRIORITY[s.tier ?? ""] ?? 0;
-      const newPriority = TIER_PRIORITY[tier] ?? 0;
+      const currentPriority = ACTION_PRIORITY[s.recommendedAction ?? ""] ?? 0;
+      const newPriority = ACTION_PRIORITY[recommendedAction] ?? 0;
       if (newPriority > currentPriority) {
-        return { ...s, tier: tier as "observe" | "checkpoint" | "gate" };
+        return { ...s, recommendedAction: recommendedAction as ActivityTimelineStep["recommendedAction"] };
       }
       return s;
     });

@@ -1,23 +1,23 @@
-"""Action policy persistence — config, rules, trust grants, MCP server configs."""
+"""Action policy persistence — config (preset + batch window + USD ceilings) and MCP configs.
+
+The hand-rolled path/action/cost rule tables and the pattern-trust grant table are
+retired: the DECISION is delegated wholesale to ``traceforge.governance`` (rules,
+protected paths, count/effect budget, reason-code trust all live in the separate
+governance store). CodePlane keeps only the product settings it still owns — the
+preset (which selects a TraceForge profile), the approval batch window, the
+per-preset USD ceiling overlay (enforced natively by ``JobSpendCeilingAssessor``),
+and the MCP server launch configs.
+"""
 
 from __future__ import annotations
 
 import json
-import re
-import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, delete, select, update
 
-from backend.models.db import (
-    ActionRuleRow,
-    CostRuleRow,
-    MCPServerConfigRow,
-    PathRuleRow,
-    PolicyConfigRow,
-    TrustGrantRow,
-)
+from backend.models.db import MCPServerConfigRow, PolicyConfigRow
 from backend.persistence.repository import BaseRepository
 
 
@@ -44,170 +44,41 @@ class PolicyRepository(BaseRepository):
         await self._session.execute(update(PolicyConfigRow).where(PolicyConfigRow.id == 1).values(**updates))
         return await self.get_config()
 
-    # --- Path rules ---
+    # --- Per-preset USD ceilings (native cost-ceiling overlay) ---
 
-    async def list_path_rules(self) -> list[dict[str, Any]]:
-        result = await self._session.execute(select(PathRuleRow).order_by(PathRuleRow.created_at))
-        return [
-            {"id": r.id, "path_pattern": r.path_pattern, "tier": r.tier, "reason": r.reason, "created_at": r.created_at}
-            for r in result.scalars()
-        ]
+    async def get_usd_ceilings(self) -> dict[str, tuple[float | None, float | None]]:
+        """Return ``{preset: (warn_usd, ceiling_usd)}`` operator overrides.
 
-    async def create_path_rule(self, path_pattern: str, tier: str, reason: str) -> dict[str, Any]:
-        row = PathRuleRow(
-            id=uuid.uuid4().hex,
-            path_pattern=path_pattern,
-            tier=tier,
-            reason=reason,
-            created_at=datetime.now(UTC).isoformat(),
-        )
-        self._session.add(row)
-        return {
-            "id": row.id,
-            "path_pattern": row.path_pattern,
-            "tier": row.tier,
-            "reason": row.reason,
-            "created_at": row.created_at,
-        }
-
-    async def update_path_rule(self, rule_id: str, **kwargs: Any) -> dict[str, Any] | None:
-        result = await self._session.execute(select(PathRuleRow).where(PathRuleRow.id == rule_id))
+        Empty when unset — the governance decider then applies each profile's baked
+        default ceiling. Malformed JSON degrades to empty rather than raising.
+        """
+        result = await self._session.execute(select(PolicyConfigRow).where(PolicyConfigRow.id == 1))
         row = result.scalar_one_or_none()
-        if row is None:
-            return None
-        for k in ("path_pattern", "tier", "reason"):
-            if k in kwargs:
-                setattr(row, k, kwargs[k])
-        return {
-            "id": row.id,
-            "path_pattern": row.path_pattern,
-            "tier": row.tier,
-            "reason": row.reason,
-            "created_at": row.created_at,
-        }
+        if row is None or not row.usd_ceilings_json:
+            return {}
+        try:
+            raw = json.loads(row.usd_ceilings_json)
+        except (ValueError, TypeError):
+            return {}
+        out: dict[str, tuple[float | None, float | None]] = {}
+        if isinstance(raw, dict):
+            for preset, pair in raw.items():
+                warn = _opt_float(pair.get("warn_usd")) if isinstance(pair, dict) else None
+                ceiling = _opt_float(pair.get("ceiling_usd")) if isinstance(pair, dict) else None
+                out[str(preset)] = (warn, ceiling)
+        return out
 
-    async def delete_path_rule(self, rule_id: str) -> bool:
-        result = cast(
-            "CursorResult[Any]",
-            await self._session.execute(delete(PathRuleRow).where(PathRuleRow.id == rule_id)),
+    async def set_usd_ceilings(self, ceilings: dict[str, dict[str, float | None]]) -> dict[str, Any]:
+        """Persist per-preset USD ceiling overrides on the singleton config row.
+
+        ``ceilings`` maps a preset name to ``{"warn_usd": .., "ceiling_usd": ..}``;
+        either value may be ``None`` (no line). Returns the stored mapping.
+        """
+        payload = json.dumps(ceilings) if ceilings else None
+        await self._session.execute(
+            update(PolicyConfigRow).where(PolicyConfigRow.id == 1).values(usd_ceilings_json=payload)
         )
-        return result.rowcount > 0
-
-    # --- Action rules ---
-
-    async def list_action_rules(self) -> list[dict[str, Any]]:
-        result = await self._session.execute(select(ActionRuleRow).order_by(ActionRuleRow.created_at))
-        return [
-            {
-                "id": r.id,
-                "match_pattern": r.match_pattern,
-                "tier": r.tier,
-                "reason": r.reason,
-                "created_at": r.created_at,
-            }
-            for r in result.scalars()
-        ]
-
-    async def create_action_rule(self, match_pattern: str, tier: str, reason: str) -> dict[str, Any]:
-        row = ActionRuleRow(
-            id=uuid.uuid4().hex,
-            match_pattern=match_pattern,
-            tier=tier,
-            reason=reason,
-            created_at=datetime.now(UTC).isoformat(),
-        )
-        self._session.add(row)
-        return {
-            "id": row.id,
-            "match_pattern": row.match_pattern,
-            "tier": row.tier,
-            "reason": row.reason,
-            "created_at": row.created_at,
-        }
-
-    async def update_action_rule(self, rule_id: str, **kwargs: Any) -> dict[str, Any] | None:
-        result = await self._session.execute(select(ActionRuleRow).where(ActionRuleRow.id == rule_id))
-        row = result.scalar_one_or_none()
-        if row is None:
-            return None
-        for k in ("match_pattern", "tier", "reason"):
-            if k in kwargs:
-                setattr(row, k, kwargs[k])
-        return {
-            "id": row.id,
-            "match_pattern": row.match_pattern,
-            "tier": row.tier,
-            "reason": row.reason,
-            "created_at": row.created_at,
-        }
-
-    async def delete_action_rule(self, rule_id: str) -> bool:
-        result = cast(
-            "CursorResult[Any]",
-            await self._session.execute(delete(ActionRuleRow).where(ActionRuleRow.id == rule_id)),
-        )
-        return result.rowcount > 0
-
-    # --- Cost rules ---
-
-    async def list_cost_rules(self) -> list[dict[str, Any]]:
-        result = await self._session.execute(select(CostRuleRow).order_by(CostRuleRow.created_at))
-        return [
-            {
-                "id": r.id,
-                "condition": r.condition,
-                "promote_to": r.promote_to,
-                "threshold_value": r.threshold_value,
-                "reason": r.reason,
-                "created_at": r.created_at,
-            }
-            for r in result.scalars()
-        ]
-
-    async def create_cost_rule(
-        self, condition: str, promote_to: str, reason: str, threshold_value: float | None = None
-    ) -> dict[str, Any]:
-        row = CostRuleRow(
-            id=uuid.uuid4().hex,
-            condition=condition,
-            promote_to=promote_to,
-            threshold_value=threshold_value,
-            reason=reason,
-            created_at=datetime.now(UTC).isoformat(),
-        )
-        self._session.add(row)
-        return {
-            "id": row.id,
-            "condition": row.condition,
-            "promote_to": row.promote_to,
-            "threshold_value": row.threshold_value,
-            "reason": row.reason,
-            "created_at": row.created_at,
-        }
-
-    async def update_cost_rule(self, rule_id: str, **kwargs: Any) -> dict[str, Any] | None:
-        result = await self._session.execute(select(CostRuleRow).where(CostRuleRow.id == rule_id))
-        row = result.scalar_one_or_none()
-        if row is None:
-            return None
-        for k in ("condition", "promote_to", "threshold_value", "reason"):
-            if k in kwargs:
-                setattr(row, k, kwargs[k])
-        return {
-            "id": row.id,
-            "condition": row.condition,
-            "promote_to": row.promote_to,
-            "threshold_value": row.threshold_value,
-            "reason": row.reason,
-            "created_at": row.created_at,
-        }
-
-    async def delete_cost_rule(self, rule_id: str) -> bool:
-        result = cast(
-            "CursorResult[Any]",
-            await self._session.execute(delete(CostRuleRow).where(CostRuleRow.id == rule_id)),
-        )
-        return result.rowcount > 0
+        return {"usd_ceilings": ceilings}
 
     # --- MCP server configs ---
 
@@ -255,83 +126,37 @@ class PolicyRepository(BaseRepository):
         )
         return result.rowcount > 0
 
-    # --- Trust grants ---
-
-    async def list_trust_grants(self, active_only: bool = True) -> list[dict[str, Any]]:
-        stmt = select(TrustGrantRow).order_by(TrustGrantRow.created_at.desc())
-        if active_only:
-            now = datetime.now(UTC).isoformat()
-            stmt = stmt.where((TrustGrantRow.expires_at.is_(None)) | (TrustGrantRow.expires_at > now))
-        result = await self._session.execute(stmt)
-        return [_grant_row_to_dict(r) for r in result.scalars()]
-
-    async def create_trust_grant(self, **kwargs: Any) -> dict[str, Any]:
-        row = TrustGrantRow(
-            id=kwargs.get("id") or uuid.uuid4().hex,
-            job_id=kwargs.get("job_id"),
-            kinds_json=json.dumps(kwargs.get("kinds", [])),
-            path_pattern=kwargs.get("path_pattern"),
-            excludes_json=json.dumps(kwargs["excludes"]) if "excludes" in kwargs else None,
-            command_pattern=kwargs.get("command_pattern"),
-            mcp_server=kwargs.get("mcp_server"),
-            mcp_tool=kwargs.get("mcp_tool"),
-            expires_at=kwargs["expires_at"].isoformat() if kwargs.get("expires_at") else None,
-            created_at=datetime.now(UTC).isoformat(),
-            reason=kwargs.get("reason", ""),
-        )
-        self._session.add(row)
-        return _grant_row_to_dict(row)
-
-    async def delete_trust_grant(self, grant_id: str) -> bool:
-        result = cast(
-            "CursorResult[Any]",
-            await self._session.execute(delete(TrustGrantRow).where(TrustGrantRow.id == grant_id)),
-        )
-        return result.rowcount > 0
-
     # --- Export / Import ---
 
     async def export_all(self) -> dict[str, Any]:
         config = await self.get_config()
         return {
-            "version": 1,
+            "version": 2,
             "config": config,
-            "path_rules": await self.list_path_rules(),
-            "action_rules": await self.list_action_rules(),
-            "cost_rules": await self.list_cost_rules(),
+            "usd_ceilings": await self.get_usd_ceilings(),
             "mcp_servers": await self.list_mcp_configs(),
-            "trust_grants": await self.list_trust_grants(active_only=False),
         }
 
     async def import_all(self, data: dict[str, Any]) -> None:
         if "config" in data:
             await self.update_config(**data["config"])
-
-        # Clear existing rules/grants before importing to avoid UNIQUE violations
-        await self._session.execute(delete(PathRuleRow))
-        await self._session.execute(delete(ActionRuleRow))
-        await self._session.execute(delete(CostRuleRow))
-        await self._session.execute(delete(TrustGrantRow))
-
-        for rule in data.get("path_rules", []):
-            await self.create_path_rule(rule["path_pattern"], rule["tier"], rule["reason"])
-        for rule in data.get("action_rules", []):
-            try:
-                re.compile(rule["match_pattern"])
-            except re.error as exc:
-                raise ValueError(f"Invalid regex in action rule: {exc}") from exc
-            await self.create_action_rule(rule["match_pattern"], rule["tier"], rule["reason"])
-        for rule in data.get("cost_rules", []):
-            await self.create_cost_rule(
-                rule["condition"],
-                rule["promote_to"],
-                rule["reason"],
-                rule.get("threshold_value"),
-            )
+        if "usd_ceilings" in data:
+            ceilings = {
+                str(preset): {"warn_usd": _opt_float(pair[0]), "ceiling_usd": _opt_float(pair[1])}
+                for preset, pair in dict(data["usd_ceilings"]).items()
+            }
+            await self.set_usd_ceilings(ceilings)
         for srv in data.get("mcp_servers", []):
             await self.upsert_mcp_config(srv["name"], **srv)
-        for grant in data.get("trust_grants", []):
-            await self.create_trust_grant(**grant)
+
+
+def _opt_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
 
 
 def _mcp_row_to_dict(row: MCPServerConfigRow) -> dict[str, Any]:
@@ -345,20 +170,4 @@ def _mcp_row_to_dict(row: MCPServerConfigRow) -> dict[str, Any]:
         "trusted": row.trusted,
         "tool_overrides": json.loads(row.tool_overrides_json) if row.tool_overrides_json else {},
         "created_at": row.created_at,
-    }
-
-
-def _grant_row_to_dict(row: TrustGrantRow) -> dict[str, Any]:
-    return {
-        "id": row.id,
-        "job_id": row.job_id,
-        "kinds": json.loads(row.kinds_json) if row.kinds_json else [],
-        "path_pattern": row.path_pattern,
-        "excludes": json.loads(row.excludes_json) if row.excludes_json else [],
-        "command_pattern": row.command_pattern,
-        "mcp_server": row.mcp_server,
-        "mcp_tool": row.mcp_tool,
-        "expires_at": row.expires_at,
-        "created_at": row.created_at,
-        "reason": row.reason,
     }

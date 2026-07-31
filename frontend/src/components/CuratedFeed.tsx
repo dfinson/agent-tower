@@ -344,10 +344,12 @@ function InlineApprovalCard({ approval }: { approval: ApprovalRequest }) {
   );
 }
 
-const TIER_ICON: Record<string, string> = {
-  observe: "○",
-  checkpoint: "◐",
-  gate: "●",
+const ACTION_ICON: Record<string, string> = {
+  allow: "○",
+  warn: "◐",
+  transform: "◐",
+  escalate: "●",
+  deny: "●",
 };
 
 function InlineBatchApprovalCard({ batch }: { batch: BatchApproval }) {
@@ -397,10 +399,10 @@ function InlineBatchApprovalCard({ batch }: { batch: BatchApproval }) {
           <div className="space-y-1">
             {batch.actions.map((action) => (
               <div key={action.id} className="flex items-start gap-1.5 text-xs text-muted-foreground/70">
-                <span className="text-amber-400/80 font-mono shrink-0">{TIER_ICON[action.tier] ?? "●"}</span>
+                <span className="text-amber-400/80 font-mono shrink-0">{ACTION_ICON[action.recommendedAction] ?? "●"}</span>
                 <span className="min-w-0 break-words whitespace-pre-wrap">
                   {action.description}
-                  {!action.reversible && <span className="text-red-400/70 ml-1">irreversible</span>}
+                  {action.effect === "destructive" && <span className="text-red-400/70 ml-1">destructive</span>}
                 </span>
               </div>
             ))}
