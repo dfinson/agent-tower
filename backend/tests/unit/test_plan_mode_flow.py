@@ -183,6 +183,7 @@ async def runtime(
         config=config,
         approval_service=approval_service,
     )
+    service.set_governance(MagicMock(), MagicMock())  # type: ignore[arg-type]
     # Create a minimal TrailService mock that captures plan steps from events
     trail_state: dict[str, _TrailJobState] = {}
     trail_svc = TrailService.__new__(TrailService)

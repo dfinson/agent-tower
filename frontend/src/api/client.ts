@@ -547,13 +547,15 @@ export interface PolicyConfig {
   batchWindowSeconds: number;
 }
 
+export interface UsdCeiling {
+  warnUsd: number | null;
+  ceilingUsd: number | null;
+}
+
 export interface PolicyState {
   config: PolicyConfig;
-  pathRules: Array<{ id: string; pathPattern: string; tier: string; reason: string; createdAt: string }>;
-  actionRules: Array<{ id: string; matchPattern: string; tier: string; reason: string; createdAt: string }>;
-  costRules: Array<{ id: string; condition: string; promoteTo: string; thresholdValue: number | null; reason: string; createdAt: string }>;
+  usdCeilings: Record<string, UsdCeiling>;
   mcpServers: Array<{ name: string; command: string; contained: boolean; reversible: boolean; trusted: boolean; createdAt: string }>;
-  trustGrants: Array<{ id: string; kinds: string[]; pathPattern: string | null; commandPattern: string | null; mcpServer: string | null; jobId: string | null; expiresAt: string | null; reason: string; createdAt: string }>;
 }
 
 export function fetchPolicySettings(): Promise<PolicyState> {
@@ -574,48 +576,12 @@ export function updatePolicyConfig(config: Partial<PolicyConfig>): Promise<Polic
   });
 }
 
-export function createPathRule(rule: { pathPattern: string; tier: string; reason: string }): Promise<unknown> {
-  return request("/settings/policy/path-rules", {
-    method: "POST",
-    body: JSON.stringify(rule),
-  });
-}
-
-export function deletePathRule(id: string): Promise<void> {
-  return request(`/settings/policy/path-rules/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
-}
-
-export function createActionRule(rule: { matchPattern: string; tier: string; reason: string }): Promise<unknown> {
-  return request("/settings/policy/action-rules", {
-    method: "POST",
-    body: JSON.stringify(rule),
-  });
-}
-
-export function deleteActionRule(id: string): Promise<void> {
-  return request(`/settings/policy/action-rules/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
-}
-
-export function createCostRule(rule: { condition: string; promoteTo: string; thresholdValue: number | null; reason: string }): Promise<unknown> {
-  return request("/settings/policy/cost-rules", {
-    method: "POST",
-    body: JSON.stringify(rule),
-  });
-}
-
-export function deleteCostRule(id: string): Promise<void> {
-  return request(`/settings/policy/cost-rules/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
-}
-
-export function deleteTrustGrant(id: string): Promise<void> {
-  return request(`/settings/policy/trust-grants/${encodeURIComponent(id)}`, {
-    method: "DELETE",
+export function updateUsdCeilings(
+  ceilings: Record<string, UsdCeiling>,
+): Promise<{ ceilings: Record<string, UsdCeiling> }> {
+  return request("/settings/policy/usd-ceilings", {
+    method: "PUT",
+    body: JSON.stringify({ ceilings }),
   });
 }
 

@@ -26,7 +26,7 @@ from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.adapters.agent_adapter import AgentAdapterInterface, normalize_model_name
 from backend.services.auth.permission_policy import (
     PermissionRequest,
-    is_git_reset_hard,
+    is_hard_gated_command,
 )
 
 if TYPE_CHECKING:
@@ -36,7 +36,6 @@ if TYPE_CHECKING:
     from traceforge.types import ToolMotivation
 
     from backend.models.api_schemas import ExecutionPhase
-    from backend.services.action_policy.classifier import CostContext
     from backend.services.events.event_bus import EventBus
     from backend.services.job.approval_service import ApprovalService
 
@@ -445,14 +444,17 @@ class BaseAgentAdapter(AgentAdapterInterface):
         if session_id in self._paused_sessions:
             return PermissionDecision.deny
 
-        # Hard block: git reset --hard
+        # Hard gate: SPEC §18.2 commands (git merge/pull/rebase/cherry-pick,
+        # reset --hard, force-push) always reach the operator — this pre-check
+        # runs BEFORE governance scoring so no trust grant or budget waiver can
+        # silently bypass it (binding condition §3, defence in depth).
         shell_cmd = self._resolve_shell_command(
             request.kind,
             tool_name,
             tool_input,
             request.full_command_text,
         )
-        if shell_cmd and is_git_reset_hard(shell_cmd):
+        if shell_cmd and is_hard_gated_command(shell_cmd):
             resolution = await self._hard_block_approval(
                 session_id,
                 job_id,
@@ -519,34 +521,27 @@ class BaseAgentAdapter(AgentAdapterInterface):
             workspace_path=request.workspace_path,
         )
 
-        policy = self._repo_policies[job_id]
         cwd = self._worktree_paths.get(job_id)
         router = self._policy_router[job_id]
 
-        # Fetch cost context for cost rule evaluation
-        cost_ctx = None
-        if policy.cost_rules:
-            cost_ctx = await self._get_cost_context(job_id)
+        decision = await router.route(action, cwd=cwd)
 
-        decision = await router.route(action, policy, cwd=cwd, cost=cost_ctx)
-
-        # Emit action_classified event for timeline tier indicators
-        tier_str = decision.tier.value if decision.tier else None
-        if tier_str and self._event_bus is not None:
-            from backend.models.events import EventKind, new_event
-
-            cls = decision.classification
+        # Emit action_classified event for the live timeline (TraceForge fields).
+        cls = decision.classification
+        if cls is not None and self._event_bus is not None:
             await self._event_bus.publish(
                 new_event(
                     session_id=job_id,
                     timestamp=datetime.now(UTC),
                     kind=EventKind.action_classified,
                     payload={
-                        "tier": tier_str,
+                        "recommendedAction": decision.recommended_action.value,
+                        "reasonCode": cls.reason_code,
+                        "riskScore": cls.risk_score,
+                        "riskBand": cls.risk_band,
+                        "effect": cls.effect,
                         "tool_name": tool_name or request.kind,
                         "path": request.file_name or request.path,
-                        "reversible": cls.reversible if cls else False,
-                        "contained": cls.contained if cls else True,
                         "checkpoint_ref": decision.checkpoint_ref,
                     },
                 )
@@ -556,21 +551,6 @@ class BaseAgentAdapter(AgentAdapterInterface):
             return PermissionDecision.allow
         return PermissionDecision.deny
 
-    async def _get_cost_context(self, job_id: str) -> CostContext | None:
-        """Fetch current spend for a job to feed into cost rule evaluation."""
-        from backend.services.action_policy.classifier import CostContext
-
-        try:
-            async with self._db_session() as session:
-                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-                summary = await TelemetrySummaryRepository(session).get(job_id)
-                if summary and summary["total_cost_usd"] is not None:
-                    return CostContext(job_spend_usd=summary["total_cost_usd"])
-        except (_NoSessionFactoryError, DBAPIError, OSError):
-            log.warning("cost_context_fetch_failed", job_id=job_id, exc_info=True)
-        return None
-
     async def _hard_block_approval(
         self,
         session_id: str,
@@ -578,12 +558,12 @@ class BaseAgentAdapter(AgentAdapterInterface):
         shell_cmd: str,
         tool_input: dict[str, Any] | None = None,
     ) -> ApprovalResolution:
-        """Route a hard-blocked command to the operator."""
+        """Route a SPEC §18.2 hard-gated command to the operator."""
         if self._approval_service is None or job_id is None:
-            log.error("git_reset_hard_blocked_no_infra", command=shell_cmd)
+            log.error("hard_gated_command_blocked_no_infra", command=shell_cmd)
             return ApprovalResolution.rejected
 
-        description = f"⚠️ git reset --hard — this will discard ALL uncommitted changes and move HEAD: {shell_cmd}"
+        description = f"⚠️ Hard-gated command (§18.2) — requires operator approval: {shell_cmd}"
         proposed = json.dumps(tool_input, default=str) if tool_input else shell_cmd
         approval = await self._approval_service.create_request(
             job_id=job_id,
@@ -605,7 +585,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             ),
         )
         log.warning(
-            "git_reset_hard_awaiting_operator",
+            "hard_gated_command_awaiting_operator",
             approval_id=approval.id,
             job_id=job_id,
             command=shell_cmd,

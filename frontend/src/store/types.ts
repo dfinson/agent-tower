@@ -64,14 +64,19 @@ export interface ApprovalRequest {
   notes: string | null;
 }
 
-/** A batch of gate-tier actions awaiting operator approval. */
+/** TraceForge governance verdict — surfaced natively (replaces the retired CP tier). */
+export type RecommendedAction = "allow" | "warn" | "escalate" | "deny" | "transform";
+
+/** A batch of actions awaiting operator approval (escalate/deny recommendations). */
 export interface BatchApprovalAction {
   id: string;
   kind: string;
-  tier: string;
+  recommendedAction: RecommendedAction;
+  reasonCode: string;
   reason: string;
-  reversible: boolean;
-  contained: boolean;
+  riskScore: number;
+  riskBand: string;
+  effect: string | null;
   checkpointRef: string | null;
   description: string;
 }
@@ -148,8 +153,8 @@ export interface ActivityTimelineStep {
   title: string;
   activityId: string;
   planItemId?: string | null;
-  /** Highest action policy tier seen during this turn. */
-  tier?: "observe" | "checkpoint" | "gate" | null;
+  /** Highest-severity governance recommendation seen during this turn. */
+  recommendedAction?: RecommendedAction | null;
 }
 
 /** A retrospective grouping of steps in the activity timeline. */

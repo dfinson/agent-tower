@@ -68,7 +68,8 @@ export interface ApprovalRequest {
 
 // --- Action Policy batch types ---
 
-export type ActionTier = "observe" | "checkpoint" | "gate";
+/** TraceForge governance verdict — surfaced natively (replaces the retired CP tier). */
+export type RecommendedAction = "allow" | "warn" | "escalate" | "deny" | "transform";
 
 export interface BatchAction {
   id: string;
@@ -76,9 +77,11 @@ export interface BatchAction {
   toolName: string | null;
   path: string | null;
   command: string | null;
-  tier: ActionTier;
-  reversible: boolean;
-  contained: boolean;
+  recommendedAction: RecommendedAction;
+  reasonCode: string;
+  riskScore: number;
+  riskBand: string;
+  effect: string | null;
   reason: string;
   checkpointRef: string | null;
 }

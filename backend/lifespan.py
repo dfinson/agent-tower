@@ -1179,6 +1179,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     telemetry_subscriber.subscribe(event_bus)
     services.runtime_service.set_telemetry_subscriber(telemetry_subscriber)
 
+    # --- Governance substrate (traceforge.governance decision + accrual) ---
+    # One process-wide decider owns a SEPARATE durable store (``governance.db``,
+    # TraceForge's own alembic — never touches CodePlane's ``alembic_version``) and
+    # the three preset pipelines. The decision path is read-only (preflight on a
+    # detached clone); the accrual path is driven by a bus subscriber that advances
+    # durable budget/taint only for EXECUTED tool calls. The USD spend reader is a
+    # synchronous read-only closure over CodePlane's ``data.db``.
+    from backend.services.action_policy.cost_ceiling import make_job_spend_reader
+    from backend.services.action_policy.governance import GovernanceDecider, load_usd_ceilings
+    from backend.services.events.governance_subscriber import GovernanceSubscriber
+
+    governance_decider = GovernanceDecider(
+        db_path=get_codeplane_dir() / "governance.db",
+        spend_reader=make_job_spend_reader(get_codeplane_dir() / "data.db"),
+        usd_ceilings=await load_usd_ceilings(session_factory),
+    )
+    governance_subscriber = GovernanceSubscriber(governance_decider)
+    governance_subscriber.subscribe(event_bus)
+    services.runtime_service.set_governance(governance_decider, governance_subscriber)
+
     # --- Story pre-generation drain loop (background) ---
     from backend.services.story.service import StoryService as _StoryServiceCls
 

@@ -209,10 +209,12 @@ class ApprovalBatcher:
                         {
                             "id": a.id,
                             "kind": a.action.kind,
-                            "tier": a.classification.tier,
+                            "recommendedAction": a.classification.recommended_action.value,
+                            "reasonCode": a.classification.reason_code,
                             "reason": a.classification.reason,
-                            "reversible": a.classification.reversible,
-                            "contained": a.classification.contained,
+                            "riskScore": a.classification.risk_score,
+                            "riskBand": a.classification.risk_band,
+                            "effect": a.classification.effect,
                             "checkpoint_ref": a.checkpoint_ref,
                             "description": _action_description(a.action),
                         }
