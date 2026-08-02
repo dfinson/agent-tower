@@ -104,10 +104,17 @@ def _check_gh_auth() -> tuple[bool, str]:
 
 
 def _check_server_running(host: str, port: int) -> tuple[bool, str]:
-    """Probe the /health endpoint, falling back to process detection.
+    """Probe the /health endpoint, falling back to a real TCP-listener check.
 
     Returns (running, detail).  The detail string includes version/uptime when
     the health endpoint is reachable, or PID info when only the process is found.
+
+    A process merely *matching* ``cpl up``/``cpl restart`` in its command line
+    (see ``find_cpl_processes``) is NOT sufficient evidence on its own — stale
+    or orphaned processes can match without actually holding the port, which
+    previously caused false "already running" conflicts during ``cpl up``
+    preflight. We only trust the process scan once we've confirmed something
+    is actually listening on the port.
     """
     import json
     from urllib.error import URLError
@@ -129,13 +136,64 @@ def _check_server_running(host: str, port: int) -> tuple[bool, str]:
     except (URLError, OSError, ValueError):
         pass
 
-    # 2. Fallback — scan for a cpl process (cross-platform)
+    # 2. Require an actual listening socket before trusting anything else.
+    if not _port_is_listening(port):
+        return False, "not reachable"
+
+    # 3. Something is listening but /health didn't respond — enrich with
+    # process detail when we can attribute it to a cpl process.
     pids = find_cpl_processes()
     if pids:
         pids_str = ", ".join(str(p) for p in pids)
         return True, f"process detected (PID {pids_str}) but /health not reachable"
 
-    return False, "not reachable"
+    return True, "port in use but /health not reachable"
+
+
+def _windows_ancestor_pids() -> set[int]:
+    """Return the current process's PID plus every ancestor's PID (Windows).
+
+    ``find_cpl_processes``'s WMIC query matches on command-line substrings
+    ("cpl" + "up"/"restart"), which the *current* invocation of ``cpl up``/
+    ``cpl restart`` itself always satisfies (its own command line literally
+    contains those words), as do its uv/venv-python ancestors. Without this
+    exclusion, ``find_cpl_processes`` would report the running invocation's
+    own process tree as "another" cpl process — harmless for the read-only
+    preflight detail message, but actively dangerous for ``_stop_server``
+    (``cli.py``), which sends real signals to every PID it returns: during
+    ``cpl restart`` that would mean killing the restart command's own
+    process tree mid-flight. Mirrors the equivalent ancestor-walk already
+    done on the POSIX branch below.
+    """
+    exclude: set[int] = set()
+    pid_to_ppid: dict[int, int] = {}
+    try:
+        result = subprocess.run(
+            ["wmic", "process", "get", "ProcessId,ParentProcessId"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        lines = result.stdout.splitlines()
+        if lines:
+            header = lines[0].split()
+            if "ProcessId" in header and "ParentProcessId" in header:
+                pid_idx = header.index("ProcessId")
+                ppid_idx = header.index("ParentProcessId")
+                for line in lines[1:]:
+                    parts = line.split()
+                    if len(parts) <= max(pid_idx, ppid_idx):
+                        continue
+                    if parts[pid_idx].isdigit() and parts[ppid_idx].isdigit():
+                        pid_to_ppid[int(parts[pid_idx])] = int(parts[ppid_idx])
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass  # Fall through — exclude will still contain at least our own PID.
+
+    ancestor = os.getpid()
+    while ancestor and ancestor not in exclude:
+        exclude.add(ancestor)
+        ancestor = pid_to_ppid.get(ancestor, 0)
+    return exclude
 
 
 def find_cpl_processes() -> list[int]:
@@ -159,10 +217,14 @@ def find_cpl_processes() -> list[int]:
                 text=True,
                 timeout=5,
             )
+            candidate_pids: list[int] = []
             for line in result.stdout.splitlines():
                 line = line.strip()
                 if line.isdigit():
-                    pids.append(int(line))
+                    candidate_pids.append(int(line))
+            if candidate_pids:
+                ancestor_pids = _windows_ancestor_pids()
+                pids = [p for p in candidate_pids if p not in ancestor_pids]
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
     else:
@@ -206,11 +268,32 @@ def find_cpl_processes() -> list[int]:
     return pids
 
 
-def _check_port(port: int) -> tuple[bool, str]:
-    """Check if a port is available. Returns (available, detail)."""
+def _port_is_listening(port: int) -> bool:
+    """True if something is actively accepting TCP connections on this port (loopback).
+
+    This is the only reliable cross-platform signal that a real listener owns
+    the port — unlike command-line/process-name matching (``find_cpl_processes``),
+    it can't produce false positives from stale or unrelated processes.
+    """
     probe_targets: list[tuple[int, str]] = [(socket.AF_INET, "127.0.0.1")]
     if socket.has_ipv6:
         probe_targets.append((socket.AF_INET6, "::1"))
+
+    for family, host in probe_targets:
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as probe:
+                probe.settimeout(0.2)
+                if probe.connect_ex((host, port)) == 0:
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def _check_port(port: int) -> tuple[bool, str]:
+    """Check if a port is available. Returns (available, detail)."""
+    if _port_is_listening(port):
+        return False, "in use"
 
     refused_errnos = {
         0,
@@ -219,15 +302,6 @@ def _check_port(port: int) -> tuple[bool, str]:
         errno.ENETUNREACH,
         errno.EADDRNOTAVAIL,
     }
-
-    for family, host in probe_targets:
-        try:
-            with socket.socket(family, socket.SOCK_STREAM) as probe:
-                probe.settimeout(0.2)
-                if probe.connect_ex((host, port)) == 0:
-                    return False, "in use"
-        except OSError:
-            continue
 
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

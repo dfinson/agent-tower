@@ -492,29 +492,61 @@ def doctor(as_json: bool) -> None:
 
 
 def _find_pids_on_port(port: int) -> list[int]:
-    """Return PIDs of processes listening on the given TCP port."""
+    """Return PIDs of processes listening on the given TCP port (deduplicated)."""
+    import platform
+
+    if platform.system() == "Windows":
+        return _find_pids_on_port_windows(port)
+    return _find_pids_on_port_posix(port)
+
+
+def _find_pids_on_port_windows(port: int) -> list[int]:
+    """Windows: enumerate TCP listeners via psutil (no lsof/ss on this platform)."""
+    import psutil  # type: ignore[import-untyped]
+
+    try:
+        conns = psutil.net_connections(kind="tcp")
+    except (psutil.Error, OSError):
+        # Permission/enumeration issues — treat as "nothing found" rather than
+        # crashing the shutdown flow. No traceback spam for an expected race.
+        structlog.get_logger().debug("psutil_net_connections_failed", port=port, exc_info=True)
+        return []
+
+    pids = [
+        conn.pid
+        for conn in conns
+        if conn.status == psutil.CONN_LISTEN and conn.laddr and conn.laddr.port == port and conn.pid
+    ]
+    return list(dict.fromkeys(pids))  # dedupe, preserve order
+
+
+def _find_pids_on_port_posix(port: int) -> list[int]:
+    """POSIX: try ``lsof``, then ``ss``. Missing tools are expected — log quietly."""
     import subprocess as _sp
+
+    logger = structlog.get_logger()
 
     # Try lsof first (most POSIX systems)
     try:
         result = _sp.run(["lsof", "-ti", f":{port}"], capture_output=True, text=True)
         if result.returncode == 0 and result.stdout.strip():
-            return [int(p) for p in result.stdout.strip().splitlines() if p.strip().isdigit()]
+            pids = [int(p) for p in result.stdout.strip().splitlines() if p.strip().isdigit()]
+            return list(dict.fromkeys(pids))
     except FileNotFoundError:
-        import structlog
-
-        structlog.get_logger().debug("lsof_not_found", port=port)
+        logger.debug("lsof_not_found", port=port)
 
     # Fallback: ss (Linux)
     try:
         import re
 
         result = _sp.run(["ss", "-tlnp", f"sport = :{port}"], capture_output=True, text=True)
-        return [int(p) for p in re.findall(r"pid=(\d+)", result.stdout)]
-    except Exception:  # noqa: BLE001
-        import structlog
-
-        structlog.get_logger().warning("ss_probe_failed", port=port, exc_info=True)
+        pids = [int(p) for p in re.findall(r"pid=(\d+)", result.stdout)]
+        return list(dict.fromkeys(pids))
+    except FileNotFoundError:
+        logger.debug("ss_not_found", port=port)
+    except OSError:
+        # Genuine unexpected failure (not a missing-command case) — surface it.
+        logger.warning("ss_probe_failed", port=port, exc_info=True)
 
     return []
 
@@ -524,27 +556,27 @@ def _is_server_running(host: str, port: int) -> tuple[bool, list[int]]:
 
     Uses the same layered strategy as ``cpl doctor``:
     1. /health endpoint (definitive)
-    2. Process scan for ``cpl up`` / ``cpl restart`` commands
-    3. Port-level PID detection
+    2. Port-level PID detection (real TCP listeners)
+
+    A process merely *matching* ``cpl up``/``cpl restart`` in its command
+    line (``find_cpl_processes``) is NOT sufficient evidence on its own —
+    stale or orphaned processes can match without actually holding the port,
+    and the match is machine-wide so it can't be trusted to belong to *this*
+    port. Trusting that alone previously caused false "already running"
+    conflicts. ``_stop_server`` does not consult ``find_cpl_processes`` at
+    all — it only ever signals PIDs actually bound to the requested port.
 
     Returns (running, pids).  *pids* may be empty when detection succeeded
     via health-probe alone — callers that need PIDs should fall back to
     ``_find_pids_on_port``.
     """
-    from backend.services.setup.checks import find_cpl_processes
-
     # 1. Health endpoint
     status, _ = _api_get(f"http://{host}:{port}", "/health")
     if status == 200:
         pids = _find_pids_on_port(port)
         return True, pids
 
-    # 2. Process scan (cross-platform)
-    pids = find_cpl_processes()
-    if pids:
-        return True, pids
-
-    # 3. Port-level detection
+    # 2. Port-level detection (definitive real-listener check)
     pids = _find_pids_on_port(port)
     if pids:
         return True, pids
@@ -634,22 +666,39 @@ def _kill_process_group(pid: int, sig: int) -> None:
 def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
     """Send SIGTERM, wait up to *timeout_seconds*, then SIGKILL if still alive.
 
-    Kills both port-owning processes (uvicorn workers) and parent ``cpl up``
-    / ``uv run cpl up`` processes so the entire process tree is cleaned up.
-    Uses process-group signals so that child processes (tunnel daemons,
-    uvicorn workers) are terminated together with their parent.
+    Only targets processes actually bound to *port* (via
+    ``_find_pids_on_port``) — never a machine-wide process-name/command-line
+    scan. ``find_cpl_processes`` is deliberately NOT consulted here: since
+    ``cpl down``/``cpl restart`` accept an explicit ``--port``, running
+    multiple CodePlane instances on different ports is a supported usage,
+    and a "cpl up"/"cpl restart" command-line match is machine-wide — it
+    would return PIDs belonging to a *different*, unrelated instance bound
+    to a different port (or a transient self-match of the scanning process
+    itself) and kill/misreport it by mistake. Uses process-group signals so
+    that child processes (tunnel daemons, uvicorn workers) are terminated
+    together with their parent.
     """
     import os
     import time
 
-    from backend.services.setup.checks import find_cpl_processes
+    from backend.services.setup.checks import _port_is_listening
 
     pids = _find_pids_on_port(port)
-    # Also include parent cpl-up processes that may not own the port directly
-    cpl_pids = find_cpl_processes()
-    all_pids = list(dict.fromkeys(pids + cpl_pids))  # deduplicate, preserve order
 
-    if not all_pids:
+    if not pids:
+        if _port_is_listening(port):
+            # Something is bound to the port but we couldn't attribute a PID
+            # to it (e.g. psutil.AccessDenied, or POSIX with neither lsof
+            # nor ss available). This is NOT "already stopped" — fail
+            # loudly instead of silently claiming success, and don't widen
+            # to a machine-wide process scan to compensate.
+            click.secho(
+                f"  A process is listening on port {port} but its PID could not be "
+                "determined (permission denied or detection failure). Please stop it "
+                "manually.",
+                fg="yellow",
+            )
+            return False
         click.echo("  No process found — already stopped.")
         return True
 
@@ -658,7 +707,7 @@ def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
     pgids_seen: set[int] = set()
     ordered_pids: list[int] = []
     getpgid = getattr(os, "getpgid", None)
-    for pid in all_pids:
+    for pid in pids:
         if getpgid is None:
             ordered_pids.append(pid)
             continue
@@ -670,19 +719,17 @@ def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
             pgids_seen.add(pgid)
             ordered_pids.append(pid)
 
-    click.echo(f"  Sending SIGTERM to PID(s) {all_pids}…")
+    click.echo(f"  Sending SIGTERM to PID(s) {pids}…")
     for pid in ordered_pids:
         _kill_process_group(pid, signal.SIGTERM)
     # Also signal any PID we couldn't resolve a group for
-    for pid in all_pids:
+    for pid in pids:
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.kill(pid, signal.SIGTERM)
 
     deadline = time.monotonic() + timeout_seconds
     while True:
-        remaining_port = _find_pids_on_port(port)
-        remaining_cpl = find_cpl_processes()
-        remaining = list(dict.fromkeys(remaining_port + remaining_cpl))
+        remaining = _find_pids_on_port(port)
         if not remaining:
             break
         if time.monotonic() > deadline:

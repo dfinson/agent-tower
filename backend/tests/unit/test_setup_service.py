@@ -14,6 +14,7 @@ from backend.services.setup.checks import (
     _check_command,
     _check_port,
     _check_server_running,
+    _windows_ancestor_pids,
     find_cpl_processes,
     verify_requirements,
 )
@@ -428,6 +429,95 @@ class TestFindCplProcesses:
     def test_returns_empty_on_missing_ps(self, _mock_run, _mock_sys) -> None:
         assert find_cpl_processes() == []
 
+    @patch("platform.system", return_value="Windows")
+    @patch("os.getpid", return_value=100)
+    @patch("subprocess.run")
+    def test_windows_excludes_self_and_ancestor_pids(self, mock_run, _mock_pid, _mock_sys) -> None:
+        """Regression: running `cpl up`/`cpl restart` on Windows means the CURRENT
+        invocation's own command line (and its uv/venv-python ancestors) always
+        matches the wmic `%cpl%up%`/`%cpl%restart%` pattern too. Without excluding
+        the ancestor chain, `_stop_server` (cli.py) would treat the running
+        command's own process tree as "another" cpl process and send it a real
+        kill signal — i.e. `cpl restart` could kill itself mid-flight on Windows.
+        """
+        candidates = type(
+            "R",
+            (),
+            {"stdout": "ProcessId  \n\n100        \n\n200        \n\n300        \n", "returncode": 0},
+        )()
+        ancestors = type(
+            "R",
+            (),
+            {
+                "stdout": (
+                    "ParentProcessId  ProcessId  \n\n"
+                    "50               100        \n\n"
+                    "4                50         \n\n"
+                    "0                4          \n"
+                ),
+                "returncode": 0,
+            },
+        )()
+        mock_run.side_effect = [candidates, ancestors]
+        pids = find_cpl_processes()
+        # 100 (self) and its ancestors 50/4 are excluded; 200/300 are genuinely
+        # separate processes and must still be reported.
+        assert pids == [200, 300]
+        assert mock_run.call_count == 2
+        for call in mock_run.call_args_list:
+            assert call.args[0][0] == "wmic"
+
+    @patch("platform.system", return_value="Windows")
+    @patch("subprocess.run")
+    def test_windows_no_candidates_skips_ancestor_query(self, mock_run, _mock_sys) -> None:
+        """When the process scan finds nothing, we shouldn't bother querying the
+        ancestor chain (no candidates left to filter)."""
+        mock_run.return_value = type("R", (), {"stdout": "ProcessId  \n", "returncode": 0})()
+        pids = find_cpl_processes()
+        assert pids == []
+        assert mock_run.call_count == 1
+
+    @patch("platform.system", return_value="Windows")
+    @patch("subprocess.run", side_effect=FileNotFoundError)
+    def test_windows_returns_empty_on_missing_wmic(self, _mock_run, _mock_sys) -> None:
+        assert find_cpl_processes() == []
+
+
+# ---------------------------------------------------------------------------
+# _windows_ancestor_pids
+# ---------------------------------------------------------------------------
+
+
+class TestWindowsAncestorPids:
+    @patch("os.getpid", return_value=100)
+    @patch("subprocess.run")
+    def test_walks_full_ancestor_chain(self, mock_run, _mock_pid) -> None:
+        mock_run.return_value = type(
+            "R",
+            (),
+            {
+                "stdout": (
+                    "ParentProcessId  ProcessId  \n\n"
+                    "50               100        \n\n"
+                    "4                50         \n\n"
+                    "0                4          \n"
+                ),
+                "returncode": 0,
+            },
+        )()
+        assert _windows_ancestor_pids() == {100, 50, 4}
+
+    @patch("os.getpid", return_value=42)
+    @patch("subprocess.run", side_effect=FileNotFoundError)
+    def test_returns_at_least_self_on_wmic_failure(self, _mock_run, _mock_pid) -> None:
+        assert _windows_ancestor_pids() == {42}
+
+    @patch("os.getpid", return_value=42)
+    @patch("subprocess.run")
+    def test_returns_at_least_self_on_malformed_output(self, mock_run, _mock_pid) -> None:
+        mock_run.return_value = type("R", (), {"stdout": "garbage output with no header\n", "returncode": 0})()
+        assert _windows_ancestor_pids() == {42}
+
 
 # ---------------------------------------------------------------------------
 # _check_server_running
@@ -456,14 +546,61 @@ class TestCheckServerRunning:
         assert "v1.0" in detail
 
     @patch("backend.services.setup.checks.find_cpl_processes", return_value=[1234])
+    @patch("backend.services.setup.checks._port_is_listening", return_value=True)
     @patch("urllib.request.urlopen", side_effect=OSError("refused"))
-    def test_falls_back_to_process_scan(self, _mock_url, _mock_procs) -> None:
+    def test_falls_back_to_process_scan_when_port_is_listening(self, _mock_url, _mock_listening, _mock_procs) -> None:
+        """A cpl-matching process is trusted only once a real listener corroborates it."""
         running, detail = _check_server_running("127.0.0.1", 8080)
         assert running is True
         assert "1234" in detail
 
     @patch("backend.services.setup.checks.find_cpl_processes", return_value=[])
+    @patch("backend.services.setup.checks._port_is_listening", return_value=False)
     @patch("urllib.request.urlopen", side_effect=OSError("refused"))
-    def test_not_running(self, _mock_url, _mock_procs) -> None:
-        running, _ = _check_server_running("127.0.0.1", 8080)
+    def test_not_running(self, _mock_url, _mock_listening, _mock_procs) -> None:
+        running, detail = _check_server_running("127.0.0.1", 8080)
         assert running is False
+        assert detail == "not reachable"
+
+    @patch("backend.services.setup.checks.find_cpl_processes", return_value=[23280, 6684, 22436, 30052, 16260])
+    @patch("backend.services.setup.checks._port_is_listening", return_value=False)
+    @patch("urllib.request.urlopen", side_effect=OSError("refused"))
+    def test_stale_process_match_without_listener_is_not_running(self, _mock_url, _mock_listening, _mock_procs) -> None:
+        """Regression: command-line matches from stale/orphaned processes must not
+        be reported as "running" when nothing actually listens on the port —
+        otherwise `cpl up` preflight falsely blocks startup on a free port."""
+        running, detail = _check_server_running("127.0.0.1", 8080)
+        assert running is False
+        assert detail == "not reachable"
+
+    @patch("backend.services.setup.checks.find_cpl_processes", return_value=[])
+    @patch("backend.services.setup.checks._port_is_listening", return_value=True)
+    @patch("urllib.request.urlopen", side_effect=OSError("refused"))
+    def test_listener_without_process_match_is_still_running(self, _mock_url, _mock_listening, _mock_procs) -> None:
+        """A real listener alone (no attributable cpl process) is still "running"."""
+        running, detail = _check_server_running("127.0.0.1", 8080)
+        assert running is True
+        assert detail == "port in use but /health not reachable"
+
+
+# ---------------------------------------------------------------------------
+# _port_is_listening
+# ---------------------------------------------------------------------------
+
+
+class TestPortIsListening:
+    @patch("backend.services.setup.checks.socket.has_ipv6", False)
+    @patch("backend.services.setup.checks.socket.socket")
+    def test_listener_present(self, mock_socket) -> None:
+        from backend.services.setup.checks import _port_is_listening
+
+        mock_socket.side_effect = [_FakeSocket(connect_result=0)]
+        assert _port_is_listening(8080) is True
+
+    @patch("backend.services.setup.checks.socket.has_ipv6", False)
+    @patch("backend.services.setup.checks.socket.socket")
+    def test_no_listener(self, mock_socket) -> None:
+        from backend.services.setup.checks import _port_is_listening
+
+        mock_socket.side_effect = [_FakeSocket(connect_result=errno.ECONNREFUSED)]
+        assert _port_is_listening(8080) is False
