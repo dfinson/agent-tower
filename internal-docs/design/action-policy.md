@@ -1,8 +1,15 @@
 ---
 title: Action Policy
 description: "Design for CodePlane's action classification and operator approval system. Binary property classification, DB-persisted rules, trust grants, and a unified notification inbox."
-status: proposed
+status: superseded
 ---
+
+> **Superseded by `traceforge.governance` (P5).** Retained as a historical design record.
+> CodePlane no longer classifies actions into observe/checkpoint/gate tiers or persists
+> path/action/cost rules: the decision (rules, protected paths, effect budget, reason-code
+> trust) is delegated to the `traceforge.governance` profile selected by the active preset,
+> which returns a `RecommendedAction` (allow/warn/escalate/deny/transform). See `SPEC.md`
+> §18 for the current model.
 
 ## Overview
 

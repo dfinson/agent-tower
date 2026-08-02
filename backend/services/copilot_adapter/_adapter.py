@@ -177,11 +177,11 @@ class CopilotAdapter(BaseAgentAdapter):
         model_verified: list[bool],
         queue: asyncio.Queue[SessionEvent | None],
     ) -> None:
-        """Process a single SDK event through the unified EventPipeline.
+        """Process a single SDK event: telemetry, enrichment, log emission, delivery.
 
         Called via create_task from the synchronous SDK callback. Handles
-        telemetry, enrichment, log emission, and event delivery through
-        the pipeline's on_* methods.
+        telemetry, enrichment, log emission, and delivery of native
+        SessionEvents onto the queue.
         """
         try:
             await self._process_sdk_event_inner(

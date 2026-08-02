@@ -61,8 +61,10 @@ class EventKind(StrEnum):
     tool_call_started = "tool.call.started"
     tool_call_completed = "tool.call.completed"
     tool_result_chunk = "tool.result.chunk"
-    # --- Imported/native session lifecycle (TF mapping outputs consumed by
-    #     the ingest sources for finalization/abort) ---
+    # --- Imported/native session lifecycle. ``session.ended``/``session.error``
+    #     are consumed by the ingest sources (services/ingest/_base.py) for
+    #     finalization; the remaining kinds are forward-compat/pass-through TF
+    #     lifecycle vocabulary, not consumed by CP's live path. ---
     session_started = "session.started"
     session_ended = "session.ended"
     session_error = "session.error"

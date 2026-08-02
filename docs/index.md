@@ -126,7 +126,7 @@ Not a transcript — a structured intent graph. Each action is recorded as a tra
 
 <div class="feature-card" markdown>
 ### :material-lock-check: Action Policy Engine
-The agent SDKs give binary allow/deny. CodePlane adds cost-aware tier escalation, batch approval (consecutive gate-tier actions become one prompt), session trust grants with TTL, protected path rules, and cost ceiling rules. The SDK is the valve; CodePlane is the control system.
+The agent SDKs give binary allow/deny. CodePlane adds cost-aware escalation, batch approval (consecutive gated actions become one prompt), session trust grants with TTL, protected-path escalation, and per-preset USD ceilings. The SDK is the valve; CodePlane is the control system.
 </div>
 
 <div class="feature-card" markdown>

@@ -204,14 +204,15 @@ def validate_state_transition(from_state: JobState | None, to_state: JobState) -
 
 
 class Preset(StrEnum):
-    """Action policy preset — controls how the policy router classifies agent actions.
+    """Action policy preset — selects the ``traceforge.governance`` profile the
+    router enforces (see ``action_policy/preset_profiles.py``).
 
-    autonomous — Contained actions auto-approved. Non-contained actions gated.
-                 Monitor handles gate-tier decisions.
-    supervised — Reversible + contained auto-approved. Irreversible or
-                 non-contained actions gated. Monitor handles gate-tier decisions.
-    locked     — Reversible + contained get checkpointed. Everything else gated.
-                 Monitor disabled — all gates go directly to human.
+    autonomous — Generous budget; protected-path writes escalate; no USD ceiling.
+                 Escalations handled by the monitor sidecar.
+    supervised — Moderate budget and USD ceiling; cost pressure and protected-path
+                 writes escalate; monitor handles escalations.
+    locked     — Tight budget and USD ceiling; protected-path writes denied; hard
+                 tool-call ceiling; monitor disabled — escalations go to the human.
     """
 
     autonomous = "autonomous"

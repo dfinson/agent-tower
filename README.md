@@ -46,7 +46,7 @@ Keep using `claude` or `copilot` in your terminal exactly as you do now. CodePla
 - Start a task, walk away. Approve risky actions from your phone
 - Remote access via Dev Tunnels or Cloudflare — supervise from anywhere
 - Live transcripts, plan progress, and running cost as the agent works
-- Action policy engine with cost-aware tier escalation, batch approval, session trust grants, and protected path rules
+- Action policy engine with cost-aware escalation, batch approval, session trust grants, and protected-path escalation
 
 ### Review as a Story
 
