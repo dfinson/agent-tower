@@ -95,21 +95,22 @@ Every agent action is recorded as a **trail node** — a structured entry in an 
 - **Node kinds**: goal, turn, reasoning, decision, modify, write, verify, investigate, backtrack
 - **Intent enrichment**: an async LLM pipeline annotates nodes with intent, rationale, and outcome
 - **Activity grouping**: related turns are grouped into semantic activities with LLM-driven boundary detection
-- **Policy context**: each node records its tier classification, reversibility, and checkpoint reference
+- **Policy context**: each node records its governance verdict — recommended action, risk band, and reason code — plus its checkpoint reference
 
 The trail feeds the narrative review, cost attribution, and post-hoc debugging of agent behavior.
 
 ### Action Policy Engine
 
-When an agent tries to perform an action, CodePlane’s **action policy engine** classifies it and assigns a tier:
+When an agent tries to perform an action, CodePlane’s **action policy engine** delegates the decision to `traceforge.governance`, which returns a recommended action:
 
-| Tier | Behavior |
+| Recommended action | Behavior |
 |------|----------|
-| **Observe** | Proceed — record only |
-| **Checkpoint** | Create a Git savepoint, then proceed |
-| **Gate** | Block until operator approves |
+| **Allow** | Proceed — record only |
+| **Warn** / **Transform** | Create a Git savepoint, then proceed |
+| **Escalate** | Send for review (LLM monitor, if enabled) before continuing |
+| **Deny** | Block until operator approves |
 
-Classification considers action kind, containment, reversibility, path rules, and cost thresholds. The engine supports cost-aware tier escalation, batch approval (consecutive gate-tier actions become one prompt), session trust grants with TTL, protected path rules, and cost ceiling rules.
+The governance profile is selected by the active preset. Hard-gated commands (e.g. `git reset --hard`) always require approval regardless of preset. On top of the profile, the engine adds cost-aware escalation, batch approval (consecutive gated actions become one prompt), session trust grants with TTL, protected-path escalation, and per-preset USD spend ceilings.
 
 ### Authentication
 

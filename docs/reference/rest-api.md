@@ -165,11 +165,17 @@ Share endpoints bypass CodePlane's password but not tunnel-level identity gates.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/settings/policy` | Get current policy config (preset, rules) |
+| `GET` | `/api/settings/policy` | Get current policy config (preset, governance config, USD ceilings) |
 | `PUT` | `/api/settings/policy/preset` | Update the active preset (`autonomous`, `supervised`, `locked`) |
-| `GET` | `/api/settings/policy/rules` | List all path, action, and cost rules |
-| `POST` | `/api/settings/policy/rules` | Create a new rule |
-| `DELETE` | `/api/settings/policy/rules/{rule_id}` | Delete a rule |
+| `PUT` | `/api/settings/policy/config` | Update governance config (batch window, etc.) |
+| `GET` | `/api/settings/policy/usd-ceilings` | Get per-preset USD spend ceilings |
+| `PUT` | `/api/settings/policy/usd-ceilings` | Update per-preset USD spend ceilings |
+| `GET` | `/api/settings/policy/mcp-servers` | List MCP server configs |
+| `POST` | `/api/settings/policy/mcp-servers` | Add an MCP server config |
+| `PUT` | `/api/settings/policy/mcp-servers/{name}` | Update an MCP server config |
+| `DELETE` | `/api/settings/policy/mcp-servers/{name}` | Remove an MCP server config |
+| `GET` | `/api/settings/policy/export` | Export policy config |
+| `POST` | `/api/settings/policy/import` | Import policy config |
 
 ## Trail (Audit Log)
 

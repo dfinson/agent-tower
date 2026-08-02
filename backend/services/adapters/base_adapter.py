@@ -388,8 +388,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
     def set_policy_router(self, router: Any, policy: Any, job_id: str, cwd: str) -> None:
         """Configure the action policy router for a job.
 
-        When set, ``_evaluate_permission`` routes through the classifier/router
-        before falling back to the legacy ``permission_policy.evaluate()`` path.
+        When set, ``_evaluate_permission`` applies the SPEC §18.2 hard-gate
+        pre-check and then routes the request through this classifier/router for
+        the ``traceforge.governance`` decision. There is no legacy fallback path.
         """
         self._policy_router[job_id] = router
         self._repo_policies[job_id] = policy
@@ -436,9 +437,10 @@ class BaseAgentAdapter(AgentAdapterInterface):
         """Evaluate a tool permission request against CodePlane's policy.
 
         Returns ``PermissionDecision.allow`` or ``PermissionDecision.deny``.
-        All decisions are routed through the action policy router.  The router
-        handles observe (auto-approve), checkpoint (savepoint + approve), and
-        gate (route to operator) tiers.
+        Paused sessions deny immediately and SPEC §18.2 hard-gated commands are
+        routed to the operator; every other request is decided by the action
+        policy router via ``traceforge.governance``
+        (RecommendedAction ALLOW / WARN / ESCALATE / DENY / TRANSFORM).
         """
         # Paused — immediately deny
         if session_id in self._paused_sessions:

@@ -6,8 +6,8 @@ All services are organised into sub-packages by domain concern.
 
 Sub-packages:
 
-* **action_policy/** — Permission evaluation, shell classification, batching.
-* **adapters/** — Agent adapter abstraction layer, SDK event mapping.
+* **action_policy/** — Governance decision routing, classification, cost ceilings, batching.
+* **adapters/** — Agent adapter abstraction layer.
 * **analytics/** — Cost attribution, latency, telemetry, statistical analysis.
 * **artifacts/** — Artifact storage, diffs, and snapshot helpers.
 * **auth/** — Authentication middleware, Cloudflare Access, permission policy.
@@ -29,7 +29,6 @@ Sub-packages:
 * **tool_formatters/** — Tool display formatting and visibility.
 * **tools/** — Tool classification, preflight curation, parsing utilities.
 * **trail/** — Activity timeline, plan tracking, enrichment.
-* **watcher/** — Claude CLI and Copilot SDK session watchers.
 """
 
 __all__ = [

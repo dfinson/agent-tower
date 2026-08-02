@@ -39,7 +39,7 @@ The header card shows the job title, state badge, SDK, and a live progress headl
 The left sidebar (desktop) or slide-in overlay (mobile) shows a hierarchical activity timeline:
 
 - **Activities** — semantic groups of related turns (e.g., "Implement validation", "Run tests")
-- **Steps** — individual turns within each activity, showing title and tier badge (○ observe / ◐ checkpoint / ● gate)
+- **Steps** — individual turns within each activity, showing title and governance badge (○ allow / ◐ warn / ● escalate or deny)
 
 Activity boundaries are determined by an LLM that observes what the agent is doing and decides when it transitions to a new task. Click any step to scroll the transcript to that turn. Use `Cmd+F` / `Ctrl+F` to search transcript content with keyboard navigation through matches.
 
@@ -67,7 +67,7 @@ Token usage with input/output/cache breakdown, estimated cost with live cost bad
 
 ## Action Policy
 
-When an agent attempts an action, CodePlane classifies it and decides whether to observe, checkpoint, or gate it for your approval.
+When an agent attempts an action, CodePlane classifies it and delegates the decision to TraceForge governance, which recommends whether to allow it, proceed with a savepoint, or gate it for your approval.
 
 ### Presets
 
@@ -81,15 +81,17 @@ Every job runs under a **preset** that controls how aggressively actions are gat
 
 Set the preset globally via **Settings → Policy**, per-job in the creation form, or via the API (`PUT /api/settings/policy/preset`).
 
-### Decision Tiers
+### Recommended Actions
 
-Each action is classified into one of three tiers:
+TraceForge governance returns a **recommended action** for each classified action, surfaced as a badge:
 
-| Tier | Symbol | Behavior |
-|------|--------|----------|
-| **observe** | ○ | Action proceeds immediately — no interruption |
-| **checkpoint** | ◐ | Creates a git savepoint, then proceeds (rollback available) |
-| **gate** | ● | Blocks execution until you approve or reject |
+| Action | Symbol | Behavior |
+|--------|--------|----------|
+| **allow** | ○ | Proceeds immediately — no interruption |
+| **warn** | ◐ | Creates a git savepoint, then proceeds (rollback available) |
+| **transform** | ◐ | Advisory change suggested; proceeds with a savepoint |
+| **escalate** | ● | Sent for review (LLM monitor, if enabled) before continuing |
+| **deny** | ● | Blocks execution until you approve or reject |
 
 ### Approval Actions
 
@@ -99,16 +101,15 @@ Each action is classified into one of three tiers:
 | **Reject** | Block it — the agent may try an alternative |
 | **Trust Session** | Auto-approve all remaining actions for this job |
 
-### Rules & Overrides
+### Overrides
 
-Beyond presets, you can define fine-grained rules in **Settings → Policy**:
+Beyond the preset, **Settings → Policy** exposes the controls CodePlane layers on top of the governance profile:
 
-- **Path rules** — map file patterns (e.g., `infra/**`, `.github/workflows/**`) to a specific tier, regardless of preset
-- **Action rules** — regex patterns on command/tool names to override the tier
-- **Cost rules** — promote tier upward when job spend exceeds a threshold (e.g., escalate to `gate` if spend > $5)
-- **MCP server configs** — per-server and per-tool reversibility/containment overrides
+- **Per-preset USD ceilings** — escalate oversight once a job's spend crosses a dollar threshold
+- **Approval batch window** — how long consecutive gated actions are grouped into a single prompt
+- **MCP server configs** — per-server launch configuration for MCP tools
 
-Rules are evaluated at runtime and can be changed mid-job — running jobs reload policy automatically.
+The underlying decision rules — protected paths, effect budget, and reason-code trust — are owned by the `traceforge.governance` profile selected by your preset. Changes take effect at runtime: running jobs reload policy automatically.
 
 ### Hard-Gated Commands
 
@@ -251,7 +252,7 @@ For example, a Vite dev server on port 5173 would be accessible at `/api/preview
 
 ## Decision Trail
 
-Every agent action is recorded as a node in a structured intent graph — the **decision trail**. This is richer than a transcript: each node captures what the agent did, why it did it, what kind of action it was (goal, turn, reasoning, modify, verify, investigate, backtrack), and its policy tier.
+Every agent action is recorded as a node in a structured intent graph — the **decision trail**. This is richer than a transcript: each node captures what the agent did, why it did it, what kind of action it was (goal, turn, reasoning, modify, verify, investigate, backtrack), and its governance verdict (recommended action).
 
 An async LLM pipeline enriches trail nodes with:
 

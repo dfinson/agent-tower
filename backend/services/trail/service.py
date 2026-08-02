@@ -119,10 +119,10 @@ class TrailService:
     # ==================================================================
 
     async def handle_event(self, event: SessionEvent) -> None:
-        """Domain event subscriber — single entry point for all enrichment.
+        """SessionEvent subscriber — single entry point for all enrichment.
 
         Both managed (RuntimeService) and imported (IngestService) jobs
-        publish the same DomainEvents to the EventBus.  All plan-feed,
+        publish the same SessionEvents to the EventBus.  All plan-feed,
         tool tracking, native-plan capture, and auto-naming is driven
         from here so both paths get identical treatment.
         """

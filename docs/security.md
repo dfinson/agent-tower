@@ -69,9 +69,9 @@ Out of the box, CodePlane is configured conservatively:
 - **Localhost bypass**: requests from `127.0.0.1` / `::1` are trusted without a cookie (same-machine access)
 - **Rate limiting**: 5 failed login attempts per minute per IP (sliding window)
 
-### Action Policy & Tiers
+### Action Policy
 
-CodePlane uses a **tiered action policy** system that classifies every agent action and decides whether to allow, checkpoint, or gate it:
+CodePlane's **action policy** delegates every agent action to TraceForge governance, which classifies it and recommends whether to allow it, proceed with a savepoint, or gate it for approval:
 
 | Preset | Agent can | Approval required for |
 |--------|-----------|----------------------|
@@ -79,20 +79,21 @@ CodePlane uses a **tiered action policy** system that classifies every agent act
 | `supervised` | Contained, reversible actions | Non-contained or irreversible actions |
 | `locked` | Nothing without checkpoint | Contained actions get git savepoint; all others gated |
 
-**Decision tiers:**
+**Recommended actions:**
 
-| Tier | Symbol | Behavior |
+| Action | Symbol | Behavior |
 |------|--------|----------|
-| observe | ○ | Action proceeds immediately |
-| checkpoint | ◐ | Git savepoint created, then proceeds |
-| gate | ● | Blocks until operator approves |
+| allow | ○ | Action proceeds immediately |
+| warn / transform | ◐ | Git savepoint created, then proceeds |
+| escalate | ● | Sent for review before continuing |
+| deny | ● | Blocks until operator approves |
 
 **Hard-gated commands** always require approval regardless of preset:
 `git merge`, `git pull`, `git rebase`, `git cherry-pick`, and `git reset --hard`
 
-**Path rules**: define file patterns (e.g., `infra/`, `.github/workflows/`) where writes always escalate to `gate`, regardless of preset.
+**Protected paths**: the governance profile escalates writes to sensitive paths (e.g., `infra/`, `.github/workflows/`) regardless of preset.
 
-**Cost rules**: automatically promote the tier when job spend exceeds a threshold — e.g., escalate all actions to `gate` when spend exceeds $5.
+**USD ceilings**: per-preset dollar thresholds escalate oversight once a job's spend crosses them — e.g., gate all actions when spend exceeds $5.
 
 Policy rules are managed in **Settings → Policy** and take effect immediately on running jobs.
 
@@ -201,8 +202,8 @@ Share tokens provide **read-only** access to a single job:
 
 1. **Keep password enabled** for any non-localhost access
 2. **Use `supervised` or `locked` preset** for repositories you don't fully trust
-3. **Define path rules** in Settings → Policy for infrastructure and CI/CD files
-4. **Set cost rules** to escalate oversight when spend exceeds your comfort level
+3. **Rely on protected-path escalation** — the governance profile gates writes to sensitive paths (e.g., `infra/`, `.github/workflows/`)
+4. **Set per-preset USD ceilings** in Settings → Policy to escalate oversight when spend exceeds your comfort level
 5. **Don't leave CodePlane running unattended** with active agents
 6. **Review approval requests carefully** — agents can be persuasive
 7. **Use defaults on shared networks** — avoid `--host 0.0.0.0` on Wi-Fi you don't control

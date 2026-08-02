@@ -361,7 +361,7 @@ backend/
 │   ├── hooks.py               # External integration webhooks
 │   ├── utility_sessions.py    # Warm utility session management
 │   ├── sidecar_templates.py   # Sidecar template CRUD
-│   └── policy_settings.py     # Action policy preset, path/action/cost rules
+│   └── policy_settings.py     # Governance preset, config, USD ceilings, MCP servers
 ├── services/
 │   ├── job_service.py         # Job lifecycle orchestration
 │   ├── runtime/               # Long-running job execution (RuntimeService)
@@ -377,8 +377,8 @@ backend/
 │   ├── artifact_service.py    # Artifact storage and retrieval
 │   ├── diff_service.py        # Diff generation and parsing
 │   ├── merge_service/         # Merge-back, PR creation, conflict handling
-│   ├── action_policy/         # Action policy engine (tiers, rules, presets)
-│   ├── permission_policy.py   # Legacy permission mode evaluation
+│   ├── action_policy/         # Action policy router over traceforge.governance
+│   ├── permission_policy.py   # SPEC §18.2 hard-gate command detection
 │   ├── platform_adapter.py    # Per-platform integration (GitHub, etc.)
 │   ├── retention_service.py   # Artifact and worktree retention cleanup
 │   ├── setup/                 # Interactive dependency setup
@@ -391,13 +391,12 @@ backend/
 │   ├── analytics_service.py   # Fleet analytics and observations
 │   ├── statistical_analysis.py # Statistical anomaly detection
 │   ├── ingest_service.py      # Event ingestion and telemetry recording
-│   ├── event_processor.py     # Domain event processing pipeline
+│   ├── event_processor.py     # SessionEvent processing pipeline
 │   ├── event_enricher.py      # Event enrichment (tool classification, etc.)
 │   ├── conversation_ledger.py # Transcript deduplication and ordering
 │   ├── steps/                 # Plan step tracking and inference
 │   ├── trail/                 # Agent audit trail (intent graph)
 │   ├── story/                 # Narrative story generation
-│   ├── watcher/               # Filesystem watcher for live diffs
 │   ├── sidecar/               # Sidecar session management (arbiter, planner, enricher)
 │   ├── memory/                # Workspace memory extraction and compaction
 │   ├── tool_classifier.py     # Tool action classification (activity dimensions)
@@ -418,7 +417,6 @@ backend/
 │   ├── preflight_curator.py   # Preflight prompt curation
 │   ├── lightweight_completer.py # Single-turn LLM completions
 │   ├── narrator_completer.py  # Narrative generation LLM calls
-│   ├── sdk_event_mapping.py   # SDK event → domain event translation
 │   └── parsing_utils.py       # Shared parsing helpers
 ├── models/
 │   ├── db.py                  # SQLAlchemy ORM models
@@ -581,7 +579,7 @@ The `ClaudeAdapter` wraps the Claude Agent SDK (`pip install claude-code-sdk`, i
 |---|---|---|
 | `autonomous` | `bypassPermissions` | All tools auto-approved |
 | `supervised` | `default` | `can_use_tool` callback routes to action policy engine |
-| `locked` | `default` | `can_use_tool` callback routes to action policy engine (stricter tier assignments) |
+| `locked` | `default` | `can_use_tool` callback routes to action policy engine (stricter governance profile) |
 
 ##### Message Iterator Pattern
 
@@ -737,9 +735,9 @@ class ApprovalResponse(CamelModel):
     resolution: ApprovalResolution | None
     requires_explicit_approval: bool | None = None
     batch_id: str | None = None
-    tier: str | None = None                  # observe | checkpoint | gate
-    reversible: bool | None = None
-    contained: bool | None = None
+    tier: str | None = None                  # deprecated — retired tier model, no longer populated
+    reversible: bool | None = None           # deprecated — retired classifier field, no longer populated
+    contained: bool | None = None            # deprecated — retired classifier field, no longer populated
 
 
 # --- Artifacts ---
@@ -1818,7 +1816,7 @@ The `SessionEvent` envelope (from `traceforge.types`) carries `session_id` (the 
 | `log` | Agent or system log output | `seq`, `level`, `message`, `context` |
 | `message.user` / `message.assistant` / `message.delta` / `tool.call.started` / `tool.call.completed` | Agent/operator transcript, fanned out by role | `seq`, `role`, `content` |
 | `diff.updated` | File changes detected in worktree | `changed_files` (list of DiffFile) |
-| `permission.requested` | SDK permission request intercepted | `approval_id`, `description`, `proposed_action`, `tier` |
+| `permission.requested` | SDK permission request intercepted | `approval_id`, `description`, `proposed_action`, `requires_explicit_approval` |
 | `permission.resolved` | Operator approves or rejects | `approval_id`, `resolution` |
 | `permission.batch.requested` | Action policy batch awaiting approval | `batch_id`, `actions` |
 | `permission.batch.resolved` | Batch approved or rejected | `batch_id`, `resolution` |
@@ -1847,7 +1845,7 @@ The `SessionEvent` envelope (from `traceforge.types`) carries `session_id` (the 
 | `plan.step_updated` | Plan step detail updated | `step_id` |
 | `step.entries_reassigned` | Entries moved to different step | `old_step_id`, `new_step_id` |
 | `turn.summary` | AI-generated turn summary | `turn_id`, `summary` |
-| `action.classified` | Action policy classification | `tier`, `kind`, `description` |
+| `action.classified` | Action policy classification | `recommendedAction`, `reasonCode`, `riskScore`, `riskBand`, `effect` |
 | `policy.settings_changed` | Policy configuration changed | `preset` |
 | `repo.index_progress` | Repo structural indexing progress | `repo`, `progress` |
 | `repo.index_complete` | Repo structural indexing complete | `repo` |
@@ -2214,9 +2212,9 @@ CREATE TABLE approvals (
     resolution TEXT,
     requires_explicit_approval BOOLEAN DEFAULT FALSE,
     batch_id TEXT,
-    tier TEXT,                        -- observe | checkpoint | gate
-    reversible BOOLEAN,
-    contained BOOLEAN,
+    tier TEXT,                        -- deprecated — retired tier model, no longer populated
+    reversible BOOLEAN,               -- deprecated — retired classifier field, no longer populated
+    contained BOOLEAN,                -- deprecated — retired classifier field, no longer populated
     checkpoint_ref TEXT,
     FOREIGN KEY (job_id) REFERENCES jobs(id)
 );
@@ -3018,18 +3016,17 @@ Ports are restricted to 1024–65535. The proxy only forwards to `127.0.0.1` (no
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/policy` | Full policy config (preset, rules) |
-| `PUT` | `/api/policy/preset` | Update active preset |
-| `PUT` | `/api/policy/config` | Update policy config |
-| `GET` | `/api/policy/path-rules` | List path rules |
-| `POST` | `/api/policy/path-rules` | Create a path rule |
-| `PUT` | `/api/policy/path-rules/{rule_id}` | Update a path rule |
-| `DELETE` | `/api/policy/path-rules/{rule_id}` | Delete a path rule |
-| `GET` | `/api/policy/action-rules` | List action rules |
-| `POST` | `/api/policy/action-rules` | Create an action rule |
-| `PUT` | `/api/policy/action-rules/{rule_id}` | Update an action rule |
-| `DELETE` | `/api/policy/action-rules/{rule_id}` | Delete an action rule |
-| `GET` | `/api/policy/cost-rules` | List cost rules |
+| `GET` | `/api/settings/policy` | Full policy config (preset, governance config, USD ceilings) |
+| `PUT` | `/api/settings/policy/preset` | Update active preset |
+| `PUT` | `/api/settings/policy/config` | Update policy config |
+| `GET` | `/api/settings/policy/usd-ceilings` | Per-preset USD spend ceilings |
+| `PUT` | `/api/settings/policy/usd-ceilings` | Update per-preset USD ceilings |
+| `GET` | `/api/settings/policy/mcp-servers` | List MCP server policies |
+| `POST` | `/api/settings/policy/mcp-servers` | Add an MCP server policy |
+| `PUT` | `/api/settings/policy/mcp-servers/{name}` | Update an MCP server policy |
+| `DELETE` | `/api/settings/policy/mcp-servers/{name}` | Remove an MCP server policy |
+| `GET` | `/api/settings/policy/export` | Export policy config |
+| `POST` | `/api/settings/policy/import` | Import policy config |
 
 ### 17.17 Workspace Memory
 
@@ -3088,97 +3085,53 @@ Hard-gated commands return `ask` from the permission policy. The agent system pr
 
 ### 18.3 Action Policy Presets
 
-CodePlane uses an **action policy engine** with three presets that control how the SDK's permission requests are handled. Each preset assigns a **tier** (observe, checkpoint, or gate) to each action based on its kind, reversibility, and containment.
+CodePlane delegates the permission decision to **`traceforge.governance`**. Three presets control posture; each preset *selects a governance profile* — a recommendation-rules file, a count/effect budget, protected-path and cost-pressure primitives, and CodePlane's per-preset USD spend ceiling — rather than mapping actions to a fixed tier. The profiles live in `action_policy/preset_profiles.py`.
 
-| Preset | Behavior |
+| Preset | Governance profile |
 |------|----------|
-| `autonomous` (default) | Contained actions auto-approved. Non-contained actions gated. Monitor sidecar handles gate-tier decisions. |
-| `supervised` | Reversible + contained actions auto-approved. Irreversible or non-contained actions gated. Monitor handles gate-tier decisions. |
-| `locked` | Reversible + contained get checkpointed. Everything else gated. Monitor disabled — all gates go directly to human. |
+| `autonomous` (default) | Generous budget; protected-path writes escalate; no USD ceiling. Escalations handled by the monitor sidecar. |
+| `supervised` | Moderate budget and USD ceiling; cost pressure and protected-path writes escalate; monitor handles escalations. |
+| `locked` | Tight budget and USD ceiling; protected-path writes denied; hard tool-call ceiling; monitor disabled — escalations go directly to the human operator. |
 
-#### Tiers
+#### Recommendation → enforcement
 
-| Tier | Symbol | Behavior |
-|------|--------|----------|
-| `observe` | ○ | Auto-approved, logged silently |
-| `checkpoint` | ◐ | Auto-approved with brief notification; operator can intervene |
-| `gate` | ● | Blocked until operator approves or rejects |
+For each action the governance substrate returns a `RecommendedAction` plus a risk score/band and a reason code. The router maps the recommendation to a concrete outcome:
+
+| RecommendedAction | Enforcement |
+|------|----------|
+| `ALLOW` | Proceed, no interruption |
+| `WARN` | Git savepoint, proceed, notify (operator can intervene) |
+| `TRANSFORM` | Treated as `WARN` (advisory; CodePlane applies no auto-edit) |
+| `ESCALATE` | LLM monitor (if enabled and not security-critical) → human approval gate |
+| `DENY` | Human approval gate (the monitor is skipped — a `DENY` always reaches a human) |
+
+A `None` recommendation (no rule fired, risk below every threshold) is an implicit `ALLOW`; any internal error fails **closed** to `ESCALATE`.
 
 #### Hard-Gated Commands
 
-Hard-gated commands (§18.2) always receive the `gate` tier regardless of preset.
-
-#### Autonomous Preset Rules
-
-| Request Kind | Contained | Decision |
-|-------------|-----------|----------|
-| `read` | — | ○ observe |
-| `write` (within workspace) | yes | ○ observe |
-| `write` (outside workspace) | no | ● gate |
-| `shell` (read-only) | — | ○ observe |
-| `shell` (mutating, contained) | yes | ○ observe |
-| `shell` (mutating, non-contained) | no | ● gate |
-| `mcp` (read-only) | — | ○ observe |
-| `mcp` (mutating) | — | ◐ checkpoint |
-
-#### Supervised Preset Rules
-
-| Request Kind | Reversible + Contained | Decision |
-|-------------|------------------------|----------|
-| `read` | — | ○ observe |
-| `write` (reversible, contained) | yes | ○ observe |
-| `write` (irreversible or non-contained) | no | ● gate |
-| `shell` (read-only) | — | ○ observe |
-| `shell` (reversible, contained) | yes | ◐ checkpoint |
-| `shell` (irreversible or non-contained) | no | ● gate |
-| `mcp` (read-only) | — | ○ observe |
-| `mcp` (mutating) | — | ● gate |
-
-#### Locked Preset Rules
-
-| Request Kind | Decision |
-|-------------|----------|
-| `read` | ○ observe |
-| `write` | ● gate |
-| `shell` (read-only) | ◐ checkpoint |
-| `shell` (other) | ● gate |
-| `mcp` | ● gate |
-
-#### Custom Rules
-
-In addition to presets, operators can define:
-
-- **Path rules** — Override the tier for writes to specific file paths (e.g., always gate `infra/` regardless of preset)
-- **Action rules** — Override the tier for specific action kinds or tool names
-- **Cost rules** — Escalate tier when cumulative spend exceeds a threshold
-
-Rules are managed via `POST /api/policy/path-rules`, `POST /api/policy/action-rules`, and `GET /api/policy/cost-rules`.
+Hard-gated commands (§18.2) are pre-checked **before** governance scoring and always route to the operator regardless of preset, trust grant, or recommendation.
 
 #### Configuration
 
 Preset is resolved with this priority chain (first match wins):
 
 1. **Per-job** — `preset` field in `POST /api/jobs` request body
-2. **Global** — via `PUT /api/policy/preset`
+2. **Global** — via the policy settings API
 
 Default: `autonomous`
 
 ### 18.4 Delegation to the Agent Runtime
 
-The underlying agent SDK (Copilot SDK, Claude Code, etc.) decides **which** actions surface a permission request. CodePlane's action policy engine then evaluates the request against the active preset and custom rules to assign a tier (observe, checkpoint, or gate).
+The underlying agent SDK (Copilot SDK, Claude Code, etc.) decides **which** actions surface a permission request. CodePlane's action policy router then evaluates the request through `traceforge.governance` and enforces the resulting `RecommendedAction`.
 
 CodePlane's role is to:
 
-1. **Evaluate** the SDK's permission request against the active preset and custom rules
-2. **Auto-approve** observe-tier and checkpoint-tier requests (the SDK proceeds immediately)
-3. **Route** gate-tier requests to the monitor sidecar (if enabled) or directly to the operator
-4. **Relay** the operator's decision back to the SDK
+1. **Evaluate** the SDK's permission request against the active preset's governance profile
+2. **Proceed** on `ALLOW` (and on `WARN`/`TRANSFORM`, with a git savepoint + notification)
+3. **Route** `ESCALATE` to the monitor sidecar (if enabled) or the operator, and `DENY` straight to the operator
+4. **Relay** the resulting decision back to the SDK
 5. **Persist** approval requests and resolutions for auditability
-6. **Feed repo-level config** (like path rules and action rules) into the policy engine at session creation time
-
-#### How Path Rules Map to Policy
-
-Path rules (managed via `POST /api/policy/path-rules`) override the tier for writes to specific file paths. For example, a path rule can always gate writes to `infra/` regardless of the active preset.
+6. **Select** the per-preset governance profile (budget, protected paths, USD ceiling) at session creation time
 
 ### 18.5 Approval Request Object
 
@@ -3197,14 +3150,14 @@ The adapter normalizes whichever fields the SDK provides into this common shape.
 ### 18.6 Approval Flow
 
 1. SDK raises a permission request (e.g., Copilot SDK calls `on_permission_request`)
-2. Action policy engine evaluates the request:
-   - **Hard-gated commands (§18.2):** always assigns `gate` tier — routes to operator regardless of preset
-   - **Tier assignment:** the preset + custom rules assign a tier (`observe`, `checkpoint`, `gate`) based on action kind, reversibility, and containment
-3. Based on assigned tier:
-   - **`observe`:** action proceeds immediately, logged silently
-   - **`checkpoint`:** action proceeds immediately with a brief notification to the operator
-   - **`gate`:** action is blocked pending operator approval
-4. If gate tier and monitor sidecar is enabled (autonomous/supervised presets):
+2. The action policy router evaluates the request:
+   - **Hard-gated commands (§18.2):** pre-checked before governance — always route to the operator regardless of preset
+   - **Governance decision:** `traceforge.governance` returns a `RecommendedAction` (plus risk score/band and reason code) from the active preset's profile
+3. Based on the recommendation:
+   - **`ALLOW`:** action proceeds immediately
+   - **`WARN` / `TRANSFORM`:** a git savepoint is taken, the action proceeds, and the operator is notified
+   - **`ESCALATE` / `DENY`:** the action is blocked pending resolution
+4. If `ESCALATE`, the monitor sidecar is enabled (autonomous/supervised presets), and the verdict is not security-critical:
    a. Monitor sidecar evaluates the action
    b. Monitor may auto-approve, auto-reject, or escalate to human
 5. If human approval required:
@@ -3217,14 +3170,14 @@ The adapter normalizes whichever fields the SDK provides into this common shape.
    g. `POST /api/approvals/{id}/resolve` called
    h. `ApprovalService` persists the resolution and unblocks the adapter's Future
    i. Adapter returns the decision to the SDK
-   j. `permission.resolved` domain event published
+   j. `permission.resolved` event published
    k. Job transitions back to `running`
 
 The SDK's `on_permission_request` callback is **async** — it blocks the SDK at the callback level while waiting for the operator's response. This ensures the action does not proceed until approved.
 
 #### Trust Grant
 
-Operators can issue a **trust grant** via `POST /api/jobs/{job_id}/approvals/trust`, which auto-approves all current and future permission requests for the remainder of the session. This is useful when the operator is confident the agent is on the right track and wants to unblock it without individual approvals.
+Operators can issue a **trust grant** via `POST /api/jobs/{job_id}/approvals/trust`. Trust is applied inside governance as a time-boxed (24h), reason-code-scoped grant: a later matching recommendation comes back `ALLOW` until the grant expires. Security-critical verdicts (§18.2 / hard gates) are never waived by a trust grant.
 
 ### 18.7 Approval Timeout
 
