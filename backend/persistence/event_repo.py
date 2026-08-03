@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from traceforge.types import EventMetadata
 
 from backend.models.db import EventRow
@@ -172,3 +172,32 @@ class EventRepository(BaseRepository):
         stmt = stmt.order_by(EventRow.id).limit(limit)
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def list_all_events_by_job(self, job_id: str) -> list[SessionEvent]:
+        """List every event for a job in storage order, regardless of kind."""
+        stmt = (
+            select(EventRow)
+            .where(EventRow.job_id == job_id)
+            .order_by(EventRow.id)
+        )
+        result = await self._session.execute(stmt)
+        return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def update_metadata(
+        self,
+        event_id: str,
+        metadata: EventMetadata,
+    ) -> None:
+        """Update the serialised metadata on an existing event row."""
+        stmt = (
+            update(EventRow)
+            .where(EventRow.event_id == event_id)
+            .values(
+                event_metadata=json.dumps(
+                    metadata.model_dump(mode="json"),
+                    ensure_ascii=False,
+                    default=str,
+                )
+            )
+        )
+        await self._session.execute(stmt)

@@ -27,6 +27,7 @@ ALLOWED_EVENT_REPO_CONSUMERS = {
     "backend/api/job_artifacts.py",
     "backend/services/job/job_service.py",
     "backend/services/events/sse_manager.py",
+    "backend/services/events/reenrich.py",
 }
 
 

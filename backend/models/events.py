@@ -137,6 +137,8 @@ class EventKind(StrEnum):
     # --- Context handoff — emitted when context crosses a session boundary ---
     context_handoff = "context.handoff"
     job_mode_changed = "job.mode_changed"
+    # --- Internal housekeeping (not user-visible) ---
+    reenrich_complete = "internal.reenrich_complete"
 
 
 # The transcript family: dotted vendor kinds that represent conversation/tool

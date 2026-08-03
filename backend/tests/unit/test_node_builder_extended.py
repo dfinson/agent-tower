@@ -809,20 +809,16 @@ class TestClassifyAndEmit:
         nodes = await trail_repo.get_by_job("job-1")
         assert len(nodes) == 1
 
-    async def test_classify_delegates_to_activity_tracker(self, session_factory, trail_repo, job_state):
-        """When activity_tracker is present, emit_activity_step is called."""
-        activity_tracker = MagicMock()
-        activity_tracker.emit_activity_step = AsyncMock()
+    async def test_classify_delegates_to_plan_manager(self, session_factory, trail_repo, job_state):
+        """Plan classification still runs after ActivityTracker retirement."""
         plan_manager = MagicMock()
         plan_manager.classify_turn = AsyncMock(return_value="ps-1")
-        plan_manager.get_sidecar = MagicMock(return_value=None)
 
         builder = TrailNodeBuilder(
             session_factory=session_factory,
             job_state=job_state,
             repo=trail_repo,
             plan_manager=plan_manager,
-            activity_tracker=activity_tracker,
         )
         state = TrailJobState(active_goal_id="g1")
         job_state["job-1"] = state
@@ -839,9 +835,7 @@ class TestClassifyAndEmit:
         )
         await builder.handle_event(event)
         await builder.flush_background_tasks()
-        activity_tracker.emit_activity_step.assert_awaited_once()
-        call_kwargs = activity_tracker.emit_activity_step.call_args
-        assert call_kwargs[1]["turn_id"] == "turn-1" or call_kwargs[0][2] is not None
+        plan_manager.classify_turn.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
