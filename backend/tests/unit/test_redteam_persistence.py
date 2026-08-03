@@ -139,7 +139,7 @@ class TestSQLInjection:
 
         events = await event_repo.list_after(0)
         assert len(events) == 1
-        assert events[0].payload == evil_payload
+        assert events[0].event.payload == evil_payload
 
 
 # ── FK constraint violations ─────────────────────────────────────
@@ -539,7 +539,7 @@ class TestEventPayloadEdgeCases:
         )
         await session.commit()
         events = await event_repo.list_after(0)
-        assert events[0].payload == {}
+        assert events[0].event.payload == {}
 
     @pytest.mark.asyncio
     async def test_deeply_nested_payload(self, session: AsyncSession) -> None:
@@ -563,7 +563,7 @@ class TestEventPayloadEdgeCases:
         )
         await session.commit()
         events = await event_repo.list_after(0)
-        assert events[0].payload["level"] == 0
+        assert events[0].event.payload["level"] == 0
 
     @pytest.mark.asyncio
     async def test_payload_with_special_json_types(self, session: AsyncSession) -> None:
@@ -589,4 +589,4 @@ class TestEventPayloadEdgeCases:
         )
         await session.commit()
         events = await event_repo.list_after(0)
-        assert events[0].payload == payload
+        assert events[0].event.payload == payload

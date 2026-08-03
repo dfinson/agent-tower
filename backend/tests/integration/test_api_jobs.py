@@ -588,11 +588,11 @@ class TestJobData:
                 kind=EventKind.message_assistant.value,
                 timestamp=datetime.now(UTC),
                 payload='{"seq":0,"content":"Done"}',
-                event_metadata="{}",
+                event_metadata='{"sequence":9001}',
             )
             session.add(row)
             await session.flush()
-            canonical_sequence = row.id
+            assert row.id != 9001
             await session.commit()
 
         resp = await client.get(f"/api/jobs/{jid}/transcript")
@@ -600,7 +600,7 @@ class TestJobData:
         assert resp.status_code == 200
         item = resp.json()["items"][0]
         assert item["eventId"] == "evt-canonical"
-        assert item["sequence"] == canonical_sequence
+        assert item["sequence"] == 9001
         assert "seq" not in item
 
     # ── Timeline ──

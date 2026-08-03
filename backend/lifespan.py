@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, get_codeplane_dir, load_config
 from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMaxBytes
-from backend.models.events import EventKind, EventMetadata, SessionEvent, new_event
+from backend.models.events import EventKind, SessionEvent, new_event
 from backend.persistence.database import create_engine, create_session_factory, serialized_write
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.step_repo import StepRepository
@@ -297,8 +297,8 @@ def _init_event_infrastructure(
     sse_manager = SSEManager()
     dead_letter: asyncio.Queue[tuple[SessionEvent, int]] = asyncio.Queue()
 
-    # Persist-then-broadcast subscriber: stamps the autoincrement DB id onto
-    # metadata.sequence (the SSE resume cursor) before SSE frames are built.
+    # Persist-then-broadcast subscriber: keeps the storage-local SSE resume
+    # cursor separate from the canonical TraceForge event envelope.
     async def _persist_and_broadcast(event: SessionEvent) -> None:
         # message.delta events are ephemeral streaming chunks — broadcast
         # immediately without writing to DB (the complete agent message
@@ -327,16 +327,11 @@ def _init_event_infrastructure(
             )
             dead_letter.put_nowait((event, 0))
             # Broadcast anyway so the SSE stream doesn't silently drop the
-            # event; the client will get it without a sequence which means the
-            # replay cursor won't cover it, but it's better than silence.
+            # event; the client will get it without a storage cursor, so replay
+            # won't cover it, but it's better than silence.
             await sse_manager.broadcast_domain_event(event)
             return
-        # Stamp the SSE resume cursor (autoincrement id) onto metadata.sequence
-        # before broadcasting so clients receive a monotonic Last-Event-ID.
-        if db_id is not None:
-            metadata = event.metadata or EventMetadata()
-            event = event.model_copy(update={"metadata": metadata.model_copy(update={"sequence": db_id})})
-        await sse_manager.broadcast_domain_event(event)
+        await sse_manager.broadcast_domain_event(event, storage_cursor=db_id)
 
     async def _dead_letter_retry_loop() -> None:
         """Background task: retry persisting events that failed initially."""

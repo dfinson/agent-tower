@@ -24,6 +24,13 @@ describe("transcript identity", () => {
     )).toBe(true);
   });
 
+  it("merges the live and persisted copy of one canonical event once", () => {
+    const persisted = entry({ eventId: "evt-shared", sequence: 9001, content: "persisted" });
+    const live = entry({ eventId: "evt-shared", sequence: 9001, content: "live" });
+
+    expect(mergeTranscriptEntries([persisted], [live])).toEqual([persisted]);
+  });
+
   it("does not collapse distinct events that share an invalid legacy sequence", () => {
     const merged = mergeTranscriptEntries(
       [entry({ eventId: "evt-1", sequence: 0, content: "first" })],

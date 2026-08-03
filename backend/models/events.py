@@ -462,9 +462,9 @@ def new_event(
 
     Single construction point that replaces the retired ``DomainEvent`` dataclass.
     ``session_id`` carries the CodePlane job id (``""`` for job-less/global events).
-    The persisted autoincrement id (the SSE resume cursor, formerly ``DomainEvent.db_id``)
-    rides on ``metadata.sequence``. ``timestamp`` and event ``id`` are auto-filled when
-    omitted, matching the old ``DomainEvent.for_job`` convenience.
+    ``sequence`` is canonical producer order and is never populated from CodePlane's
+    storage cursor. ``timestamp`` and event ``id`` are auto-filled when omitted,
+    matching the old ``DomainEvent.for_job`` convenience.
     """
     if metadata is None:
         metadata = EventMetadata(sequence=sequence)

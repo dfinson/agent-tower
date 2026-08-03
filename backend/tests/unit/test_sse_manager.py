@@ -18,6 +18,7 @@ import pytest
 from backend.models.api_schemas import SnapshotPayload
 from backend.models.domain import Job
 from backend.models.events import EventKind, SessionEvent, new_event
+from backend.persistence.event_repo import StoredEvent
 from backend.services.events.sse_manager import (
     MAX_REPLAY_AGE,
     MAX_REPLAY_EVENTS,
@@ -33,7 +34,7 @@ def _make_event(
     job_id: str = "job-1",
     event_id: str = "evt-1",
     payload: dict[str, object] | None = None,
-    db_id: int | None = None,
+    sequence: int | None = None,
 ) -> SessionEvent:
     return new_event(
         event_id=event_id,
@@ -41,7 +42,7 @@ def _make_event(
         timestamp=datetime.now(UTC),
         kind=kind,
         payload=payload or {"test": True},
-        sequence=db_id,
+        sequence=sequence,
     )
 
 
@@ -66,6 +67,13 @@ def _frames(conn: SSEConnection) -> list[str]:
     while not conn.queue.empty():
         out.append(conn.queue.get_nowait())
     return out
+
+
+def _stored(events: list[SessionEvent]) -> list[StoredEvent]:
+    return [
+        StoredEvent(storage_cursor=index, event=event)
+        for index, event in enumerate(events, start=1)
+    ]
 
 
 # --- Unit tests for helper functions ---
@@ -104,7 +112,7 @@ class TestSerializeTFEvent:
         assert parsed["payload"]["level"] == "info"
 
     def test_carries_metadata_sequence(self) -> None:
-        event = _make_event(kind=EventKind.job_created, db_id=7)
+        event = _make_event(kind=EventKind.job_created, sequence=7)
         parsed = json.loads(_serialize_tf_event(event))
         assert parsed["metadata"]["sequence"] == 7
 
@@ -185,13 +193,14 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        event = _make_event(kind=EventKind.job_created, db_id=42)
-        await mgr.broadcast_domain_event(event)
+        event = _make_event(kind=EventKind.job_created, sequence=9001)
+        await mgr.broadcast_domain_event(event, storage_cursor=42)
 
         data = conn.queue.get_nowait()
-        # Wire event type is the dotted kind; id is the metadata.sequence cursor.
+        # The SSE replay cursor is storage-local; canonical sequence is unchanged.
         assert "event: job.created" in data
         assert "id: 42\n" in data
+        assert json.loads(data.split("data: ", maxsplit=1)[1])["metadata"]["sequence"] == 9001
 
     @pytest.mark.asyncio
     async def test_broadcast_emits_single_frame(self) -> None:
@@ -203,9 +212,9 @@ class TestSSEManager:
         event = _make_event(
             kind=EventKind.approval_requested,
             payload={"approval_id": "apr-1", "description": "approve?"},
-            db_id=5,
+            sequence=9001,
         )
-        await mgr.broadcast_domain_event(event)
+        await mgr.broadcast_domain_event(event, storage_cursor=5)
 
         frames = _frames(conn)
         assert len(frames) == 1
@@ -220,8 +229,8 @@ class TestSSEManager:
         mgr.register(conn1)
         mgr.register(conn2)
 
-        event = _make_event(kind=EventKind.job_created, job_id="job-1", db_id=10)
-        await mgr.broadcast_domain_event(event)
+        event = _make_event(kind=EventKind.job_created, job_id="job-1", sequence=9001)
+        await mgr.broadcast_domain_event(event, storage_cursor=10)
 
         assert not conn1.queue.empty()
         assert conn2.queue.empty()
@@ -376,7 +385,7 @@ class TestSSEManager:
                 timestamp=now,
                 kind=EventKind.job_created,
                 payload={"state": "running"},
-                sequence=1,
+                sequence=9001,
             ),
             new_event(
                 event_id="evt-2",
@@ -384,12 +393,12 @@ class TestSSEManager:
                 timestamp=now,
                 kind=EventKind.log_line_emitted,
                 payload={"seq": 1, "message": "hello"},
-                sequence=2,
+                sequence=9002,
             ),
         ]
 
         event_repo = AsyncMock()
-        event_repo.list_after.return_value = events
+        event_repo.list_after.return_value = _stored(events)
 
         job_repo = AsyncMock()
 
@@ -400,8 +409,10 @@ class TestSSEManager:
         assert len(frames) == 2
         assert "id: 1\n" in frames[0]
         assert "event: job.created" in frames[0]
+        assert '"sequence":9001' in frames[0]
         assert "id: 2\n" in frames[1]
         assert "event: log" in frames[1]
+        assert '"sequence":9002' in frames[1]
 
     @pytest.mark.asyncio
     async def test_replay_events_sends_snapshot_on_overflow(self) -> None:
@@ -423,7 +434,7 @@ class TestSSEManager:
         ]
 
         event_repo = AsyncMock()
-        event_repo.list_after.return_value = events
+        event_repo.list_after.return_value = _stored(events)
         event_repo.list_latest_progress_previews.return_value = {}
 
         job_repo = AsyncMock()
@@ -450,7 +461,7 @@ class TestSSEManager:
         ]
 
         event_repo = AsyncMock()
-        event_repo.list_after.return_value = events
+        event_repo.list_after.return_value = _stored(events)
         event_repo.list_latest_progress_previews.return_value = {}
 
         job_repo = AsyncMock()
@@ -476,7 +487,7 @@ class TestSSEManager:
         ]
 
         event_repo = AsyncMock()
-        event_repo.list_after.return_value = events
+        event_repo.list_after.return_value = _stored(events)
         job_repo = AsyncMock()
 
         await mgr.replay_events(conn, event_repo, job_repo, last_event_id=0)
@@ -532,7 +543,7 @@ class TestSSEManager:
         ]
 
         event_repo = AsyncMock()
-        event_repo.list_after.return_value = events
+        event_repo.list_after.return_value = _stored(events)
         event_repo.list_latest_progress_previews.return_value = {}
 
         job_repo = AsyncMock()
@@ -568,7 +579,7 @@ class TestSSEManager:
         ]
 
         event_repo = AsyncMock()
-        event_repo.list_after.return_value = events
+        event_repo.list_after.return_value = _stored(events)
         event_repo.list_latest_progress_previews.return_value = {}
 
         job_repo = AsyncMock()
@@ -602,7 +613,7 @@ class TestSSEManager:
         ]
 
         event_repo = AsyncMock()
-        event_repo.list_after.return_value = events
+        event_repo.list_after.return_value = _stored(events)
         event_repo.list_latest_progress_previews.return_value = {}
 
         job_repo = AsyncMock()

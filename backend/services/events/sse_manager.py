@@ -182,17 +182,23 @@ class SSEManager:
         """Update the active job count for selective streaming decisions."""
         self._active_job_count = count
 
-    async def broadcast_domain_event(self, event: SessionEvent) -> None:
+    async def broadcast_domain_event(
+        self,
+        event: SessionEvent,
+        *,
+        storage_cursor: int | None = None,
+    ) -> None:
         """Event bus subscriber — serialize a TF event to the SSE wire as-is.
 
         The ``event:`` type is the event's dotted ``kind`` and ``data:`` is the
         TraceForge ``SessionEvent`` serialized verbatim. Kinds outside the
-        broadcast allowlist are internal-only and dropped here.
+        broadcast allowlist are internal-only and dropped here. The optional SSE
+        resume cursor is storage-local and never changes event metadata.
         """
         if event.kind not in _BROADCAST_KINDS:
             return  # internal-only event
 
-        sse_id = str(event.metadata.sequence) if event.metadata.sequence is not None else event.id
+        sse_id = str(storage_cursor) if storage_cursor is not None else None
         frame = _format_sse(sse_id, str(event.kind), _serialize_tf_event(event))
         selective = self._active_job_count > 20
 
@@ -275,19 +281,19 @@ class SSEManager:
         """
         cutoff = datetime.now(UTC) - MAX_REPLAY_AGE
 
-        events = await event_repo.list_after(
+        stored_events = await event_repo.list_after(
             after_id=last_event_id,
             job_id=conn.job_id,
             limit=MAX_REPLAY_EVENTS + 1,  # +1 to detect overflow
         )
 
         needs_snapshot = False
-        if len(events) > MAX_REPLAY_EVENTS:
+        if len(stored_events) > MAX_REPLAY_EVENTS:
             needs_snapshot = True
-            events = events[:MAX_REPLAY_EVENTS]
+            stored_events = stored_events[:MAX_REPLAY_EVENTS]
 
         # Check if oldest event is beyond replay window
-        if events and events[0].timestamp.replace(tzinfo=UTC) < cutoff:
+        if stored_events and stored_events[0].event.timestamp.replace(tzinfo=UTC) < cutoff:
             needs_snapshot = True
 
         if needs_snapshot:
@@ -323,14 +329,22 @@ class SSEManager:
             self.send_snapshot(conn, snapshot)
 
             # Filter events to only those within the replay window
-            events = [e for e in events if e.timestamp.replace(tzinfo=UTC) >= cutoff]
+            stored_events = [
+                stored
+                for stored in stored_events
+                if stored.event.timestamp.replace(tzinfo=UTC) >= cutoff
+            ]
 
         # Replay the events
-        for event in events:
+        for stored in stored_events:
+            event = stored.event
             if event.kind not in _BROADCAST_KINDS:
                 continue
-            sse_id = str(event.metadata.sequence) if event.metadata.sequence is not None else event.id
-            frame = _format_sse(sse_id, str(event.kind), _serialize_tf_event(event))
+            frame = _format_sse(
+                str(stored.storage_cursor),
+                str(event.kind),
+                _serialize_tf_event(event),
+            )
             conn.send(frame)
 
     async def replay_from_factory(

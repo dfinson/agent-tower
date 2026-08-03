@@ -228,6 +228,7 @@ class TestConcurrentEventAppends:
             events = await event_repo.list_by_job("ev-job", [EventKind.log_line_emitted], limit=100)
         assert len(events) == 20
 
-        # IDs should be monotonically increasing
-        event_ids = [e.metadata.sequence for e in events if e.metadata.sequence is not None]
-        assert event_ids == sorted(event_ids)
+        # Storage order stays internal; absent producer sequences remain absent.
+        expected_payload_order = sorted(range(20), key=db_ids.__getitem__)
+        assert [event.payload["seq"] for event in events] == expected_payload_order
+        assert all(event.metadata.sequence is None for event in events)

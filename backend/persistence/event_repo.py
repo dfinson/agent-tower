@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 from sqlalchemy import func, select
 from traceforge.types import EventMetadata
@@ -10,6 +11,14 @@ from traceforge.types import EventMetadata
 from backend.models.db import EventRow
 from backend.models.events import TRANSCRIPT_KINDS, EventKind, SessionEvent, new_event
 from backend.persistence.repository import BaseRepository
+
+
+@dataclass(frozen=True, slots=True)
+class StoredEvent:
+    """A canonical event paired with its storage-local replay cursor."""
+
+    storage_cursor: int
+    event: SessionEvent
 
 
 class EventRepository(BaseRepository):
@@ -28,7 +37,6 @@ class EventRepository(BaseRepository):
             kind=EventKind(row.kind),
             payload=json.loads(row.payload),
             metadata=metadata,
-            sequence=row.id,
         )
 
     async def append(self, event: SessionEvent) -> int:
@@ -50,14 +58,17 @@ class EventRepository(BaseRepository):
         after_id: int,
         job_id: str | None = None,
         limit: int = 500,
-    ) -> list[SessionEvent]:
-        """List events with auto-increment id > after_id, optionally scoped to a job."""
+    ) -> list[StoredEvent]:
+        """List canonical events with their storage-local cursors."""
         stmt = select(EventRow).where(EventRow.id > after_id).order_by(EventRow.id)
         if job_id is not None:
             stmt = stmt.where(EventRow.job_id == job_id)
         stmt = stmt.limit(limit)
         result = await self._session.execute(stmt)
-        return [self._to_domain(row) for row in result.scalars().all()]
+        return [
+            StoredEvent(storage_cursor=row.id, event=self._to_domain(row))
+            for row in result.scalars().all()
+        ]
 
     async def list_by_job(
         self,
