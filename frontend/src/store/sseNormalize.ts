@@ -69,6 +69,9 @@ export function normalizeTFEvent(ev: TFSessionEvent): Record<string, unknown> {
 
   // `jobId` is authoritative from the envelope session id.
   payload.jobId = ev.session_id;
+  if (ev.id !== undefined) {
+    payload.eventId = ev.id;
+  }
 
   if (payload.timestamp === undefined && ev.timestamp !== undefined) {
     payload.timestamp = ev.timestamp;
@@ -84,6 +87,9 @@ export function normalizeTFEvent(ev: TFSessionEvent): Record<string, unknown> {
   // payload view unless the payload already provides the field.
   const meta = ev.metadata;
   const metadata = meta == null ? undefined : (meta as Record<string, unknown>);
+  if (typeof metadata?.sequence === "number") {
+    payload.sequence = metadata.sequence;
+  }
   const metaTurnId = metadata?.turn_id;
   if (payload.turnId === undefined && metaTurnId != null) {
     payload.turnId = metaTurnId;

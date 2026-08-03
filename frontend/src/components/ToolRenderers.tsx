@@ -9,6 +9,9 @@ import { SyntaxBlock } from "./SyntaxBlock";
 import { stripAnsi } from "../lib/ansi";
 import { RunningToolIndicator } from "./RunningToolIndicator";
 import type { TranscriptEntry } from "../store";
+import { transcriptReactKey } from "../lib/transcriptIdentity";
+import { repositoryRelativePath, trimWorktreeRoot } from "../lib/pathDisplay";
+import { useStore } from "../store";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -47,17 +50,12 @@ export function countLines(text?: string): number | undefined {
   return text.split("\n").filter((l) => l.trim()).length;
 }
 
-const WORKTREE_MARKER = "/.codeplane-worktrees/";
-
-export function abbreviatePath(path: string): string {
-  const idx = path.indexOf(WORKTREE_MARKER);
-  if (idx !== -1) return "…/" + path.slice(idx + WORKTREE_MARKER.length);
-  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
-  return parts.length <= 2 ? path : parts.slice(-2).join("/");
+export function abbreviatePath(path: string, worktreeRoot?: string | null): string {
+  return repositoryRelativePath(path, worktreeRoot) ?? "(outside workspace)";
 }
 
-export function trimWorktreePaths(text: string): string {
-  return text.replace(/\/[^\s]*\.codeplane-worktrees\//g, "…/");
+export function trimWorktreePaths(text: string, worktreeRoot?: string | null): string {
+  return trimWorktreeRoot(text, worktreeRoot);
 }
 
 // ---------------------------------------------------------------------------
@@ -117,12 +115,13 @@ export function ReasoningBlock({ entry }: { entry: TranscriptEntry }) {
 export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
   const toolName = stripMcpPrefix(entry.toolName ?? "");
   const args = parseArgs(entry.arguments);
+  const worktreeRoot = useStore((state) => state.jobs[entry.jobId]?.worktreePath);
 
   switch (toolName) {
     case "Bash":
     case "bash":
     case "run_in_terminal": {
-      const command = trimWorktreePaths((args.command as string) ?? "");
+      const command = trimWorktreePaths((args.command as string) ?? "", worktreeRoot);
       return (
         <div className="font-mono text-xs">
           <div className={cn(
@@ -144,13 +143,13 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
       const startLine = (args.startLine ?? args.start_line) as number | undefined;
       const endLine = (args.endLine ?? args.end_line) as number | undefined;
       const lines = countLines(entry.result);
-      const shortPath = abbreviatePath(filePath);
+      const shortPath = abbreviatePath(filePath, worktreeRoot);
       const range = startLine && endLine ? `lines ${startLine}–${endLine}` : null;
       return (
         <div className="font-mono text-xs">
           <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.result && "border-b border-border/30")}>
             <Codicon name="file-code" size={11} className="text-blue-400 shrink-0" />
-            <span className="text-foreground/80">{shortPath}</span>
+            <span className="text-foreground/80" title={filePath}>{shortPath}</span>
             {range && <span className="text-muted-foreground">{range}</span>}
             {lines != null && <span className="text-muted-foreground/60">({lines} lines)</span>}
           </div>
@@ -169,14 +168,14 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
     case "Edit":
     case "insert_edit_into_file": {
       const filePath = (args.filePath ?? args.file_path ?? args.path ?? "") as string;
-      const shortPath = abbreviatePath(filePath);
+      const shortPath = abbreviatePath(filePath, worktreeRoot);
       const oldStr = (args.old_str ?? args.old_string ?? args.oldString) as string | undefined;
       const newStr = (args.new_str ?? args.new_string ?? args.newString) as string | undefined;
       return (
         <div className="px-3 py-1.5 text-xs">
           <div className="flex items-center gap-2">
             <Codicon name="edit" size={11} className="text-amber-400 shrink-0" />
-            <span className="font-mono text-foreground/80">{shortPath}</span>
+            <span className="font-mono text-foreground/80" title={filePath}>{shortPath}</span>
             <span className="text-muted-foreground">
               {entry.success !== false ? "→ applied" : "→ failed"}
             </span>
@@ -197,7 +196,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
         edits
           .map((e) => (e.filePath ?? e.file_path ?? e.path ?? "") as string)
           .filter(Boolean)
-          .map((p) => abbreviatePath(p)),
+          .map((p) => abbreviatePath(p, worktreeRoot)),
       )];
       const label = paths.length
         ? paths.slice(0, 3).join(", ") + (paths.length > 3 ? "…" : "")
@@ -212,12 +211,13 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
             </span>
           </div>
           {edits.slice(0, 3).map((e, i) => {
-            const p = abbreviatePath((e.filePath ?? e.file_path ?? e.path ?? "") as string);
+            const rawPath = (e.filePath ?? e.file_path ?? e.path ?? "") as string;
+            const p = abbreviatePath(rawPath, worktreeRoot);
             const oldStr = (e.old_string ?? e.old_str ?? e.oldString) as string | undefined;
             const newStr = (e.new_string ?? e.new_str ?? e.newString) as string | undefined;
             return (
               <div key={i} className="mt-1.5 pl-5">
-                {paths.length > 1 && <div className="text-muted-foreground/60 font-mono text-[10px]">{p}</div>}
+                {paths.length > 1 && <div className="text-muted-foreground/60 font-mono text-[10px]" title={rawPath}>{p}</div>}
                 {typeof oldStr === "string" && typeof newStr === "string" && (
                   <div className="font-mono text-[11px] leading-relaxed">
                     <div className="text-red-400/80">- {oldStr.slice(0, 80)}{oldStr.length > 80 ? "…" : ""}</div>
@@ -260,7 +260,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
       return (
         <div className="px-3 py-1.5 flex items-center gap-2 text-xs">
           <Codicon name="edit" size={11} className="text-green-400 shrink-0" />
-          <span className="font-mono text-foreground/80">{abbreviatePath(filePath)}</span>
+          <span className="font-mono text-foreground/80" title={filePath}>{abbreviatePath(filePath, worktreeRoot)}</span>
           <span className="text-muted-foreground">→ {toolName === "write" || toolName === "Write" ? "written" : "created"}</span>
         </div>
       );
@@ -277,7 +277,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
         <div className="font-mono text-xs">
           <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.result && "border-b border-border/30")}>
             <Codicon name="file-code" size={11} className="text-blue-400 shrink-0" />
-            <span className="text-foreground/80">{abbreviatePath(path)}</span>
+            <span className="text-foreground/80" title={path}>{abbreviatePath(path, worktreeRoot)}</span>
             {range && <span className="text-muted-foreground">{range}</span>}
             {lines != null && <span className="text-muted-foreground/60">({lines} lines)</span>}
           </div>
@@ -303,7 +303,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
           <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.result && "border-b border-border/30")}>
             <Codicon name="search" size={11} className="text-blue-400 shrink-0" />
             <span className="text-foreground/80">{pattern}</span>
-            {searchPath && <span className="text-muted-foreground/60">in {abbreviatePath(searchPath)}</span>}
+            {searchPath && <span className="text-muted-foreground/60" title={searchPath}>in {abbreviatePath(searchPath, worktreeRoot)}</span>}
             {lines != null && <span className="text-muted-foreground">→ {lines} files</span>}
           </div>
           {entry.result && (
@@ -324,7 +324,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
             <Codicon name="search" size={11} className="text-blue-400 shrink-0" />
             <span className="text-foreground/80">&ldquo;{pattern}&rdquo;</span>
             {(globFilter || searchPath) && (
-              <span className="text-muted-foreground/60">in {globFilter || abbreviatePath(searchPath)}</span>
+              <span className="text-muted-foreground/60" title={globFilter ? undefined : searchPath}>in {globFilter || abbreviatePath(searchPath, worktreeRoot)}</span>
             )}
             {lines != null && <span className="text-muted-foreground">→ {lines} matches</span>}
           </div>
@@ -342,7 +342,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
         <div className="font-mono text-xs">
           <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.result && "border-b border-border/30")}>
             <Codicon name="file-code" size={11} className="text-blue-400 shrink-0" />
-            <span className="text-foreground/80">{abbreviatePath(path) || "."}</span>
+            <span className="text-foreground/80" title={path}>{abbreviatePath(path, worktreeRoot) || "."}</span>
             {lines != null && <span className="text-muted-foreground/60">({lines} entries)</span>}
           </div>
           {entry.result && (
@@ -609,14 +609,14 @@ export function SubAgentSection({
           {childCalls.map((child, i) =>
             isSubagentTool(child.toolName) ? (
               <SubAgentSection
-                key={child.seq}
+                key={transcriptReactKey(child, i)}
                 entry={child}
                 childCalls={[]}
                 isActive={isActive && i === childCalls.length - 1}
               />
             ) : (
               <ToolStep
-                key={child.seq}
+                key={transcriptReactKey(child, i)}
                 entry={child}
                 isActive={isActive && i === childCalls.length - 1}
               />
@@ -713,7 +713,7 @@ export function ToolStepList({ calls, isActive }: { calls: TranscriptEntry[]; is
           if (seg.type === "subagent-group") {
             return (
               <SubAgentSection
-                key={seg.entry.seq}
+                key={transcriptReactKey(seg.entry, i)}
                 entry={seg.entry}
                 childCalls={seg.children}
                 isActive={isActive && isLastSeg}
@@ -722,7 +722,7 @@ export function ToolStepList({ calls, isActive }: { calls: TranscriptEntry[]; is
           }
           return (
             <ToolStep
-              key={seg.entry.seq}
+              key={transcriptReactKey(seg.entry, i)}
               entry={seg.entry}
               isActive={isActive && isLastSeg}
             />

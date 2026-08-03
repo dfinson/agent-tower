@@ -574,6 +574,35 @@ class TestJobData:
         resp = await client.get(f"/api/jobs/{jid}/transcript", params={"limit": 10})
         assert resp.status_code == 200
 
+    async def test_transcript_uses_traceforge_envelope_identity(
+        self,
+        client: AsyncClient,
+        seed_job: SeedJobFn,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        jid = await seed_job(state="running", job_id="transcript-identity")
+        async with session_factory() as session:
+            row = EventRow(
+                event_id="evt-canonical",
+                job_id=jid,
+                kind=EventKind.message_assistant.value,
+                timestamp=datetime.now(UTC),
+                payload='{"seq":0,"content":"Done"}',
+                event_metadata="{}",
+            )
+            session.add(row)
+            await session.flush()
+            canonical_sequence = row.id
+            await session.commit()
+
+        resp = await client.get(f"/api/jobs/{jid}/transcript")
+
+        assert resp.status_code == 200
+        item = resp.json()["items"][0]
+        assert item["eventId"] == "evt-canonical"
+        assert item["sequence"] == canonical_sequence
+        assert "seq" not in item
+
     # ── Timeline ──
 
     async def test_timeline_empty(self, client: AsyncClient, seed_job: SeedJobFn) -> None:

@@ -129,6 +129,7 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "session.heartbeat",
         "session.resumed",
         "telemetry.updated",
+        "artifacts.updated",
         // Plan steps — the only step-level event the frontend handles
         "plan.step_updated",
         // Activity timeline

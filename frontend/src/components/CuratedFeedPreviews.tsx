@@ -82,12 +82,17 @@ export function PhaseBox({
   const setExpanded = setManualExpanded;
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const Icon = KIND_ICONS[cluster.kind];
-  const files = useMemo(() => deduplicateByFile(cluster.entries), [cluster.entries]);
+  const jobId = cluster.entries[0]?.jobId;
+  const worktreeRoot = useStore((state) => jobId ? state.jobs[jobId]?.worktreePath : null);
+  const files = useMemo(
+    () => deduplicateByFile(cluster.entries, worktreeRoot),
+    [cluster.entries, worktreeRoot],
+  );
   const totalDuration = cluster.entries.reduce((sum, e) => sum + (e.toolDurationMs ?? 0), 0);
   const hasEdits = cluster.kind === "write" || cluster.kind === "create";
   const hasFailure = cluster.entries.some((e) => e.success === false);
 
-  const firstSeq = cluster.entries[0]?.seq;
+  const firstSeq = cluster.entries[0]?.sequence;
   const turnId = cluster.entries[0]?.turnId;
 
   const handleViewChanges = useCallback(() => {
@@ -289,7 +294,7 @@ export function FileChip({
   return (
     <button
       onClick={onClick}
-      title={file.relativePath}
+      title={file.key}
       className={cn(
         "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono",
         "transition-colors cursor-pointer select-none",
@@ -314,7 +319,10 @@ function InlinePreview({ file, kind }: { file: PhaseFile; kind: ClusterKind }) {
   return (
     <div>
       {kind !== "execute" && kind !== "search" && (
-        <div className="px-3 py-1 text-[11px] font-mono text-muted-foreground/60 border-b border-border/10">
+        <div
+          className="px-3 py-1 text-[11px] font-mono text-muted-foreground/60 border-b border-border/10"
+          title={file.key}
+        >
           {file.relativePath}
         </div>
       )}

@@ -66,6 +66,14 @@ class JobRow(Base):
     structural_change_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     structural_merge_confidence: Mapped[str | None] = mapped_column(String(10), nullable=True)
     trail_state_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    artifact_collection_status: Mapped[str] = mapped_column(
+        String, nullable=False, default="pending", server_default="pending"
+    )
+    artifact_collection_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    artifact_collection_session_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    artifact_collection_updated_at: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
 
 
 class EventRow(Base):

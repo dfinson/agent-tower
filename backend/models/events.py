@@ -104,6 +104,7 @@ class EventKind(StrEnum):
     agent_plan_updated = "plan.updated"
     execution_phase_changed = "execution.phase_changed"
     telemetry_updated = "telemetry.updated"
+    artifacts_updated = "artifacts.updated"
     # --- Steps / plan ---
     step_started = "step.started"
     step_completed = "step.completed"

@@ -300,7 +300,6 @@ class RuntimeService:
         self._policy_batchers: dict[str, Any] = {}  # job_id → ApprovalBatcher
         self._dequeue_lock = asyncio.Lock()
         self._shutting_down = False
-        self._snapshot_tasks: dict[str, asyncio.Task[None]] = {}
         self._pending_starts: dict[str, tuple[str | None, str | None]] = {}
         self._preflight_curator: PreflightCurator | None = None
         self._ingest_service: IngestService | None = None
@@ -324,6 +323,14 @@ class RuntimeService:
             make_job_service=self._make_job_service,
             resolve_adapter=self._resolve_adapter,
             trail_service=trail_service,
+        )
+        from backend.services.artifacts.finalization_service import ArtifactFinalizationService
+
+        self._artifact_finalizer = ArtifactFinalizationService(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            summarization_service=summarization_service,
+            telemetry=self._telemetry,
         )
 
     def set_trail_service(self, svc: TrailService) -> None:
@@ -1112,35 +1119,6 @@ class RuntimeService:
     async def _finalize_job_telemetry(self, job_id: str, wall_start: float, config: SessionConfig) -> None:
         await self._telemetry.finalize_job_telemetry(job_id, wall_start, config)
 
-    async def _store_post_completion_artifacts(
-        self,
-        job_id: str,
-    ) -> None:
-        """Persist internal state (telemetry, plan, approvals) as downloadable artifacts."""
-        await self._telemetry.store_post_completion_artifacts(job_id)
-
-    def _start_snapshot_task(self, job_id: str) -> None:
-        if self._shutting_down:
-            return
-        if self._summarization_service is None:
-            return
-        existing = self._snapshot_tasks.get(job_id)
-        if existing is not None and not existing.done():
-            return
-
-        task = asyncio.create_task(
-            self._summarization_service.save_snapshot_to_disk(job_id),
-            name=f"snapshot-{job_id}",
-        )
-        self._snapshot_tasks[job_id] = task
-
-        def _cleanup_snapshot_task(completed: asyncio.Task[None]) -> None:
-            current = self._snapshot_tasks.get(job_id)
-            if current is completed:
-                self._snapshot_tasks.pop(job_id, None)
-
-        task.add_done_callback(_cleanup_snapshot_task)
-
     async def _set_step_terminal_state(self, job_id: str, outcome: str) -> None:
         """Forward terminal outcome to the step tracker."""
         if self._step_tracker is not None:
@@ -1328,6 +1306,7 @@ class RuntimeService:
         # Last-resort guard: if the job is still non-terminal after all error
         # handlers have run, force it to failed so it doesn't stay stuck.
         await self._ensure_terminal_state(job_id)
+        await self._artifact_finalizer.finalize(job_id)
 
         # Close CodeRecon session for this job's worktree — no-op with ReviewKit
         # (in-process kits are shared and closed on shutdown, not per-job)
@@ -1388,7 +1367,6 @@ class RuntimeService:
             await self._approval_service.cleanup_job(job_id)
         if self._diff_service is not None:
             self._diff_service.cleanup(job_id)
-        self._start_snapshot_task(job_id)
         await self._dequeue_next()
 
     async def _ensure_terminal_state(self, job_id: str) -> None:
@@ -1646,6 +1624,8 @@ class RuntimeService:
         if self._trail_service is not None:
             self._trail_service.stop_tracking(job_id)
             await self._trail_service.finalize(job_id, succeeded=error_reason is None)
+        await self._artifact_finalizer.finalize(job_id)
+        if self._trail_service is not None:
             self._trail_service.cleanup(job_id)
 
         # Retry title + generate description while sidecar is still alive
@@ -1683,8 +1663,6 @@ class RuntimeService:
         self._stall_check_pending.discard(job_id)
         self._last_stall_check.pop(job_id, None)
 
-        # Persist trail snapshot to disk
-        self._start_snapshot_task(job_id)
         log.debug("external_session_finalized", job_id=job_id, outcome=outcome)
 
     # ------------------------------------------------------------------
@@ -2598,6 +2576,8 @@ class RuntimeService:
                 except Exception:
                     log.debug("orphaned_job_recovery_failed", job_id=job.id, exc_info=True)
 
+        await self._artifact_finalizer.recover_eligible()
+
         for job in queued_jobs:
             await self.start_or_enqueue(job)
 
@@ -2618,10 +2598,6 @@ class RuntimeService:
         tasks = list(self._tasks.values())
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
-
-        snapshot_tasks = list(self._snapshot_tasks.values())
-        if snapshot_tasks:
-            await asyncio.gather(*snapshot_tasks, return_exceptions=True)
 
     # -- Preflight context curation ------------------------------------------
 

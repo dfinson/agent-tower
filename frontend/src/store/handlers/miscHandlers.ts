@@ -69,7 +69,8 @@ export function handleSessionResumed(state: AppState, payload: Record<string, un
   const timestamp = payload.timestamp as string;
   const divider: TranscriptEntry = {
     jobId,
-    seq: -99,
+    eventId: payload.eventId as string | undefined,
+    sequence: payload.sequence as number | undefined,
     timestamp,
     kind: "divider",
     content: "Session",
@@ -129,6 +130,17 @@ export function handleTelemetryUpdated(state: AppState, payload: Record<string, 
   };
 }
 
+export function handleArtifactsUpdated(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const jobId = payload.jobId as string | undefined;
+  if (!jobId) return null;
+  return {
+    artifactVersions: {
+      ...state.artifactVersions,
+      [jobId]: (state.artifactVersions[jobId] ?? 0) + 1,
+    },
+  };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function handlePolicySettingsChanged(_state: AppState): Partial<AppState> | null {
   return {
@@ -185,6 +197,7 @@ export const miscHandlers: Record<string, SSEHandler> = {
   "diff.updated": handleDiffUpdate,
   "session.resumed": handleSessionResumed,
   "telemetry.updated": handleTelemetryUpdated,
+  "artifacts.updated": handleArtifactsUpdated,
   "policy.settings_changed": handlePolicySettingsChanged,
   "repo.index_progress": handleRepoIndexProgress,
   "repo.index_complete": handleRepoIndexComplete,

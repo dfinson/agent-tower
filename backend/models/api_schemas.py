@@ -323,6 +323,9 @@ class ArtifactResponse(CamelModel):
 
 class ArtifactListResponse(CamelModel):
     items: list[ArtifactResponse]
+    collection_status: Literal["pending", "collecting", "completed", "failed"] = "pending"
+    collection_error: str | None = None
+    collection_updated_at: datetime | None = None
 
 
 class ModelListResponse(CamelModel):
@@ -472,13 +475,15 @@ class LogLinePayload(CamelModel):
 
 class TranscriptPayload(CamelModel):
     job_id: str
-    seq: int
+    event_id: str
+    sequence: int | None = None
     timestamp: datetime
     kind: str  # dotted TF event kind (e.g. "message.assistant", "tool.call.completed")
     content: str
     # Optional rich fields — only present for specific kinds
     title: str | None = None  # annotation title on agent messages
     turn_id: str | None = None  # groups reasoning + tool_calls + message
+    tool_call_id: str | None = None  # pairs tool.call.started/completed
     tool_name: str | None = None  # tool.call.*: tool identifier
     arguments: str | None = None  # tool.call.*: JSON-serialized arguments
     result: str | None = None  # tool.call.completed: text output from tool

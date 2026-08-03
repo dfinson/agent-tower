@@ -2132,33 +2132,33 @@ export interface paths {
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        get: operations["preview_proxy_api_preview__port___path__get"];
+        get: operations["preview_proxy_api_preview__port___path__delete"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        put: operations["preview_proxy_api_preview__port___path__get"];
+        put: operations["preview_proxy_api_preview__port___path__delete"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        post: operations["preview_proxy_api_preview__port___path__get"];
+        post: operations["preview_proxy_api_preview__port___path__delete"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        delete: operations["preview_proxy_api_preview__port___path__get"];
+        delete: operations["preview_proxy_api_preview__port___path__delete"];
         options?: never;
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        head: operations["preview_proxy_api_preview__port___path__get"];
+        head: operations["preview_proxy_api_preview__port___path__delete"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        patch: operations["preview_proxy_api_preview__port___path__get"];
+        patch: operations["preview_proxy_api_preview__port___path__delete"];
         trace?: never;
     };
     "/api/jobs/{job_id}/share": {
@@ -2928,6 +2928,16 @@ export interface components {
         ArtifactListResponse: {
             /** Items */
             items: components["schemas"]["ArtifactResponse"][];
+            /**
+             * Collectionstatus
+             * @default pending
+             * @enum {string}
+             */
+            collectionStatus: "pending" | "collecting" | "completed" | "failed";
+            /** Collectionerror */
+            collectionError?: string | null;
+            /** Collectionupdatedat */
+            collectionUpdatedAt?: string | null;
         };
         /** ArtifactResponse */
         ArtifactResponse: {
@@ -5345,14 +5355,15 @@ export interface components {
         };
         /**
          * Preset
-         * @description Action policy preset — controls how the policy router classifies agent actions.
+         * @description Action policy preset — selects the ``traceforge.governance`` profile the
+         *     router enforces (see ``action_policy/preset_profiles.py``).
          *
-         *     autonomous — Contained actions auto-approved. Non-contained actions gated.
-         *                  Monitor handles gate-tier decisions.
-         *     supervised — Reversible + contained auto-approved. Irreversible or
-         *                  non-contained actions gated. Monitor handles gate-tier decisions.
-         *     locked     — Reversible + contained get checkpointed. Everything else gated.
-         *                  Monitor disabled — all gates go directly to human.
+         *     autonomous — Generous budget; protected-path writes escalate; no USD ceiling.
+         *                  Escalations handled by the monitor sidecar.
+         *     supervised — Moderate budget and USD ceiling; cost pressure and protected-path
+         *                  writes escalate; monitor handles escalations.
+         *     locked     — Tight budget and USD ceiling; protected-path writes denied; hard
+         *                  tool-call ceiling; monitor disabled — escalations go to the human.
          * @enum {string}
          */
         Preset: "autonomous" | "supervised" | "locked";
@@ -7238,8 +7249,10 @@ export interface components {
         TranscriptPayload: {
             /** Jobid */
             jobId: string;
-            /** Seq */
-            seq: number;
+            /** Eventid */
+            eventId: string;
+            /** Sequence */
+            sequence?: number | null;
             /**
              * Timestamp
              * Format: date-time
@@ -7253,6 +7266,8 @@ export interface components {
             title?: string | null;
             /** Turnid */
             turnId?: string | null;
+            /** Toolcallid */
+            toolCallId?: string | null;
             /** Toolname */
             toolName?: string | null;
             /** Arguments */
@@ -10872,7 +10887,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__get: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -10902,7 +10917,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__get: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -10932,7 +10947,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__get: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -10962,7 +10977,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__get: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -10992,7 +11007,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__get: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -11022,7 +11037,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__get: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;

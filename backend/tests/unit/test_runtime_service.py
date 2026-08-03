@@ -207,9 +207,6 @@ async def runtime(
     all_tasks = list(service._tasks.values()) + list(service._heartbeat_tasks.values())
     if all_tasks:
         await asyncio.gather(*all_tasks, return_exceptions=True)
-    snapshot_tasks = list(service._snapshot_tasks.values())
-    if snapshot_tasks:
-        await asyncio.gather(*snapshot_tasks, return_exceptions=True)
     # Allow aiosqlite background threads to drain so they don't
     # encounter a closed event-loop after the engine is disposed.
     await asyncio.sleep(0.05)

@@ -102,13 +102,15 @@ export interface LogLine {
 
 export interface TranscriptEntry {
   jobId: string;
-  seq: number;
+  eventId?: string;
+  sequence?: number;
   timestamp: string;
   kind: string;
   content: string;
   // Rich fields — only present for specific transcript kinds
   title?: string;        // agent messages: optional annotation title
   turnId?: string;       // groups reasoning + tool_calls + message into one turn
+  toolCallId?: string;   // pairs tool.call.started/completed
   toolName?: string;     // tool_call: identifier
   arguments?: string;    // tool_call: JSON-serialised arguments
   result?: string;       // tool_call: text output
@@ -267,6 +269,8 @@ export interface AppState {
   /** Monotonically-increasing counter per job, bumped on each telemetry_updated
    * SSE event. Components watching this trigger a telemetry re-fetch. */
   telemetryVersions: Record<string, number>; // keyed by jobId
+  /** Bumped after terminal artifact collection finishes so panels re-fetch. */
+  artifactVersions: Record<string, number>; // keyed by jobId
 
   // Repo index progress (keyed by repo name)
   repoIndexState: Record<string, RepoIndexProgress>;

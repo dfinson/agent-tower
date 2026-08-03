@@ -40,6 +40,8 @@ interface Artifact {
   createdAt: string;
 }
 
+type CollectionStatus = "pending" | "collecting" | "completed" | "failed";
+
 /** Display key — the actual group a given artifact is rendered under.
  *  This may differ from the raw `type` (e.g. legacy `document`-typed
  *  agent.log files are reclassified to `agent_log`). */
@@ -533,26 +535,53 @@ interface Props {
 export default function ArtifactViewer({ jobId, onCountChange }: Props) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [loading, setLoading] = useState(true);
+  const [collectionStatus, setCollectionStatus] = useState<CollectionStatus>("pending");
+  const [collectionError, setCollectionError] = useState<string | null>(null);
 
   // Subscribe to job state changes so artifacts refresh when job reaches
   // review/completed/failed states (when post-completion artifacts are created).
   const jobState = useStore((s) => s.jobs[jobId]?.state);
+  const artifactVersion = useStore((s) => s.artifactVersions[jobId] ?? 0);
 
-  const loadArtifacts = useCallback(() => {
-    fetchArtifacts(jobId)
+  const loadArtifacts = useCallback(async () => {
+    return fetchArtifacts(jobId)
       .then((res) => {
         const items = res.items as Artifact[];
         setArtifacts(items);
+        setCollectionStatus(res.collectionStatus);
+        setCollectionError(res.collectionError ?? null);
         onCountChange?.(items.length);
+        return res.collectionStatus;
       })
-      .catch((err) => console.error("Failed to fetch artifacts", err))
+      .catch((err) => {
+        console.error("Failed to fetch artifacts", err);
+        throw err;
+      })
       .finally(() => setLoading(false));
   }, [jobId, onCountChange]);
 
   // Load on mount + whenever job state changes (covers session end + completion)
   useEffect(() => {
-    loadArtifacts();
-  }, [loadArtifacts, jobState]);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = () => {
+      loadArtifacts()
+        .then((status) => {
+          const terminal = ["review", "completed", "failed", "canceled"].includes(jobState ?? "");
+          if (!cancelled && terminal && (status === "pending" || status === "collecting")) {
+            timer = setTimeout(refresh, 1000);
+          }
+        })
+        .catch(() => {
+          // The error is surfaced in the console; a later state/SSE update retries.
+        });
+    };
+    refresh();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [loadArtifacts, jobState, artifactVersion]);
 
   // Classify and group
   const sortedGroups = useMemo(() => {
@@ -569,10 +598,18 @@ export default function ArtifactViewer({ jobId, onCountChange }: Props) {
   if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
 
   if (artifacts.length === 0) {
+    const collecting = collectionStatus === "pending" || collectionStatus === "collecting";
     return (
       <div className="rounded-lg border border-border bg-card p-8 text-center">
-        <p className="text-sm text-muted-foreground">No artifacts collected yet</p>
-        <p className="text-xs text-muted-foreground mt-1">Artifacts appear when a session ends or the job completes.</p>
+        {collecting && <div className="flex justify-center mb-3"><Spinner /></div>}
+        <p className="text-sm text-muted-foreground">
+          {collectionStatus === "failed" ? "Artifact collection failed" : collecting ? "Collecting artifacts…" : "No artifacts collected"}
+        </p>
+        {collectionError ? (
+          <p className="text-xs text-destructive mt-2 break-words">{collectionError}</p>
+        ) : (
+          <p className="text-xs text-muted-foreground mt-1">Artifacts are finalized when the session ends.</p>
+        )}
       </div>
     );
   }
@@ -581,6 +618,11 @@ export default function ArtifactViewer({ jobId, onCountChange }: Props) {
 
   return (
     <div>
+      {collectionStatus === "failed" && (
+        <div className="mb-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          Artifact refresh failed: {collectionError ?? "Unknown collection error"}
+        </div>
+      )}
       <div className="flex items-center justify-between mb-2 px-1">
         <p className="text-xs text-muted-foreground">
           {artifacts.length} artifact{artifacts.length !== 1 ? "s" : ""} · {formatSize(totalSize)} total

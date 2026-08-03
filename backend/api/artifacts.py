@@ -9,7 +9,9 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from backend.models.api_schemas import ArtifactListResponse, ArtifactResponse
+from backend.models.domain import JobNotFoundError
 from backend.services.artifacts.artifact_service import ArtifactService, get_artifacts_base
+from backend.services.job.job_service import JobService
 
 router = APIRouter(tags=["artifacts"], route_class=DishkaRoute)
 
@@ -18,9 +20,14 @@ router = APIRouter(tags=["artifacts"], route_class=DishkaRoute)
 async def list_artifacts(
     job_id: str,
     svc: FromDishka[ArtifactService],
+    job_svc: FromDishka[JobService],
 ) -> ArtifactListResponse:
     """List all artifacts for a job."""
     artifacts = await svc.list_for_job(job_id)
+    try:
+        job = await job_svc.get_job(job_id)
+    except JobNotFoundError:
+        job = None
 
     items = [
         ArtifactResponse(
@@ -35,7 +42,12 @@ async def list_artifacts(
         )
         for a in artifacts
     ]
-    return ArtifactListResponse(items=items)
+    return ArtifactListResponse(
+        items=items,
+        collection_status=job.artifact_collection_status if job is not None else "completed",
+        collection_error=job.artifact_collection_error if job is not None else None,
+        collection_updated_at=job.artifact_collection_updated_at if job is not None else None,
+    )
 
 
 @router.get("/artifacts/{artifact_id}", response_class=FileResponse, response_model=None)

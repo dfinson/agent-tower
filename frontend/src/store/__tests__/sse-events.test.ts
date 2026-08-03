@@ -250,19 +250,49 @@ describe("dispatchSSEEvent — additional events", () => {
   it("transcript_update deduplicates", () => {
     useStore.getState().dispatchSSEEvent("message.assistant", {
       jobId: "job-1",
-      seq: 1,
+      eventId: "evt-1",
+      sequence: 1,
       timestamp: "2025-01-01T00:00:00Z",
       kind: "message.assistant",
       content: "Hello",
     });
     useStore.getState().dispatchSSEEvent("message.assistant", {
       jobId: "job-1",
-      seq: 1,
+      eventId: "evt-1",
+      sequence: 1,
       timestamp: "2025-01-01T00:00:00Z",
       kind: "message.assistant",
       content: "Hello",
     });
     expect(selectJobTranscript("job-1")(useStore.getState())).toHaveLength(1);
+  });
+
+  it("keeps distinct events that share a legacy sequence value", () => {
+    useStore.getState().dispatchSSEEvent("message.assistant", {
+      jobId: "job-1",
+      eventId: "evt-1",
+      sequence: 0,
+      timestamp: "2025-01-01T00:00:00Z",
+      kind: "message.assistant",
+      content: "First",
+    });
+    useStore.getState().dispatchSSEEvent("message.assistant", {
+      jobId: "job-1",
+      eventId: "evt-2",
+      sequence: 0,
+      timestamp: "2025-01-01T00:00:01Z",
+      kind: "message.assistant",
+      content: "Second",
+    });
+    expect(selectJobTranscript("job-1")(useStore.getState())).toHaveLength(2);
+  });
+
+  it("bumps artifact versions after collection completes", () => {
+    useStore.getState().dispatchSSEEvent("artifacts.updated", {
+      jobId: "job-1",
+      collectionStatus: "completed",
+    });
+    expect(useStore.getState().artifactVersions["job-1"]).toBe(1);
   });
 });
 
