@@ -3904,7 +3904,7 @@ wheels = [
 
 [[package]]
 name = "traceforge-toolkit"
-version = "0.1.3"
+version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "alembic" },
@@ -3930,9 +3930,9 @@ dependencies = [
     { name = "tzdata", marker = "sys_platform == 'win32'" },
     { name = "watchdog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9b/c1/9afa301a555bc8635813f1af01e4c8370bfbc838e63ed0fce63792fc38c8/traceforge_toolkit-0.1.3.tar.gz", hash = "sha256:d582ffad11c180918ad59eeb6990bf97c875af6b5d0cc1391227ab9053b1bd85", size = 28835020, upload-time = "2026-08-03T03:34:33.775Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a3/b0/667eae52510b06729aa3ed1a39395651e44263c9899c15a7fcfafcc15973/traceforge_toolkit-0.1.4.tar.gz", hash = "sha256:7a4415962f138a5ea7a46b4ddcba44ec056a591b78eb14bb98ea5968bfc6d342", size = 28834947, upload-time = "2026-08-03T04:14:24.825Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/f3/765f3c7209ec12da686527213a2557ba695a87793659ae41a580d833d70a/traceforge_toolkit-0.1.3-py3-none-any.whl", hash = "sha256:1d43d26b43a8e58b04145cfc8f6d282db294a0a9428fe20cff731a650da35423", size = 28944655, upload-time = "2026-08-03T03:34:30.215Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/47/50ef7263163e6e0ba4ccc89a18656bcf9a2741d27a09577fac817c379c6c/traceforge_toolkit-0.1.4-py3-none-any.whl", hash = "sha256:059803600d23cc3a69ce4c2f56d5c7505d2f966cea3ca567cbfe2546c3f48c93", size = 28944570, upload-time = "2026-08-03T04:14:21.841Z" },
 ]
 
 [[package]]
