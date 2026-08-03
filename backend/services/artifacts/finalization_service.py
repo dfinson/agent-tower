@@ -73,7 +73,7 @@ class ArtifactFinalizationService:
             return "completed"
 
     async def recover_eligible(self) -> int:
-        """Backfill terminal jobs whose current session has no complete artifact set."""
+        """Backfill terminal jobs without a completed current-session attempt."""
         async with self._session_factory() as session:
             job_ids = await JobRepository(session).list_artifact_collection_candidates()
         recovered = 0

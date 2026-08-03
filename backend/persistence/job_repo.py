@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import and_, exists, or_, select
+from sqlalchemy import and_, or_, select
 
-from backend.models.db import ArtifactRow, DiffSnapshotRow, JobRow
+from backend.models.db import DiffSnapshotRow, JobRow
 from backend.models.domain import GitMergeOutcome, Job, JobMode, JobNotFoundError, JobState, Preset, Resolution
 from backend.persistence.repository import BaseRepository
 
@@ -163,14 +163,10 @@ class JobRepository(BaseRepository):
         }:
             return None
 
-        artifact_exists = await self._session.scalar(
-            select(exists().where(ArtifactRow.job_id == job_id))
-        )
         current_session = row.session_count or 1
         already_complete = (
             row.artifact_collection_status == "completed"
             and (row.artifact_collection_session_count or 0) >= current_session
-            and bool(artifact_exists)
         )
         if already_complete or (row.artifact_collection_status == "collecting" and not allow_stale):
             return None
@@ -201,8 +197,7 @@ class JobRepository(BaseRepository):
         )
 
     async def list_artifact_collection_candidates(self) -> list[str]:
-        """Return terminal jobs whose current session has not produced artifacts."""
-        has_artifact = exists().where(ArtifactRow.job_id == JobRow.id)
+        """Return terminal jobs without a completed current-session collection."""
         stmt = (
             select(JobRow.id)
             .where(
@@ -219,7 +214,6 @@ class JobRepository(BaseRepository):
                 or_(
                     JobRow.artifact_collection_status != "completed",
                     JobRow.artifact_collection_session_count < JobRow.session_count,
-                    ~has_artifact,
                 )
             )
             .order_by(JobRow.completed_at, JobRow.updated_at)

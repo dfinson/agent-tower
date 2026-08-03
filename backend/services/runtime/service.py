@@ -404,6 +404,19 @@ class RuntimeService:
         except (Exception, asyncio.CancelledError):
             log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
 
+    async def _finalize_artifacts_safe(self, job_id: str) -> None:
+        """Finalize terminal artifacts without blocking remaining runtime cleanup."""
+        try:
+            await self._artifact_finalizer.finalize(job_id)
+        except Exception as exc:
+            log.error(
+                "artifact_finalization_failed",
+                job_id=job_id,
+                error_type=type(exc).__name__,
+                error=str(exc),
+                exc_info=True,
+            )
+
     async def _finalize_naming(self, job_id: str) -> None:
         """Retry title generation and produce description for untitled/undescribed jobs."""
         if self._sidecar_sessions is None:
@@ -1306,7 +1319,7 @@ class RuntimeService:
         # Last-resort guard: if the job is still non-terminal after all error
         # handlers have run, force it to failed so it doesn't stay stuck.
         await self._ensure_terminal_state(job_id)
-        await self._artifact_finalizer.finalize(job_id)
+        await self._finalize_artifacts_safe(job_id)
 
         # Close CodeRecon session for this job's worktree — no-op with ReviewKit
         # (in-process kits are shared and closed on shutdown, not per-job)
@@ -1624,7 +1637,7 @@ class RuntimeService:
         if self._trail_service is not None:
             self._trail_service.stop_tracking(job_id)
             await self._trail_service.finalize(job_id, succeeded=error_reason is None)
-        await self._artifact_finalizer.finalize(job_id)
+        await self._finalize_artifacts_safe(job_id)
         if self._trail_service is not None:
             self._trail_service.cleanup(job_id)
 

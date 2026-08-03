@@ -73,6 +73,7 @@ def _make_service(
     tmp_path: Path,
     *,
     snapshot_error: Exception | None = None,
+    create_artifact: bool = True,
 ) -> tuple[ArtifactFinalizationService, AsyncMock, AsyncMock, list[object]]:
     summarization = AsyncMock()
     telemetry = AsyncMock()
@@ -87,6 +88,8 @@ def _make_service(
     async def save_snapshot(job_id: str) -> None:
         if snapshot_error is not None:
             raise snapshot_error
+        if not create_artifact:
+            return
         disk_path = tmp_path / f"{job_id}-session-log.json"
         disk_path.write_text('{"sessions": []}', encoding="utf-8")
         async with serialized_write(session_factory) as session:
@@ -201,3 +204,31 @@ async def test_recovery_backfills_terminal_zero_artifact_jobs(
             await JobRepository(session).get("stale-job"),
         ]
     assert all(job is not None and job.artifact_collection_status == "completed" for job in jobs)
+
+
+@pytest.mark.asyncio
+async def test_completed_zero_artifact_job_is_not_recovered_repeatedly(
+    session_factory: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    await _create_job(session_factory)
+    service, summarization, telemetry, published = _make_service(
+        session_factory,
+        tmp_path,
+        create_artifact=False,
+    )
+
+    assert await service.finalize("job-1") == "completed"
+    assert await service.finalize("job-1") == "completed"
+    assert await service.recover_eligible() == 0
+
+    summarization.save_snapshot_to_disk.assert_awaited_once_with("job-1")
+    telemetry.store_post_completion_artifacts.assert_awaited_once_with("job-1")
+    async with session_factory() as session:
+        job = await JobRepository(session).get("job-1")
+        artifacts = await ArtifactRepository(session).list_for_job("job-1")
+    assert job is not None
+    assert job.artifact_collection_status == "completed"
+    assert job.artifact_collection_session_count == job.session_count
+    assert artifacts == []
+    assert [event.kind for event in published] == [EventKind.artifacts_updated]
