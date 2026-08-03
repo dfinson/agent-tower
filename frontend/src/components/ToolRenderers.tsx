@@ -120,19 +120,29 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
   switch (toolName) {
     case "Bash":
     case "bash":
+    case "powershell":
+    case "pwsh":
     case "run_in_terminal": {
       const command = trimWorktreePaths((args.command as string) ?? "", worktreeRoot);
+      const description = (args.description as string) ?? "";
+      const lang = toolName === "powershell" || toolName === "pwsh" ? "powershell" : "bash";
       return (
         <div className="font-mono text-xs">
+          {description && (
+            <div className="px-3 py-1 text-muted-foreground border-b border-border/30 text-[11px]">
+              {description}
+            </div>
+          )}
           <div className={cn(
-            "px-3 py-1.5 border-b border-border/30",
+            "px-3 py-1.5",
+            (entry.result || description) && "border-b border-border/30",
             entry.success === false ? "bg-red-950/30" : "bg-zinc-950/50",
           )}>
             <span className="text-muted-foreground">$ </span>
-            <span className="text-foreground/90">{command}</span>
+            <span className="text-foreground/90 whitespace-pre-wrap">{command}</span>
           </div>
           {entry.result && (
-            <SyntaxBlock content={stripAnsi(entry.result)} language="bash" maxLength={600} />
+            <SyntaxBlock content={stripAnsi(entry.result)} language={lang} maxLength={600} />
           )}
         </div>
       );
@@ -385,7 +395,7 @@ export function hasStructuredRenderer(toolName?: string): boolean {
   if (!toolName) return false;
   const name = stripMcpPrefix(toolName);
   return [
-    "bash", "run_in_terminal", "Bash",
+    "bash", "run_in_terminal", "Bash", "powershell", "pwsh",
     "read_file", "Read",
     "replace_string_in_file", "multi_replace_string_in_file", "str_replace_based_edit_tool",
     "str_replace_editor", "edit", "Edit", "insert_edit_into_file", "MultiEdit",

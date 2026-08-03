@@ -39,6 +39,7 @@ export const TOOL_KIND: Record<string, ClusterKind> = {
   apply_patch: "write", delete_file: "write",
   // Execute
   bash: "execute", run_in_terminal: "execute", get_terminal_output: "execute", Bash: "execute",
+  powershell: "execute", pwsh: "execute",
   // Agent
   runSubagent: "agent", search_subagent: "agent", skill: "agent",
   Task: "agent", task: "agent", Agent: "agent", read_agent: "agent",

@@ -21,6 +21,8 @@ const CATEGORY_MAP: Record<string, ToolCategory> = {
   run_in_terminal: "terminal",
   get_terminal_output: "terminal",
   Bash: "terminal",
+  powershell: "terminal",
+  pwsh: "terminal",
   // ---- file-read ----------------------------------------------------------
   read_file: "file-read",
   list_dir: "file-read",
