@@ -19,12 +19,14 @@ from backend.services.artifacts.snapshot_helpers import (
 
 def _event(
     job_id: str = "j1",
+    event_id: str = "evt-1",
     timestamp: str = "2025-01-01T00:00:00Z",
     kind: EventKind = EventKind.log_line_emitted,
     metadata: EventMetadata | None = None,
     **payload: Any,
 ) -> SimpleNamespace:
     return SimpleNamespace(
+        id=event_id,
         session_id=job_id,
         timestamp=timestamp,
         kind=kind,
@@ -71,6 +73,65 @@ class TestBuildLogs:
 
 
 class TestBuildTranscript:
+    def test_preserves_canonical_event_identity_and_optional_sequence(self) -> None:
+        sequenced = _event(
+            event_id="evt-sequenced",
+            kind=EventKind.message_assistant,
+            metadata=EventMetadata(sequence=10_000),
+            seq=41,
+            content="Sequenced",
+        )
+        unsequenced = _event(
+            event_id="evt-unsequenced",
+            kind=EventKind.message_assistant,
+            metadata=EventMetadata(),
+            seq=42,
+            content="Unsequenced",
+        )
+
+        transcript = _build_transcript(
+            [sequenced, unsequenced],
+            [],
+            None,
+            None,
+            filter_deltas=True,
+        )
+
+        assert [(item.event_id, item.sequence) for item in transcript] == [
+            ("evt-sequenced", 10_000),
+            ("evt-unsequenced", None),
+        ]
+        assert all("seq" not in item.model_fields_set for item in transcript)
+
+    def test_orders_by_canonical_sequence_when_every_event_has_one(self) -> None:
+        later_storage_event = _event(
+            event_id="evt-first-row",
+            kind=EventKind.message_assistant,
+            metadata=EventMetadata(sequence=20),
+            seq=1,
+            content="Later producer event",
+        )
+        earlier_storage_event = _event(
+            event_id="evt-second-row",
+            kind=EventKind.message_assistant,
+            metadata=EventMetadata(sequence=10),
+            seq=2,
+            content="Earlier producer event",
+        )
+
+        transcript = _build_transcript(
+            [later_storage_event, earlier_storage_event],
+            [],
+            None,
+            None,
+            filter_deltas=True,
+        )
+
+        assert [item.event_id for item in transcript] == [
+            "evt-second-row",
+            "evt-first-row",
+        ]
+
     def test_builds_tool_call_from_tf_fields_and_metadata(self) -> None:
         ev = _event(
             kind=EventKind.tool_call_completed,
@@ -269,7 +330,8 @@ class TestApplyReassignments:
 
         entry = TranscriptPayload(
             job_id="j1",
-            seq=1,
+            event_id="evt-1",
+            sequence=1,
             timestamp="2025-01-01T00:00:00Z",
             kind=EventKind.message_assistant,
             content="hi",
@@ -287,7 +349,8 @@ class TestApplyReassignments:
 
         entry = TranscriptPayload(
             job_id="j1",
-            seq=1,
+            event_id="evt-1",
+            sequence=1,
             timestamp="2025-01-01T00:00:00Z",
             kind=EventKind.message_assistant,
             content="hi",

@@ -137,7 +137,8 @@ def _build_transcript(
     result = [
         TranscriptPayload(
             job_id=e.session_id,
-            seq=e.payload.get("seq", 0),
+            event_id=e.id,
+            sequence=e.metadata.sequence,
             timestamp=e.payload.get("timestamp", e.timestamp),
             kind=str(e.kind),
             content=e.payload.get("content", ""),
@@ -161,6 +162,8 @@ def _build_transcript(
         for e in transcript_events
         if (not filter_deltas or e.kind not in TRANSCRIPT_STREAMING_KINDS) and not _is_hidden_tool_event(e)
     ]
+    if all(item.sequence is not None for item in result):
+        result.sort(key=lambda item: item.sequence or 0)
     return result
 
 

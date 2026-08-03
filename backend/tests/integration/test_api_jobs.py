@@ -614,6 +614,53 @@ class TestJobData:
         ]
         assert all("seq" not in item for item in items)
 
+    async def test_snapshots_preserve_persisted_transcript_identity_for_job_and_share_paths(
+        self,
+        client: AsyncClient,
+        seed_job: SeedJobFn,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        jid = await seed_job(state="completed", job_id="snapshot-identity")
+        producer_sequence = 10_000
+        payload_sequence = 77_777
+        async with session_factory() as session:
+            sequenced_row = EventRow(
+                event_id="evt-snapshot-sequenced",
+                job_id=jid,
+                kind=EventKind.message_assistant.value,
+                timestamp=datetime.now(UTC),
+                payload=f'{{"content":"Sequenced","seq":{payload_sequence}}}',
+                event_metadata=f'{{"sequence":{producer_sequence}}}',
+            )
+            unsequenced_row = EventRow(
+                event_id="evt-snapshot-unsequenced",
+                job_id=jid,
+                kind=EventKind.message_assistant.value,
+                timestamp=datetime.now(UTC),
+                payload=f'{{"content":"Unsequenced","seq":{payload_sequence + 1}}}',
+                event_metadata="{}",
+            )
+            session.add_all([sequenced_row, unsequenced_row])
+            await session.flush()
+            storage_cursors = {sequenced_row.id, unsequenced_row.id}
+            assert producer_sequence not in storage_cursors
+            assert payload_sequence not in storage_cursors
+            await session.commit()
+
+        job_snapshot = await client.get(f"/api/jobs/{jid}/snapshot")
+        share_link = await client.post(f"/api/jobs/{jid}/share")
+        shared_snapshot = await client.get(f"/api/share/{share_link.json()['token']}/snapshot")
+
+        for response in (job_snapshot, shared_snapshot):
+            assert response.status_code == 200
+            transcript = response.json()["transcript"]
+            assert [(item["eventId"], item["sequence"]) for item in transcript] == [
+                ("evt-snapshot-sequenced", producer_sequence),
+                ("evt-snapshot-unsequenced", None),
+            ]
+            assert all("seq" not in item for item in transcript)
+            assert all(item["eventId"] not in {str(cursor) for cursor in storage_cursors} for item in transcript)
+
     # ── Timeline ──
 
     async def test_timeline_empty(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
