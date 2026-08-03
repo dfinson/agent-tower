@@ -89,6 +89,10 @@ class JobRepository(BaseRepository):
             external_session_id=row.external_session_id,
             tail_offset=row.tail_offset or 0,
             mode=JobMode(row.mode) if row.mode else JobMode.standard,
+            artifact_collection_status=row.artifact_collection_status or "pending",
+            artifact_collection_error=row.artifact_collection_error,
+            artifact_collection_session_count=row.artifact_collection_session_count or 0,
+            artifact_collection_updated_at=row.artifact_collection_updated_at,
         )
 
     async def create(self, job: Job) -> Job:
@@ -130,10 +134,92 @@ class JobRepository(BaseRepository):
             external_session_id=job.external_session_id,
             tail_offset=job.tail_offset,
             mode=job.mode,
+            artifact_collection_status=job.artifact_collection_status,
+            artifact_collection_error=job.artifact_collection_error,
+            artifact_collection_session_count=job.artifact_collection_session_count,
+            artifact_collection_updated_at=job.artifact_collection_updated_at,
         )
         self._session.add(row)
         await self._session.flush()
         return job
+
+    async def claim_artifact_collection(
+        self,
+        job_id: str,
+        *,
+        updated_at: datetime,
+        allow_stale: bool = False,
+    ) -> Job | None:
+        """Claim terminal artifact collection unless this session is already complete."""
+        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
+        row = result.scalar_one_or_none()
+        if row is None:
+            raise JobNotFoundError(f"Job {job_id!r} not found")
+        if row.state not in {
+            JobState.review.value,
+            JobState.completed.value,
+            JobState.failed.value,
+            JobState.canceled.value,
+        }:
+            return None
+
+        current_session = row.session_count or 1
+        already_complete = (
+            row.artifact_collection_status == "completed"
+            and (row.artifact_collection_session_count or 0) >= current_session
+        )
+        if already_complete or (row.artifact_collection_status == "collecting" and not allow_stale):
+            return None
+
+        row.artifact_collection_status = "collecting"
+        row.artifact_collection_error = None
+        row.artifact_collection_updated_at = updated_at
+        row.version = (row.version or 0) + 1
+        await self._session.flush()
+        return self._to_domain(row)
+
+    async def finish_artifact_collection(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        error: str | None,
+        session_count: int,
+        updated_at: datetime,
+    ) -> None:
+        """Persist the terminal result of an artifact collection attempt."""
+        await self._update_row(
+            job_id,
+            artifact_collection_status=status,
+            artifact_collection_error=error,
+            artifact_collection_session_count=session_count,
+            artifact_collection_updated_at=updated_at,
+        )
+
+    async def list_artifact_collection_candidates(self) -> list[str]:
+        """Return terminal jobs without a completed current-session collection."""
+        stmt = (
+            select(JobRow.id)
+            .where(
+                JobRow.state.in_(
+                    [
+                        JobState.review.value,
+                        JobState.completed.value,
+                        JobState.failed.value,
+                        JobState.canceled.value,
+                    ]
+                )
+            )
+            .where(
+                or_(
+                    JobRow.artifact_collection_status != "completed",
+                    JobRow.artifact_collection_session_count < JobRow.session_count,
+                )
+            )
+            .order_by(JobRow.completed_at, JobRow.updated_at)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
 
     async def get(self, job_id: str) -> Job | None:
         """Retrieve a job by ID, or None if not found."""

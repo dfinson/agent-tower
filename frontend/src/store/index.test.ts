@@ -363,7 +363,6 @@ describe("AppStore", () => {
           "job-1": [
             {
               jobId: "job-1",
-              seq: -99,
               timestamp: "2025-06-02T00:00:00Z",
               kind: "divider",
               content: "Session",

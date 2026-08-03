@@ -574,6 +574,46 @@ class TestJobData:
         resp = await client.get(f"/api/jobs/{jid}/transcript", params={"limit": 10})
         assert resp.status_code == 200
 
+    async def test_transcript_exposes_event_identity_and_optional_producer_sequence(
+        self,
+        client: AsyncClient,
+        seed_job: SeedJobFn,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        jid = await seed_job(state="running", job_id="transcript-identity")
+        producer_sequence = 10_000
+        async with session_factory() as session:
+            sequenced_row = EventRow(
+                event_id="evt-sequenced",
+                job_id=jid,
+                kind=EventKind.message_assistant.value,
+                timestamp=datetime.now(UTC),
+                payload='{"content":"Sequenced"}',
+                event_metadata=f'{{"sequence":{producer_sequence}}}',
+            )
+            unsequenced_row = EventRow(
+                event_id="evt-unsequenced",
+                job_id=jid,
+                kind=EventKind.message_assistant.value,
+                timestamp=datetime.now(UTC),
+                payload='{"content":"Unsequenced"}',
+                event_metadata="{}",
+            )
+            session.add_all([sequenced_row, unsequenced_row])
+            await session.flush()
+            assert sequenced_row.id != producer_sequence
+            await session.commit()
+
+        resp = await client.get(f"/api/jobs/{jid}/transcript")
+
+        assert resp.status_code == 200
+        items = resp.json()["items"]
+        assert [(item["eventId"], item["sequence"]) for item in items] == [
+            ("evt-sequenced", producer_sequence),
+            ("evt-unsequenced", None),
+        ]
+        assert all("seq" not in item for item in items)
+
     # ── Timeline ──
 
     async def test_timeline_empty(self, client: AsyncClient, seed_job: SeedJobFn) -> None:

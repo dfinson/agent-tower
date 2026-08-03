@@ -11,6 +11,8 @@ import {
   stripMcpPrefix,
 } from "./ToolRenderers";
 import type { FileText } from "lucide-react";
+import { transcriptIdentity } from "../lib/transcriptIdentity";
+import { repositoryRelativePath } from "../lib/pathDisplay";
 
 // ---------------------------------------------------------------------------
 // Tool classification for clustering
@@ -139,10 +141,10 @@ export function extractFileKey(entry: TranscriptEntry): string {
     if (path) return path;
   }
   if (kind === "execute") {
-    return (args.command as string) ?? entry.toolDisplay ?? `cmd-${entry.seq}`;
+    return (args.command as string) ?? entry.toolDisplay ?? entry.toolName ?? transcriptIdentity(entry) ?? entry.timestamp;
   }
   if (kind === "search") {
-    return (args.query ?? args.pattern ?? "") as string || `search-${entry.seq}`;
+    return (args.query ?? args.pattern ?? "") as string || entry.toolName || transcriptIdentity(entry) || entry.timestamp;
   }
   // multi_replace: extract first file
   const name = stripMcpPrefix(entry.toolName ?? "");
@@ -151,7 +153,7 @@ export function extractFileKey(entry: TranscriptEntry): string {
     const firstPath = edits[0] && ((edits[0].filePath ?? edits[0].file_path ?? edits[0].path ?? "") as string);
     if (firstPath) return firstPath;
   }
-  return entry.toolDisplay ?? `entry-${entry.seq}`;
+  return entry.toolDisplay ?? entry.toolName ?? transcriptIdentity(entry) ?? entry.timestamp;
 }
 
 /** Extract just the filename from a path. */
@@ -161,16 +163,8 @@ export function fileNameOnly(path: string): string {
 }
 
 /** Path relative to worktree root (strips worktree prefix). */
-export function relativeToWorktree(path: string): string {
-  const MARKER = "/.codeplane-worktrees/";
-  const idx = path.indexOf(MARKER);
-  if (idx !== -1) {
-    const afterMarker = path.slice(idx + MARKER.length);
-    const slashIdx = afterMarker.indexOf("/");
-    return slashIdx !== -1 ? afterMarker.slice(slashIdx + 1) : afterMarker;
-  }
-  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
-  return parts.length <= 3 ? path : parts.slice(-3).join("/");
+export function relativeToWorktree(path: string, worktreeRoot?: string | null): string {
+  return repositoryRelativePath(path, worktreeRoot) ?? "(outside workspace)";
 }
 
 /** True if the path is inside the job worktree (a repo file, not a temp/session artifact). */
@@ -184,7 +178,7 @@ export function isRepoFile(path: string): boolean {
   return true;
 }
 
-export function deduplicateByFile(entries: TranscriptEntry[]): PhaseFile[] {
+export function deduplicateByFile(entries: TranscriptEntry[], worktreeRoot?: string | null): PhaseFile[] {
   const map = new Map<string, PhaseFile>();
   for (const e of entries) {
     const key = extractFileKey(e);
@@ -207,7 +201,7 @@ export function deduplicateByFile(entries: TranscriptEntry[]): PhaseFile[] {
         relativePath = `"${q}"`;
       } else {
         fileName = fileNameOnly(key);
-        relativePath = relativeToWorktree(key);
+        relativePath = relativeToWorktree(key, worktreeRoot);
       }
       map.set(key, { key, fileName, relativePath, entries: [e] });
     }
@@ -309,7 +303,7 @@ export function buildFeedItems(
         flushTurn();
       }
       if (!currentTurn) {
-        currentTurn = { key: `t-${entry.seq}`, reasoning: entry, toolCalls: [], message: null, firstTimestamp: entry.timestamp, turnId: entry.turnId ?? null };
+        currentTurn = { key: transcriptIdentity(entry) ?? `turn:${entry.timestamp}`, reasoning: entry, toolCalls: [], message: null, firstTimestamp: entry.timestamp, turnId: entry.turnId ?? null };
       } else if (!currentTurn.reasoning) {
         currentTurn.reasoning = entry;
       }
@@ -321,7 +315,7 @@ export function buildFeedItems(
         flushTurn();
       }
       if (!currentTurn) {
-        currentTurn = { key: `t-${entry.seq}`, reasoning: null, toolCalls: [], message: null, firstTimestamp: entry.timestamp, turnId: entry.turnId ?? null };
+        currentTurn = { key: transcriptIdentity(entry) ?? `turn:${entry.timestamp}`, reasoning: null, toolCalls: [], message: null, firstTimestamp: entry.timestamp, turnId: entry.turnId ?? null };
       }
       currentTurn.toolCalls.push(entry);
       continue;
@@ -332,7 +326,7 @@ export function buildFeedItems(
         flushTurn();
       }
       if (!currentTurn) {
-        currentTurn = { key: `t-${entry.seq}`, reasoning: null, toolCalls: [], message: null, firstTimestamp: entry.timestamp, turnId: entry.turnId ?? null };
+        currentTurn = { key: transcriptIdentity(entry) ?? `turn:${entry.timestamp}`, reasoning: null, toolCalls: [], message: null, firstTimestamp: entry.timestamp, turnId: entry.turnId ?? null };
       }
       currentTurn.message = entry;
       flushTurn();

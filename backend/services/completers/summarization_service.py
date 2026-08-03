@@ -219,8 +219,7 @@ class SummarizationService:
                 job_repo = JobRepository(session)
                 job = await job_repo.get(job_id)
             if job is None:
-                log.warning("session_snapshot_job_missing", job_id=job_id)
-                return
+                raise RuntimeError(f"Cannot collect artifacts for missing job {job_id}")
 
             from backend.persistence.database import serialized_write
 
@@ -312,7 +311,8 @@ class SummarizationService:
 
             log.info("session_log_stored", job_id=job_id, session=job.session_count, turns=len(turns))
         except Exception:
-            log.warning("session_log_failed", job_id=job_id, exc_info=True)
+            log.error("session_log_failed", job_id=job_id, exc_info=True)
+            raise
 
 
 # ---------------------------------------------------------------------------

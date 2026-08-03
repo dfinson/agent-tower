@@ -56,7 +56,7 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
   const repoName = job.repo.split("/").pop() ?? job.repo;
   const transcript = useStore(selectJobTranscript(job.id));
   const lastSeenSeq = useViewStateStore((s) => s.lastSeenSeq[job.id]);
-  const hasUnread = lastSeenSeq != null && transcript.some((e) => (e.seq ?? 0) > lastSeenSeq);
+  const hasUnread = lastSeenSeq != null && transcript.some((e) => (e.sequence ?? 0) > lastSeenSeq);
   const previewHeadline = job.progressHeadline ?? null;
   const previewSummary = job.progressSummary ?? "";
 

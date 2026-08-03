@@ -23,6 +23,7 @@ import type { ReviewSubView } from "./review/ReviewSubTabs";
 import { ActivityPanel } from "./ActivityPanel";
 import { ViewTabBar } from "./ViewTabBar";
 import { StructuralWarningBanner } from "./StructuralWarningBanner";
+import { mergeTranscriptEntries } from "../lib/transcriptIdentity";
 
 import { JobHeaderCard } from "./JobHeaderCard";
 import { MobileBottomNav, MobileFooterActions } from "./JobDetailMobile";
@@ -96,8 +97,9 @@ export function JobDetailScreen() {
   const diffs = useStore(selectJobDiffs(jobId ?? ""));
   const hasChanges = diffs.length > 0;
   const hasWorktree = !!job?.worktreePath && !job?.archivedAt;
-  const [hasArtifacts, setHasArtifacts] = useState(false);
+  const hasArtifacts = true;
   const [artifactCount, setArtifactCount] = useState(0);
+  const artifactVersion = useStore((s) => jobId ? (s.artifactVersions[jobId] ?? 0) : 0);
 
   // Map a transcript turnId to the nearest activity-timeline step turnId.
   // Many transcript turns have no corresponding step in the activity timeline;
@@ -146,9 +148,9 @@ export function JobDetailScreen() {
     const tabs = ["live"];
     if (hasChanges) tabs.push("review");
     tabs.push("files", "metrics");
-    if (hasArtifacts) tabs.push("artifacts");
+    tabs.push("artifacts");
     return tabs;
-  }, [hasChanges, hasArtifacts]);
+  }, [hasChanges]);
   const touchRef = useRef<{ x: number; y: number; t: number; el: EventTarget | null } | null>(null);
   const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
 
@@ -232,17 +234,28 @@ export function JobDetailScreen() {
 
   useEffect(() => {
     if (!jobId) return;
-    fetchArtifacts(jobId)
-      .then((res) => {
-        setHasArtifacts(res.items.length > 0);
-        setArtifactCount(res.items.length);
-      })
-      .catch(() => {});
-  }, [jobId, job?.state]);
-
-  useEffect(() => {
-    if (!hasArtifacts && tab === "artifacts") setTab("live");
-  }, [hasArtifacts, tab]);
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const load = () => {
+      fetchArtifacts(jobId)
+        .then((res) => {
+          if (cancelled) return;
+          setArtifactCount(res.items.length);
+          const terminal = ["review", "completed", "failed", "canceled"].includes(job?.state ?? "");
+          if (terminal && (res.collectionStatus === "pending" || res.collectionStatus === "collecting")) {
+            retryTimer = setTimeout(load, 1000);
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) console.error("Failed to fetch artifacts", err);
+        });
+    };
+    load();
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [jobId, job?.state, artifactVersion]);
 
 
 
@@ -295,10 +308,7 @@ export function JobDetailScreen() {
     fetchJobTranscript(jobId).then((transcript) => {
         useStore.setState((s) => {
           const existingTranscript = s.transcript[jobId] ?? [];
-          const mergedTx = [
-            ...transcript,
-            ...existingTranscript.filter((e) => !transcript.some((ne) => ne.seq === e.seq)),
-          ].sort((a, b) => a.seq - b.seq);
+          const mergedTx = mergeTranscriptEntries(transcript, existingTranscript);
           return {
             transcript: { ...s.transcript, [jobId]: mergedTx },
           };
@@ -693,7 +703,7 @@ export function JobDetailScreen() {
       {tab === "artifacts" && (
         <TabErrorBoundary>
           <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-            <ArtifactViewer jobId={jobId} onCountChange={(n) => { setArtifactCount(n); setHasArtifacts(n > 0); }} />
+            <ArtifactViewer jobId={jobId} onCountChange={setArtifactCount} />
           </Suspense>
         </TabErrorBoundary>
       )}

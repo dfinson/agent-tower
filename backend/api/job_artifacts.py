@@ -369,12 +369,14 @@ async def get_job_transcript(
     items: list[TranscriptPayload] = [
         TranscriptPayload(
             job_id=event.session_id,
-            seq=(p := event.payload).get("seq", 0),
-            timestamp=p.get("timestamp", event.timestamp),
+            event_id=event.id,
+            sequence=event.metadata.sequence,
+            timestamp=(p := event.payload).get("timestamp", event.timestamp),
             kind=str(event.kind),
             content=p.get("content", ""),
             title=p.get("title"),
-            turn_id=p.get("turn_id"),
+            turn_id=event.metadata.turn_id or p.get("turn_id"),
+            tool_call_id=p.get("tool_call_id"),
             tool_name=p.get("tool_name"),
             arguments=_stringify_tool_args(p.get("arguments")),
             result=p.get("result"),
@@ -382,8 +384,8 @@ async def get_job_transcript(
             tool_issue=p.get("tool_issue"),
             tool_intent=(event.metadata.motivation.intent if event.metadata.motivation else None),
             tool_title=p.get("tool_title"),
-            tool_display=resolve_tool_display(p),
-            tool_display_full=resolve_tool_display_full(p),
+            tool_display=p.get("tool_display") or event.metadata.tool_display,
+            tool_display_full=p.get("tool_display_full") or p.get("tool_display") or event.metadata.tool_display,
             tool_duration_ms=(
                 int(event.metadata.duration_ms) if event.metadata.duration_ms is not None else None
             ),
@@ -398,7 +400,8 @@ async def get_job_transcript(
         items.append(
             TranscriptPayload(
                 job_id=event.session_id,
-                seq=p.get("seq", 0),
+                event_id=event.id,
+                sequence=event.metadata.sequence,
                 timestamp=p.get("timestamp", event.timestamp),
                 kind=str(event.kind),
                 content=p.get("content", ""),
@@ -409,8 +412,10 @@ async def get_job_transcript(
             )
         )
 
-    # Sort all entries by timestamp for correct interleaving
-    items.sort(key=lambda x: x.timestamp)
+    # Producer-stream sequence can order the transcript only when every event
+    # provides one. Otherwise retain deterministic storage query order.
+    if all(item.sequence is not None for item in items):
+        items.sort(key=lambda item: item.sequence or 0)
 
     return TranscriptListResponse(items=items)
 

@@ -308,6 +308,7 @@ export const useStore = create<AppState>((set, get) => ({
   streamingToolOutput: {},
   streamingReasoning: {},
   telemetryVersions: {},
+  artifactVersions: {},
   repoIndexState: {},
   multiSessions: {},
   reviewStories: {},

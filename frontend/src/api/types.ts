@@ -269,20 +269,8 @@ export type ArtifactType = components["schemas"]["ArtifactType"];
 export type ExecutionPhase = components["schemas"]["ExecutionPhase"];
 export type GitMergeOutcome = components["schemas"]["GitMergeOutcome"];
 
-export interface ArtifactResponse {
-  id: string;
-  jobId: string;
-  name: string;
-  type: ArtifactType;
-  mimeType: string;
-  sizeBytes: number;
-  phase: ExecutionPhase;
-  createdAt: string;
-}
-
-export interface ArtifactListResponse {
-  items: ArtifactResponse[];
-}
+export type ArtifactResponse = components["schemas"]["ArtifactResponse"];
+export type ArtifactListResponse = components["schemas"]["ArtifactListResponse"];
 
 // --- Workspace types ---
 

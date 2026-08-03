@@ -161,11 +161,52 @@ async def test_event_append_and_list(session: AsyncSession) -> None:
     await event_repo.append(event)
     await session.commit()
 
-    events = await event_repo.list_after(0)
-    assert len(events) == 1
-    assert events[0].id == "evt-1"
-    assert events[0].kind == EventKind.job_created
-    assert events[0].payload == {"repo": "/repos/test"}
+    stored_events = await event_repo.list_after(0)
+    assert len(stored_events) == 1
+    assert stored_events[0].event.id == "evt-1"
+    assert stored_events[0].event.kind == EventKind.job_created
+    assert stored_events[0].event.payload == {"repo": "/repos/test"}
+
+
+@pytest.mark.asyncio
+async def test_event_sequence_round_trips_separately_from_storage_cursor(
+    session: AsyncSession,
+) -> None:
+    job_repo = JobRepository(session)
+    await job_repo.create(make_job(id="job-1", worktree_path="/repos/test"))
+    await session.commit()
+
+    event_repo = EventRepository(session)
+    sequenced = new_event(
+        event_id="evt-sequenced",
+        session_id="job-1",
+        kind=EventKind.message_assistant,
+        payload={"content": "first"},
+        sequence=9001,
+    )
+    unsequenced = new_event(
+        event_id="evt-unsequenced",
+        session_id="job-1",
+        kind=EventKind.message_assistant,
+        payload={"content": "second"},
+    )
+
+    first_cursor = await event_repo.append(sequenced)
+    second_cursor = await event_repo.append(unsequenced)
+    await session.commit()
+
+    assert first_cursor != 9001
+    stored_events = await event_repo.list_after(0)
+    assert [stored.storage_cursor for stored in stored_events] == [
+        first_cursor,
+        second_cursor,
+    ]
+    assert [stored.event.id for stored in stored_events] == [
+        "evt-sequenced",
+        "evt-unsequenced",
+    ]
+    assert stored_events[0].event.metadata.sequence == 9001
+    assert stored_events[1].event.metadata.sequence is None
 
 
 @pytest.mark.asyncio
@@ -212,7 +253,7 @@ async def test_event_list_after_scoped_to_job(session: AsyncSession) -> None:
 
     events = await event_repo.list_after(0, job_id="job-1")
     assert len(events) == 1
-    assert events[0].session_id == "job-1"
+    assert events[0].event.session_id == "job-1"
 
 
 # --- ArtifactRepository tests ---

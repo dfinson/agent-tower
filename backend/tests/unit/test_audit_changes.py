@@ -300,12 +300,20 @@ class TestEventRepoListAllByJob:
         await job_repo.create(make_job(id=job_id, worktree_path="/repos/test"))
 
         for i in range(5):
-            await repo.append(new_event(job_id, EventKind.log_line_emitted, {"seq": i}))
+            await repo.append(
+                new_event(
+                    job_id,
+                    EventKind.log_line_emitted,
+                    {"seq": i},
+                    event_id=f"evt-{i}",
+                    sequence=5 - i,
+                )
+            )
         await session.commit()
 
         results = await repo.list_all_by_job(job_id, kinds=[EventKind.log_line_emitted])
-        db_ids = [r.metadata.sequence for r in results]
-        assert db_ids == sorted(db_ids)
+        assert [event.id for event in results] == [f"evt-{i}" for i in range(5)]
+        assert [event.metadata.sequence for event in results] == [5, 4, 3, 2, 1]
 
     @pytest.mark.asyncio
     async def test_list_by_job_with_low_limit_truncates(self, session: AsyncSession) -> None:

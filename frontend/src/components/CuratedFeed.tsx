@@ -562,7 +562,7 @@ export function CuratedFeed({
 
   const entries = useMemo<TranscriptEntry[]>(() => [
     ...(prompt
-      ? [{ jobId, seq: -1, timestamp: promptTimestamp ?? "", kind: "message.user", content: prompt }]
+      ? [{ jobId, timestamp: promptTimestamp ?? "", kind: "message.user", content: prompt }]
       : []),
     ...rawEntries.filter((e) => {
       if (!e.content?.trim() && e.kind !== "tool.call.completed" && e.kind !== "tool.call.started") return false;
@@ -659,10 +659,10 @@ export function CuratedFeed({
     if (handledSeqRef.current === scrollToSeq) return;
     const idx = feedItems.findIndex((item) => {
       if (item.type === "turn" || item.type === "condensed") {
-        return item.turn.toolCalls.some((tc) => tc.seq === scrollToSeq);
+        return item.turn.toolCalls.some((tc) => tc.sequence === scrollToSeq);
       }
       if (item.type === "operator" || item.type === "divider") {
-        return item.entry.seq === scrollToSeq;
+        return item.entry.sequence === scrollToSeq;
       }
       return false;
     });
@@ -756,7 +756,6 @@ export function CuratedFeed({
     // Optimistic update: show the operator message immediately in the transcript
     const optimisticEntry: TranscriptEntry = {
       jobId,
-      seq: 0,
       timestamp: new Date().toISOString(),
       kind: "message.user",
       content: text,

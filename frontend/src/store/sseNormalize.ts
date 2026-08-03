@@ -69,6 +69,9 @@ export function normalizeTFEvent(ev: TFSessionEvent): Record<string, unknown> {
 
   // `jobId` is authoritative from the envelope session id.
   payload.jobId = ev.session_id;
+  if (ev.id !== undefined) {
+    payload.eventId = ev.id;
+  }
 
   if (payload.timestamp === undefined && ev.timestamp !== undefined) {
     payload.timestamp = ev.timestamp;
@@ -80,10 +83,14 @@ export function normalizeTFEvent(ev: TFSessionEvent): Record<string, unknown> {
     payload.kind = ev.kind;
   }
 
-  // Metadata enrichment lives on EventMetadata; carry it into the camelCase
-  // payload view unless the payload already provides the field.
+  // Metadata enrichment lives on EventMetadata; canonical sequence never comes
+  // from payload data.
   const meta = ev.metadata;
   const metadata = meta == null ? undefined : (meta as Record<string, unknown>);
+  delete payload.sequence;
+  if (typeof metadata?.sequence === "number") {
+    payload.sequence = metadata.sequence;
+  }
   const metaTurnId = metadata?.turn_id;
   if (payload.turnId === undefined && metaTurnId != null) {
     payload.turnId = metaTurnId;

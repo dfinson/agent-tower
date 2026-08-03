@@ -713,6 +713,10 @@ class Job:
     external_session_id: str | None = None
     tail_offset: int = 0
     mode: JobMode = JobMode.standard
+    artifact_collection_status: str = "pending"
+    artifact_collection_error: str | None = None
+    artifact_collection_session_count: int = 0
+    artifact_collection_updated_at: datetime | None = None
 
 
 @dataclass

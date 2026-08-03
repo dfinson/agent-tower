@@ -75,6 +75,8 @@ class TestListArtifacts:
         assert resp.status_code == 200
         body = resp.json()
         assert body["items"] == []
+        assert body["collectionStatus"] == "pending"
+        assert body["collectionError"] is None
 
     @pytest.mark.asyncio
     async def test_returns_artifacts_for_job(
@@ -120,6 +122,7 @@ class TestListArtifacts:
         assert "sizeBytes" in item
         assert "phase" in item
         assert "createdAt" in item
+        assert resp.json()["collectionStatus"] == "pending"
 
     @pytest.mark.asyncio
     async def test_does_not_leak_artifacts_from_other_jobs(
@@ -147,6 +150,7 @@ class TestListArtifacts:
         resp = await client.get("/api/jobs/no-such-job/artifacts")
         assert resp.status_code == 200
         assert resp.json()["items"] == []
+        assert resp.json()["collectionStatus"] == "completed"
 
 
 # ---------------------------------------------------------------------------

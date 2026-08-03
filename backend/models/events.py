@@ -104,6 +104,7 @@ class EventKind(StrEnum):
     agent_plan_updated = "plan.updated"
     execution_phase_changed = "execution.phase_changed"
     telemetry_updated = "telemetry.updated"
+    artifacts_updated = "artifacts.updated"
     # --- Steps / plan ---
     step_started = "step.started"
     step_completed = "step.completed"
@@ -461,9 +462,9 @@ def new_event(
 
     Single construction point that replaces the retired ``DomainEvent`` dataclass.
     ``session_id`` carries the CodePlane job id (``""`` for job-less/global events).
-    The persisted autoincrement id (the SSE resume cursor, formerly ``DomainEvent.db_id``)
-    rides on ``metadata.sequence``. ``timestamp`` and event ``id`` are auto-filled when
-    omitted, matching the old ``DomainEvent.for_job`` convenience.
+    ``sequence`` is optional producer-stream order and is never a persistence cursor.
+    ``timestamp`` and event ``id`` are auto-filled when omitted, matching the old
+    ``DomainEvent.for_job`` convenience.
     """
     if metadata is None:
         metadata = EventMetadata(sequence=sequence)

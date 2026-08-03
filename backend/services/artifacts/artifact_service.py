@@ -89,6 +89,8 @@ class ArtifactService:
         artifacts_dir = Path(worktree_path) / ".codeplane" / "artifacts"
         if not artifacts_dir.is_dir():
             return collected
+        existing_artifacts = await self._repo.list_for_job(job_id)
+        existing_by_name = {a.name: a for a in existing_artifacts if a.type == ArtifactType.custom}
 
         for entry in sorted(artifacts_dir.iterdir()):
             if not entry.is_file() or entry.is_symlink():
@@ -102,6 +104,14 @@ class ArtifactService:
             if entry_size > _MAX_WORKSPACE_ARTIFACT_BYTES:
                 log.warning("artifact_too_large", path=str(entry), size=entry_size)
                 continue
+            existing = existing_by_name.get(entry.name)
+            if existing is not None:
+                dest = Path(existing.disk_path)
+                dest.write_bytes(entry.read_bytes())
+                await self._repo.update_size_bytes(existing.id, dest.stat().st_size)
+                collected.append(existing)
+                continue
+
             artifact_id = f"art-{uuid.uuid4().hex[:12]}"
             # Copy to central store
             disk_dir = _ARTIFACTS_BASE / job_id
@@ -301,13 +311,13 @@ class ArtifactService:
             try:
                 log_contents = json.loads(Path(existing_log.disk_path).read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
-                log.warning(
+                log.error(
                     "session_log_read_failed",
                     job_id=job_id,
                     disk_path=existing_log.disk_path,
                     exc_info=True,
                 )
-                log_contents = {"sessions": []}
+                raise
 
             # Avoid duplicate session entries
             existing_nums = {s.get("session_number") for s in log_contents.get("sessions", [])}
@@ -484,9 +494,12 @@ class ArtifactService:
             tag = job_id[:12]
         name = f"{tag}-agent.log"
 
-        # Sort by sequence number (or timestamp as fallback).
+        # Sort by canonical TraceForge sequence (or timestamp as fallback).
         # Events without session_number (legacy) are treated as session 1.
-        sorted_events = sorted(log_events, key=lambda e: (e.get("session_number") or 1, e.get("seq") or 0))
+        sorted_events = sorted(
+            log_events,
+            key=lambda e: (e.get("session_number") or 1, e.get("sequence") or 0, e.get("timestamp") or ""),
+        )
 
         lines: list[str] = []
         current_session: int | None = None
@@ -593,7 +606,7 @@ class ArtifactService:
     async def store_agent_plan(
         self,
         job_id: str,
-        steps: list[dict[str, str]],
+        steps: list[dict[str, Any]],
         *,
         slug: str = "",
     ) -> Artifact | None:

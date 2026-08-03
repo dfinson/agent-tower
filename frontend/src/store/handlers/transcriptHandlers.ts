@@ -4,6 +4,7 @@
 
 import type { LogLine, SecondarySession, SecondarySessionEntry, TranscriptEntry } from "../types";
 import type { SSEHandler, AppState } from "./types";
+import { sameTranscriptEntry } from "../../lib/transcriptIdentity";
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -72,12 +73,14 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
 
   const entry: TranscriptEntry = {
     jobId,
-    seq: payload.seq as number,
+    eventId: payload.eventId as string | undefined,
+    sequence: payload.sequence as number | undefined,
     timestamp: payload.timestamp as string,
     kind,
     content: payload.content as string,
     title: payload.title as string | undefined,
     turnId: payload.turnId as string | undefined,
+    toolCallId: payload.toolCallId as string | undefined,
     toolName: payload.toolName as string | undefined,
     arguments: payload.arguments as string | undefined,
     result: payload.result as string | undefined,
@@ -100,6 +103,7 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
     const before = base.length;
     base = base.filter((e) => {
       if (e.kind !== "tool.call.started" || e.toolName !== entry.toolName) return true;
+      if (entry.toolCallId && e.toolCallId) return entry.toolCallId !== e.toolCallId;
       // If both entries have a turnId, they must match to be considered the same call.
       if (entry.turnId && e.turnId && entry.turnId !== e.turnId) return true;
       return false;
@@ -114,13 +118,12 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
     }
   }
 
-  // Deduplicate: two SSE connections (global + job-scoped) may deliver
-  // the same event; skip if identical kind+content+timestamp already present.
+  // Deduplicate canonical events by their stable TraceForge event id.
   // For user messages, match on kind+content only (ignore timestamp) to
   // suppress the SSE echo when an optimistic entry was already inserted.
   if (entry.kind === "message.user"
     ? existing.some((e) => e.kind === "message.user" && e.content === entry.content)
-    : existing.some((e) => e.timestamp === entry.timestamp && e.kind === entry.kind && e.content === entry.content)) {
+    : existing.some((e) => sameTranscriptEntry(e, entry))) {
     return null;
   }
   const updated = [...existing, entry];

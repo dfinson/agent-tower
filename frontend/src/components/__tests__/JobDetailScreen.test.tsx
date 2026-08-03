@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { useStore } from "../../store";
 import type { JobSummary } from "../../store";
@@ -16,7 +16,12 @@ vi.mock("../../api/client", () => ({
   fetchJobSteps: vi.fn().mockResolvedValue([]),
   fetchApprovals: vi.fn().mockResolvedValue([]),
   resolveJob: vi.fn(),
-  fetchArtifacts: vi.fn().mockResolvedValue({ items: [] }),
+  fetchArtifacts: vi.fn().mockResolvedValue({
+    items: [],
+    collectionStatus: "completed",
+    collectionError: null,
+    collectionUpdatedAt: null,
+  }),
   createTerminalSession: vi.fn(),
   archiveJob: vi.fn(),
   fetchMultiSession: vi.fn().mockResolvedValue(null),
@@ -65,7 +70,7 @@ vi.mock("../ui/confirm-dialog", () => ({
 }));
 
 import { toast } from "sonner";
-import { fetchJob, fetchJobDiff, resolveJob, rerunJob, resumeJob } from "../../api/client";
+import { fetchArtifacts, fetchJob, fetchJobDiff, resolveJob, rerunJob, resumeJob } from "../../api/client";
 import { JobDetailScreen } from "../JobDetailScreen";
 
 function makeJob(overrides: Partial<JobSummary> = {}): JobSummary {
@@ -94,6 +99,13 @@ beforeEach(() => {
   vi.mocked(fetchJob).mockReset();
   vi.mocked(fetchJobDiff).mockReset();
   vi.mocked(resolveJob).mockReset();
+  vi.mocked(fetchArtifacts).mockReset();
+  vi.mocked(fetchArtifacts).mockResolvedValue({
+    items: [],
+    collectionStatus: "completed",
+    collectionError: null,
+    collectionUpdatedAt: null,
+  });
   vi.mocked(fetchJobDiff).mockResolvedValue([]);
   useStore.setState({
     jobs: {},
@@ -104,6 +116,7 @@ beforeEach(() => {
     timelines: {},
     plans: {},
     telemetryVersions: {},
+    artifactVersions: {},
     terminalSessions: {},
     activeTerminalTab: null,
     terminalDrawerOpen: false,
@@ -121,6 +134,30 @@ beforeEach(() => {
 });
 
 describe("JobDetailScreen", () => {
+  it("keeps the Artifacts tab visible and refetches after artifacts.updated", async () => {
+    useStore.setState({ jobs: { "job-1": makeJob() } });
+    vi.mocked(fetchJob).mockResolvedValueOnce(makeJob() as any);
+
+    render(
+      <MemoryRouter initialEntries={["/jobs/job-1"]}>
+        <Routes>
+          <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Artifacts" })).toBeInTheDocument();
+    await waitFor(() => expect(fetchArtifacts).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      useStore.getState().dispatchSSEEvent("artifacts.updated", {
+        jobId: "job-1",
+        collectionStatus: "completed",
+      });
+    });
+    await waitFor(() => expect(fetchArtifacts).toHaveBeenCalledTimes(2));
+  });
+
   it("re-fetches the job even when a cached copy already exists", async () => {
     useStore.setState({
       jobs: {

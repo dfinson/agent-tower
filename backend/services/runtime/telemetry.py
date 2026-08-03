@@ -167,85 +167,64 @@ class RuntimeTelemetry:
         except DBAPIError:
             log.warning("telemetry_finalize_failed", job_id=job_id, exc_info=True)
 
-        # Store post-completion artifacts
-        await self.store_post_completion_artifacts(job_id)
-
     async def store_post_completion_artifacts(self, job_id: str) -> None:
-        """Persist internal state (telemetry, plan, approvals) as downloadable artifacts."""
-        from backend.services.tools.parsing_utils import best_effort
+        """Persist telemetry, plan, approval, and log artifacts from durable rows."""
+        async with self._session_factory() as session:
+            svc = self._make_job_service(session)
+            job = await svc.get_job(job_id)
+        if job is None:
+            raise RuntimeError(f"Cannot collect durable artifacts for missing job {job_id}")
+        slug = (job.worktree_name or job.title or "").strip()
 
-        try:
-            # Look up job slug for human-friendly artifact names
-            slug = ""
-            async with best_effort(log, "slug_extraction", job_id=job_id):
-                async with self._session_factory() as session:
-                    svc = self._make_job_service(session)
-                    job = await svc.get_job(job_id)
-                if job is not None:
-                    slug = (job.worktree_name or job.title or "").strip()
+        from backend.persistence.database import serialized_write
 
-            from backend.persistence.database import serialized_write
+        async with serialized_write(self._session_factory) as session:
+            from backend.persistence.approval_repo import ApprovalRepository
+            from backend.persistence.artifact_repo import ArtifactRepository
+            from backend.persistence.event_repo import EventRepository
+            from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+            from backend.services.artifacts.artifact_service import ArtifactService
 
-            async with serialized_write(self._session_factory) as session:
-                from backend.persistence.artifact_repo import ArtifactRepository
-                from backend.services.artifacts.artifact_service import ArtifactService
+            artifact_svc = ArtifactService(ArtifactRepository(session))
+            event_repo = EventRepository(session)
 
-                artifact_svc = ArtifactService(ArtifactRepository(session))
+            summary = await TelemetrySummaryRepository(session).get(job_id)
+            if summary is not None:
+                await artifact_svc.store_telemetry_report(job_id, dict(summary), slug=slug)
 
-                # Telemetry report
-                async with best_effort(log, "telemetry_artifact", job_id=job_id):
-                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+            plan_events = await event_repo.list_all_by_job(job_id, [EventKind.plan_step_updated])
+            latest_steps: dict[str, dict[str, object]] = {}
+            for event in plan_events:
+                payload = dict(event.payload)
+                step_id = str(payload.get("plan_step_id") or "")
+                if step_id:
+                    latest_steps[step_id] = payload
+            if latest_steps:
+                await artifact_svc.store_agent_plan(job_id, list(latest_steps.values()), slug=slug)
 
-                    summary = await TelemetrySummaryRepository(session).get(job_id)
-                    if summary is not None:
-                        await artifact_svc.store_telemetry_report(
-                            job_id,
-                            dict(summary),
-                            slug=slug,
-                        )
+            approvals = await ApprovalRepository(session).list_for_job(job_id)
+            if approvals:
+                approval_dicts = [
+                    {
+                        "id": a.id,
+                        "description": a.description,
+                        "proposed_action": a.proposed_action,
+                        "requested_at": a.requested_at.isoformat(),
+                        "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
+                        "resolution": a.resolution,
+                    }
+                    for a in approvals
+                ]
+                await artifact_svc.store_approval_history(job_id, approval_dicts, slug=slug)
 
-                # Agent plan steps
-                if self._trail_service is not None:
-                    steps = self._trail_service.get_plan_steps(job_id)
-                    if steps:
-                        async with best_effort(log, "plan_artifact", job_id=job_id):
-                            await artifact_svc.store_agent_plan(job_id, steps, slug=slug)
-
-                # Approval history
-                async with best_effort(log, "approval_artifact", job_id=job_id):
-                    from backend.persistence.approval_repo import ApprovalRepository
-
-                    approval_repo = ApprovalRepository(session)
-                    approvals = await approval_repo.list_for_job(job_id)
-                    if approvals:
-                        approval_dicts = [
-                            {
-                                "id": a.id,
-                                "description": a.description,
-                                "proposed_action": a.proposed_action,
-                                "requested_at": a.requested_at.isoformat(),
-                                "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
-                                "resolution": a.resolution,
-                            }
-                            for a in approvals
-                        ]
-                        await artifact_svc.store_approval_history(
-                            job_id,
-                            approval_dicts,
-                            slug=slug,
-                        )
-
-                # Agent log artifact
-                async with best_effort(log, "log_artifact", job_id=job_id):
-                    from backend.persistence.event_repo import EventRepository
-
-                    event_repo = EventRepository(session)
-                    log_events = await event_repo.list_all_by_job(job_id, [EventKind.log_line_emitted])
-                    if log_events:
-                        await artifact_svc.store_log_artifact(
-                            job_id,
-                            [dict(e.payload) for e in log_events],
-                            slug=slug,
-                        )
-        except DBAPIError:
-            log.warning("post_completion_artifacts_failed", job_id=job_id, exc_info=True)
+            log_events = await event_repo.list_all_by_job(job_id, [EventKind.log_line_emitted])
+            if log_events:
+                log_records = [
+                    {
+                        **dict(event.payload),
+                        "sequence": event.metadata.sequence,
+                        "timestamp": event.payload.get("timestamp", event.timestamp),
+                    }
+                    for event in log_events
+                ]
+                await artifact_svc.store_log_artifact(job_id, log_records, slug=slug)

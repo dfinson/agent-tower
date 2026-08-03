@@ -35,7 +35,7 @@ function entriesToTranscript(entries: SecondarySessionEntry[]): TranscriptEntry[
     if (entry.kind === "reasoning") {
       return {
         jobId: "",
-        seq: entry.seq,
+        sequence: entry.seq,
         timestamp: "",
         kind: "llm.reasoning.chunk",
         content: entry.content,
@@ -44,7 +44,7 @@ function entriesToTranscript(entries: SecondarySessionEntry[]): TranscriptEntry[
     if (entry.kind === "tool_call") {
       return {
         jobId: "",
-        seq: entry.seq,
+        sequence: entry.seq,
         timestamp: "",
         kind: "tool.call.completed",
         content: entry.content,
@@ -62,7 +62,7 @@ function entriesToTranscript(entries: SecondarySessionEntry[]): TranscriptEntry[
     if (entry.kind === "output") {
       return {
         jobId: "",
-        seq: entry.seq,
+        sequence: entry.seq,
         timestamp: "",
         kind: "message.assistant",
         content: entry.content,
@@ -71,7 +71,7 @@ function entriesToTranscript(entries: SecondarySessionEntry[]): TranscriptEntry[
     // error
     return {
       jobId: "",
-      seq: entry.seq,
+      sequence: entry.seq,
       timestamp: "",
       kind: "message.assistant",
       content: entry.content,

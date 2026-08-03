@@ -207,9 +207,6 @@ async def runtime(
     all_tasks = list(service._tasks.values()) + list(service._heartbeat_tasks.values())
     if all_tasks:
         await asyncio.gather(*all_tasks, return_exceptions=True)
-    snapshot_tasks = list(service._snapshot_tasks.values())
-    if snapshot_tasks:
-        await asyncio.gather(*snapshot_tasks, return_exceptions=True)
     # Allow aiosqlite background threads to drain so they don't
     # encounter a closed event-loop after the engine is disposed.
     await asyncio.sleep(0.05)
@@ -1414,6 +1411,43 @@ class TestBuildSessionConfig:
 
 
 class TestConcurrencyGuards:
+    async def test_managed_cleanup_continues_when_artifact_finalization_raises(
+        self,
+        runtime: RuntimeService,
+    ) -> None:
+        job_id = "job-finalizer-failure"
+        task = asyncio.current_task()
+        assert task is not None
+        runtime._tasks[job_id] = task
+        runtime._last_activity[job_id] = 1.0
+        runtime._ensure_terminal_state = AsyncMock()  # type: ignore[method-assign]
+        runtime._artifact_finalizer.finalize = AsyncMock(side_effect=RuntimeError("database unavailable"))
+        runtime._dequeue_next = AsyncMock()  # type: ignore[method-assign]
+
+        await runtime._cleanup_job_state(job_id)
+
+        runtime._artifact_finalizer.finalize.assert_awaited_once_with(job_id)
+        runtime._dequeue_next.assert_awaited_once_with()
+        assert job_id not in runtime._tasks
+        assert job_id not in runtime._last_activity
+
+    async def test_external_cleanup_continues_when_artifact_finalization_raises(
+        self,
+        runtime: RuntimeService,
+    ) -> None:
+        job_id = "external-finalizer-failure"
+        runtime._last_activity[job_id] = 1.0
+        runtime._active_tool[job_id] = ("powershell", "now", "{}")
+        runtime._artifact_finalizer.finalize = AsyncMock(side_effect=RuntimeError("event bus unavailable"))
+        runtime._finalize_naming = AsyncMock()  # type: ignore[method-assign]
+
+        await runtime.finalize_external_session(job_id)
+
+        runtime._artifact_finalizer.finalize.assert_awaited_once_with(job_id)
+        runtime._finalize_naming.assert_awaited_once_with(job_id)
+        assert job_id not in runtime._last_activity
+        assert job_id not in runtime._active_tool
+
     async def test_double_start_guard(
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
     ) -> None:

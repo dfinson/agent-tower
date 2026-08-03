@@ -84,6 +84,22 @@ describe("normalizeTFEvent", () => {
     expect(out.turnId).toBe("turn-9");
   });
 
+  it("carries canonical event identity from the envelope and metadata", () => {
+    const out = normalizeTFEvent(ev({
+      id: "evt-9",
+      payload: { sequence: 9000 },
+      metadata: { sequence: 42 },
+    }));
+    expect(out.eventId).toBe("evt-9");
+    expect(out.sequence).toBe(42);
+    expect(out.seq).toBeUndefined();
+  });
+
+  it("does not use payload sequence as producer-stream order", () => {
+    const out = normalizeTFEvent(ev({ payload: { sequence: 9000 }, metadata: {} }));
+    expect(out.sequence).toBeUndefined();
+  });
+
   it("prefers a payload turnId over metadata", () => {
     const out = normalizeTFEvent(ev({ payload: { turn_id: "payload-turn" }, metadata: { turn_id: "meta-turn" } }));
     expect(out.turnId).toBe("payload-turn");
