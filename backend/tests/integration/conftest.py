@@ -42,6 +42,7 @@ from backend.services.git.git_service import GitService
 from backend.services.job.approval_service import ApprovalService
 from backend.services.merge_service import MergeService
 from backend.services.runtime import RuntimeService
+from backend.services.sharing.share_service import ShareService
 from backend.services.sidecar.session import SidecarSessionManager
 from backend.services.terminal.terminal_service import TerminalService
 
@@ -206,6 +207,7 @@ async def app(
         job_telemetry,
         jobs,
         settings,
+        share,
         terminal,
         voice,
         workspace,
@@ -226,6 +228,7 @@ async def app(
     application.include_router(workspace.router, prefix="/api")
     application.include_router(voice.router, prefix="/api")
     application.include_router(settings.router, prefix="/api")
+    application.include_router(share.router, prefix="/api")
     application.include_router(terminal.router, prefix="/api")
 
     # -- dishka DI container (replaces app.state) --------------------------
@@ -239,6 +242,7 @@ async def app(
             SSEManager: sse_manager,
             ApprovalService: approval_service,
             RuntimeService: mock_runtime_service,
+            ShareService: ShareService(),
             MergeService: mock_merge_service,
             GitService: mock_git_service,
             PlatformRegistry: mock_platform_registry,
