@@ -17,46 +17,51 @@ function entry(overrides: Partial<TranscriptEntry> = {}): TranscriptEntry {
 }
 
 describe("transcript identity", () => {
-  it("deduplicates by TraceForge event id before canonical sequence", () => {
+  it("deduplicates by TraceForge event id regardless of producer sequence", () => {
     expect(sameTranscriptEntry(
       entry({ eventId: "evt-1", sequence: 10 }),
       entry({ eventId: "evt-1", sequence: 11 }),
     )).toBe(true);
   });
 
-  it("merges the live and persisted copy of one canonical event once", () => {
-    const persisted = entry({ eventId: "evt-shared", sequence: 9001, content: "persisted" });
-    const live = entry({ eventId: "evt-shared", sequence: 9001, content: "live" });
-
-    expect(mergeTranscriptEntries([persisted], [live])).toEqual([persisted]);
-  });
-
-  it("does not collapse distinct events that share an invalid legacy sequence", () => {
+  it("does not collapse distinct events that share a producer sequence", () => {
     const merged = mergeTranscriptEntries(
-      [entry({ eventId: "evt-1", sequence: 0, content: "first" })],
-      [entry({ eventId: "evt-2", sequence: 0, content: "second" })],
+      [entry({ eventId: "evt-1", sequence: 10, content: "first" })],
+      [entry({ eventId: "evt-2", sequence: 10, content: "second" })],
     );
     expect(merged.map((item) => item.eventId)).toEqual(["evt-1", "evt-2"]);
   });
 
-  it("does not use zero as identity when canonical event ids are missing", () => {
+  it("does not invent identity for entries without canonical event ids", () => {
     const merged = mergeTranscriptEntries(
-      [entry({ sequence: 0, timestamp: "2026-01-01T00:00:00Z", content: "first" })],
-      [entry({ sequence: 0, timestamp: "2026-01-01T00:00:01Z", content: "second" })],
+      [entry({ eventId: undefined, sequence: 10 })],
+      [entry({ eventId: undefined, sequence: 10 })],
     );
     expect(merged).toHaveLength(2);
   });
 
-  it("orders only when every event has a canonical sequence", () => {
+  it("replaces a live copy with its persisted event-id match", () => {
+    const persisted = entry({ eventId: "evt-1", content: "persisted", sequence: undefined });
+    const live = entry({ eventId: "evt-1", content: "live", sequence: 999 });
+
+    expect(mergeTranscriptEntries([persisted], [live])).toEqual([persisted]);
+  });
+
+  it("orders only when every event has a comparable producer sequence", () => {
     expect(mergeTranscriptEntries(
       [entry({ eventId: "evt-2", sequence: 2 })],
-      [entry({ eventId: "evt-1", sequence: 1 })],
-    ).map((item) => item.eventId)).toEqual(["evt-1", "evt-2"]);
+      [entry({ eventId: "evt-0", sequence: 0 })],
+    ).map((item) => item.eventId)).toEqual(["evt-0", "evt-2"]);
 
+    const withMissingSequence = mergeTranscriptEntries(
+      [entry({ eventId: "evt-2" })],
+      [entry({ eventId: "evt-1", sequence: 1 })],
+    );
+    expect(withMissingSequence.map((item) => item.eventId)).toEqual(["evt-2", "evt-1"]);
     expect(mergeTranscriptEntries(
       [entry({ eventId: "evt-2" })],
       [entry({ eventId: "evt-1", sequence: 1 })],
-    ).map((item) => item.eventId)).toEqual(["evt-2", "evt-1"]);
+    )).toEqual(withMissingSequence);
   });
 
   it("produces unique React keys for entries without canonical identity", () => {

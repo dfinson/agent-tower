@@ -118,8 +118,7 @@ export function handleTranscriptUpdate(state: AppState, payload: Record<string, 
     }
   }
 
-  // Deduplicate: two SSE connections (global + job-scoped) may deliver
-  // the same event; skip if identical kind+content+timestamp already present.
+  // Deduplicate canonical events by their stable TraceForge event id.
   // For user messages, match on kind+content only (ignore timestamp) to
   // suppress the SSE echo when an optimistic entry was already inserted.
   if (entry.kind === "message.user"

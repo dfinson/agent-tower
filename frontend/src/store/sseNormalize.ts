@@ -83,10 +83,11 @@ export function normalizeTFEvent(ev: TFSessionEvent): Record<string, unknown> {
     payload.kind = ev.kind;
   }
 
-  // Metadata enrichment lives on EventMetadata; carry it into the camelCase
-  // payload view unless the payload already provides the field.
+  // Metadata enrichment lives on EventMetadata; canonical sequence never comes
+  // from payload data.
   const meta = ev.metadata;
   const metadata = meta == null ? undefined : (meta as Record<string, unknown>);
+  delete payload.sequence;
   if (typeof metadata?.sequence === "number") {
     payload.sequence = metadata.sequence;
   }

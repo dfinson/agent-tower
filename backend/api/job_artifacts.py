@@ -412,8 +412,8 @@ async def get_job_transcript(
             )
         )
 
-    # Persisted events carry the canonical TraceForge sequence. Avoid inventing
-    # an order for any producer that does not provide it.
+    # Producer-stream sequence can order the transcript only when every event
+    # provides one. Otherwise retain deterministic storage query order.
     if all(item.sequence is not None for item in items):
         items.sort(key=lambda item: item.sequence or 0)
 
