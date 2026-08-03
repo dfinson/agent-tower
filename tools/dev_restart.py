@@ -19,6 +19,8 @@ import argparse
 import contextlib
 import json
 import os
+import platform
+import shutil
 import signal
 import subprocess
 import sys
@@ -190,9 +192,22 @@ def wait_for_health(base_url: str, timeout: int = 60) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_npm_command() -> str:
+    """Return the platform-specific npm executable path."""
+    command = "npm.cmd" if platform.system() == "Windows" else "npm"
+    resolved = shutil.which(command)
+    if resolved is None:
+        raise FileNotFoundError(
+            f"npm is required to build the frontend but {command!r} was not found on PATH. "
+            "Install Node.js and ensure npm is available."
+        )
+    return resolved
+
+
 def build_frontend() -> bool:
     """Run `npm run build` in the frontend directory. Streams output live."""
-    result = subprocess.run(["npm", "run", "build"], cwd=FRONTEND_DIR)
+    npm = _resolve_npm_command()
+    result = subprocess.run([npm, "run", "build"], cwd=FRONTEND_DIR)
     return result.returncode == 0
 
 
