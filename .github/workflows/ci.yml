@@ -28,6 +28,16 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Configure private dependency access
+        env:
+          CODERECON_TOKEN: ${{ secrets.CODERECON_TOKEN }}
+        run: |
+          if [ -z "$CODERECON_TOKEN" ]; then
+            echo "::error::CODERECON_TOKEN is required to install coderecon-ai."
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${CODERECON_TOKEN}@github.com/".insteadOf "https://github.com/"
+
       - name: Install dependencies
         run: uv sync
 
@@ -107,6 +117,16 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+
+      - name: Configure private dependency access
+        env:
+          CODERECON_TOKEN: ${{ secrets.CODERECON_TOKEN }}
+        run: |
+          if [ -z "$CODERECON_TOKEN" ]; then
+            echo "::error::CODERECON_TOKEN is required to install coderecon-ai."
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${CODERECON_TOKEN}@github.com/".insteadOf "https://github.com/"
 
       - name: Install backend dependencies
         run: uv sync
