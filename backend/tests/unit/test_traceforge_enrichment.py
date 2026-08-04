@@ -143,8 +143,10 @@ class TestEnricherWiring:
         assert enriched.metadata.duration_ms is not None
 
     @pytest.mark.asyncio
-    async def test_shutdown_flushes_orphans(self):
-        """shutdown() flushes buffered tool starts as orphans (global teardown)."""
+    async def test_on_job_terminal_flushes_session(self):
+        """on_job_terminal calls flush_session(job_id) and publishes orphans."""
+        from unittest.mock import AsyncMock, MagicMock
+
         bus = EventBus()
         published: list[SessionEvent] = []
 
@@ -153,26 +155,54 @@ class TestEnricherWiring:
 
         bus.subscribe(_handler)
 
-        enricher = TFEnricher()
-        proc = EventProcessor(bus, enricher=enricher)
+        orphan_event = _tf(EventKind.tool_call_started, {"tool_name": "bash"})
+        enricher = MagicMock()
+        enricher.flush_session = MagicMock(return_value=[orphan_event])
 
-        # Buffer a tool start without completion
-        await proc.process_event(
-            "j1",
-            _tf(
-                EventKind.tool_call_started,
-                {"tool_name": "bash", "tool_call_id": "tc-orphan"},
-            ),
-        )
-        assert len(published) == 0
+        pipeline = AsyncMock()
+        pipeline.finalize_session = AsyncMock()
 
-        # on_job_terminal does NOT flush enricher (private API gap)
+        proc = EventProcessor(bus, enricher=enricher, title_pipeline=pipeline)
+
         await proc.on_job_terminal("j1", "completed")
-        assert len(published) == 0
 
-        # shutdown() flushes globally
+        # flush_session called with job_id
+        enricher.flush_session.assert_called_once_with("j1")
+        # Orphan published
+        assert len(published) == 1
+        assert published[0] == orphan_event
+        # finalize_session called on pipeline
+        pipeline.finalize_session.assert_awaited_once_with("j1")
+
+    @pytest.mark.asyncio
+    async def test_shutdown_flushes_remaining(self):
+        """shutdown() calls global flush() + close() for remaining sessions."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        bus = EventBus()
+        published: list[SessionEvent] = []
+
+        async def _handler(e: SessionEvent) -> None:
+            published.append(e)
+
+        bus.subscribe(_handler)
+
+        orphan_event = _tf(EventKind.tool_call_started, {"tool_name": "bash"})
+        enricher = MagicMock()
+        enricher.flush = MagicMock(return_value=[orphan_event])
+
+        pipeline = AsyncMock()
+        pipeline.close = AsyncMock()
+
+        proc = EventProcessor(bus, enricher=enricher, title_pipeline=pipeline)
+
         await proc.shutdown()
-        assert len(published) == 1  # orphan published
+
+        # Global flush publishes remaining orphans
+        enricher.flush.assert_called_once()
+        assert len(published) == 1
+        # Pipeline closed
+        pipeline.close.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -376,12 +406,12 @@ class TestTitlePipelineCallback:
 class TestRealPipelineFlush:
     """Integration test using the REAL TFEventPipeline (not mock callbacks).
 
-    Proves that activity/step turn_summary events are emitted after
-    shutdown() flushes the pipeline (global teardown, not per-job).
+    Proves that:
+    - shutdown() flushes remaining sessions via close()
+    - finalize_session() (TF 0.1.5+) emits only the targeted session's titles
 
-    NOTE: Per-session finalization on job terminal is blocked pending
-    TraceForge public API for `finalize_session(session_id)`. The global
-    flush is only safe at shutdown when no more events are being pushed.
+    Requires traceforge-toolkit >= 0.1.5 for finalize_session; tests are
+    skipped on earlier versions.
     """
 
     @pytest.mark.asyncio
@@ -398,7 +428,6 @@ class TestRealPipelineFlush:
 
         bus.subscribe(_handler)
 
-        # Wire exactly as lifespan.py does
         title_updates: list[TitleUpdate] = []
 
         async def _on_title(update) -> None:
@@ -431,7 +460,6 @@ class TestRealPipelineFlush:
         enricher = TFEnricher()
         proc = EventProcessor(bus, enricher=enricher, title_pipeline=title_pipeline)
 
-        # Push several events (simulating a session with tool calls)
         events = [
             _tf(EventKind.message_user, {"content": "help me", "turn_id": "t1"}),
             _tf(EventKind.message_assistant, {"content": "sure", "turn_id": "t1"}),
@@ -455,16 +483,146 @@ class TestRealPipelineFlush:
         for event in events:
             await proc.process_event("j1", event)
 
-        # Before shutdown, title pipeline may or may not have emitted
         pre_flush_summaries = [e for e in published if e.kind == EventKind.turn_summary]
 
-        # Shutdown flush — emits any remaining title updates (global teardown)
         await proc.shutdown()
 
         post_flush_summaries = [e for e in published if e.kind == EventKind.turn_summary]
-
-        # After flush we should have at least as many or more summaries
         assert len(post_flush_summaries) >= len(pre_flush_summaries)
-        # The title pipeline was invoked (title_updates received at least session title)
-        # Note: with few events, the title inferencer may produce session-level only,
-        # which we skip. The key contract is that close() was called without error.
+
+
+# ---------------------------------------------------------------------------
+# Two-session concurrent regression — finalize_session isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestTwoSessionIsolation:
+    """Regression: finalize_session(A) must not affect concurrent session B.
+
+    Uses mock enricher/pipeline to verify per-session isolation semantics.
+    Real-pipeline version requires TF 0.1.5+ (skipped on 0.1.4).
+    """
+
+    async def test_finalize_session_a_does_not_affect_b(self):
+        """Interleave A/B events; terminal A emits only A titles; B unaffected."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        bus = EventBus()
+        published: list[SessionEvent] = []
+
+        async def _handler(e: SessionEvent) -> None:
+            published.append(e)
+
+        bus.subscribe(_handler)
+
+        # Mock enricher: flush_session returns orphans only for the called session
+        orphan_a = new_event(session_id="jobA", kind=EventKind.tool_call_started, payload={"tool_name": "bash"})
+        orphan_b = new_event(session_id="jobB", kind=EventKind.tool_call_started, payload={"tool_name": "bash"})
+
+        enricher = MagicMock()
+        enricher.process = MagicMock(return_value=None)
+
+        def _flush_session(sid):
+            if sid == "jobA":
+                return [orphan_a]
+            return []
+
+        enricher.flush_session = MagicMock(side_effect=_flush_session)
+        enricher.flush = MagicMock(return_value=[orphan_b])
+
+        pipeline = AsyncMock()
+        pipeline.finalize_session = AsyncMock()
+        pipeline.close = AsyncMock()
+
+        proc = EventProcessor(bus, enricher=enricher, title_pipeline=pipeline)
+
+        # Terminal A — only A's orphans emitted, only A's pipeline finalized
+        await proc.on_job_terminal("jobA", "completed")
+
+        assert len(published) == 1
+        assert published[0].session_id == "jobA"
+        enricher.flush_session.assert_called_once_with("jobA")
+        pipeline.finalize_session.assert_awaited_once_with("jobA")
+
+        # B's state is untouched — no global flush called
+        enricher.flush.assert_not_called()
+        pipeline.close.assert_not_called()
+
+        # Now terminal B
+        published.clear()
+        await proc.on_job_terminal("jobB", "completed")
+
+        # flush_session("jobB") returns empty (B has no orphans in this mock)
+        assert len(published) == 0
+        pipeline.finalize_session.assert_awaited_with("jobB")
+
+    async def test_repeated_terminal_no_duplicates(self):
+        """Calling on_job_terminal twice for same job doesn't emit duplicates."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        bus = EventBus()
+        published: list[SessionEvent] = []
+
+        async def _handler(e: SessionEvent) -> None:
+            published.append(e)
+
+        bus.subscribe(_handler)
+
+        orphan = new_event(session_id="j1", kind=EventKind.tool_call_started, payload={"tool_name": "bash"})
+        call_count = [0]
+
+        def _flush_session(sid):
+            call_count[0] += 1
+            # First call returns orphan, second returns empty (already flushed)
+            if call_count[0] == 1:
+                return [orphan]
+            return []
+
+        enricher = MagicMock()
+        enricher.flush_session = MagicMock(side_effect=_flush_session)
+
+        pipeline = AsyncMock()
+        pipeline.finalize_session = AsyncMock()
+
+        proc = EventProcessor(bus, enricher=enricher, title_pipeline=pipeline)
+
+        await proc.on_job_terminal("j1", "completed")
+        assert len(published) == 1
+
+        # Second terminal call — no duplicates
+        await proc.on_job_terminal("j1", "completed")
+        assert len(published) == 1  # still just 1 from first call
+
+    async def test_shutdown_after_terminal_flushes_remaining(self):
+        """Shutdown after individual terminals drains anything left."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        bus = EventBus()
+        published: list[SessionEvent] = []
+
+        async def _handler(e: SessionEvent) -> None:
+            published.append(e)
+
+        bus.subscribe(_handler)
+
+        remaining = new_event(session_id="j2", kind=EventKind.tool_call_started, payload={"tool_name": "bash"})
+        enricher = MagicMock()
+        enricher.flush_session = MagicMock(return_value=[])
+        enricher.flush = MagicMock(return_value=[remaining])
+
+        pipeline = AsyncMock()
+        pipeline.finalize_session = AsyncMock()
+        pipeline.close = AsyncMock()
+
+        proc = EventProcessor(bus, enricher=enricher, title_pipeline=pipeline)
+
+        # Terminal j1 — normal path
+        await proc.on_job_terminal("j1", "completed")
+        assert len(published) == 0
+
+        # Shutdown — drains remaining (j2 orphan)
+        await proc.shutdown()
+        assert len(published) == 1
+        assert published[0].session_id == "j2"
+        pipeline.close.assert_awaited_once()

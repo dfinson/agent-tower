@@ -644,7 +644,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
     { name = "structlog", specifier = ">=24.0,<26" },
     { name = "tiktoken", marker = "extra == 'tokenizer'", specifier = ">=0.12.0,<1" },
-    { name = "traceforge-toolkit", specifier = ">=0.1.3,<0.2" },
+    { name = "traceforge-toolkit", specifier = ">=0.1.5,<0.2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32,<1" },
 ]
 provides-extras = ["voice", "push", "telemetry", "tokenizer", "all"]
@@ -3904,7 +3904,7 @@ wheels = [
 
 [[package]]
 name = "traceforge-toolkit"
-version = "0.1.4"
+version = "0.1.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "alembic" },
@@ -3930,9 +3930,9 @@ dependencies = [
     { name = "tzdata", marker = "sys_platform == 'win32'" },
     { name = "watchdog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a3/b0/667eae52510b06729aa3ed1a39395651e44263c9899c15a7fcfafcc15973/traceforge_toolkit-0.1.4.tar.gz", hash = "sha256:7a4415962f138a5ea7a46b4ddcba44ec056a591b78eb14bb98ea5968bfc6d342", size = 28834947, upload-time = "2026-08-03T04:14:24.825Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a6/57/8622d8b9a88c2229081e87525fad42c657f7e53feb6f06e50e93ac0042de/traceforge_toolkit-0.1.5.tar.gz", hash = "sha256:09ed88340ce5098116df32e496b44a793c4982affb65afe79f0face477c09052", size = 28835631, upload-time = "2026-08-04T16:55:17.548Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6b/47/50ef7263163e6e0ba4ccc89a18656bcf9a2741d27a09577fac817c379c6c/traceforge_toolkit-0.1.4-py3-none-any.whl", hash = "sha256:059803600d23cc3a69ce4c2f56d5c7505d2f966cea3ca567cbfe2546c3f48c93", size = 28944570, upload-time = "2026-08-03T04:14:21.841Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/d0/03357b7d04f938985a010311ec945542e5c793656e3fc1b4d3eefd423a83/traceforge_toolkit-0.1.5-py3-none-any.whl", hash = "sha256:a24c781bc6ee172da28d6ed86de8b971a4f2285a3f491f7d8fa6e426061f18b3", size = 28946021, upload-time = "2026-08-04T16:55:14.316Z" },
 ]
 
 [[package]]

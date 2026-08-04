@@ -252,28 +252,37 @@ class EventProcessor:
         return event
 
     async def on_job_terminal(self, job_id: str, outcome: str) -> None:
-        """Notify step tracker that a job reached terminal state.
+        """Notify step tracker and finalize this job's session through TraceForge.
 
-        Called from both managed and imported terminal paths.
-
-        NOTE: Per-session title pipeline finalization is intentionally NOT
-        performed here. TraceForge ``EventPipeline.flush()`` is global/terminal
-        (drains ALL sessions, clears state) and is incorrect when multiple
-        concurrent jobs share the pipeline. The semantically correct
-        ``_finalize_session(session_id)`` is private upstream. This is an
-        upstream gap — TraceForge must expose a public per-session finalization
-        method before CodePlane can emit final activity titles on job terminal.
-        See :meth:`shutdown` for the global teardown path.
+        Called from both managed and imported terminal paths. Uses the public
+        per-session APIs added in TraceForge 0.1.5:
+        - ``Enricher.flush_session(session_id)`` — drains orphan tool-starts
+        - ``EventPipeline.finalize_session(session_id)`` — emits final activity
+          titles for this session without affecting concurrent sessions.
         """
         if self._step_tracker is not None:
             await self._step_tracker.on_job_terminal(job_id, outcome)
+        # Flush orphan tool-starts buffered for this job's session only
+        if self._enricher is not None:
+            for orphan in self._enricher.flush_session(job_id):
+                await self._event_bus.publish(orphan)
+        # Finalize this session's title streams (per-session, not global)
+        if self._title_pipeline is not None:
+            try:
+                await self._title_pipeline.finalize_session(job_id)
+            except Exception:
+                log.warning(
+                    "title_pipeline_finalize_failed",
+                    job_id=job_id,
+                    exc_info=True,
+                )
 
     async def shutdown(self) -> None:
         """Global teardown — flush all pipeline state after runtime stops pushing.
 
         Safe to call only when NO more events will be pushed (app shutdown).
-        Drains the enricher's buffered orphan tool-starts and the title
-        pipeline's remaining activity/step titles for all sessions.
+        Drains the enricher's remaining buffered orphan tool-starts and closes
+        the title pipeline (which flushes any sessions not yet finalized).
         """
         if self._enricher is not None:
             for orphan in self._enricher.flush():
