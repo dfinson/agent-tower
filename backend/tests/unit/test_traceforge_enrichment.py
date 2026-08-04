@@ -16,6 +16,7 @@ import pytest
 from traceforge.enricher import Enricher as TFEnricher
 from traceforge.types import Classification, EventMetadata, TitleUpdate
 
+from backend.lifespan import build_turn_summary_payload
 from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.events.event_bus import EventBus
 from backend.services.events.event_processor import EventProcessor
@@ -272,7 +273,7 @@ class TestPowerShellRegression:
 
 
 class TestTitlePipelineCallback:
-    """The title pipeline callback in lifespan.py converts TitleUpdate → turn_summary."""
+    """``build_turn_summary_payload`` converts a TF TitleUpdate → turn_summary payload."""
 
     @pytest.mark.asyncio
     async def test_activity_title_update_emits_turn_summary(self):
@@ -285,21 +286,16 @@ class TestTitlePipelineCallback:
 
         bus.subscribe(_handler)
 
-        # Simulate the callback that lifespan.py wires
         async def _on_title_update(update: TitleUpdate) -> None:
-            if update.kind == "session":
+            payload = build_turn_summary_payload(update)
+            if payload is None:
                 return
             await bus.publish(
                 new_event(
                     session_id=update.session_id,
                     timestamp=datetime.now(UTC),
                     kind=EventKind.turn_summary,
-                    payload={
-                        "turn_id": update.segment_id,
-                        "title": update.title,
-                        "activity_id": update.parent_id or update.segment_id,
-                        "is_new_activity": update.kind == "activity",
-                    },
+                    payload=payload,
                 )
             )
 
@@ -319,29 +315,44 @@ class TestTitlePipelineCallback:
         assert ev.payload["title"] == "Setting up environment"
         assert ev.payload["is_new_activity"] is True
 
+    def test_activity_update_carries_native_activity_label(self):
+        """Regression: activity updates must carry activity_label (TF's own title).
+
+        Without it the frontend activity timeline renders a blank group heading.
+        """
+        payload = build_turn_summary_payload(
+            TitleUpdate(
+                session_id="j1",
+                segment_id="act-1",
+                kind="activity",
+                title="Setting up environment",
+                version=1,
+                parent_id=None,
+            )
+        )
+        assert payload is not None
+        assert payload["activity_label"] == "Setting up environment"
+        assert payload["activity_id"] == "act-1"
+        assert payload["is_new_activity"] is True
+
+    def test_step_update_carries_no_activity_label(self):
+        """Step updates name the step, not the activity — no label is invented."""
+        payload = build_turn_summary_payload(
+            TitleUpdate(
+                session_id="j1",
+                segment_id="step-1",
+                kind="step",
+                title="Reading config file",
+                version=1,
+                parent_id="activity-1",
+            )
+        )
+        assert payload is not None
+        assert "activity_label" not in payload
+
     @pytest.mark.asyncio
     async def test_session_title_update_skipped(self):
         """Session-kind TitleUpdates are not emitted as turn_summaries."""
-        bus = EventBus()
-        published: list[SessionEvent] = []
-
-        async def _handler(e: SessionEvent) -> None:
-            published.append(e)
-
-        bus.subscribe(_handler)
-
-        async def _on_title_update(update: TitleUpdate) -> None:
-            if update.kind == "session":
-                return
-            await bus.publish(
-                new_event(
-                    session_id=update.session_id,
-                    timestamp=datetime.now(UTC),
-                    kind=EventKind.turn_summary,
-                    payload={},
-                )
-            )
-
         update = TitleUpdate(
             session_id="j1",
             segment_id="seg-1",
@@ -350,52 +361,24 @@ class TestTitlePipelineCallback:
             version=1,
             parent_id=None,
         )
-        await _on_title_update(update)
-
-        assert len(published) == 0
+        assert build_turn_summary_payload(update) is None
 
     @pytest.mark.asyncio
     async def test_step_title_update_uses_parent_as_activity_id(self):
         """Step-kind TitleUpdate uses parent_id as activity_id."""
-        bus = EventBus()
-        published: list[SessionEvent] = []
-
-        async def _handler(e: SessionEvent) -> None:
-            published.append(e)
-
-        bus.subscribe(_handler)
-
-        async def _on_title_update(update: TitleUpdate) -> None:
-            if update.kind == "session":
-                return
-            await bus.publish(
-                new_event(
-                    session_id=update.session_id,
-                    timestamp=datetime.now(UTC),
-                    kind=EventKind.turn_summary,
-                    payload={
-                        "turn_id": update.segment_id,
-                        "title": update.title,
-                        "activity_id": update.parent_id or update.segment_id,
-                        "is_new_activity": update.kind == "activity",
-                    },
-                )
+        payload = build_turn_summary_payload(
+            TitleUpdate(
+                session_id="j1",
+                segment_id="step-1",
+                kind="step",
+                title="Reading config file",
+                version=1,
+                parent_id="activity-1",
             )
-
-        update = TitleUpdate(
-            session_id="j1",
-            segment_id="step-1",
-            kind="step",
-            title="Reading config file",
-            version=1,
-            parent_id="activity-1",
         )
-        await _on_title_update(update)
-
-        assert len(published) == 1
-        ev = published[0]
-        assert ev.payload["activity_id"] == "activity-1"
-        assert ev.payload["is_new_activity"] is False
+        assert payload is not None
+        assert payload["activity_id"] == "activity-1"
+        assert payload["is_new_activity"] is False
 
 
 # ---------------------------------------------------------------------------

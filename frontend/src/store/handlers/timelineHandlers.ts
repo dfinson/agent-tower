@@ -112,7 +112,10 @@ export function handleTurnSummary(state: AppState, payload: Record<string, unkno
   const turnId = payload.turnId as string;
   const title = payload.title as string;
   const activityId = payload.activityId as string;
-  const activityLabel = payload.activityLabel as string;
+  // TF only supplies `activityLabel` on activity-kind updates; step updates
+  // omit it. Treat a missing/blank label as "no opinion" so a step never
+  // erases the label its parent activity already established.
+  const activityLabel = (payload.activityLabel as string | undefined) || undefined;
   const activityStatus = (payload.activityStatus as "active" | "done") || "active";
   const isNewActivity = payload.isNewActivity as boolean;
   const planItemId = (payload.planItemId as string | null) ?? null;
@@ -186,7 +189,7 @@ export function handleTurnSummary(state: AppState, payload: Record<string, unkno
     }
     activities.push({
       activityId,
-      label: activityLabel,
+      label: activityLabel ?? "",
       status: activityStatus,
       steps: [step],
       planItemId,
@@ -197,7 +200,7 @@ export function handleTurnSummary(state: AppState, payload: Record<string, unkno
     if (last) {
       activities[activities.length - 1] = {
         ...last,
-        label: activityLabel,
+        label: activityLabel ?? last.label,
         status: activityStatus,
         steps: [...last.steps, step],
       };

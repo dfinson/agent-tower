@@ -16,6 +16,7 @@ force deletes then re-inserts the marker).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -46,6 +47,43 @@ def _get_job_lock(job_id: str) -> asyncio.Lock:
     if job_id not in _job_locks:
         _job_locks[job_id] = asyncio.Lock()
     return _job_locks[job_id]
+
+
+def _metadata_fingerprint(event: SessionEvent) -> str | None:
+    """Stable content hash of an event's canonical metadata, or ``None``.
+
+    Taken *before* the enricher runs so that enrichers which mutate metadata
+    in place (rather than returning a new object) are still detected: after
+    ``process()`` the live object and the event object are the same instance,
+    so an identity/equality comparison against the post-process value would
+    always report "unchanged" and silently drop the update.
+
+    A hash (not the serialized blob) keeps the per-job snapshot map small
+    across large replays.
+    """
+    if event.metadata is None:
+        return None
+    canonical = json.dumps(
+        event.metadata.model_dump(mode="json"),
+        ensure_ascii=False,
+        default=str,
+        sort_keys=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _persist_if_changed(event: SessionEvent, fingerprints: dict[str, str | None]) -> bool:
+    """True when *event*'s metadata differs from its pre-enrichment snapshot.
+
+    Consumes the snapshot when the event is emitted. The map therefore retains
+    only events currently buffered by TraceForge rather than the full replay
+    history. An event emitted twice is ignored after its snapshot is consumed.
+    """
+    if event.metadata is None or event.id not in fingerprints:
+        return False
+    before = fingerprints.pop(event.id)
+    after = _metadata_fingerprint(event)
+    return after != before
 
 
 async def reenrich_job_events(
@@ -104,6 +142,10 @@ async def _reenrich_locked(
         enricher = TFEnricher(flush_on_session_end=True)
         updated = 0
         offset = 0
+        # event_id → pre-enrichment metadata fingerprint for events currently
+        # buffered by TF. Entries are consumed as events are emitted, keeping
+        # memory proportional to pending events rather than total history.
+        pre_fingerprints: dict[str, str | None] = {}
 
         while True:
             batch = await repo.list_all_events_by_job(job_id, limit=_BATCH_SIZE, offset=offset)
@@ -115,9 +157,13 @@ async def _reenrich_locked(
                 if event.kind == _REENRICH_MARKER_KIND:
                     continue
 
+                # Snapshot BEFORE process() — the enricher may mutate in place.
+                pre_fingerprints[event.id] = _metadata_fingerprint(event)
+
                 try:
                     enriched = enricher.process(event)
                 except Exception:
+                    pre_fingerprints.pop(event.id, None)
                     log.warning(
                         "reenrich_event_failed",
                         job_id=job_id,
@@ -131,7 +177,7 @@ async def _reenrich_locked(
 
                 events_to_update = enriched if isinstance(enriched, list) else [enriched]
                 for e in events_to_update:
-                    if e.metadata and e.metadata != event.metadata:
+                    if e.metadata is not None and _persist_if_changed(e, pre_fingerprints):
                         await repo.update_metadata(event_id=e.id, metadata=e.metadata)
                         updated += 1
 
@@ -141,7 +187,7 @@ async def _reenrich_locked(
 
         # Flush any remaining buffered events
         for orphan in enricher.flush():
-            if orphan.metadata:
+            if orphan.metadata is not None and _persist_if_changed(orphan, pre_fingerprints):
                 await repo.update_metadata(event_id=orphan.id, metadata=orphan.metadata)
                 updated += 1
 

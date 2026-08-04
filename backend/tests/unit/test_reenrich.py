@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.models.events import EventKind, new_event
+from backend.models.events import EventKind, EventMetadata, new_event
 from backend.services.events.reenrich import (
     _REENRICH_MARKER_KIND,
     _job_locks,
@@ -192,3 +192,79 @@ class TestReenrichBatching:
                 assert call_count >= 2
                 # Enricher.process should have been called for all events
                 assert enricher.process.call_count == _BATCH_SIZE + 10
+
+
+class TestReenrichMutationInPlace:
+    """Metadata is compared against a pre-``process()`` snapshot.
+
+    An enricher that mutates the event's metadata in place returns the *same*
+    object, so comparing post-process metadata against ``event.metadata``
+    always looks unchanged and the update is silently dropped.
+    """
+
+    @pytest.mark.asyncio
+    async def test_in_place_mutation_is_persisted(self, mock_session_factory):
+        from traceforge.types import Visibility
+
+        event = new_event(
+            session_id="j1",
+            kind=EventKind.tool_call_completed,
+            payload={"tool_name": "bash"},
+            metadata=EventMetadata(),
+        )
+
+        def _mutating_process(ev):
+            # Mutate metadata in place and hand back the same event object.
+            object.__setattr__(ev.metadata, "visibility", Visibility.COLLAPSED)
+            return ev
+
+        with patch("backend.persistence.event_repo.EventRepository") as mock_repo_cls:
+            repo = mock_repo_cls.return_value
+            repo.list_by_job = AsyncMock(return_value=[])
+            repo.list_all_events_by_job = AsyncMock(side_effect=[[event], []])
+            repo.update_metadata = AsyncMock()
+
+            with patch("backend.services.events.reenrich.TFEnricher") as mock_enricher_cls:
+                enricher = mock_enricher_cls.return_value
+                enricher.process = MagicMock(side_effect=_mutating_process)
+                enricher.flush = MagicMock(return_value=[])
+
+                with patch(
+                    "backend.services.events.reenrich._append_marker",
+                    new_callable=AsyncMock,
+                ) as mock_append:
+                    updated = await reenrich_job_events("j1", mock_session_factory)
+
+        assert updated == 1
+        repo.update_metadata.assert_awaited_once()
+        assert repo.update_metadata.await_args.kwargs["event_id"] == event.id
+        marker = mock_append.await_args.args[2]
+        assert marker.payload["updated_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_unchanged_metadata_is_not_rewritten(self, mock_session_factory):
+        """An enricher that changes nothing produces no writes."""
+        event = new_event(
+            session_id="j1",
+            kind=EventKind.tool_call_completed,
+            payload={"tool_name": "bash"},
+            metadata=EventMetadata(),
+        )
+
+        with patch("backend.persistence.event_repo.EventRepository") as mock_repo_cls:
+            repo = mock_repo_cls.return_value
+            repo.list_by_job = AsyncMock(return_value=[])
+            repo.list_all_events_by_job = AsyncMock(side_effect=[[event], []])
+            repo.update_metadata = AsyncMock()
+
+            with patch("backend.services.events.reenrich.TFEnricher") as mock_enricher_cls:
+                enricher = mock_enricher_cls.return_value
+                enricher.process = MagicMock(side_effect=lambda ev: ev)
+                # The same event is also returned by flush() — it must not be
+                # counted or written twice.
+                enricher.flush = MagicMock(return_value=[event])
+
+                updated = await reenrich_job_events("j1", mock_session_factory)
+
+        assert updated == 0
+        repo.update_metadata.assert_not_awaited()

@@ -251,7 +251,9 @@ function _rebuildActivityTimeline(
     const existingById = activities.find((a) => a.activityId === (s.activityId ?? ""));
     if (existingById && !isNew) {
       existingById.steps.push(step);
-      existingById.label = s.activityLabel ?? existingById.label;
+      // Blank label = "no opinion" (step-kind summaries carry none) — keep
+      // the activity's established label rather than erasing it.
+      existingById.label = (s.activityLabel as string | undefined) || existingById.label;
       existingById.status = (s.activityStatus as "active" | "done") ?? existingById.status;
     } else if (existingById && isNew) {
       // isNewActivity was set but this activityId already exists — resume it
@@ -271,7 +273,7 @@ function _rebuildActivityTimeline(
       const last = activities[activities.length - 1];
       if (last) {
         last.steps.push(step);
-        last.label = s.activityLabel ?? last.label;
+        last.label = (s.activityLabel as string | undefined) || last.label;
         last.status = (s.activityStatus as "active" | "done") ?? last.status;
       }
     }

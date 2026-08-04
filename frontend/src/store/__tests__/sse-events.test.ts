@@ -10,6 +10,7 @@ import {
   selectAttentionJobs,
   selectArchivedJobs,
   selectArchivedCount,
+  selectActivityTimeline,
 } from "../index";
 import type { JobSummary } from "../index";
 
@@ -54,6 +55,29 @@ beforeEach(() => {
 // ---- Additional SSE event types -------------------------------------------
 
 describe("dispatchSSEEvent — additional events", () => {
+  it("preserves a native activity label when a step summary omits it", () => {
+    useStore.getState().dispatchSSEEvent("turn.summary", {
+      jobId: "job-1",
+      turnId: "activity-1",
+      title: "Inspect authentication flow",
+      activityId: "activity-1",
+      activityLabel: "Inspect authentication flow",
+      isNewActivity: true,
+    });
+    useStore.getState().dispatchSSEEvent("turn.summary", {
+      jobId: "job-1",
+      turnId: "step-1",
+      title: "Read middleware",
+      activityId: "activity-1",
+      isNewActivity: false,
+    });
+
+    const timeline = selectActivityTimeline("job-1")(useStore.getState());
+    expect(timeline.activities).toHaveLength(1);
+    expect(timeline.activities[0]!.label).toBe("Inspect authentication flow");
+    expect(timeline.activities[0]!.steps).toHaveLength(2);
+  });
+
   it("handles job_review with prUrl and resolution", () => {
     useStore.setState({ jobs: { "job-1": makeJob({ progressHeadline: "Audit", progressSummary: "Reviewing shortcuts" }) } });
     useStore.getState().dispatchSSEEvent("job.review", {

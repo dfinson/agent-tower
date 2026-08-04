@@ -387,6 +387,32 @@ def _is_sqlite_lock_error(exc: OperationalError) -> bool:
     return "database is locked" in str(exc).lower()
 
 
+def build_turn_summary_payload(update: Any) -> dict[str, Any] | None:
+    """Map a TraceForge ``TitleUpdate`` to a ``turn_summary`` payload.
+
+    Returns ``None`` for session-level titles, which are handled by
+    auto-naming rather than the turn timeline.
+
+    Only fields TF natively provides are mapped — nothing is inferred. For
+    activity-kind updates TF's ``title`` *is* the activity label, so it is
+    carried through as ``activity_label``; without it the frontend timeline
+    renders a blank activity heading. Step-kind updates carry no label (they
+    belong to the activity named by ``activity_id``).
+    """
+    if update.kind == "session":
+        return None
+    is_new_activity = update.kind == "activity"
+    payload: dict[str, Any] = {
+        "turn_id": update.segment_id,
+        "title": update.title,
+        "activity_id": update.parent_id or update.segment_id,
+        "is_new_activity": is_new_activity,
+    }
+    if is_new_activity:
+        payload["activity_label"] = update.title
+    return payload
+
+
 async def _persist_event_with_retry(
     *,
     event: SessionEvent,
@@ -831,25 +857,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     async def _on_title_update(update) -> None:  # noqa: ANN001  (TitleUpdate at runtime)
-        """Convert a TraceForge TitleUpdate to a CodePlane turn_summary event.
-
-        Only maps fields that TF natively provides. Does not invent values
-        for fields TF does not supply (plan_item_id, activity_status).
-        """
-        if update.kind == "session":
-            # Session-level titles are handled by auto-naming, not turn summaries
+        """Convert a TraceForge TitleUpdate to a CodePlane turn_summary event."""
+        payload = build_turn_summary_payload(update)
+        if payload is None:
             return
         await event_bus.publish(
             new_event(
                 session_id=update.session_id,
                 timestamp=datetime.now(UTC),
                 kind=EventKind.turn_summary,
-                payload={
-                    "turn_id": update.segment_id,
-                    "title": update.title,
-                    "activity_id": update.parent_id or update.segment_id,
-                    "is_new_activity": update.kind == "activity",
-                },
+                payload=payload,
             )
         )
 
