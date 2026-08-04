@@ -46,8 +46,8 @@ describe("turn.summary reducer — native activity labels", () => {
     expect(acts[0]?.steps).toHaveLength(1);
   });
 
-  it("preserves the activity label across subsequent step updates", () => {
-    // Activity update establishes the label.
+  it("keeps an established native label across omitted and blank step labels", () => {
+    // Activity update establishes the native label.
     dispatchNative({
       turn_id: "act-1",
       title: "Setting up environment",
@@ -56,7 +56,7 @@ describe("turn.summary reducer — native activity labels", () => {
       activity_label: "Setting up environment",
     });
 
-    // Step update carries NO activity_label (a step's title is not the label).
+    // Step update with the activity_label key OMITTED.
     dispatchNative({
       turn_id: "step-1",
       title: "Reading config file",
@@ -64,27 +64,58 @@ describe("turn.summary reducer — native activity labels", () => {
       is_new_activity: false,
     });
 
-    const acts = activities();
-    expect(acts).toHaveLength(1);
-    // Label preserved, not overwritten with undefined.
-    expect(acts[0]?.label).toBe("Setting up environment");
-    expect(acts[0]?.steps).toHaveLength(2);
-    expect(acts[0]?.steps[1]?.title).toBe("Reading config file");
-  });
-
-  it("falls back to the turn title when activity_label is absent (never blank)", () => {
-    // Defensive: even a payload missing activity_label must yield a nonblank
-    // header rather than writing undefined.
+    // Step update with an explicit BLANK activity_label — also "no opinion".
     dispatchNative({
-      turn_id: "act-1",
-      title: "Investigating failure",
+      turn_id: "step-2",
+      title: "Writing tests",
       activity_id: "act-1",
-      is_new_activity: true,
+      is_new_activity: false,
+      activity_label: "",
     });
 
     const acts = activities();
     expect(acts).toHaveLength(1);
-    expect(acts[0]?.label).toBe("Investigating failure");
-    expect(acts[0]?.label).toBeTruthy();
+    // The established label survives both the omitted and the blank step label.
+    expect(acts[0]?.label).toBe("Setting up environment");
+    expect(acts[0]?.steps).toHaveLength(3);
+  });
+
+  it("does not fabricate an activity label from a leading step's title", () => {
+    // A step arrives before any native activity update — no activity_label.
+    dispatchNative({
+      turn_id: "s0",
+      title: "Looking around",
+      activity_id: "a0",
+      is_new_activity: false,
+    });
+
+    const acts = activities();
+    expect(acts).toHaveLength(1);
+    // Native-only: blank is acceptable until a native activity update; the step
+    // title must NOT be promoted to the activity header.
+    expect(acts[0]?.label).toBe("");
+    expect(acts[0]?.label).not.toBe("Looking around");
+  });
+
+  it("adopts the native label once an activity update follows a leading step", () => {
+    dispatchNative({
+      turn_id: "s0",
+      title: "Looking around",
+      activity_id: "a0",
+      is_new_activity: false,
+    });
+    // A real activity-kind update then opens a properly-labeled group.
+    dispatchNative({
+      turn_id: "act-1",
+      title: "Fixing the bug",
+      activity_id: "act-1",
+      is_new_activity: true,
+      activity_label: "Fixing the bug",
+    });
+
+    const acts = activities();
+    expect(acts).toHaveLength(2);
+    expect(acts[0]?.label).toBe(""); // leading step stays blank (no fabrication)
+    expect(acts[1]?.label).toBe("Fixing the bug");
   });
 });
