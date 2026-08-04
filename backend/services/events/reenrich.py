@@ -25,6 +25,14 @@ from traceforge.enricher import Enricher as TFEnricher
 
 from backend.models.events import EventKind, SessionEvent, new_event
 
+try:
+    # Prefer TraceForge's own tool-call-id extractor so reenrich's start/complete
+    # correlation matches the enricher's buffering exactly. Falls back to the
+    # canonical ``tool_call_id`` payload field if TF internals move.
+    from traceforge.enricher import _extract_tool_call_id as _tf_extract_tool_call_id
+except Exception:  # pragma: no cover - defensive: TF internal rename/removal
+    _tf_extract_tool_call_id = None
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -82,6 +90,88 @@ async def _persist_if_changed(
         return False
     await repo.update_metadata(event_id=event.id, metadata=event.metadata)
     return True
+
+
+def _pair_key(event: SessionEvent) -> tuple[str, str] | None:
+    """The ``(session_id, tool_call_id)`` key TraceForge pairs a
+    ``tool_call_started`` and its ``tool_call_completed`` on.
+
+    Prefers TraceForge's own extractor so retirement matches the enricher's
+    buffering; falls back to the canonical ``tool_call_id`` payload field — the
+    value both CodePlane adapters write and the ingest-equivalence contract
+    asserts identical across a started/completed pair.
+    """
+    tool_call_id = None
+    if _tf_extract_tool_call_id is not None:
+        try:
+            tool_call_id = _tf_extract_tool_call_id(event)
+        except Exception:  # pragma: no cover - defensive
+            tool_call_id = None
+    if not tool_call_id:
+        tool_call_id = (event.payload or {}).get("tool_call_id")
+    if not tool_call_id:
+        return None
+    return (event.session_id, str(tool_call_id))
+
+
+class _StartBaselineTracker:
+    """Bounded store of pre-enrichment metadata snapshots for buffered tool-starts.
+
+    TraceForge buffers a ``tool_call_started`` until its ``tool_call_completed``
+    arrives, then emits the *completion* (a distinct event id) and silently drops
+    the paired start — the start is never re-emitted. Keying snapshots only by the
+    emitted id therefore never retires a paired start, so the store would grow
+    with every paired call (a real leak on long jobs).
+
+    This tracker keeps a start's baseline keyed by the start's own id (so an
+    orphan — same id — finds its baseline even across the duplicate/displaced
+    case) and additionally indexes the currently-buffered start id by
+    TraceForge's ``(session_id, tool_call_id)`` pair key. A start's baseline is
+    retired the moment its completion resolves the pair (``retire_completion``)
+    or it is emitted as an orphan (``retire_emitted``), so the store stays bounded
+    by the enricher's live pending-start buffer — not the total number of calls.
+    Truly unpaired starts are retained until ``flush`` so their orphans can still
+    be compared against their own baseline.
+    """
+
+    def __init__(self) -> None:
+        # start event id -> original serialized metadata (baseline)
+        self._baseline_by_id: dict[str, str | None] = {}
+        # (session_id, tool_call_id) -> id of the currently-buffered start
+        self._id_by_pair: dict[tuple[str, str], str] = {}
+        # Largest number of retained baselines seen — asserted bounded in tests.
+        self.peak_size = 0
+
+    def __len__(self) -> int:
+        return len(self._baseline_by_id)
+
+    def record_start(self, event: SessionEvent, baseline: str | None) -> None:
+        """Retain *event*'s baseline; index it under TF's pair key."""
+        self._baseline_by_id[event.id] = baseline
+        pair = _pair_key(event)
+        if pair is not None:
+            self._id_by_pair[pair] = event.id
+        self.peak_size = max(self.peak_size, len(self._baseline_by_id))
+
+    def retire_completion(self, event: SessionEvent) -> None:
+        """Retire the buffered start a completion pairs with (TF consumes it)."""
+        pair = _pair_key(event)
+        if pair is None:
+            return
+        start_id = self._id_by_pair.pop(pair, None)
+        if start_id is not None:
+            self._baseline_by_id.pop(start_id, None)
+
+    def baseline_for(self, event: SessionEvent) -> str | None:
+        """Baseline for an emitted orphan (looked up by its own id)."""
+        return self._baseline_by_id.get(event.id)
+
+    def retire_emitted(self, event: SessionEvent) -> None:
+        """Retire a start once it has been emitted as an orphan (or rolled back)."""
+        self._baseline_by_id.pop(event.id, None)
+        pair = _pair_key(event)
+        if pair is not None and self._id_by_pair.get(pair) == event.id:
+            self._id_by_pair.pop(pair, None)
 
 
 def _get_job_lock(job_id: str) -> asyncio.Lock:
@@ -148,14 +238,12 @@ async def _reenrich_locked(
         updated = 0
         offset = 0
 
-        # Original serialized metadata for buffered tool-starts that may
-        # resurface later as orphans — either in a subsequent ``process`` result
-        # list (a displaced/evicted start) or in the final ``flush``. Only
-        # TOOL_CALL_STARTED events are ever buffered, so this map stays bounded
-        # by the enricher's pending buffer, not the full event log. Each orphan
-        # is compared against its *own* original snapshot (not the unrelated
-        # event currently being processed), fixing the prior wrong-baseline bug.
-        pending_original: dict[str, str | None] = {}
+        # Pre-enrichment metadata snapshots for buffered tool-starts, so an
+        # orphaned start is compared against its *own* original (not the
+        # unrelated event currently being processed). Bounded: a start's baseline
+        # is retired the instant its completion resolves the pair or it is
+        # emitted as an orphan, so this never grows with total paired calls.
+        tracker = _StartBaselineTracker()
 
         while True:
             batch = await repo.list_all_events_by_job(job_id, limit=_BATCH_SIZE, offset=offset)
@@ -171,7 +259,7 @@ async def _reenrich_locked(
                 # change check can't be defeated by in-place mutation.
                 original = _canonical_metadata(event.metadata)
                 if event.kind == EventKind.tool_call_started:
-                    pending_original[event.id] = original
+                    tracker.record_start(event, original)
 
                 try:
                     enriched = enricher.process(event)
@@ -182,29 +270,39 @@ async def _reenrich_locked(
                         event_id=event.id,
                         exc_info=True,
                     )
-                    pending_original.pop(event.id, None)
+                    if event.kind == EventKind.tool_call_started:
+                        tracker.retire_emitted(event)  # roll back this start
                     continue
 
+                # A completion consumes its buffered start (TF drops it from the
+                # pending buffer and never re-emits it) — retire that baseline now
+                # so paired starts do not accumulate.
+                if event.kind == EventKind.tool_call_completed:
+                    tracker.retire_completion(event)
+
                 if enriched is None:
-                    # Buffered unpaired tool-start: its snapshot stays in
-                    # pending_original for the eventual orphan flush.
+                    # Buffered unpaired tool-start: its baseline stays in the
+                    # tracker for the eventual orphan flush.
                     continue
 
                 events_to_update = enriched if isinstance(enriched, list) else [enriched]
                 for e in events_to_update:
-                    baseline = original if e.id == event.id else pending_original.get(e.id)
+                    baseline = original if e.id == event.id else tracker.baseline_for(e)
                     if await _persist_if_changed(repo, e, baseline):
                         updated += 1
-                    pending_original.pop(e.id, None)
+                    if e.id != event.id:
+                        # An emitted orphan start is now resolved — retire it.
+                        tracker.retire_emitted(e)
 
             if len(batch) < _BATCH_SIZE:
                 break
             offset += _BATCH_SIZE
 
-        # Flush any remaining buffered events (unpaired tool-starts), each
+        # Flush any remaining buffered events (truly unpaired tool-starts), each
         # compared against its own pre-enrichment snapshot.
         for orphan in enricher.flush():
-            baseline = pending_original.pop(orphan.id, None)
+            baseline = tracker.baseline_for(orphan)
+            tracker.retire_emitted(orphan)
             if await _persist_if_changed(repo, orphan, baseline):
                 updated += 1
 
