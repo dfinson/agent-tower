@@ -5,17 +5,15 @@
  * Verifies collapsed cards remain concise (toolDisplay or toolIntent label).
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import {
   StructuredToolContent,
   ToolDetail,
   ToolStep,
   hasStructuredRenderer,
-  parseArgs,
-  prettifyJson,
 } from "../ToolRenderers";
-import { classifyTool, TOOL_KIND } from "../CuratedFeedLogic";
+import { classifyTool } from "../CuratedFeedLogic";
 import type { TranscriptEntry } from "../../store";
 
 // Mock the store to provide worktreeRoot

@@ -13,7 +13,6 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import TrailConfig
 from backend.models.db import TrailNodeRow
-from backend.models.events import EventKind, new_event
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.story.motivation import (
     _EDIT_SYSTEM_PROMPT,

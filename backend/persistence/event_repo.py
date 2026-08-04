@@ -65,10 +65,7 @@ class EventRepository(BaseRepository):
             stmt = stmt.where(EventRow.job_id == job_id)
         stmt = stmt.limit(limit)
         result = await self._session.execute(stmt)
-        return [
-            StoredEvent(storage_cursor=row.id, event=self._to_domain(row))
-            for row in result.scalars().all()
-        ]
+        return [StoredEvent(storage_cursor=row.id, event=self._to_domain(row)) for row in result.scalars().all()]
 
     async def list_by_job(
         self,
@@ -175,11 +172,7 @@ class EventRepository(BaseRepository):
 
     async def list_all_events_by_job(self, job_id: str) -> list[SessionEvent]:
         """List every event for a job in storage order, regardless of kind."""
-        stmt = (
-            select(EventRow)
-            .where(EventRow.job_id == job_id)
-            .order_by(EventRow.id)
-        )
+        stmt = select(EventRow).where(EventRow.job_id == job_id).order_by(EventRow.id)
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]
 

@@ -53,9 +53,7 @@ async def reenrich_job_events(
 
         # Check for existing marker
         if not force:
-            markers = await repo.list_by_job(
-                job_id, [_REENRICH_MARKER_KIND], limit=1
-            )
+            markers = await repo.list_by_job(job_id, [_REENRICH_MARKER_KIND], limit=1)
             if markers:
                 log.info("reenrich_already_complete", job_id=job_id)
                 return 0

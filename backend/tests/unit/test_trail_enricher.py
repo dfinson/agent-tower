@@ -11,7 +11,6 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import TrailConfig
 from backend.models.db import TrailNodeRow
-from backend.models.events import EventKind
 from backend.services.trail.enricher import TrailEnricher
 from backend.services.trail.models import TrailJobState
 

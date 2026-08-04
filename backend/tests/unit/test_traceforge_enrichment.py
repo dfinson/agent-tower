@@ -11,11 +11,10 @@ Covers:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from traceforge.enricher import Enricher as TFEnricher
-from traceforge.types import EventMetadata, Classification, TitleUpdate
+from traceforge.types import Classification, EventMetadata, TitleUpdate
 
 from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.events.event_bus import EventBus
@@ -115,12 +114,14 @@ class TestExtractCommand:
     def test_dict_arguments(self):
         assert _extract_command({"arguments": {"command": "ls -la"}}) == "ls -la"
 
-    def test_cmd_key(self):
-        assert _extract_command({"arguments": {"cmd": "dir"}}) == "dir"
+    def test_cmd_key_not_recognized(self):
+        """Only 'command' is the canonical key — 'cmd' is not an alias."""
+        assert _extract_command({"arguments": {"cmd": "dir"}}) == ""
 
-    def test_raw_string_arguments(self):
+    def test_raw_string_arguments_returns_empty(self):
+        """Non-JSON string arguments return empty — no reconstruction."""
         result = _extract_command({"arguments": "just a string"})
-        assert result == "just a string"
+        assert result == ""
 
     def test_no_arguments(self):
         assert _extract_command({}) == ""

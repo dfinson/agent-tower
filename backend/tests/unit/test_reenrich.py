@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from traceforge.types import EventMetadata
 
-from backend.models.events import EventKind, new_event
+from backend.models.events import new_event
 from backend.services.events.reenrich import _REENRICH_MARKER_KIND, reenrich_job_events
 
 
@@ -32,16 +29,18 @@ class TestReenrichIdempotency:
     @pytest.mark.asyncio
     async def test_skips_when_marker_exists(self, mock_session_factory):
         """Re-enrichment is skipped when the marker event already exists."""
-        with patch("backend.persistence.event_repo.EventRepository") as MockRepo:
-            repo = MockRepo.return_value
+        with patch("backend.persistence.event_repo.EventRepository") as mock_repo_cls:
+            repo = mock_repo_cls.return_value
             # Marker exists
-            repo.list_by_job = AsyncMock(return_value=[
-                new_event(
-                    session_id="j1",
-                    kind=_REENRICH_MARKER_KIND,
-                    payload={"updated_count": 5},
-                )
-            ])
+            repo.list_by_job = AsyncMock(
+                return_value=[
+                    new_event(
+                        session_id="j1",
+                        kind=_REENRICH_MARKER_KIND,
+                        payload={"updated_count": 5},
+                    )
+                ]
+            )
 
             result = await reenrich_job_events("j1", mock_session_factory)
             assert result == 0
@@ -49,8 +48,8 @@ class TestReenrichIdempotency:
     @pytest.mark.asyncio
     async def test_force_ignores_marker(self, mock_session_factory):
         """force=True re-enriches even when marker exists."""
-        with patch("backend.persistence.event_repo.EventRepository") as MockRepo:
-            repo = MockRepo.return_value
+        with patch("backend.persistence.event_repo.EventRepository") as mock_repo_cls:
+            repo = mock_repo_cls.return_value
             # No events to process
             repo.list_all_events_by_job = AsyncMock(return_value=[])
 
@@ -62,8 +61,8 @@ class TestReenrichIdempotency:
     @pytest.mark.asyncio
     async def test_no_events_returns_zero(self, mock_session_factory):
         """Empty job returns 0."""
-        with patch("backend.persistence.event_repo.EventRepository") as MockRepo:
-            repo = MockRepo.return_value
+        with patch("backend.persistence.event_repo.EventRepository") as mock_repo_cls:
+            repo = mock_repo_cls.return_value
             repo.list_by_job = AsyncMock(return_value=[])
             repo.list_all_events_by_job = AsyncMock(return_value=[])
 

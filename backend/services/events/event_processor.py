@@ -26,7 +26,6 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 import structlog
-from traceforge.enricher import Enricher as TFEnricher
 
 from backend.models.events import (
     TRANSCRIPT_KINDS,
@@ -36,6 +35,7 @@ from backend.models.events import (
 )
 
 if TYPE_CHECKING:
+    from traceforge.enricher import Enricher as TFEnricher
     from traceforge.pipeline import EventPipeline as TFEventPipeline
 
     from backend.services.artifacts.diff_service import DiffService
@@ -87,15 +87,21 @@ def _derive_tool_display(event: SessionEvent) -> SessionEvent:
 
 
 def _extract_command(payload: dict[str, Any]) -> str:
-    """Extract the shell command from tool arguments."""
+    """Extract the shell command from the canonical tool-call arguments.
+
+    Reads only ``arguments.command`` — the canonical field from the agent SDK
+    tool-call contract.  Returns empty string when not available; no fallback
+    aliases or reconstruction.
+    """
     arguments = payload.get("arguments")
     if isinstance(arguments, str):
         try:
             arguments = json.loads(arguments)
         except (json.JSONDecodeError, TypeError):
-            return arguments[:200]
+            return ""
     if isinstance(arguments, dict):
-        return str(arguments.get("command", "") or arguments.get("cmd", ""))
+        cmd = arguments.get("command", "")
+        return str(cmd) if cmd else ""
     return ""
 
 
@@ -189,9 +195,7 @@ class EventProcessor:
                 last: SessionEvent | None = None
                 for e in enriched:
                     e = _derive_tool_display(e)
-                    last = await self._process_enriched(
-                        job_id, e, worktree_path, base_ref, diff_eligible
-                    )
+                    last = await self._process_enriched(job_id, e, worktree_path, base_ref, diff_eligible)
                 return last
 
             event = _derive_tool_display(enriched)

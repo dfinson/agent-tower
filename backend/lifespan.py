@@ -823,13 +823,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from traceforge.enricher import Enricher as TFEnricher
     from traceforge.pipeline import EventPipeline as TFEventPipeline
     from traceforge.sinks.callback import CallbackSink as TFCallbackSink
-    from traceforge.types import TitleUpdate
 
     from backend.services.events.event_processor import EventProcessor
 
     tf_enricher = TFEnricher()
 
-    async def _on_title_update(update: TitleUpdate) -> None:
+    async def _on_title_update(update) -> None:  # noqa: ANN001  (TitleUpdate at runtime)
         """Convert a TraceForge TitleUpdate to a CodePlane turn_summary event."""
         if update.kind == "session":
             # Session-level titles are handled by auto-naming, not turn summaries
