@@ -1133,8 +1133,11 @@ class RuntimeService:
         await self._telemetry.finalize_job_telemetry(job_id, wall_start, config)
 
     async def _set_step_terminal_state(self, job_id: str, outcome: str) -> None:
-        """Forward terminal outcome to the step tracker."""
-        if self._step_tracker is not None:
+        """Forward terminal outcome to the event processor (enricher + title flush)."""
+        if self._event_processor is not None:
+            await self._event_processor.on_job_terminal(job_id, outcome)
+        elif self._step_tracker is not None:
+            # Fallback if event processor not wired (shouldn't happen in prod)
             await self._step_tracker.on_job_terminal(job_id, outcome)
 
     async def _setup_action_policy(
@@ -1612,9 +1615,11 @@ class RuntimeService:
         if heartbeat:
             heartbeat.cancel()
 
-        # Step tracker terminal notification
+        # Step tracker + enricher + title pipeline terminal notification
         outcome = "failed" if error_reason else "review"
-        if self._step_tracker is not None:
+        if self._event_processor is not None:
+            await self._event_processor.on_job_terminal(job_id, outcome)
+        elif self._step_tracker is not None:
             await self._step_tracker.on_job_terminal(job_id, outcome)
 
         # Sweep any steps still stuck in "running" in the DB

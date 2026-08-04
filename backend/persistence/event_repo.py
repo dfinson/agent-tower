@@ -170,9 +170,15 @@ class EventRepository(BaseRepository):
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]
 
-    async def list_all_events_by_job(self, job_id: str) -> list[SessionEvent]:
-        """List every event for a job in storage order, regardless of kind."""
+    async def list_all_events_by_job(
+        self, job_id: str, *, limit: int | None = None, offset: int = 0
+    ) -> list[SessionEvent]:
+        """List events for a job in storage order, with optional pagination."""
         stmt = select(EventRow).where(EventRow.job_id == job_id).order_by(EventRow.id)
+        if offset:
+            stmt = stmt.offset(offset)
+        if limit is not None:
+            stmt = stmt.limit(limit)
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]
 

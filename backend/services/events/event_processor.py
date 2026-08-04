@@ -21,9 +21,8 @@ This is the one funnel for both producers — there is exactly one event shape.
 
 from __future__ import annotations
 
-import json
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -48,68 +47,6 @@ log = structlog.get_logger()
 # report_intent is an internal Copilot marker tool — it never mutates the
 # worktree, so it must not trigger a diff recalculation.
 _DIFF_SKIP_TOOL = "report_intent"
-
-
-def _derive_tool_display(event: SessionEvent) -> SessionEvent:
-    """Derive ``metadata.tool_display`` from TraceForge classification.
-
-    Uses the enricher's classification to determine whether the tool is a
-    shell executor (powershell, pwsh, bash, cmd, etc.) or a native tool,
-    and formats a human-readable display label.  No per-tool-name alias
-    table — the classification *is* the dispatch.
-
-    For shell mechanisms the enricher sets a generic ``tool_display='shell'``;
-    we override that with ``$ <command>`` when a concrete command is available.
-    """
-    md = event.metadata
-
-    cls = md.classification
-    if cls is None:
-        # No classification → preserve whatever tool_display the event has.
-        return event
-
-    payload = event.payload
-    tool_name = payload.get("tool_name", "")
-    if not tool_name:
-        return event
-
-    mechanism = cls.mechanism or ""
-
-    if mechanism.startswith("process"):
-        # Shell executor (bash, powershell, pwsh, cmd, …) — show the command.
-        command = _extract_command(payload)
-        if command:
-            display = f"$ {_truncate(command, 55)}"
-            new_md = md.model_copy(update={"tool_display": display})
-            return event.model_copy(update={"metadata": new_md})
-
-    return event
-
-
-def _extract_command(payload: dict[str, Any]) -> str:
-    """Extract the shell command from the canonical tool-call arguments.
-
-    Reads only ``arguments.command`` — the canonical field from the agent SDK
-    tool-call contract.  Returns empty string when not available; no fallback
-    aliases or reconstruction.
-    """
-    arguments = payload.get("arguments")
-    if isinstance(arguments, str):
-        try:
-            arguments = json.loads(arguments)
-        except (json.JSONDecodeError, TypeError):
-            return ""
-    if isinstance(arguments, dict):
-        cmd = arguments.get("command", "")
-        return str(cmd) if cmd else ""
-    return ""
-
-
-def _truncate(text: str, limit: int) -> str:
-    first_line = text.split("\n", 1)[0]
-    if len(first_line) <= limit:
-        return first_line
-    return first_line[:limit] + "…"
 
 
 class EventProcessor:
@@ -194,11 +131,10 @@ class EventProcessor:
                 # Orphan(s) flushed alongside a new event — publish all.
                 last: SessionEvent | None = None
                 for e in enriched:
-                    e = _derive_tool_display(e)
                     last = await self._process_enriched(job_id, e, worktree_path, base_ref, diff_eligible)
                 return last
 
-            event = _derive_tool_display(enriched)
+            event = enriched
 
         # Diff recalculation on tool completions (skip internal marker tools)
         if (
@@ -316,14 +252,30 @@ class EventProcessor:
         return event
 
     async def on_job_terminal(self, job_id: str, outcome: str) -> None:
-        """Notify step tracker of job terminal state and flush enricher."""
+        """Notify step tracker and flush enricher + title pipeline for this job.
+
+        Must be called from both managed and imported terminal paths before
+        cleanup so that the title pipeline emits final open-activity titles.
+        """
         if self._step_tracker is not None:
             await self._step_tracker.on_job_terminal(job_id, outcome)
         # Flush any buffered tool starts for this job's session
         if self._enricher is not None:
             for orphan in self._enricher._flush_session(job_id):
-                orphan = _derive_tool_display(orphan)
                 await self._event_bus.publish(orphan)
+        # Flush the title pipeline so it emits final activity/step titles
+        # for this session. The pipeline's flush() drains ALL sessions;
+        # acceptable because jobs are sequential per-pipeline or only one
+        # session is active when a managed job terminates.
+        if self._title_pipeline is not None:
+            try:
+                await self._title_pipeline.flush()
+            except Exception:
+                log.warning(
+                    "title_pipeline_flush_failed",
+                    job_id=job_id,
+                    exc_info=True,
+                )
 
     def cleanup(self, job_id: str) -> None:
         """Clean up per-job tracking state."""
