@@ -69,38 +69,8 @@ RULES:
 - Be specific: mention files, components, endpoints where possible.
 """
 
-TITLE_PROMPT = """\
-SECTION: "{current_label}" — {turns_in_section} turns so far
-STARTED WITH: "{first_step_title}"
-PLAN: "{plan_step_label}" ({done_count}/{total_count} complete)
-
-RECENT (this section):
-{recent_window}
-
-NOW:
-  msg: {now_line}
-  wrote: {files_written_count} files | read: {files_read_count} files
-
-Title this turn (3-8 words, verb-first, specific). Never repeat a RECENT title.
-Does this turn continue "{current_label}" or shift to something new?
-
-JSON: {{"title": "...", "merge_with_previous": <bool>, "boundary": "same"|"shift", "label": "..."}}
-
-boundary=shift when the agent has moved to a different PHASE of work. \
-Phases: discover/read → analyse/triage → implement/fix → verify/test → ship/commit → summarise/report. \
-Transitions WITHIN a phase (more reads, more fixes to related files) stay "same". \
-Transitions BETWEEN phases are "shift" — especially:
-  • First writes after a read-only stretch
-  • Completion language ("done", "all pass", results summary) followed by new intent
-  • Direction reversal or pivot to unrelated work
-  • Moving from coding to git/commit/push operations
-  • Moving from implementation to summarising/reporting results
-Long sections (>{turns_in_section} turns): bias toward shift on any reasonable signal. \
-Compare NOW against STARTED WITH — if the work has drifted far from the \
-original activity scope, that alone warrants a shift.
-label: 3-6 word description of the NEW focus (required when boundary=shift).
-merge_with_previous: true only for trivial retries of the exact same operation.
-"""
+# TITLE_PROMPT removed — title inference now handled by TraceForge's native
+# ONNX title pipeline (see EventProcessor + lifespan.py TFEventPipeline wiring).
 
 REFINE_ACTIVITY_LABEL_PROMPT = """\
 Refine this activity group label based on the completed work.

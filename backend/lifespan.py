@@ -816,15 +816,59 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- EventProcessor (the one funnel) ---
     # Both producers (managed SDK adapters via RuntimeService, and the imported
     # ingest sources) route their native traceforge.SessionEvent through this
-    # single processor: diff triggering, turn_id synthesis, step/trail
-    # annotation, and EventBus publishing.
+    # single processor: TF enrichment (classification, visibility, phases,
+    # duration, risk), tool_display derivation, diff triggering, turn_id
+    # synthesis, step/trail annotation, EventBus publishing, and title
+    # inference (boundary + ONNX model → TitleUpdate → turn_summary events).
+    from traceforge.enricher import Enricher as TFEnricher
+    from traceforge.pipeline import EventPipeline as TFEventPipeline
+    from traceforge.sinks.callback import CallbackSink as TFCallbackSink
+
     from backend.services.events.event_processor import EventProcessor
+
+    tf_enricher = TFEnricher(
+        flush_on_session_end=True,
+    )
+
+    async def _on_title_update(update) -> None:  # noqa: ANN001  (TitleUpdate at runtime)
+        """Convert a TraceForge TitleUpdate to a CodePlane turn_summary event.
+
+        Only maps fields that TF natively provides. Does not invent values
+        for fields TF does not supply (plan_item_id, activity_status).
+        """
+        if update.kind == "session":
+            # Session-level titles are handled by auto-naming, not turn summaries
+            return
+        await event_bus.publish(
+            new_event(
+                session_id=update.session_id,
+                timestamp=datetime.now(UTC),
+                kind=EventKind.turn_summary,
+                payload={
+                    "turn_id": update.segment_id,
+                    "title": update.title,
+                    "activity_id": update.parent_id or update.segment_id,
+                    "is_new_activity": update.kind == "activity",
+                },
+            )
+        )
+
+    title_sink = TFCallbackSink(on_title_update=_on_title_update)
+    title_pipeline = TFEventPipeline(
+        sinks=[title_sink],
+        enricher=None,  # already enriched inline
+        enable_phase=False,
+        enable_boundary=True,
+        enable_title=True,
+    )
 
     event_processor = EventProcessor(
         event_bus=event_bus,
         diff_service=services.diff_service,
         step_tracker=services.step_tracker,
         trail_service=trail_service,
+        enricher=tf_enricher,
+        title_pipeline=title_pipeline,
     )
     services.runtime_service.set_event_processor(event_processor)
 
@@ -1342,6 +1386,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await services.sidecar_dispatcher.shutdown()
         await services.sidecar_sessions.shutdown()
         await services.runtime_service.shutdown()
+        # Flush event processor (global enricher + title pipeline drain) AFTER
+        # runtime stops pushing events. Safe because no new push() calls occur.
+        await event_processor.shutdown()
         sse_manager.close_all()
         await engine.dispose()
 

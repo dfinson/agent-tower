@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.persistence.trail_repo import TrailNodeRepository
-    from backend.services.trail.activity_tracker import ActivityTracker
     from backend.services.trail.plan_manager import PlanManager
 
 log = structlog.get_logger()
@@ -105,14 +104,12 @@ class TrailNodeBuilder:
         job_state: dict[str, TrailJobState],
         repo: TrailNodeRepository,
         plan_manager: PlanManager | None = None,
-        activity_tracker: ActivityTracker | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._job_state = job_state
         self._repo = repo
         self._plan_manager = plan_manager
-        self._activity_tracker = activity_tracker
-        # Background tasks for non-blocking title generation / plan classification
+        # Background tasks for non-blocking plan classification
         self._background_tasks: set[asyncio.Task[None]] = set()
         # Per-job locks to serialize event processing within a job.
         # Prevents race between _on_session_resumed (async state load) and
@@ -560,42 +557,22 @@ class TrailNodeBuilder:
         node_id: str,
         payload: dict[str, Any],
     ) -> None:
-        """Inner implementation of classify-and-emit."""
+        """Inner implementation of classify-and-emit.
+
+        Turn summaries are now produced by the TraceForge title pipeline
+        (boundary + ONNX model inference → TitleUpdate → turn_summary events)
+        wired in EventProcessor.  This method only handles plan classification.
+        """
         state = self._job_state.get(job_id)
         if not state:
             return
 
         # Delegate plan classification to PlanManager.
-        # Isolated: failures here must not prevent turn_summary emission below.
-        assigned_plan_step_id: str | None = None
         if self._plan_manager:
             try:
-                assigned_plan_step_id = await self._plan_manager.classify_turn(job_id, payload)
+                await self._plan_manager.classify_turn(job_id, payload)
             except Exception:
                 log.warning("classify_turn_failed", job_id=job_id, node_id=node_id, exc_info=True)
-
-        # Delegate activity step to ActivityTracker
-        turn_id = payload.get("turn_id")
-        if turn_id and self._activity_tracker:
-            sidecar = self._plan_manager.get_sidecar(job_id) if self._plan_manager else None
-            files_read = payload.get("files_read") or []
-            files_written = payload.get("files_written") or []
-            agent_msg = payload.get("agent_message", "") or ""
-            duration_ms = payload.get("duration_ms", 0) or 0
-            preceding_context = payload.get("preceding_context")
-
-            await self._activity_tracker.emit_activity_step(
-                job_id,
-                node_id=node_id,
-                sidecar=sidecar,
-                turn_id=turn_id,
-                agent_msg=agent_msg,
-                files_read=files_read,
-                files_written=files_written,
-                duration_ms=duration_ms,
-                assigned_plan_step_id=assigned_plan_step_id,
-                preceding_context=preceding_context,
-            )
 
     async def _emit_pending_event(
         self,

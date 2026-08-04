@@ -11,12 +11,10 @@ from backend.config import TrailConfig
 from backend.models.events import TRANSCRIPT_KINDS, EventKind, SessionEvent, new_event
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.tools.parsing_utils import ensure_dict
-from backend.services.trail.activity_tracker import ActivityTracker
 from backend.services.trail.enricher import TrailEnricher
 from backend.services.trail.node_builder import TrailNodeBuilder
 from backend.services.trail.plan_manager import PlanManager
 from backend.services.trail.query_service import TrailQueryService
-from backend.services.trail.title_generator import TitleGenerator
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -43,8 +41,12 @@ class TrailService:
     """Thin facade composing trail subsystem components.
 
     Single entry point for the rest of the application — delegates to
-    TrailNodeBuilder, PlanManager, ActivityTracker, TrailEnricher,
-    TrailQueryService, and TitleGenerator.
+    TrailNodeBuilder, PlanManager, TrailEnricher, and TrailQueryService.
+
+    Turn summaries are now produced by the TraceForge title pipeline
+    (boundary + ONNX model inference → TitleUpdate → turn_summary events)
+    wired in EventProcessor.  The previous LLM-based ActivityTracker +
+    TitleGenerator path has been retired.
     """
 
     def __init__(
@@ -65,19 +67,10 @@ class TrailService:
         self._repo = TrailNodeRepository(session_factory)
 
         # Components
-        self._title_gen = TitleGenerator()
-
         self._plan_manager = PlanManager(
             event_bus=event_bus,
             job_state=self._job_state,
             sidecar_sessions=sidecar_sessions,
-        )
-
-        self._activity_tracker = ActivityTracker(
-            event_bus=event_bus,
-            job_state=self._job_state,
-            title_generator=self._title_gen,
-            session_factory=session_factory,
         )
 
         self._node_builder = TrailNodeBuilder(
@@ -85,7 +78,6 @@ class TrailService:
             job_state=self._job_state,
             repo=self._repo,
             plan_manager=self._plan_manager,
-            activity_tracker=self._activity_tracker,
         )
 
         self._enricher = TrailEnricher(
@@ -311,9 +303,6 @@ class TrailService:
 
     async def drain_enrichment(self) -> int:
         return await self._enricher.drain_enrichment()
-
-    async def drain_titles(self) -> int:
-        return await self._enricher.drain_titles()
 
     async def drain_loop(self) -> None:
         await self._enricher.drain_loop()

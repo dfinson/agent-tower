@@ -13,7 +13,6 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import TrailConfig
 from backend.models.db import TrailNodeRow
-from backend.models.events import EventKind, new_event
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.story.motivation import (
     _EDIT_SYSTEM_PROMPT,
@@ -211,78 +210,9 @@ class TrailEnricher:
             self._dirty_job_ids.update(by_job.keys())
         return processed
 
-    async def drain_titles(self) -> int:
-        """Recover titles for trail nodes that were created but never got titles.
-
-        Only emits a turn_summary when we can derive a meaningful title from
-        actual content (files written or agent message). Nodes with no signal
-        are skipped — silence is better than noise.
-        """
-        nodes = await self._repo.get_untitled_work_nodes(limit=20)
-        if not nodes:
-            return 0
-
-        processed = 0
-        for node in nodes:
-            try:
-                files_written: list[str] = []
-                if node.files:
-                    all_files = json.loads(node.files)
-                    files_written = [f for f in all_files if isinstance(f, str)]
-
-                if files_written:
-                    title = f"Edited {', '.join(files_written[:3])}"
-                elif node.agent_message:
-                    title = node.agent_message.split("\n")[0]
-                else:
-                    # No meaningful signal — skip rather than emit garbage.
-                    continue
-
-                # Only persist the title to DB. Do NOT touch in-memory state
-                # (state.activities) — that's the activity tracker's job.
-                # Mutating it here races with the live LLM path and poisons
-                # activity labels.
-                activity_id = node.activity_id or ""
-                activity_label = node.activity_label or ""
-
-                async with self._session_factory() as session:
-                    from sqlalchemy import update as sa_update
-
-                    stmt = (
-                        sa_update(TrailNodeRow)
-                        .where(TrailNodeRow.id == node.id)
-                        .values(
-                            title=title,
-                        )
-                    )
-                    await session.execute(stmt)
-                    await session.commit()
-
-                # Only emit turn_summary if the activity tracker already
-                # assigned an activity (activity_id in the node). Otherwise
-                # the activity tracker will handle emission when it runs.
-                if activity_id:
-                    await self._event_bus.publish(
-                        new_event(
-                            session_id=node.job_id,
-                            timestamp=node.timestamp,
-                            kind=EventKind.turn_summary,
-                            payload={
-                                "turn_id": node.turn_id,
-                                "title": title,
-                                "activity_id": activity_id,
-                                "activity_label": activity_label,
-                                "activity_status": "active",
-                                "is_new_activity": False,
-                                "plan_item_id": node.plan_item_id,
-                            },
-                        )
-                    )
-                processed += 1
-            except (SQLAlchemyError, KeyError, ValueError, OSError):
-                log.debug("trail_title_recovery_failed", node_id=node.id, exc_info=True)
-
-        return processed
+    # drain_titles has been retired — turn summaries are now produced by the
+    # TraceForge title pipeline (boundary + ONNX model inference → TitleUpdate →
+    # turn_summary events) wired in EventProcessor.
 
     # ------------------------------------------------------------------
     # §13.2: Motivation summarization (absorbed from MotivationService)
@@ -666,15 +596,12 @@ class TrailEnricher:
         return None
 
     async def drain_loop(self) -> None:
-        """Run forever, periodically processing enrichment, titles, and motivations."""
+        """Run forever, periodically processing enrichment and motivations."""
         while True:
             try:
                 count = await self.drain_enrichment()
                 if count:
                     log.info("trail_enrichment_batch_processed", count=count)
-                title_count = await self.drain_titles()
-                if title_count:
-                    log.info("trail_title_recovery_batch_processed", count=title_count)
                 # §13.2: Motivation summarization
                 summary_count = await self.drain_write_summaries()
                 if summary_count:

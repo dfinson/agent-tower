@@ -550,6 +550,25 @@ async def restore_to_sha(
     return RestoreResponse(restored=True, sha=body.sha)
 
 
+@router.post("/jobs/{job_id}/reenrich")
+async def reenrich_job(
+    job_id: str,
+    session_factory: FromDishka[async_sessionmaker[AsyncSession]],
+    force: bool = Query(default=False),
+) -> dict[str, Any]:
+    """Re-enrich historical events for a job through TraceForge.
+
+    Replays all persisted events through a fresh TraceForge Enricher so
+    that classification, visibility, tool_display and other metadata are
+    backfilled.  Idempotent — a marker event prevents double processing
+    unless ``force=true``.
+    """
+    from backend.services.events.reenrich import reenrich_job_events
+
+    updated = await reenrich_job_events(job_id, session_factory, force=force)
+    return {"job_id": job_id, "updated_events": updated}
+
+
 @router.get("/jobs/{job_id}/timeline", response_model=TimelineListResponse)
 async def get_job_timeline(
     job_id: str,

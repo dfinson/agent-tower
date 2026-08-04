@@ -47,7 +47,7 @@ dependencies = [
     # traceforge-title-model ONNX weights transitively. A git+ install is avoided
     # on purpose — it force-checks-out the LFS monorepo and trips a missing LFS
     # object on the remote (tracked as an upstream defect).
-    "traceforge-toolkit>=0.1.3,<0.2",
+    "traceforge-toolkit>=0.1.5,<0.2",
     "psutil>=7.2.2",
 ]
 
