@@ -825,6 +825,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from traceforge.sinks.callback import CallbackSink as TFCallbackSink
 
     from backend.services.events.event_processor import EventProcessor
+    from backend.services.events.turn_summary import build_turn_summary_payload
 
     tf_enricher = TFEnricher(
         flush_on_session_end=True,
@@ -833,23 +834,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async def _on_title_update(update) -> None:  # noqa: ANN001  (TitleUpdate at runtime)
         """Convert a TraceForge TitleUpdate to a CodePlane turn_summary event.
 
-        Only maps fields that TF natively provides. Does not invent values
-        for fields TF does not supply (plan_item_id, activity_status).
+        Delegates the field mapping to ``build_turn_summary_payload`` (pure,
+        unit-tested). Session-kind titles map to ``None`` and are skipped.
         """
-        if update.kind == "session":
-            # Session-level titles are handled by auto-naming, not turn summaries
+        payload = build_turn_summary_payload(update)
+        if payload is None:
             return
         await event_bus.publish(
             new_event(
                 session_id=update.session_id,
                 timestamp=datetime.now(UTC),
                 kind=EventKind.turn_summary,
-                payload={
-                    "turn_id": update.segment_id,
-                    "title": update.title,
-                    "activity_id": update.parent_id or update.segment_id,
-                    "is_new_activity": update.kind == "activity",
-                },
+                payload=payload,
             )
         )
 

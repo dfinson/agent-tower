@@ -28,6 +28,8 @@ from backend.models.events import EventKind, SessionEvent, new_event
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from backend.persistence.event_repo import EventRepository
+
 log = structlog.get_logger()
 
 # Marker event kind stored after a successful re-enrichment pass.
@@ -39,6 +41,47 @@ _job_locks: dict[str, asyncio.Lock] = {}
 
 # Batch size for paginated event loading.
 _BATCH_SIZE = 500
+
+
+def _canonical_metadata(metadata: object | None) -> str | None:
+    """Serialize event metadata to a stable, order-independent string.
+
+    Used to detect whether re-enrichment actually changed an event's metadata.
+    Snapshotting the *serialized* form **before** ``Enricher.process`` makes the
+    change check robust even if a future TraceForge were to mutate the event's
+    metadata object in place (sharing it with the returned event) instead of
+    returning a fresh copy: a plain ``!=`` on the live objects would then always
+    compare equal and silently skip the write, marking backfill complete with no
+    persisted changes. TF 0.1.5 returns copies (frozen models), but comparing
+    pre-captured snapshots keeps the guarantee independent of that.
+    """
+    if metadata is None:
+        return None
+    return json.dumps(
+        metadata.model_dump(mode="json"),
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+async def _persist_if_changed(
+    repo: EventRepository,
+    event: SessionEvent,
+    baseline: str | None,
+) -> bool:
+    """Persist *event*'s metadata iff it differs from the *baseline* snapshot.
+
+    ``baseline`` is the canonical serialization of the event's metadata captured
+    before enrichment. Returns ``True`` when a write occurred (so callers can
+    keep an accurate updated count) and ``False`` otherwise — avoiding redundant
+    writes when enrichment produced no net change.
+    """
+    after = _canonical_metadata(event.metadata)
+    if after is None or after == baseline:
+        return False
+    await repo.update_metadata(event_id=event.id, metadata=event.metadata)
+    return True
 
 
 def _get_job_lock(job_id: str) -> asyncio.Lock:
@@ -105,6 +148,15 @@ async def _reenrich_locked(
         updated = 0
         offset = 0
 
+        # Original serialized metadata for buffered tool-starts that may
+        # resurface later as orphans — either in a subsequent ``process`` result
+        # list (a displaced/evicted start) or in the final ``flush``. Only
+        # TOOL_CALL_STARTED events are ever buffered, so this map stays bounded
+        # by the enricher's pending buffer, not the full event log. Each orphan
+        # is compared against its *own* original snapshot (not the unrelated
+        # event currently being processed), fixing the prior wrong-baseline bug.
+        pending_original: dict[str, str | None] = {}
+
         while True:
             batch = await repo.list_all_events_by_job(job_id, limit=_BATCH_SIZE, offset=offset)
             if not batch:
@@ -115,6 +167,12 @@ async def _reenrich_locked(
                 if event.kind == _REENRICH_MARKER_KIND:
                     continue
 
+                # Snapshot the ORIGINAL metadata *before* enrichment so the
+                # change check can't be defeated by in-place mutation.
+                original = _canonical_metadata(event.metadata)
+                if event.kind == EventKind.tool_call_started:
+                    pending_original[event.id] = original
+
                 try:
                     enriched = enricher.process(event)
                 except Exception:
@@ -124,25 +182,30 @@ async def _reenrich_locked(
                         event_id=event.id,
                         exc_info=True,
                     )
+                    pending_original.pop(event.id, None)
                     continue
 
                 if enriched is None:
+                    # Buffered unpaired tool-start: its snapshot stays in
+                    # pending_original for the eventual orphan flush.
                     continue
 
                 events_to_update = enriched if isinstance(enriched, list) else [enriched]
                 for e in events_to_update:
-                    if e.metadata and e.metadata != event.metadata:
-                        await repo.update_metadata(event_id=e.id, metadata=e.metadata)
+                    baseline = original if e.id == event.id else pending_original.get(e.id)
+                    if await _persist_if_changed(repo, e, baseline):
                         updated += 1
+                    pending_original.pop(e.id, None)
 
             if len(batch) < _BATCH_SIZE:
                 break
             offset += _BATCH_SIZE
 
-        # Flush any remaining buffered events
+        # Flush any remaining buffered events (unpaired tool-starts), each
+        # compared against its own pre-enrichment snapshot.
         for orphan in enricher.flush():
-            if orphan.metadata:
-                await repo.update_metadata(event_id=orphan.id, metadata=orphan.metadata)
+            baseline = pending_original.pop(orphan.id, None)
+            if await _persist_if_changed(repo, orphan, baseline):
                 updated += 1
 
         # Insert fresh marker event (old one deleted above if force)

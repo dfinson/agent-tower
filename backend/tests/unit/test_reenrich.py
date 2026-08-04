@@ -192,3 +192,123 @@ class TestReenrichBatching:
                 assert call_count >= 2
                 # Enricher.process should have been called for all events
                 assert enricher.process.call_count == _BATCH_SIZE + 10
+
+
+class _InPlaceMutatingEnricher:
+    """Faithful stand-in for a hypothetical TraceForge that enriches by mutating
+    the event's metadata IN PLACE and returning the SAME event object.
+
+    This aliases the input and the result (``result is event`` and
+    ``result.metadata is event.metadata``), which is exactly the shape that
+    defeats a naive live ``e.metadata != event.metadata`` comparison — the two
+    sides are the same object, so ``!=`` is always False and the write is
+    silently skipped. reenrich must instead compare against a snapshot captured
+    *before* ``process`` and still persist the change.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.processed: list[str] = []
+
+    def process(self, event):  # noqa: ANN001, ANN201
+        self.processed.append(event.id)
+        # Enrich by replacing metadata on the SAME event object (in place).
+        enriched_md = event.metadata.model_copy(update={"tool_display": "shell"})
+        object.__setattr__(event, "metadata", enriched_md)
+        return event
+
+    def flush(self):  # noqa: ANN201
+        return []
+
+
+class TestReenrichMutationSafety:
+    """Point 2: the change check is robust to in-place metadata mutation and the
+    updated/marker count stays accurate."""
+
+    @pytest.mark.asyncio
+    async def test_in_place_mutation_still_persists_metadata(self, mock_session_factory):
+        """An in-place-mutating enricher must NOT cause a silently-skipped write.
+
+        Proves the snapshot-before-process fix: metadata is persisted and the
+        returned updated count (which is written into the marker) is correct.
+        """
+        event = new_event(
+            session_id="j1",
+            kind=EventKind.tool_call_completed,
+            payload={"tool_name": "bash", "tool_call_id": "tc-1"},
+        )
+        # Precondition: the original metadata has no tool_display, so enrichment
+        # (tool_display="shell") is a genuine, detectable change.
+        assert event.metadata.tool_display is None
+
+        with patch("backend.persistence.event_repo.EventRepository") as mock_repo_cls:
+            repo = mock_repo_cls.return_value
+            repo.list_by_job = AsyncMock(return_value=[])
+            repo.list_all_events_by_job = AsyncMock(side_effect=[[event], []])
+            repo.update_metadata = AsyncMock()
+
+            with patch("backend.services.events.reenrich.TFEnricher", _InPlaceMutatingEnricher):
+                updated = await reenrich_job_events("j1", mock_session_factory)
+
+            # Metadata was persisted despite input/result aliasing.
+            repo.update_metadata.assert_awaited_once()
+            _, kwargs = repo.update_metadata.await_args
+            assert kwargs["event_id"] == event.id
+            assert kwargs["metadata"].tool_display == "shell"
+            # Marker/return count reflects exactly one write.
+            assert updated == 1
+
+    @pytest.mark.asyncio
+    async def test_no_change_writes_nothing(self, mock_session_factory):
+        """When enrichment yields no net metadata change, no write occurs and the
+        count stays zero (avoid unnecessary writes)."""
+
+        class _NoOpEnricher:
+            def __init__(self, *a, **k) -> None:
+                pass
+
+            def process(self, event):  # noqa: ANN001, ANN201
+                # Return the event unchanged (no metadata delta).
+                return event
+
+            def flush(self):  # noqa: ANN201
+                return []
+
+        event = new_event(session_id="j1", kind=EventKind.message_user, payload={"content": "hi"})
+
+        with patch("backend.persistence.event_repo.EventRepository") as mock_repo_cls:
+            repo = mock_repo_cls.return_value
+            repo.list_by_job = AsyncMock(return_value=[])
+            repo.list_all_events_by_job = AsyncMock(side_effect=[[event], []])
+            repo.update_metadata = AsyncMock()
+
+            with patch("backend.services.events.reenrich.TFEnricher", _NoOpEnricher):
+                updated = await reenrich_job_events("j1", mock_session_factory)
+
+            repo.update_metadata.assert_not_awaited()
+            assert updated == 0
+
+    @pytest.mark.asyncio
+    async def test_real_enricher_persists_enriched_metadata(self, mock_session_factory):
+        """End-to-end with the REAL TF 0.1.5 enricher: a classifiable tool-start is
+        buffered then flushed as an enriched orphan whose metadata is persisted."""
+        event = new_event(
+            session_id="j1",
+            kind=EventKind.tool_call_started,
+            payload={"tool_name": "bash", "tool_call_id": "tc-1", "arguments": '{"command": "ls -la"}'},
+        )
+        assert event.metadata.classification is None  # not yet enriched
+
+        with patch("backend.persistence.event_repo.EventRepository") as mock_repo_cls:
+            repo = mock_repo_cls.return_value
+            repo.list_by_job = AsyncMock(return_value=[])
+            repo.list_all_events_by_job = AsyncMock(side_effect=[[event], []])
+            repo.update_metadata = AsyncMock()
+
+            # No TFEnricher patch — uses the real enricher.
+            updated = await reenrich_job_events("j1", mock_session_factory)
+
+        repo.update_metadata.assert_awaited()
+        _, kwargs = repo.update_metadata.await_args
+        assert kwargs["event_id"] == event.id
+        assert kwargs["metadata"].classification is not None
+        assert updated >= 1

@@ -19,6 +19,7 @@ from traceforge.types import Classification, EventMetadata, TitleUpdate
 from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.events.event_bus import EventBus
 from backend.services.events.event_processor import EventProcessor
+from backend.services.events.turn_summary import build_turn_summary_payload
 
 
 def _tf(kind: EventKind, payload: dict | None = None, **md_kwargs) -> SessionEvent:
@@ -399,6 +400,71 @@ class TestTitlePipelineCallback:
 
 
 # ---------------------------------------------------------------------------
+# turn_summary mapper contract — the REAL function used by lifespan's callback
+# ---------------------------------------------------------------------------
+
+
+class TestBuildTurnSummaryPayload:
+    """Contract test for ``build_turn_summary_payload`` — the importable mapper
+    the lifespan title-pipeline callback delegates to.
+
+    Guards the blank-activity-header regression: an ``activity``-kind update
+    MUST surface a nonblank ``activity_label`` (its native title) so the frontend
+    reducer writes a real label instead of ``undefined``. Step updates carry only
+    their own step title and must NOT synthesize an activity_label.
+    """
+
+    def test_activity_update_includes_native_activity_label(self):
+        update = TitleUpdate(
+            session_id="j1",
+            segment_id="act-1",
+            kind="activity",
+            title="Setting up environment",
+            version=1,
+            parent_id=None,
+        )
+        payload = build_turn_summary_payload(update)
+        assert payload is not None
+        assert payload["is_new_activity"] is True
+        assert payload["turn_id"] == "act-1"
+        assert payload["activity_id"] == "act-1"
+        assert payload["title"] == "Setting up environment"
+        # The fix: activity_label present and nonblank, mapped from the native
+        # activity title (no synthetic inference).
+        assert payload["activity_label"] == "Setting up environment"
+        assert payload["activity_label"]  # nonblank
+
+    def test_step_update_omits_activity_label(self):
+        update = TitleUpdate(
+            session_id="j1",
+            segment_id="step-1",
+            kind="step",
+            title="Reading config file",
+            version=1,
+            parent_id="act-1",
+        )
+        payload = build_turn_summary_payload(update)
+        assert payload is not None
+        assert payload["is_new_activity"] is False
+        assert payload["activity_id"] == "act-1"
+        assert payload["turn_id"] == "step-1"
+        # A step's native title is the STEP title, not the activity label — so no
+        # activity_label is emitted; the reducer preserves the parent's label.
+        assert "activity_label" not in payload
+
+    def test_session_update_returns_none(self):
+        update = TitleUpdate(
+            session_id="j1",
+            segment_id="j1",
+            kind="session",
+            title="Job title",
+            version=1,
+            parent_id=None,
+        )
+        assert build_turn_summary_payload(update) is None
+
+
+# ---------------------------------------------------------------------------
 # Real TFEventPipeline integration — turn_summary emission after terminal
 # ---------------------------------------------------------------------------
 
@@ -626,3 +692,77 @@ class TestTwoSessionIsolation:
         assert len(published) == 1
         assert published[0].session_id == "j2"
         pipeline.close.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Repeated terminal safety against REAL TF 0.1.5 public-API idempotency
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestTerminalIdempotencyRealTF:
+    """Point 3: repeated ``on_job_terminal`` is safe against the *real* TF 0.1.5
+    public APIs (``Enricher.flush_session`` + ``EventPipeline.finalize_session``),
+    both documented idempotent.
+
+    A valid ``review -> cancel`` produces two terminal transitions for one job —
+    a fresh post-finalize incarnation, not a bug — so CodePlane adds NO local
+    duplicate guard: the second finalize is a clean no-op that never double-emits
+    orphans or crashes. This test proves that end-to-end with real TF, not mocks.
+    """
+
+    async def test_double_terminal_review_then_cancel_no_duplicates(self):
+        from traceforge.pipeline import EventPipeline as TFEventPipeline
+        from traceforge.sinks.callback import CallbackSink as TFCallbackSink
+
+        bus = EventBus()
+        published: list[SessionEvent] = []
+
+        async def _handler(e: SessionEvent) -> None:
+            published.append(e)
+
+        bus.subscribe(_handler)
+
+        async def _on_title(update) -> None:
+            payload = build_turn_summary_payload(update)
+            if payload is None:
+                return
+            await bus.publish(
+                new_event(
+                    session_id=update.session_id,
+                    timestamp=datetime.now(UTC),
+                    kind=EventKind.turn_summary,
+                    payload=payload,
+                )
+            )
+
+        title_pipeline = TFEventPipeline(
+            sinks=[TFCallbackSink(on_title_update=_on_title)],
+            enricher=None,
+            enable_phase=False,
+            enable_boundary=True,
+            enable_title=True,
+        )
+        enricher = TFEnricher(flush_on_session_end=True)
+        proc = EventProcessor(bus, enricher=enricher, title_pipeline=title_pipeline)
+
+        # Build live session state plus an UNPAIRED tool-start so flush_session
+        # has a real orphan to drain on the first terminal transition.
+        await proc.process_event("j1", _tf(EventKind.message_user, {"content": "do it", "turn_id": "t1"}))
+        await proc.process_event("j1", _tf(EventKind.message_assistant, {"content": "ok", "turn_id": "t1"}))
+        await proc.process_event(
+            "j1",
+            _tf(EventKind.tool_call_started, {"tool_name": "bash", "tool_call_id": "tc-1", "turn_id": "t1"}),
+        )
+
+        # First terminal — job enters review. Drains the unpaired start exactly once.
+        await proc.on_job_terminal("j1", "review")
+        starts_after_first = [e for e in published if e.kind == EventKind.tool_call_started]
+        assert len(starts_after_first) == 1
+
+        # Second terminal — user cancels the reviewed job (fresh incarnation).
+        # Real TF flush_session/finalize_session are idempotent: no duplicate
+        # orphan, no re-emitted titles, no exception.
+        published.clear()
+        await proc.on_job_terminal("j1", "canceled")
+        assert published == []
