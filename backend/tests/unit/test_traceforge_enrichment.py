@@ -143,8 +143,8 @@ class TestEnricherWiring:
         assert enriched.metadata.duration_ms is not None
 
     @pytest.mark.asyncio
-    async def test_on_job_terminal_flushes_orphans(self):
-        """on_job_terminal flushes buffered tool starts as orphans."""
+    async def test_shutdown_flushes_orphans(self):
+        """shutdown() flushes buffered tool starts as orphans (global teardown)."""
         bus = EventBus()
         published: list[SessionEvent] = []
 
@@ -166,8 +166,12 @@ class TestEnricherWiring:
         )
         assert len(published) == 0
 
-        # Terminal event flushes orphans
+        # on_job_terminal does NOT flush enricher (private API gap)
         await proc.on_job_terminal("j1", "completed")
+        assert len(published) == 0
+
+        # shutdown() flushes globally
+        await proc.shutdown()
         assert len(published) == 1  # orphan published
 
 
@@ -373,12 +377,16 @@ class TestRealPipelineFlush:
     """Integration test using the REAL TFEventPipeline (not mock callbacks).
 
     Proves that activity/step turn_summary events are emitted after
-    on_job_terminal flushes the pipeline.
+    shutdown() flushes the pipeline (global teardown, not per-job).
+
+    NOTE: Per-session finalization on job terminal is blocked pending
+    TraceForge public API for `finalize_session(session_id)`. The global
+    flush is only safe at shutdown when no more events are being pushed.
     """
 
     @pytest.mark.asyncio
-    async def test_terminal_flush_emits_title_updates(self):
-        """Pipeline flush on terminal emits pending TitleUpdates → turn_summary."""
+    async def test_shutdown_flush_emits_title_updates(self):
+        """Pipeline close on shutdown emits pending TitleUpdates → turn_summary."""
         from traceforge.pipeline import EventPipeline as TFEventPipeline
         from traceforge.sinks.callback import CallbackSink as TFCallbackSink
 
@@ -447,18 +455,16 @@ class TestRealPipelineFlush:
         for event in events:
             await proc.process_event("j1", event)
 
-        # Before terminal flush, title pipeline may or may not have emitted
-        # (depends on boundary detection needing flush for trailing activity)
+        # Before shutdown, title pipeline may or may not have emitted
         pre_flush_summaries = [e for e in published if e.kind == EventKind.turn_summary]
 
-        # Terminal flush — this should emit any remaining title updates
-        await proc.on_job_terminal("j1", "completed")
+        # Shutdown flush — emits any remaining title updates (global teardown)
+        await proc.shutdown()
 
         post_flush_summaries = [e for e in published if e.kind == EventKind.turn_summary]
 
         # After flush we should have at least as many or more summaries
-        # (the flush emits trailing activity title)
         assert len(post_flush_summaries) >= len(pre_flush_summaries)
         # The title pipeline was invoked (title_updates received at least session title)
         # Note: with few events, the title inferencer may produce session-level only,
-        # which we skip. The key contract is that flush() was called without error.
+        # which we skip. The key contract is that close() was called without error.

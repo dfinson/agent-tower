@@ -1386,6 +1386,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await services.sidecar_dispatcher.shutdown()
         await services.sidecar_sessions.shutdown()
         await services.runtime_service.shutdown()
+        # Flush event processor (global enricher + title pipeline drain) AFTER
+        # runtime stops pushing events. Safe because no new push() calls occur.
+        await event_processor.shutdown()
         sse_manager.close_all()
         await engine.dispose()
 

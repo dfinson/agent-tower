@@ -351,9 +351,7 @@ class RuntimeService:
         """
         self._telemetry_subscriber = subscriber
 
-    def set_governance(
-        self, decider: GovernanceDecider, subscriber: GovernanceSubscriber
-    ) -> None:
+    def set_governance(self, decider: GovernanceDecider, subscriber: GovernanceSubscriber) -> None:
         """Wire the process-wide governance decider + accrual subscriber (late binding).
 
         The decider owns the durable governance store and the three preset
@@ -1104,9 +1102,7 @@ class RuntimeService:
         final_state = JobState.review
         if final_resolution in (Resolution.merged, Resolution.pr_created, Resolution.discarded):
             final_state = JobState.completed
-        final_event_kind = (
-            EventKind.job_completed if final_state == JobState.completed else EventKind.job_review
-        )
+        final_event_kind = EventKind.job_completed if final_state == JobState.completed else EventKind.job_review
 
         await self._set_step_terminal_state(job_id, final_state)
         await self._event_bus.publish(
@@ -1275,9 +1271,7 @@ class RuntimeService:
             if self._governance_decider is not None:
                 from backend.services.action_policy.governance import load_usd_ceilings
 
-                self._governance_decider.set_usd_ceilings(
-                    await load_usd_ceilings(self._session_factory)
-                )
+                self._governance_decider.set_usd_ceilings(await load_usd_ceilings(self._session_factory))
                 self._governance_decider.rebuild()
 
             for job_id in job_ids:
@@ -1734,11 +1728,7 @@ class RuntimeService:
 
         # Handle approval requests (managed sessions only — external/imported
         # sessions handle their own approvals and just publish for UI visibility).
-        if (
-            kind == EventKind.approval_requested
-            and self._approval_service is not None
-            and agent_session is not None
-        ):
+        if kind == EventKind.approval_requested and self._approval_service is not None and agent_session is not None:
             resolution = await self._handle_approval_request(job_id, session_event, rejection_message)
             if resolution == ApprovalResolution.rejected:
                 return EventAction.abort, rejection_message
@@ -2173,9 +2163,7 @@ class RuntimeService:
         # Blanket session trust: waive every NON-security-critical gate for a long
         # TTL. Security-critical §18.2 gates are never waived (enforced inside the
         # decider), so a "trust this session" action can't bypass a hard gate.
-        self._governance_decider.grant_session_trust(
-            job_id, ttl_seconds=86_400.0, reason="operator trusted session"
-        )
+        self._governance_decider.grant_session_trust(job_id, ttl_seconds=86_400.0, reason="operator trusted session")
 
         # Also resolve any pending batch so the currently-blocked action proceeds
         batcher = self._policy_batchers.get(job_id)

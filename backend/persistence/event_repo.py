@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from traceforge.types import EventMetadata
 
 from backend.models.db import EventRow
@@ -199,4 +199,9 @@ class EventRepository(BaseRepository):
                 )
             )
         )
+        await self._session.execute(stmt)
+
+    async def delete_event(self, event_id: str) -> None:
+        """Delete a single event by its ID."""
+        stmt = delete(EventRow).where(EventRow.event_id == event_id)
         await self._session.execute(stmt)

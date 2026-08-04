@@ -252,30 +252,37 @@ class EventProcessor:
         return event
 
     async def on_job_terminal(self, job_id: str, outcome: str) -> None:
-        """Notify step tracker and flush enricher + title pipeline for this job.
+        """Notify step tracker that a job reached terminal state.
 
-        Must be called from both managed and imported terminal paths before
-        cleanup so that the title pipeline emits final open-activity titles.
+        Called from both managed and imported terminal paths.
+
+        NOTE: Per-session title pipeline finalization is intentionally NOT
+        performed here. TraceForge ``EventPipeline.flush()`` is global/terminal
+        (drains ALL sessions, clears state) and is incorrect when multiple
+        concurrent jobs share the pipeline. The semantically correct
+        ``_finalize_session(session_id)`` is private upstream. This is an
+        upstream gap — TraceForge must expose a public per-session finalization
+        method before CodePlane can emit final activity titles on job terminal.
+        See :meth:`shutdown` for the global teardown path.
         """
         if self._step_tracker is not None:
             await self._step_tracker.on_job_terminal(job_id, outcome)
-        # Flush any buffered tool starts for this job's session
+
+    async def shutdown(self) -> None:
+        """Global teardown — flush all pipeline state after runtime stops pushing.
+
+        Safe to call only when NO more events will be pushed (app shutdown).
+        Drains the enricher's buffered orphan tool-starts and the title
+        pipeline's remaining activity/step titles for all sessions.
+        """
         if self._enricher is not None:
-            for orphan in self._enricher._flush_session(job_id):
+            for orphan in self._enricher.flush():
                 await self._event_bus.publish(orphan)
-        # Flush the title pipeline so it emits final activity/step titles
-        # for this session. The pipeline's flush() drains ALL sessions;
-        # acceptable because jobs are sequential per-pipeline or only one
-        # session is active when a managed job terminates.
         if self._title_pipeline is not None:
             try:
-                await self._title_pipeline.flush()
+                await self._title_pipeline.close()
             except Exception:
-                log.warning(
-                    "title_pipeline_flush_failed",
-                    job_id=job_id,
-                    exc_info=True,
-                )
+                log.warning("title_pipeline_close_failed", exc_info=True)
 
     def cleanup(self, job_id: str) -> None:
         """Clean up per-job tracking state."""

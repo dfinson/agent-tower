@@ -10,7 +10,7 @@ The path is bounded (batched pagination, not full memory load),
 deterministic (same enricher, same event order → same output),
 concurrency-safe (per-job asyncio lock prevents duplicate replay),
 and durable-no-repeat (a marker event prevents double processing;
-force replaces rather than appends markers).
+force deletes then re-inserts the marker).
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ log = structlog.get_logger()
 _REENRICH_MARKER_KIND = EventKind.reenrich_complete
 
 # Per-job concurrency exclusion — prevents duplicate concurrent re-enrichment.
+# Bounded: locks are removed after the reenrich completes (see finally block).
 _job_locks: dict[str, asyncio.Lock] = {}
 
 # Batch size for paginated event loading.
@@ -60,7 +61,7 @@ async def reenrich_job_events(
 
     Concurrency-safe: per-job lock prevents duplicate concurrent replay.
     Bounded: events are loaded in batches of ``_BATCH_SIZE``.
-    Durable: force=True replaces the existing marker (not appends).
+    Durable: force=True deletes the old marker and inserts a fresh one.
     """
     lock = _get_job_lock(job_id)
     if lock.locked():
@@ -68,7 +69,12 @@ async def reenrich_job_events(
         return 0
 
     async with lock:
-        return await _reenrich_locked(job_id, session_factory, force=force)
+        try:
+            return await _reenrich_locked(job_id, session_factory, force=force)
+        finally:
+            # Remove lock from dict to prevent unbounded accumulation.
+            # If another call races after removal, _get_job_lock creates a new one.
+            _job_locks.pop(job_id, None)
 
 
 async def _reenrich_locked(
@@ -88,6 +94,11 @@ async def _reenrich_locked(
         if markers and not force:
             log.info("reenrich_already_complete", job_id=job_id)
             return 0
+
+        # If force, delete existing marker(s) first — clean slate
+        if markers and force:
+            for m in markers:
+                await repo.delete_event(m.id)
 
         # Re-enrich through a fresh TF Enricher in batches
         enricher = TFEnricher(flush_on_session_end=True)
@@ -134,22 +145,14 @@ async def _reenrich_locked(
                 await repo.update_metadata(event_id=orphan.id, metadata=orphan.metadata)
                 updated += 1
 
-        # Persist or replace the marker event
+        # Insert fresh marker event (old one deleted above if force)
         marker = new_event(
             session_id=job_id,
             timestamp=datetime.now(UTC),
             kind=_REENRICH_MARKER_KIND,
             payload={"updated_count": updated},
         )
-        if markers and force:
-            # Replace existing marker (update in-place) — no unbounded accumulation
-            existing_marker = markers[0]
-            await repo.update_metadata(
-                event_id=existing_marker.id,
-                metadata=marker.metadata,
-            )
-        else:
-            await _append_marker(session, job_id, marker)
+        await _append_marker(session, job_id, marker)
 
         await session.commit()
         log.info("reenrich_complete", job_id=job_id, updated=updated)

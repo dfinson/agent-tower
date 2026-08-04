@@ -57,8 +57,8 @@ class TestReenrichIdempotency:
             assert result == 0
 
     @pytest.mark.asyncio
-    async def test_force_replaces_existing_marker(self, mock_session_factory):
-        """force=True re-enriches and replaces marker (not appends)."""
+    async def test_force_deletes_and_reinserts_marker(self, mock_session_factory):
+        """force=True deletes old marker and inserts a fresh one with correct count."""
         marker = new_event(
             session_id="j1",
             kind=_REENRICH_MARKER_KIND,
@@ -68,12 +68,12 @@ class TestReenrichIdempotency:
             repo = mock_repo_cls.return_value
             repo.list_by_job = AsyncMock(return_value=[marker])
             repo.list_all_events_by_job = AsyncMock(return_value=[])
-            repo.update_metadata = AsyncMock()
+            repo.delete_event = AsyncMock()
 
             result = await reenrich_job_events("j1", mock_session_factory, force=True)
             assert result == 0
-            # Should update existing marker metadata (replace), not append
-            repo.update_metadata.assert_called_once()
+            # Should delete existing marker
+            repo.delete_event.assert_called_once_with(marker.id)
 
     @pytest.mark.asyncio
     async def test_no_events_returns_zero(self, mock_session_factory):
@@ -102,6 +102,18 @@ class TestReenrichConcurrency:
         assert result == 0
 
         lock.release()
+
+    @pytest.mark.asyncio
+    async def test_lock_cleaned_up_after_completion(self, mock_session_factory):
+        """Per-job lock is removed from _job_locks after reenrich completes."""
+        with patch("backend.persistence.event_repo.EventRepository") as mock_repo_cls:
+            repo = mock_repo_cls.return_value
+            repo.list_by_job = AsyncMock(return_value=[])
+            repo.list_all_events_by_job = AsyncMock(return_value=[])
+
+            await reenrich_job_events("j1", mock_session_factory)
+            # Lock should be cleaned up — no unbounded accumulation
+            assert "j1" not in _job_locks
 
     @pytest.mark.asyncio
     async def test_marker_events_excluded_from_replay(self, mock_session_factory):
