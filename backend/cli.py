@@ -41,7 +41,20 @@ def cli() -> None:
 
 def _build_frontend() -> bool:
     """Build the frontend if sources are newer than dist/."""
+    import shutil
     import subprocess
+
+    # On Windows, npm is actually a "npm.cmd" shim. subprocess.run(["npm", ...])
+    # without shell=True calls CreateProcess directly, which does NOT resolve
+    # .cmd/.bat shims the way cmd.exe's PATH search does — it fails with
+    # "[WinError 2] The system cannot find the file specified" even though
+    # `npm` works fine from an interactive shell. shutil.which() resolves the
+    # correct executable (npm.cmd on Windows, npm on POSIX) up front.
+    npm = shutil.which("npm")
+    if npm is None:
+        click.secho("Frontend build failed: npm not found on PATH", fg="yellow")
+        click.echo("The API will still work, but there will be no web UI.")
+        return False
 
     frontend_root = Path(__file__).resolve().parent.parent / "frontend"
     dist = Path(__file__).resolve().parent / "web" / "index.html"
@@ -74,8 +87,8 @@ def _build_frontend() -> bool:
     try:
         # Ensure deps are installed
         if not (frontend_root / "node_modules").is_dir():
-            subprocess.run(["npm", "ci"], cwd=str(frontend_root), check=True, capture_output=True, timeout=300)
-        subprocess.run(["npm", "run", "build"], cwd=str(frontend_root), check=True, capture_output=True, timeout=300)
+            subprocess.run([npm, "ci"], cwd=str(frontend_root), check=True, capture_output=True, timeout=300)
+        subprocess.run([npm, "run", "build"], cwd=str(frontend_root), check=True, capture_output=True, timeout=300)
         click.secho("Frontend built.", fg="green")
         return dist.exists()
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
