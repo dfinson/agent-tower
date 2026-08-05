@@ -251,7 +251,9 @@ function _rebuildActivityTimeline(
     const existingById = activities.find((a) => a.activityId === (s.activityId ?? ""));
     if (existingById && !isNew) {
       existingById.steps.push(step);
-      existingById.label = s.activityLabel ?? existingById.label;
+      // Missing OR blank activity_label = "no opinion": keep the established
+      // label; never synthesize from the step title.
+      existingById.label = (s.activityLabel as string | undefined) || existingById.label;
       existingById.status = (s.activityStatus as "active" | "done") ?? existingById.status;
     } else if (existingById && isNew) {
       // isNewActivity was set but this activityId already exists — resume it
@@ -262,7 +264,9 @@ function _rebuildActivityTimeline(
       if (prev) prev.status = "done";
       activities.push({
         activityId: s.activityId ?? "",
-        label: s.activityLabel ?? "",
+        // Native-only: leave the header blank when no native activity_label is
+        // present (e.g. a leading step) instead of fabricating from the title.
+        label: (s.activityLabel as string | undefined) || "",
         status: (s.activityStatus as "active" | "done") ?? "active",
         steps: [step],
         planItemId,
@@ -271,7 +275,8 @@ function _rebuildActivityTimeline(
       const last = activities[activities.length - 1];
       if (last) {
         last.steps.push(step);
-        last.label = s.activityLabel ?? last.label;
+        // Missing OR blank activity_label = "no opinion": preserve the label.
+        last.label = (s.activityLabel as string | undefined) || last.label;
         last.status = (s.activityStatus as "active" | "done") ?? last.status;
       }
     }

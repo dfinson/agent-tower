@@ -112,7 +112,7 @@ export function handleTurnSummary(state: AppState, payload: Record<string, unkno
   const turnId = payload.turnId as string;
   const title = payload.title as string;
   const activityId = payload.activityId as string;
-  const activityLabel = payload.activityLabel as string;
+  const activityLabel = payload.activityLabel as string | undefined;
   const activityStatus = (payload.activityStatus as "active" | "done") || "active";
   const isNewActivity = payload.isNewActivity as boolean;
   const planItemId = (payload.planItemId as string | null) ?? null;
@@ -186,18 +186,24 @@ export function handleTurnSummary(state: AppState, payload: Record<string, unkno
     }
     activities.push({
       activityId,
-      label: activityLabel,
+      // Native-only: an activity_label is set solely from an activity-kind
+      // turn_summary. A leading step (or any update without a native label)
+      // leaves the header blank rather than fabricating one from the step
+      // title — blank is acceptable until a native activity update arrives.
+      label: activityLabel || "",
       status: activityStatus,
       steps: [step],
       planItemId,
     });
   } else {
-    // Add step to the last activity and optionally update its label
+    // Add step to the last activity. A missing OR blank activity_label means
+    // "no opinion" — preserve the label already established by the parent
+    // activity update; never overwrite it or synthesize from the step title.
     const last = activities[activities.length - 1];
     if (last) {
       activities[activities.length - 1] = {
         ...last,
-        label: activityLabel,
+        label: activityLabel || last.label,
         status: activityStatus,
         steps: [...last.steps, step],
       };
