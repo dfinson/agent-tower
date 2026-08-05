@@ -15,9 +15,9 @@ import { Spinner } from "./ui/spinner";
 import { useStore } from "../store";
 
 const PRESETS = [
-  { value: "autonomous", label: "Autonomous", description: "Broad autonomy. Protected paths and destructive-op budgets still escalate to you." },
-  { value: "supervised", label: "Supervised", description: "Moderate budget and spend ceilings. Network and higher-risk actions escalate for review." },
-  { value: "locked", label: "Locked", description: "Tight budgets and spend ceilings. Protected paths are denied; most actions need approval." },
+  { value: "autonomous", label: "Autonomous", description: "Broad autonomy. Protected paths and destructive operations still escalate to you." },
+  { value: "supervised", label: "Supervised", description: "Moderate spend ceilings. Network and higher-risk actions escalate for review." },
+  { value: "locked", label: "Locked", description: "Tight spend ceilings. Protected paths are denied; most actions need approval." },
 ];
 
 const CEILING_PRESETS = ["autonomous", "supervised", "locked"] as const;
@@ -171,8 +171,8 @@ export function PolicySettingsPanel() {
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          Each preset selects a TraceForge governance profile — its rules, protected paths, and
-          tool-call budget. Fine-grained rule authoring is governed by TraceForge, not CodePlane.
+          Each preset selects a governance profile — its rules, protected paths, and escalation
+          thresholds.
         </p>
       </div>
 
@@ -238,7 +238,7 @@ export function PolicySettingsPanel() {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Enforced natively as a TraceForge policy assessor alongside the profile's tool-call budget.
+          Applies natively as part of the profile's escalation rules.
         </p>
       </div>
     </div>
