@@ -122,9 +122,6 @@ scorecard.png
 site/
 .playwright-mcp/
 
-# BMAD generated method and runtime files
-/_bmad/
-/.agents/skills/bmad-*/
-/.github/agents/bmad-*.agent.md
+# BMAD planning and implementation runtime output
 /_bmad-output/planning-artifacts/
 /_bmad-output/implementation-artifacts/

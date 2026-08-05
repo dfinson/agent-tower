@@ -467,7 +467,7 @@ class SessionConfig:
     prompt: str
     mcp_servers: dict[str, MCPServerConfig]  # discovered from repo config files
     protected_paths: list[str]               # from per-repo config; used by permission policy
-    preset: Preset = "autonomous"            # autonomous | supervised | locked
+    preset: Preset = "supervised"             # autonomous | supervised | locked
     sdk: str = "copilot"                     # which SDK adapter to use
 
 @dataclass
@@ -476,18 +476,10 @@ class MCPServerConfig:
     args: list[str]
     env: dict[str, str] | None = None
 
-class SessionEventKind(str, Enum):
-    log = "log"
-    transcript = "transcript"
-    file_changed = "file_changed"
-    approval_request = "approval_request"
-    done = "done"
-    error = "error"
+from traceforge.types import SessionEvent
 
-@dataclass
-class SessionEvent:
-    kind: SessionEventKind
-    payload: dict
+# SessionEvent.kind is an open string. CodePlane emits and preserves dotted
+# TraceForge kinds such as "message.assistant" and "permission.requested".
 
 class AgentAdapterInterface(ABC):
 
@@ -583,12 +575,12 @@ The `ClaudeAdapter` wraps the Claude Agent SDK (`pip install claude-code-sdk`, i
 
 ##### Message Iterator Pattern
 
-Unlike Copilot's callback bridge, the Claude SDK yields messages natively as an async iterator. The adapter consumes messages in a background task that translates them into `SessionEvent` items:
+Unlike Copilot's callback bridge, the Claude SDK yields messages natively as an async iterator. The adapter consumes messages in a background task that normalizes them into canonical TraceForge `SessionEvent` items:
 
-- `AssistantMessage` with `TextBlock` → `SessionEvent(transcript, {role: "agent", content: text})`
-- `ToolUseBlock` → log event (tool started) + start time tracking
-- `ToolResultBlock` → `SessionEvent(transcript, {role: "tool_call", ...})` + telemetry
-- `ResultMessage` → telemetry recording + `SessionEvent(done/error, ...)`
+- `AssistantMessage` with `TextBlock` → `message.assistant`
+- `ToolUseBlock` → `tool.call.started` + start time tracking
+- `ToolResultBlock` → `tool.call.completed` + telemetry
+- `ResultMessage` → telemetry recording + `session.ended` or `session.error`
 - `SystemMessage` → log event only
 
 #### SDK-Model Compatibility
@@ -980,17 +972,25 @@ Runtime events are `traceforge.SessionEvent` objects (see §11). The SSE wire ca
 {
   "id": "<event uuid>",
   "session_id": "<job id>",
+  "timestamp": "<event timestamp>",
   "kind": "job.created",
   "payload": { "...": "kind-specific fields — see §11.1" },
-  "metadata": { "sequence": 12, "timestamp": "...", "turn_id": "...", "event_id": "..." }
+  "metadata": { "sequence": 12, "turn_id": "...", "...": "TraceForge annotations" }
 }
 ```
 
-- **`id:`** — `metadata.sequence` (the SQLite autoincrement), falling back to the event id; drives `Last-Event-ID` replay.
+- **`id:`** — the SQLite storage cursor, kept separate from the canonical
+  event id and producer sequence; drives `Last-Event-ID` replay.
 
 The frontend consumes this shape directly (`useSSE.ts`), reading `payload.*` and deriving job-state transitions from the dotted `kind` — the server does **not** emit the paired synthetic state-change frames the retired model did. The sole state event is the dotted `job.state_changed` kind, emitted on real transitions.
 
-The one non-`SessionEvent` frame is `snapshot`, sent on reconnect (see §5.4). It omits `id:` and its `data:` is a bespoke `{ jobs: JobResponse[], pending_approvals: ApprovalResponse[] }` payload.
+The non-`SessionEvent` frames are transport concerns. `snapshot`, sent when a
+replay gap exceeds the bounds in §5.4, omits `id:` and carries a bespoke
+`{ jobs: JobResponse[], pending_approvals: ApprovalResponse[] }` payload. The
+endpoint also sends `event: session_heartbeat` with `data: {}` immediately and
+after each five seconds without queued data. That unnumbered keepalive is not
+persisted or replayed and is distinct from the canonical dotted
+`session.heartbeat` domain event.
 
 ### 5.3.1 Broadcast Rules
 
@@ -998,7 +998,7 @@ Not every kind reaches clients. `SSEManager` gates delivery (`_BROADCAST_KINDS` 
 
 | Rule | Effect |
 |---|---|
-| **Broadcast allowlist** | Only allow-listed dotted kinds are sent. Internal-only kinds — `workspace.prepared`, `agent.session_started`, the `step.*` internals, `plan.updated`, `execution.phase_changed`, `progress.headline`, `sidecar.*`, `monitor.*` — are dropped at the boundary; their effect surfaces via other broadcast events or the job snapshot. |
+| **Broadcast allowlist** | Only allow-listed dotted kinds are sent. Internal-only kinds — `workspace.prepared`, `agent.session_started`, `step.started`, `step.completed`, `step.title_generated`, `step.group_updated`, `plan.updated`, `execution.phase_changed`, `progress.headline`, `sidecar.*`, `monitor.*` — are dropped at the boundary; their effect surfaces via other broadcast events or the job snapshot. `plan.step_updated` and `step.entries_reassigned` are allowlisted. |
 | **Selective suppression** | When >20 jobs are active, high-frequency kinds (`log`, `diff.updated`, `session.heartbeat`, and the transcript family) are suppressed for global/dashboard connections. |
 | **Job-scoped only** | `telemetry.updated` and `secondary_session.entry` are delivered only to a connection scoped to that job, never to global/dashboard connections. |
 
@@ -1074,7 +1074,7 @@ When a job is created:
 5. If at capacity, job transitions to `queued`; otherwise proceeds immediately
 6. `RuntimeService` creates an asyncio task and job transitions to `running`
 7. The task starts the agent session and consumes yielded events
-8. Each event is translated into a domain event and published to the event bus
+8. Each canonical TraceForge event is published to the event bus
 9. When the session completes, the job transitions to `review`, `failed`, or `canceled`
 
 ### 6.2 Runtime Service
@@ -1111,31 +1111,28 @@ When the agent SDK raises a permission request (e.g., Copilot SDK calls `on_perm
 
 ### 6.5 Graceful Shutdown
 
-When the backend process receives `SIGTERM` or `SIGINT` (e.g., operator presses Ctrl+C):
+By default, `cpl down` and the down phase of `cpl restart` request a pause for
+each running managed session before stopping the server. Runtime shutdown
+interrupts in-memory tasks but deliberately preserves their active database
+state so startup recovery can resume them in place. Queued jobs remain queued.
 
-1. Stop accepting new job creation requests (return `503 Service Unavailable`)
-2. For each running job:
-   a. Call `adapter.abort_session(session_id)`
-   b. Publish a `job.canceled` event with `reason: "server_shutdown"`
-   c. Transition the job to `canceled`
-3. Close all SSE connections
-4. Allow up to 10 seconds for in-flight requests to complete
-5. Close the SQLite connection
-6. Exit
-
-Queued jobs remain in `queued` state and are picked up on next startup.
+`cpl down --force` and `cpl restart --force` skip the pause requests and stop
+immediately. Forced shutdown semantics are unchanged and do not carry the
+graceful pause guarantee.
 
 ### 6.6 Restart Recovery
 
-On startup, before accepting requests, the backend runs recovery:
+On startup, the backend schedules recovery for managed jobs left in `running`
+or `waiting_for_approval`. Recoverable jobs are restarted in place using their
+existing job, worktree, and prior SDK session when available; the resulting
+`session.resumed` event carries `reason: "server_restart"`. Queued jobs are
+re-evaluated against capacity.
 
-1. Query for all jobs in `running` or `waiting_for_approval` state
-2. Transition each to `failed` with a `job.failed` event containing `reason: "process_restarted"`
-3. Log each recovered job as a warning
-
-The system does not attempt to reconnect to orphaned agent sessions. Asyncio tasks from a previous process cannot be reconstructed. The operator can rerun any recovered job using the rerun button.
-
-Queued jobs are re-evaluated against capacity and started if slots are available.
+Recovery is bounded by the current implementation. A job whose worktree cannot
+be restored is failed, and a plan-mode job interrupted while awaiting approval
+is failed because its in-memory approval context cannot be reconstructed.
+Other recovery startup errors retain their existing handling; this is not a
+blanket guarantee that every interrupted job resumes.
 
 ---
 
@@ -1803,7 +1800,14 @@ class EventKind(StrEnum):
     job_mode_changed = "job.mode_changed"
 ```
 
-The `SessionEvent` envelope (from `traceforge.types`) carries `session_id` (the CodePlane job id), `kind` (dotted string), `payload` (CodePlane's event-specific fields), and `metadata` (`EventMetadata`: `timestamp`, `sequence`, `turn_id`, `event_id`, plus TraceForge annotations). Fields that once lived on a bespoke `DomainEvent` now ride `payload`; `turn_id` lives on `metadata.turn_id`.
+The `SessionEvent` envelope (from `traceforge.types`) carries `id`, `session_id`
+(the CodePlane job id), `timestamp`, `kind` (an open dotted string), `payload`
+(CodePlane's event-specific fields), and `metadata` (including producer
+sequence, turn correlation, and TraceForge annotations). Fields that once lived
+on a bespoke `DomainEvent` now ride `payload`; `turn_id` lives on
+`metadata.turn_id`. Persistence preserves this envelope and `kind` verbatim, as does SSE for kinds
+that pass its delivery rules; the constants below are the kinds CodePlane
+currently emits, not a closed enumeration of permitted TraceForge kinds.
 
 ### 11.1 Event Types
 
@@ -1814,7 +1818,7 @@ The `SessionEvent` envelope (from `traceforge.types`) carries `session_id` (the 
 | `workspace.prepared` | Worktree and branch created | `worktree_path`, `branch` |
 | `agent.session_started` | Agent session created | `session_id` |
 | `log` | Agent or system log output | `seq`, `level`, `message`, `context` |
-| `message.user` / `message.assistant` / `message.delta` / `tool.call.started` / `tool.call.completed` | Agent/operator transcript, fanned out by role | `seq`, `role`, `content` |
+| `message.user` / `message.assistant` / `message.delta` / `tool.call.started` / `tool.call.completed` | Agent/operator transcript and tool activity, identified by kind | `seq`, `content`, `tool_name`, `tool_call_id`, `arguments`, `result`, `success` as applicable |
 | `diff.updated` | File changes detected in worktree | `changed_files` (list of DiffFile) |
 | `permission.requested` | SDK permission request intercepted | `approval_id`, `description`, `proposed_action`, `requires_explicit_approval` |
 | `permission.resolved` | Operator approves or rejects | `approval_id`, `resolution` |
@@ -1828,7 +1832,7 @@ The `SessionEvent` envelope (from `traceforge.types`) carries `session_id` (the 
 | `session.heartbeat` | Periodic heartbeat from running session | `session_id` |
 | `merge.completed` | Merge-back succeeded | `branch`, `base_ref`, `strategy` |
 | `merge.conflict` | Merge-back hit conflicts | `branch`, `conflict_files`, `fallback` |
-| `session.resumed` | Agent session resumed after failure | `session_number` |
+| `session.resumed` | Agent session resumed, including startup recovery | `session_number`, `instruction`, `timestamp`, `reason` (`server_restart` for startup recovery) |
 | `job.resolved` | Operator resolved a completed job | `resolution`, `pr_url`, `conflict_files` |
 | `job.archived` | Job moved to archive | _(none)_ |
 | `job.title_updated` | LLM generated or updated job title | `title`, `branch`, `description` |
@@ -1865,7 +1869,7 @@ The `SessionEvent` envelope (from `traceforge.types`) carries `session_id` (the 
 |---|---|---|
 | `JobStateMachine` | All state-relevant events | Applies state transitions |
 | `PersistenceSubscriber` | All events | Persists to SQLite event log |
-| `SSEManager` | All events | Pushes to connected SSE clients |
+| `SSEManager` | Allowlisted events | Pushes unchanged canonical envelopes and dotted kinds according to the broadcast, selective-suppression, and job-scope rules in §5.3.1 |
 | `ApprovalService` | `permission.requested` | Persists request, awaits operator resolution |
 | `DiffService` | `workspace.prepared`, `job.review` | Generates and stores diff snapshots |
 | `ArtifactService` | `job.review` | Collects and stores artifacts |
@@ -2970,7 +2974,10 @@ Share tokens are ephemeral (in-memory, 24-hour TTL). If the server restarts, all
 | `POST` | `/api/notifications/subscribe` | Register a browser push subscription |
 | `POST` | `/api/notifications/unsubscribe` | Remove a push subscription |
 
-Push notification delivery is triggered automatically by the event bus when `approval_requested`, `job_completed`, or `job_failed` events are published. Subscriptions are stored in-memory; clients re-subscribe via the service worker on reconnect.
+Push notification delivery is triggered automatically by the event bus when
+`permission.requested`, `job.completed`, or `job.failed` events are published.
+Subscriptions are stored in-memory; clients re-subscribe via the service worker
+on reconnect.
 
 ### 17.14 Port Preview Proxy
 
@@ -3089,8 +3096,8 @@ CodePlane delegates the permission decision to **`traceforge.governance`**. Thre
 
 | Preset | Governance profile |
 |------|----------|
-| `autonomous` (default) | Generous budget; protected-path writes escalate; no USD ceiling. Escalations handled by the monitor sidecar. |
-| `supervised` | Moderate budget and USD ceiling; cost pressure and protected-path writes escalate; monitor handles escalations. |
+| `autonomous` | Generous budget; protected-path writes escalate; no USD ceiling. Escalations handled by the monitor sidecar. |
+| `supervised` (default) | Moderate budget and USD ceiling; cost pressure and protected-path writes escalate; monitor handles escalations. |
 | `locked` | Tight budget and USD ceiling; protected-path writes denied; hard tool-call ceiling; monitor disabled — escalations go directly to the human operator. |
 
 #### Recommendation → enforcement
@@ -3118,7 +3125,7 @@ Preset is resolved with this priority chain (first match wins):
 1. **Per-job** — `preset` field in `POST /api/jobs` request body
 2. **Global** — via the policy settings API
 
-Default: `autonomous`
+Default: `supervised`
 
 ### 18.4 Delegation to the Agent Runtime
 
@@ -3259,12 +3266,12 @@ The `DiffViewer` component:
 The Job Detail screen exposes:
 
 - Current state with color-coded badge
-- Session heartbeat timestamp (updated by `session_heartbeat` SSE events every 30 seconds)
+- Session heartbeat timestamp (updated by canonical `session.heartbeat` events every 30 seconds)
 - If no heartbeat received in 90 seconds, a "Session unresponsive" warning is shown
 
 ### 20.2 Runtime Logs
 
-Logs are streamed in real time via SSE `log_line` events.
+Logs are streamed in real time via SSE `log` events.
 
 Backend logging uses human-readable format via Python's `structlog` library with console renderer:
 
@@ -3315,7 +3322,12 @@ When a job enters `failed` state, the Job Detail screen shows:
 
 ### 20.4 Session Heartbeat
 
-The adapter generates a `session_heartbeat` domain event every 30 seconds for each running session. The SDK itself may not provide periodic heartbeats, so the adapter maintains its own timer per active session. The frontend uses these to display session health status.
+The runtime generates a canonical `session.heartbeat` domain event every 30
+seconds for each running session. The SDK itself may not provide periodic
+heartbeats, so the runtime maintains its own timer per active session. The
+frontend uses these to display session health status. This is distinct from the
+transport-only SSE `session_heartbeat` keepalive frame described in
+`docs/reference/sse-events.md`.
 
 #### Heartbeat Watchdog
 
@@ -3328,7 +3340,7 @@ If no heartbeat is received for a running session within 90 seconds:
 
 ### 20.5 Session-Scoped Log Artifacts
 
-Live `log_line` SSE events provide real-time log streaming during a running session.
+Live `log` SSE events provide real-time log streaming during a running session.
 Once a session ends, those events remain queryable via `GET /api/jobs/{job_id}/logs`,
 but the result is limited to the domain events that were published to the internal
 event bus — essentially the "application layer" view.
@@ -3474,7 +3486,7 @@ The Logs Panel (§14.2) gains the following capabilities:
 | **Level filtering** | Existing level filter (debug/info/warn/error) continues to work on the Live tab. Server Log tab applies the same filter over the parsed JSON Lines. CLI Output tab has no level filter (raw text) |
 
 The Live tab behavior is unchanged from the current implementation — SSE
-`log_line` events streamed in real time, merged with historical fetch on
+`log` events streamed in real time, merged with historical fetch on
 reconnect.
 
 #### 20.5.8 Retention
@@ -3686,8 +3698,8 @@ React UI -> SSEStream: subscribe /api/events?job_id={id}
 JobRuntime -> AgentSDK: create_session(workspace_path, prompt)
 AgentSDK --> JobRuntime: session_id
 JobRuntime -> Persistence: persist AgentSessionStarted
-JobRuntime -> SSEStream: job_state_changed (queued->running)
-SSEStream --> React UI: job_state_changed event
+JobRuntime -> SSEStream: job.state_changed (queued->running)
+SSEStream --> React UI: job.state_changed event
 React UI -> React UI: Update job state badge
 ```
 
@@ -3698,33 +3710,33 @@ React UI -> React UI: Update job state badge
 ```
 JobRuntime -> AgentSDK: stream_events(session_id)
 loop [SDK emits events]
-    AgentSDK --> JobRuntime: SessionEvent(kind="transcript", ...)
-    JobRuntime -> Persistence: persist TranscriptUpdated
-    JobRuntime -> SSEStream: transcript_update
-    SSEStream --> React UI: transcript_update
+    AgentSDK --> JobRuntime: SessionEvent(kind="message.assistant", ...)
+    JobRuntime -> Persistence: persist SessionEvent
+    JobRuntime -> SSEStream: message.assistant
+    SSEStream --> React UI: message.assistant
     React UI -> React UI: Append to TranscriptPanel
 
     AgentSDK --> JobRuntime: SessionEvent(kind="log", ...)
     JobRuntime -> Persistence: persist LogLineEmitted
-    JobRuntime -> SSEStream: log_line
-    SSEStream --> React UI: log_line
+    JobRuntime -> SSEStream: log
+    SSEStream --> React UI: log
     React UI -> React UI: Append to LogsPanel
 
-    AgentSDK --> JobRuntime: SessionEvent(kind="file_changed", ...)
+    AgentSDK --> JobRuntime: SessionEvent(kind="file.edited", ...)
     JobRuntime -> GitWorkspace: generate_diff(worktree, base_ref)
     GitWorkspace --> JobRuntime: DiffFile[]
     JobRuntime -> Persistence: persist DiffUpdated
-    JobRuntime -> SSEStream: diff_update
-    SSEStream --> React UI: diff_update
+    JobRuntime -> SSEStream: diff.updated
+    SSEStream --> React UI: diff.updated
     React UI -> React UI: Refresh DiffViewer
 end
 
-AgentSDK --> JobRuntime: SessionEvent(kind="done")
+AgentSDK --> JobRuntime: SessionEvent(kind="session.ended")
 JobRuntime -> GitWorkspace: final_diff(worktree, base_ref)
 JobRuntime -> Persistence: persist DiffUpdated (final)
 JobRuntime -> Persistence: persist JobReview
-JobRuntime -> SSEStream: job_state_changed (running->review)
-SSEStream --> React UI: job_state_changed
+JobRuntime -> SSEStream: job.state_changed (running->review)
+SSEStream --> React UI: job.state_changed
 React UI -> React UI: Show review badge, enable rerun
 ```
 
@@ -3737,10 +3749,10 @@ AgentSDK --> JobRuntime: on_permission_request callback invoked
 JobRuntime -> FastAPI: ApprovalRequested domain event
 FastAPI -> Persistence: persist ApprovalRequested
 FastAPI -> Persistence: update job state = waiting_for_approval
-FastAPI -> SSEStream: approval_requested event
-FastAPI -> SSEStream: job_state_changed (running->waiting_for_approval)
-SSEStream --> React UI: approval_requested
-SSEStream --> React UI: job_state_changed
+FastAPI -> SSEStream: permission.requested event
+FastAPI -> SSEStream: job.state_changed (running->waiting_for_approval)
+SSEStream --> React UI: permission.requested
+SSEStream --> React UI: job.state_changed
 React UI -> React UI: Show ApprovalBanner with proposed action
 
 Operator -> React UI: Click "Approve"
@@ -3748,8 +3760,8 @@ React UI -> FastAPI: POST /api/approvals/{id}/resolve { resolution: "approved" }
 FastAPI -> Persistence: persist ApprovalResolved
 FastAPI -> Persistence: update job state = running
 FastAPI -> AgentSDK: Return PermissionRequestResult(approved) to pending callback
-FastAPI -> SSEStream: job_state_changed (waiting_for_approval->running)
-SSEStream --> React UI: job_state_changed
+FastAPI -> SSEStream: job.state_changed (waiting_for_approval->running)
+SSEStream --> React UI: job.state_changed
 React UI -> React UI: Hide ApprovalBanner, show running state
 AgentSDK -> AgentSDK: Resume execution
 ```
@@ -3766,8 +3778,8 @@ JobRuntime -> AgentSDK: abort_session(session_id)
 AgentSDK --> JobRuntime: session aborted
 JobRuntime -> Persistence: persist JobCanceled
 JobRuntime -> Persistence: update job state = canceled
-JobRuntime -> SSEStream: job_state_changed (running->canceled)
-SSEStream --> React UI: job_state_changed
+JobRuntime -> SSEStream: job.state_changed (running->canceled)
+SSEStream --> React UI: job.state_changed
 React UI -> React UI: Show canceled badge
 FastAPI --> React UI: 200 OK
 ```
@@ -3910,7 +3922,7 @@ This section documents genuinely open questions that require further investigati
 
 **Resolved:** Session cancellation uses `session.abort()` which aborts the current message processing. The session remains valid after abort. Operator message injection uses `session.send(MessageOptions)` with `mode="immediate"` to send a follow-up message while the session is active.
 
-**Resolved:** Subprocess crash detection relies on EOF/broken pipe on the JSON-RPC stdout stream. The SDK's background read loop detects the closed stream, polls the process exit code, captures stderr, and raises `ProcessExitedError` on all pending futures. The adapter catches this exception and emits a `job.failed` event with the error details. No heartbeat mechanism exists — crash detection is immediate via the broken pipe.
+**Resolved:** Subprocess crash detection relies on EOF/broken pipe on the JSON-RPC stdout stream. The SDK's background read loop detects the closed stream, polls the process exit code, captures stderr, and raises `ProcessExitedError` on all pending futures. The adapter catches this exception and emits a `job.failed` event with the error details. This process-crash path does not depend on the runtime's separate `session.heartbeat` mechanism; detection is immediate via the broken pipe.
 
 ---
 

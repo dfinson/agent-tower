@@ -1121,7 +1121,7 @@ class TestRecovery:
 
         resumed_events = [e for e in published if e.kind == EventKind.session_resumed]
         assert len(resumed_events) == 1
-        assert resumed_events[0].payload["reason"] == "process_restarted"
+        assert resumed_events[0].payload["reason"] == "server_restart"
 
     async def test_recover_commits_running_state_before_publishing_resume_event(
         self,
