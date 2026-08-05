@@ -82,9 +82,15 @@ def get_settings(
 @router.put("/settings", response_model=SettingsResponse)
 def update_settings(
     body: UpdateSettingsRequest,
+    config: FromDishka[CPLConfig],
 ) -> SettingsResponse:
-    """Update settings. Only provided fields are changed."""
-    config = load_config()
+    """Update settings. Only provided fields are changed.
+
+    Mutates the app-scoped ``CPLConfig`` singleton in place (rather than a
+    freshly ``load_config()``-ed copy) so the change is visible immediately
+    to ``GET /settings`` and to any running services holding a reference to
+    this same config object — not just after the next server restart.
+    """
     updates = body.model_dump(exclude_none=True)
 
     # Declarative mapping: request field → (config section, config attribute)
