@@ -394,11 +394,53 @@ class TestStartBaselineTracker:
         assert len(tracker) == 0
 
 
+class TestPairKey:
+    """`_pair_key` mirrors TF 0.1.5's `_extract_tool_call_id`: a pair key exists
+    only for a non-empty **string** ``tool_call_id`` (missing/empty/non-string
+    are unpaired)."""
+
+    def test_valid_string_id_yields_pair_key(self):
+        ev = _tool_start("tc-1", sid="jX")
+        assert _pair_key(ev) == ("jX", "tc-1")
+
+    def test_empty_string_id_yields_no_pair_key(self):
+        ev = new_event(
+            session_id="j1",
+            kind=EventKind.tool_call_started,
+            payload={"tool_call_id": "", "tool_name": "bash"},
+        )
+        assert _pair_key(ev) is None
+
+    def test_missing_id_yields_no_pair_key(self):
+        ev = new_event(
+            session_id="j1",
+            kind=EventKind.tool_call_started,
+            payload={"tool_name": "bash"},
+        )
+        assert _pair_key(ev) is None
+
+    def test_non_string_id_yields_no_pair_key(self):
+        for bad in (123, 12.5, True, ["tc"], {"id": "tc"}, None):
+            ev = new_event(
+                session_id="j1",
+                kind=EventKind.tool_call_started,
+                payload={"tool_call_id": bad, "tool_name": "bash"},
+            )
+            assert _pair_key(ev) is None, f"expected no pair key for {bad!r}"
+
+    def test_empty_payload_yields_no_pair_key(self):
+        ev = new_event(session_id="j1", kind=EventKind.tool_call_started, payload={})
+        assert _pair_key(ev) is None
+
+
 class _FakePairingEnricher:
-    """Simulates TF buffering/pairing without the real model: a start buffers
-    (returns None); its completion drops the paired start and returns the enriched
-    completion (same id); flush() emits the still-unpaired starts as enriched
-    orphans (same id). Enrichment adds tool_display so metadata genuinely differs."""
+    """Simulates TF buffering/pairing without the real model: a start with a
+    valid tool_call_id buffers (returns None); its completion drops the paired
+    start and returns the enriched completion (same id); a start with NO valid
+    tool_call_id cannot be paired, so — exactly like TF — it is emitted
+    immediately, enriched, under its own id; flush() emits the still-unpaired
+    buffered starts as enriched orphans (same id). Enrichment adds tool_display
+    so metadata genuinely differs."""
 
     def __init__(self, *args, **kwargs) -> None:
         self._pending: dict[tuple[str, str], object] = {}
@@ -409,11 +451,15 @@ class _FakePairingEnricher:
         return event.model_copy(update={"metadata": md})
 
     def process(self, event):  # noqa: ANN001, ANN201
-        tcid = (event.payload or {}).get("tool_call_id")
         if event.kind == EventKind.tool_call_started:
+            tcid = (event.payload or {}).get("tool_call_id")
+            if not isinstance(tcid, str) or not tcid:
+                # No valid tool_call_id — not buffered; emitted immediately.
+                return self._enrich(event)
             self._pending[(event.session_id, tcid)] = event
             return None
         if event.kind == EventKind.tool_call_completed:
+            tcid = (event.payload or {}).get("tool_call_id")
             self._pending.pop((event.session_id, tcid), None)  # consume paired start
             return self._enrich(event)
         return event
@@ -478,3 +524,67 @@ class TestReenrichPairingBounded:
         # retained baseline and persisted.
         assert u1.id in written_ids
         assert u2.id in written_ids
+
+    @pytest.mark.asyncio
+    async def test_idless_start_emitted_immediately_leaves_tracker_empty(self, mock_session_factory):
+        """A tool-start with no valid tool_call_id is emitted immediately under
+        its OWN id (never buffered). Its baseline must be retired after
+        persistence even though ``e.id == event.id`` — otherwise one baseline
+        leaks per id-less start."""
+        import backend.services.events.reenrich as reenrich_mod
+
+        # 3 id-less starts interleaved with a normal paired start/completion.
+        idless = [
+            new_event(
+                session_id="j1",
+                kind=EventKind.tool_call_started,
+                payload={"tool_name": "bash"},  # no tool_call_id at all
+            )
+            for _ in range(3)
+        ]
+        events = [
+            idless[0],
+            _tool_start("p0"),
+            idless[1],
+            _tool_completion("p0"),
+            idless[2],
+        ]
+
+        async def _list_all(job_id, *, limit, offset=0):
+            return events[offset : offset + limit]
+
+        captured: dict[str, _StartBaselineTracker] = {}
+        real_tracker_cls = reenrich_mod._StartBaselineTracker
+
+        class _CapturingTracker(real_tracker_cls):  # type: ignore[valid-type, misc]
+            def __init__(self) -> None:
+                super().__init__()
+                captured["tracker"] = self
+
+        with patch("backend.persistence.event_repo.EventRepository") as mock_repo_cls:
+            repo = mock_repo_cls.return_value
+            repo.list_by_job = AsyncMock(return_value=[])
+            repo.list_all_events_by_job = AsyncMock(side_effect=_list_all)
+            repo.update_metadata = AsyncMock()
+
+            with (
+                patch("backend.services.events.reenrich.TFEnricher", _FakePairingEnricher),
+                patch("backend.services.events.reenrich._BATCH_SIZE", 2),
+                patch("backend.services.events.reenrich._StartBaselineTracker", _CapturingTracker),
+            ):
+                updated = await reenrich_job_events("j1", mock_session_factory)
+
+        tracker = captured["tracker"]
+        # The id-less starts were emitted immediately and their baselines retired
+        # despite sharing their event id — nothing leaks.
+        assert len(tracker) == 0
+        # Peak never held more than the single transiently-buffered paired start
+        # plus the id-less start being processed in the same step.
+        assert tracker.peak_size <= 2
+
+        # All three id-less starts + the paired completion were persisted (each
+        # enriched with tool_display), compared against their own baseline.
+        written_ids = {c.kwargs["event_id"] for c in repo.update_metadata.await_args_list}
+        for ev in idless:
+            assert ev.id in written_ids
+        assert updated == 4  # 3 id-less starts + 1 completion

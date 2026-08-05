@@ -25,14 +25,6 @@ from traceforge.enricher import Enricher as TFEnricher
 
 from backend.models.events import EventKind, SessionEvent, new_event
 
-try:
-    # Prefer TraceForge's own tool-call-id extractor so reenrich's start/complete
-    # correlation matches the enricher's buffering exactly. Falls back to the
-    # canonical ``tool_call_id`` payload field if TF internals move.
-    from traceforge.enricher import _extract_tool_call_id as _tf_extract_tool_call_id
-except Exception:  # pragma: no cover - defensive: TF internal rename/removal
-    _tf_extract_tool_call_id = None
-
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -96,22 +88,20 @@ def _pair_key(event: SessionEvent) -> tuple[str, str] | None:
     """The ``(session_id, tool_call_id)`` key TraceForge pairs a
     ``tool_call_started`` and its ``tool_call_completed`` on.
 
-    Prefers TraceForge's own extractor so retirement matches the enricher's
-    buffering; falls back to the canonical ``tool_call_id`` payload field — the
-    value both CodePlane adapters write and the ingest-equivalence contract
-    asserts identical across a started/completed pair.
+    TraceForge 0.1.5 correlates a start with its completion purely on the
+    canonical ``payload['tool_call_id']`` — and only when it is a **non-empty
+    string** (its private ``_extract_tool_call_id`` is exactly
+    ``value if isinstance(value, str) and value else None``). This mirrors that
+    public contract directly: both CodePlane adapters write ``tool_call_id`` and
+    the ingest-equivalence contract asserts it is identical across a
+    started/completed pair. A missing, empty, or non-string id is unpaired — TF
+    emits such a start immediately rather than buffering it — so it yields no
+    pair key here.
     """
-    tool_call_id = None
-    if _tf_extract_tool_call_id is not None:
-        try:
-            tool_call_id = _tf_extract_tool_call_id(event)
-        except Exception:  # pragma: no cover - defensive
-            tool_call_id = None
-    if not tool_call_id:
-        tool_call_id = (event.payload or {}).get("tool_call_id")
-    if not tool_call_id:
+    tool_call_id = (event.payload or {}).get("tool_call_id")
+    if not isinstance(tool_call_id, str) or not tool_call_id:
         return None
-    return (event.session_id, str(tool_call_id))
+    return (event.session_id, tool_call_id)
 
 
 class _StartBaselineTracker:
@@ -290,8 +280,15 @@ async def _reenrich_locked(
                     baseline = original if e.id == event.id else tracker.baseline_for(e)
                     if await _persist_if_changed(repo, e, baseline):
                         updated += 1
-                    if e.id != event.id:
-                        # An emitted orphan start is now resolved — retire it.
+                    # Retire the baseline of any emitted START now that it is
+                    # persisted — whether it is a displaced/evicted orphan (a
+                    # different id) OR this very event emitted immediately under
+                    # its own id because it has no valid tool_call_id and so was
+                    # never buffered. Keying retirement on ``e.id != event.id``
+                    # missed the latter, leaking one baseline per id-less start.
+                    # ``retire_emitted`` only drops the pair index when it still
+                    # points at this id, preserving displaced-orphan cleanup.
+                    if e.kind == EventKind.tool_call_started:
                         tracker.retire_emitted(e)
 
             if len(batch) < _BATCH_SIZE:
