@@ -12,7 +12,20 @@ to focused modules:
 
 from __future__ import annotations
 
+import sys
 from typing import Any
+
+if sys.platform == "win32":
+    # Windows consoles default sys.stdout/stderr to the legacy ANSI code
+    # page (e.g. CP1252), not UTF-8, unless PYTHONUTF8=1 is set or the
+    # process opts in explicitly. Rich (used for CLI output) emits Unicode
+    # glyphs like "✓"/"✗" that raise UnicodeEncodeError under that default,
+    # crashing `cpl up`/`cpl doctor` before they print anything useful.
+    # Reconfigure here so the CLI works out of the box regardless of the
+    # user's console code page.
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from backend.cli import cli
 from backend.logging_config import ConsoleNoiseFilter, setup_logging

@@ -24,11 +24,16 @@ Do **not** run this script speculatively, as part of routine testing, or as a "j
 
 ## How to run
 
-From the repository root (`/home/dave01/wsl-repos/codeplane`):
+CodePlane is cross-platform (Linux, macOS, Windows/WSL). From the repository
+root, using whichever Python you use to run CodePlane (e.g. `uv run python`):
 
 ```bash
 python tools/dev_restart.py
 ```
+
+Do not assume a WSL or Linux-only path — the repository root is wherever
+this checkout lives on the current machine (Windows-native, WSL, macOS, or
+Linux).
 
 ### Options
 
