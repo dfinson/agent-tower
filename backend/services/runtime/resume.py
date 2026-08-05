@@ -209,7 +209,7 @@ async def recover_active_job(
                 "session_number": new_session_count,
                 "instruction": instruction,
                 "timestamp": now.isoformat(),
-                "reason": "process_restarted",
+                "reason": "server_restart",
             },
         )
     )

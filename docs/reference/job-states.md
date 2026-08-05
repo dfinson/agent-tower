@@ -74,18 +74,25 @@ stateDiagram-v2
 
 ## Restart Recovery
 
-If the CodePlane server restarts while jobs are running:
+By default, `cpl down` and `cpl restart` request a pause for running sessions
+before stopping the server. Runtime shutdown preserves active job state, and
+startup recovery resumes recoverable managed jobs in place. The emitted
+`session.resumed` event uses reason `"server_restart"`.
 
-- All `running` and `waiting_for_approval` jobs are marked as `failed`
-- The failure reason is set to `"server_restart"`
-- Jobs can be rerun after recovery
+Recovery is not unconditional. Jobs with an unavailable worktree fail, as do
+plan-mode jobs interrupted while awaiting approval because their in-memory
+approval context cannot be reconstructed. Other startup-recovery errors roll
+back that recovery attempt and are logged; no broader resume guarantee is made.
+Forced shutdown (`--force`) skips the graceful pause request and does not
+provide the graceful pause guarantee.
 
 ## Heartbeat Watchdog
 
-The agent session emits heartbeats every 30 seconds. If a heartbeat is missed:
-
-- **After 90 seconds:** Warning logged
-- **After 5 minutes:** Job fails with reason `"heartbeat_timeout"`
+The runtime emits a canonical `session.heartbeat` event every 30 seconds while
+a managed session is active. It carries the session identifier, timestamp,
+last-activity timestamp, and active-tool details when available. These events
+support session-health display and stall-sidecar checks; the current state
+machine does not define a heartbeat-timeout failure transition.
 
 ## Job IDs
 
