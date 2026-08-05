@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { type FleetCostDriversResponse, fetchRepoCostDrivers, type RepoCostBreakdown } from "../../api/client";
 import { formatUsd } from "./helpers";
 import { formatTokens, formatActivityBucket, ACTIVITY_DESCRIPTIONS } from "../MetricsPanelTypes";
+import { pathBasename } from "../../lib/paths";
 
 // ---------------------------------------------------------------------------
 // Fleet Cost Breakdown — mirrors per-job expandable card design
@@ -120,7 +121,7 @@ export function FleetCostDriverInsights({ fleetDrivers, period }: { fleetDrivers
                   >
                     <div className="flex items-center gap-2">
                       {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                      <span className="text-xs font-medium text-foreground">{repoName.split("/").pop()}</span>
+                      <span className="text-xs font-medium text-foreground">{pathBasename(repoName)}</span>
                     </div>
                     <span className="text-xs tabular-nums">{formatUsd(repo.totalCostUsd)}</span>
                   </div>

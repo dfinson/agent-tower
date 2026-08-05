@@ -9,6 +9,7 @@ import { fetchRepoSummary } from "../api/client";
 import type { RepoSummaryResponse } from "../api/client";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
+import { pathBasename } from "../lib/paths";
 
 function StatBadge({ icon: Icon, label, value, className }: {
   icon: React.ComponentType<{ size?: string | number; className?: string }>;
@@ -62,7 +63,7 @@ function timeAgo(dateStr: string): string {
 export function RepoOverview() {
   const { repoPath } = useParams<{ repoPath: string }>();
   const decoded = repoPath ? decodeURIComponent(repoPath) : "";
-  const repoName = decoded.split("/").pop() || decoded;
+  const repoName = pathBasename(decoded) || decoded;
 
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<RepoSummaryResponse | null>(null);

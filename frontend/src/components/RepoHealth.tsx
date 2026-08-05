@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
 import { request } from "../api/client";
+import { pathBasename } from "../lib/paths";
 
 interface HealthData {
   repo: string;
@@ -25,7 +26,7 @@ function fetchHealth(repoPath: string): Promise<HealthData> {
 export function RepoHealth() {
   const { repoPath } = useParams<{ repoPath: string }>();
   const decoded = repoPath ? decodeURIComponent(repoPath) : "";
-  const repoName = decoded.split("/").pop() || decoded;
+  const repoName = pathBasename(decoded) || decoded;
 
   const [loading, setLoading] = useState(true);
   const [health, setHealth] = useState<HealthData | null>(null);

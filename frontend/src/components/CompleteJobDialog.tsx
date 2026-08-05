@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, ExternalLink, GitBranch, FolderOpen, Trash
 import { useStore } from "../store";
 import type { JobSummary } from "../store";
 import { archiveJob } from "../api/client";
+import { pathBasename } from "../lib/paths";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -125,7 +126,7 @@ export function CompleteJobDialog({ job, open, onClose, onArchived }: CompleteJo
               <div className="flex items-center gap-2 text-sm">
                 <FolderOpen size={14} className="text-muted-foreground shrink-0" />
                 <span className="text-muted-foreground">Worktree:</span>
-                <code className="text-xs">{job.worktreePath.split("/").pop() ?? job.worktreePath}</code>
+                <code className="text-xs">{pathBasename(job.worktreePath) || job.worktreePath}</code>
               </div>
               {job.branch && (
                 <div className="flex items-center gap-2 text-sm">

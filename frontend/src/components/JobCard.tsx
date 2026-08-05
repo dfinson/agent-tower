@@ -7,6 +7,7 @@ import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
 import { Tooltip } from "./ui/tooltip";
 import { useViewStateStore } from "../store/viewStateStore";
+import { pathBasename } from "../lib/paths";
 
 function elapsed(createdAt: string): string {
   const ms = Date.now() - new Date(createdAt).getTime();
@@ -53,7 +54,7 @@ function ResolutionBadge({ resolution }: { resolution: string }) {
 
 export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
   const navigate = useNavigate();
-  const repoName = job.repo.split("/").pop() ?? job.repo;
+  const repoName = pathBasename(job.repo) || job.repo;
   const transcript = useStore(selectJobTranscript(job.id));
   const lastSeenSeq = useViewStateStore((s) => s.lastSeenSeq[job.id]);
   const hasUnread = lastSeenSeq != null && transcript.some((e) => (e.sequence ?? 0) > lastSeenSeq);
