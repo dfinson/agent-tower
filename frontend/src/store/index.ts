@@ -15,6 +15,7 @@ import { fetchSDKs, fetchModels, createTerminalSession as apiCreateTerminalSessi
 import { sseHandlers, enrichJob } from "./sseHandlers";
 export { enrichJob } from "./sseHandlers";
 import { deriveJobStateFrame } from "./sseNormalize";
+import { pathBasename } from "../lib/paths";
 
 // Re-export all types so existing `import { ... } from "../store"` still works
 export type {
@@ -575,7 +576,7 @@ export const useStore = create<AppState>((set, get) => ({
         promptLabel: opts?.label ?? null,
       });
 
-      const baseLabel = opts?.label || data.cwd?.split("/").pop() || "Terminal";
+      const baseLabel = opts?.label || pathBasename(data.cwd) || "Terminal";
 
       // Auto-number duplicate labels so tabs are distinguishable (e.g. "main ×2")
       const existingLabels = Object.values(get().terminalSessions).map((s) => s.label);

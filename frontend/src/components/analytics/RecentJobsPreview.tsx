@@ -5,6 +5,7 @@ import { fetchAnalyticsJobs } from "../../api/client";
 import { Spinner } from "../ui/spinner";
 import { Badge } from "../ui/badge";
 import { formatRelativeTime, formatUsd, STATUS_COLORS } from "./helpers";
+import { pathBasename } from "../../lib/paths";
 
 const PREVIEW_COUNT = 5;
 
@@ -42,7 +43,7 @@ export function RecentJobsPreview({ period }: { period: number }) {
       ) : (
         <ul className="space-y-1">
           {jobs.map((j) => {
-            const repoName = j.repo ? j.repo.split("/").pop() : "—";
+            const repoName = j.repo ? pathBasename(j.repo) : "—";
             const statusColor = STATUS_COLORS[j.status] || "#666";
             const when = j.completed_at || j.created_at;
             return (

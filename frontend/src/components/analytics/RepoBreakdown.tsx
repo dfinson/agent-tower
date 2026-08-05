@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import { type AnalyticsRepos } from "../../api/client";
 import { formatUsd, formatDuration } from "./helpers";
+import { pathBasename } from "../../lib/paths";
 
 // ---------------------------------------------------------------------------
 // Repo breakdown
@@ -15,7 +16,7 @@ export function RepoBreakdown({ repos }: { repos: AnalyticsRepos["repos"] }) {
   if (!repos.length) return <p className="text-muted-foreground text-sm">No repo data yet.</p>;
 
   const chartData = repos.slice(0, 10).map((r) => ({
-    name: r.repo ? r.repo.split("/").pop() || r.repo : "(none)",
+    name: r.repo ? pathBasename(r.repo) || r.repo : "(none)",
     cost: Number(r.totalCostUsd) || 0,
     jobs: r.jobCount,
   }));

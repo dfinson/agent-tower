@@ -12,6 +12,7 @@ import { TerminalPanel } from "./TerminalPanel";
 import { useStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import { Tooltip } from "./ui/tooltip";
+import { pathBasename } from "../lib/paths";
 import { useDrag } from "../hooks/useDrag";
 import type { TerminalConnectionStatus } from "../hooks/useTerminalSocket";
 import type { SearchAddon } from "@xterm/addon-search";
@@ -231,7 +232,7 @@ export function TerminalDrawer() {
               <GitBranch size={9} className="text-muted-foreground/60 shrink-0 -mr-0.5" />
             )}
             <span className="max-w-[120px] md:max-w-[180px] truncate">
-              {session.label || session.cwd?.split("/").pop() || "Terminal"}
+              {session.label || pathBasename(session.cwd) || "Terminal"}
             </span>
             <Tooltip content="Close this terminal tab">
               <button

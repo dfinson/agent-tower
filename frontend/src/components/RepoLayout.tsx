@@ -7,6 +7,7 @@ import { useStore } from "../store";
 import { cn } from "../lib/utils";
 import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
+import { pathBasename } from "../lib/paths";
 
 
 export function RepoLayout() {
@@ -41,7 +42,7 @@ export function RepoLayout() {
   }, [repoPath, repos, loading, navigate, location.pathname]);
 
   function repoBasename(path: string) {
-    return path.split("/").filter(Boolean).pop() ?? path;
+    return pathBasename(path) || path;
   }
 
   function isActive(path: string) {

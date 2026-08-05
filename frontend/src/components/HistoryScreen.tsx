@@ -10,6 +10,7 @@ import { Tooltip } from "./ui/tooltip";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Spinner } from "./ui/spinner";
+import { pathBasename } from "../lib/paths";
 
 const RESOLUTION_FILTERS = [
   { value: "all", label: "All" },
@@ -153,7 +154,7 @@ export function HistoryScreen() {
 }
 
 function HistoryRow({ job, onNavigate }: { job: JobSummary; onNavigate: () => void }) {
-  const repoName = job.repo.split("/").pop() ?? job.repo;
+  const repoName = pathBasename(job.repo) || job.repo;
   const resolutionColor: Record<string, string> = {
     merged: "text-green-500",
     pr_created: "text-blue-500",

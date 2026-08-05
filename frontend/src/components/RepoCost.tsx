@@ -7,6 +7,7 @@ import {
 } from "../api/client";
 import type { ModelComparisonRow, YieldCategoryRow } from "../api/client-analytics";
 import { Spinner } from "./ui/spinner";
+import { pathBasename } from "../lib/paths";
 
 function formatCost(usd: number): string {
   if (usd === 0) return "$0";
@@ -17,7 +18,7 @@ function formatCost(usd: number): string {
 export function RepoCost() {
   const { repoPath } = useParams<{ repoPath: string }>();
   const decoded = repoPath ? decodeURIComponent(repoPath) : "";
-  const repoName = decoded.split("/").pop() || decoded;
+  const repoName = pathBasename(decoded) || decoded;
 
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState(30);
