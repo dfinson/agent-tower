@@ -117,6 +117,38 @@ def _sanitize_description(raw: str) -> str | None:
     return desc
 
 
+_STOPWORDS = frozenset(
+    {
+        "a", "an", "the", "to", "for", "of", "in", "on", "at", "and", "or", "but",
+        "with", "is", "are", "be", "it", "this", "that", "i", "we", "you", "please",
+        "add", "fix", "make", "create", "update", "implement", "so", "so that",
+        "can", "could", "should", "would", "will", "just", "need", "needs", "want",
+        "wants", "let", "lets", "let's", "up", "into", "from", "as", "by", "when",
+        "then", "also", "some", "any", "all", "if", "not", "no", "do", "does",
+    }
+)
+
+
+def heuristic_slug(prompt: str, *, max_words: int = 4, fallback: str = "task") -> str:
+    """Derive an instant, LLM-free kebab-case slug from a raw prompt.
+
+    Strips punctuation/stopwords and keeps the first ``max_words`` meaningful
+    words, lowercased and hyphenated. Used to give a job an immediate,
+    human-readable identity without waiting on the naming LLM. Falls back to
+    ``fallback`` if the prompt yields no usable words.
+    """
+    words = re.findall(r"[a-zA-Z0-9]+", prompt.lower())
+    meaningful = [w for w in words if w not in _STOPWORDS]
+    if not meaningful:
+        meaningful = words
+    chosen = meaningful[:max_words]
+    slug = "-".join(chosen)
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    if not slug or not _WORKTREE_RE.match(slug):
+        return fallback
+    return slug
+
+
 def _extract_json(raw: str) -> dict[str, Any] | None:
     """Extract JSON object from LLM response, handling markdown fencing."""
     json_str = raw.strip()

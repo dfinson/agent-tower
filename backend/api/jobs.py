@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, Annotated, Any
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from backend.config import CPLConfig
 from backend.di import CachedModelsBySdk
 from backend.models.api_schemas import (
     ContinueJobRequest,
@@ -24,6 +25,7 @@ from backend.models.api_schemas import (
     SuggestNamesResponse,
 )
 from backend.services.completers.naming_service import NamingService
+from backend.services.events.event_bus import EventBus
 from backend.services.events.ingest_service import IngestService
 from backend.services.job.job_service import JobService, ProgressPreview
 from backend.services.runtime import RuntimeService
@@ -160,37 +162,44 @@ async def create_job(
     svc: FromDishka[JobService],
     session: FromDishka[AsyncSession],
     runtime_service: FromDishka[RuntimeService],
+    naming_service: FromDishka[NamingService],
+    event_bus: FromDishka[EventBus],
+    session_factory: FromDishka[async_sessionmaker[AsyncSession]],
+    config: FromDishka[CPLConfig],
 ) -> CreateJobResponse:
     """Create a new job.
 
     Returns immediately with ``state=preparing``. Workspace setup and agent
     launch happen in a background task — the frontend watches progress via
-    SSE ``job_setup_progress`` events.
+    SSE ``job_setup_progress`` events. Naming is also asynchronous: the job
+    gets an instant heuristic-slug identity, and if a title wasn't already
+    pre-computed by the frontend, the real LLM-generated title/description
+    are filled in afterwards and pushed via SSE ``job_title_updated``.
     """
     import asyncio
 
-    job = await svc.create_job(
-        JobSpec(
-            repo=body.repo,
-            prompt=body.prompt,
-            base_ref=body.base_ref,
-            branch=body.branch,
-            title=body.title,
-            description=body.description,
-            worktree_name=body.worktree_name,
-            preset=body.preset or Preset.supervised,
-            model=body.model,
-            sdk=body.sdk,
-            verify=body.verify,
-            self_review=body.self_review,
-            max_turns=body.max_turns,
-            verify_prompt=body.verify_prompt,
-            self_review_prompt=body.self_review_prompt,
-            enable_stall_detection=body.enable_stall_detection,
-            enable_plan_tracking=body.enable_plan_tracking,
-            mode=body.mode or JobMode.standard,
-        )
+    spec = JobSpec(
+        repo=body.repo,
+        prompt=body.prompt,
+        base_ref=body.base_ref,
+        branch=body.branch,
+        title=body.title,
+        description=body.description,
+        worktree_name=body.worktree_name,
+        preset=body.preset or Preset.supervised,
+        model=body.model,
+        sdk=body.sdk,
+        verify=body.verify,
+        self_review=body.self_review,
+        max_turns=body.max_turns,
+        verify_prompt=body.verify_prompt,
+        self_review_prompt=body.self_review_prompt,
+        enable_stall_detection=body.enable_stall_detection,
+        enable_plan_tracking=body.enable_plan_tracking,
+        mode=body.mode or JobMode.standard,
     )
+
+    job = await svc.create_job(spec)
 
     # Commit so the job row is visible to background tasks (separate sessions)
     await session.commit()
@@ -208,6 +217,24 @@ async def create_job(
                 log.error("background_job_setup_failed", job_id=job.id, exc_info=True)
 
         asyncio.create_task(_setup_and_start(), name=f"setup-{job.id}")
+
+        # Fire-and-forget background task: fill in the real title/description
+        # via the naming LLM (job creation itself never waits on this).
+        if job.title is None:
+            resolved_repo = svc.validate_repo(body.repo)
+
+            async def _enrich_naming() -> None:
+                try:
+                    async with session_factory() as bg_session:
+                        bg_svc = JobService.from_session(
+                            bg_session, config, naming_service=naming_service, event_bus=event_bus
+                        )
+                        await bg_svc.enrich_naming_async(job.id, spec, resolved_repo)
+                        await bg_session.commit()
+                except Exception:
+                    log.error("background_naming_enrichment_failed", job_id=job.id, exc_info=True)
+
+            asyncio.create_task(_enrich_naming(), name=f"naming-{job.id}")
 
     return _job_to_create_response(job)
 

@@ -450,13 +450,21 @@ class JobRepository(BaseRepository):
         await self._session.flush()
         return int(result.rowcount) > 0  # type: ignore[attr-defined]  # CursorResult.rowcount not in generic stub
 
-    async def update_title_and_branch(self, job_id: str, title: str | None = None, branch: str | None = None) -> None:
-        """Update the title and/or branch of a job (used by async naming)."""
+    async def update_title_and_branch(
+        self,
+        job_id: str,
+        title: str | None = None,
+        branch: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        """Update the title/branch/description of a job (used by async naming)."""
         updates: dict[str, Any] = {}
         if title is not None:
             updates["title"] = title
         if branch is not None:
             updates["branch"] = branch
+        if description is not None:
+            updates["description"] = description
         if updates:
             await self._update_row(job_id, **updates)
 

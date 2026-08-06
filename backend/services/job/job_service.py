@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import glob
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -47,8 +46,6 @@ log = structlog.get_logger()
 
 _MAX_COUNT_LIMIT = 10_000  # upper bound for count queries that scan all jobs
 
-_MAX_NAMING_COLLISION_RETRIES = 2
-
 
 @dataclass(frozen=True)
 class ProgressPreview:
@@ -85,6 +82,7 @@ class JobService:
         *,
         git_service: GitService | None = None,
         naming_service: NamingService | None = None,
+        event_bus: EventBus | None = None,
     ) -> JobService:
         """Construct from a DB session."""
         from backend.persistence.event_repo import EventRepository
@@ -102,6 +100,7 @@ class JobService:
             config=config,
             naming_service=naming_service,
             event_repo=event_repo,
+            event_bus=event_bus,
         )
 
     def _resolve_repos(self) -> set[str]:
@@ -165,55 +164,6 @@ class JobService:
             raise RepoNotAllowedError(f"Repository '{repo}' is not in the allowlist.")
         return resolved
 
-    async def _generate_names_with_retry(
-        self,
-        spec: JobSpec,
-        resolved_repo: str,
-        branch: str | None,
-    ) -> tuple[str | None, str | None, str | None, str | None]:
-        """Generate title/description/branch/worktree_name via the naming service.
-
-        Retries if the generated worktree_name collides with an existing job.
-        """
-        assert self._git is not None
-        existing_worktrees = self._git.list_worktree_names(resolved_repo)
-        existing_branches, existing_job_ids = await asyncio.gather(
-            self._git.list_branches(resolved_repo),
-            self._job_repo.list_ids(),
-        )
-        exclude_names = existing_worktrees | existing_job_ids
-
-        if self._naming is None:
-            raise ServiceInitError("NamingService must be set before generating job metadata")
-        title, description, generated_branch, worktree_name = await self._naming.generate(
-            spec.prompt,
-            existing_branches=existing_branches,
-            existing_worktrees=exclude_names,
-            parent_job_context=spec.parent_job_context,
-        )
-        if branch is None and generated_branch:
-            branch = generated_branch
-
-        for _retry in range(_MAX_NAMING_COLLISION_RETRIES):
-            if worktree_name not in exclude_names and await self._job_repo.get(worktree_name) is None:
-                break
-            log.warning(
-                "naming_collision_retry",
-                worktree_name=worktree_name,
-                attempt=_retry + 1,
-            )
-            exclude_names = exclude_names | {worktree_name}
-            title, description, generated_branch, worktree_name = await self._naming.generate(
-                spec.prompt,
-                existing_branches=existing_branches,
-                existing_worktrees=exclude_names,
-                parent_job_context=spec.parent_job_context,
-            )
-            if branch is None and generated_branch:
-                branch = generated_branch
-
-        return title, description, branch, worktree_name
-
     async def _resolve_job_name(
         self,
         spec: JobSpec,
@@ -255,26 +205,71 @@ class JobService:
                         branch = f"{branch}-{counter}"
                 log.info("pre_named_collision_suffixed", worktree_name=worktree_name)
 
-        if not pre_named and self._naming is not None:
-            title, description, branch, worktree_name = await self._generate_names_with_retry(
-                spec, resolved_repo, branch
-            )
+        if not pre_named and worktree_name is None:
+            # Naming is never allowed to block job creation: derive an instant,
+            # human-readable slug locally instead of calling the naming LLM.
+            # If a naming service is configured, the real title/description
+            # (and, if still unset, branch) are filled in asynchronously after
+            # the job is created — see `enrich_naming_async`.
+            from backend.services.completers.naming_service import heuristic_slug
 
-        # When no naming service is configured (e.g. tests without LLM), use a hash.
-        # Check existing IDs to avoid collisions on reruns of the same prompt.
-        if worktree_name is None:
-            import hashlib
-
-            base_hash = hashlib.sha256(spec.prompt.encode()).hexdigest()[:8]
-            candidate = f"task-{base_hash}"
-            existing_ids = await self._job_repo.list_ids()
-            counter = 0
-            while candidate in existing_ids:
+            existing_job_ids = await self._job_repo.list_ids()
+            existing_worktrees = self._git.list_worktree_names(resolved_repo) if self._git else set()
+            exclude_names = existing_job_ids | existing_worktrees
+            base_slug = heuristic_slug(spec.prompt)
+            candidate = base_slug
+            counter = 2
+            while candidate in exclude_names or await self._job_repo.get(candidate) is not None:
+                candidate = f"{base_slug}-{counter}"
                 counter += 1
-                candidate = f"task-{base_hash}-{counter}"
             worktree_name = candidate
+            if branch is None:
+                branch = f"feat/{worktree_name}"
 
         return title, description, branch, worktree_name
+
+    async def enrich_naming_async(self, job_id: str, spec: JobSpec, resolved_repo: str) -> None:
+        """Background LLM naming enrichment: fills in title/description after creation.
+
+        Runs after `create_job` has already returned using the instant
+        heuristic slug. Never touches `branch` or `worktree_name` — those are
+        already used (or being used) to create the actual git worktree, and
+        changing them post-hoc would desync the DB from git reality.
+        """
+        if self._naming is None:
+            return
+        job = await self._job_repo.get(job_id)
+        if job is None or job.title is not None:
+            return
+        try:
+            existing_branches = await self._git.list_branches(resolved_repo) if self._git else set()
+            existing_worktrees = self._git.list_worktree_names(resolved_repo) if self._git else set()
+            title, description, _branch, _worktree_name = await self._naming.generate(
+                spec.prompt,
+                existing_branches=existing_branches,
+                existing_worktrees=existing_worktrees,
+                parent_job_context=spec.parent_job_context,
+            )
+        except NamingError as exc:
+            log.warning("naming_enrichment_failed", job_id=job_id, error=str(exc))
+            return
+
+        job = await self._job_repo.get(job_id)
+        if job is None:
+            return
+        await self._job_repo.update_title_and_branch(job_id, title=title, description=description)
+
+        if self._event_bus is not None:
+            from backend.models.events import EventKind, SessionEvent
+
+            await self._event_bus.publish(
+                SessionEvent(
+                    kind=EventKind.job_title_updated,
+                    job_id=job_id,
+                    payload={"title": title, "description": description},
+                )
+            )
+        log.info("naming_enrichment_complete", job_id=job_id, title=title)
 
     async def create_job(self, spec: JobSpec) -> Job:
         """Create a new job record in ``preparing`` state.
@@ -283,10 +278,11 @@ class JobService:
         does **not** create the worktree or start the agent.  Call
         :meth:`setup_workspace` in a background task to complete preparation.
 
-        The job ID is the LLM-generated worktree name (e.g. "fix-login-bug").
-        Naming is blocking: the LLM generates title, branch, and worktree name
-        before the job is persisted.  If naming fails, a job in ``failed``
-        state is returned with a hash-based ID; NamingError is not propagated.
+        The job ID is an instant, heuristically-derived worktree name (e.g.
+        "fix-login-bug") computed locally with no LLM call, so job creation
+        never blocks on naming. If a naming service is configured, call
+        :meth:`enrich_naming_async` in a background task afterwards to fill
+        in the real title/description via the LLM.
 
         Returns the created Job domain object.
 
