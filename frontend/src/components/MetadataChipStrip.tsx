@@ -5,6 +5,7 @@ import { ExternalLink, AlertTriangle, ArrowDownCircle, Loader2, Coins, FolderGit
 import type { JobSummary } from "../store";
 import { Tooltip } from "./ui/tooltip";
 import { cn, isActiveSetupStep, setupStepLabel } from "../lib/utils";
+import { pathBasename } from "../lib/paths";
 
 interface MetadataChipStripProps {
   job: JobSummary;
@@ -132,7 +133,7 @@ function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => v
 
 export function MetadataChipStrip({ job, hasMergeConflict, className, onCostClick }: MetadataChipStripProps) {
   const isPreparing = job.state === "preparing";
-  const repoName = job.repo.split("/").pop() ?? job.repo;
+  const repoName = pathBasename(job.repo) || job.repo;
   const navigate = useNavigate();
 
   return (

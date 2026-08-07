@@ -3,6 +3,7 @@ import { Network, RotateCcw } from "lucide-react";
 import { useStore } from "../store";
 import { request } from "../api/client";
 import { Tooltip } from "./ui/tooltip";
+import { pathBasename } from "../lib/paths";
 
 interface RepoHealth {
   repo: string;
@@ -29,7 +30,7 @@ const STALE_MS = 60_000; // refetch after 60 s
  * path and the basename as lookup keys.
  */
 export function RepoIndexIndicator({ repo }: { repo: string }) {
-  const basename = repo.split("/").filter(Boolean).pop() ?? repo;
+  const basename = pathBasename(repo) || repo;
   const progress = useStore((s) => s.repoIndexState[repo] ?? s.repoIndexState[basename]);
   const [health, setHealth] = useState<RepoHealth | null>(() => healthCache.get(repo)?.data ?? null);
 

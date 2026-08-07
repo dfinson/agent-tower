@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { fetchAnalyticsJobs } from "../api/client";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
+import { pathBasename } from "../lib/paths";
 
 function stateColor(state: string): string {
   switch (state) {
@@ -54,7 +55,7 @@ interface JobRow {
 export function RepoJobs() {
   const { repoPath } = useParams<{ repoPath: string }>();
   const decoded = repoPath ? decodeURIComponent(repoPath) : "";
-  const repoName = decoded.split("/").pop() || decoded;
+  const repoName = pathBasename(decoded) || decoded;
 
   const [loading, setLoading] = useState(true);
   const [jobs, setJobs] = useState<JobRow[]>([]);

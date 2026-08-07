@@ -8,6 +8,7 @@ import { Label } from "./ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody } from "./ui/dialog";
 import { Spinner } from "./ui/spinner";
+import { pathBasename } from "../lib/paths";
 
 interface AddRepoModalProps {
   opened: boolean;
@@ -46,7 +47,7 @@ export function AddRepoModal({ opened, onClose, onAdded }: AddRepoModalProps) {
       setAdding(true);
       try {
         const result = await registerRepo(source.trim(), cloneTarget?.trim() || undefined);
-        toast.success(`Added: ${result.path.split("/").pop()}`);
+        toast.success(`Added: ${pathBasename(result.path)}`);
         onAdded(result.path);
         setInput("");
         setCloneTo("");

@@ -7,6 +7,7 @@ import {
 } from "../../api/client";
 import { Badge } from "../ui/badge";
 import { formatUsd, formatDuration, downloadCsv, CsvButton } from "./helpers";
+import { pathBasename } from "../../lib/paths";
 
 // ---------------------------------------------------------------------------
 // Model comparison table
@@ -56,7 +57,7 @@ export function ModelComparison({
           >
             <option value="">All repos</option>
             {repos.repos.map((r) => (
-              <option key={r.repo} value={r.repo}>{r.repo ? r.repo.split("/").pop() : "(none)"}</option>
+              <option key={r.repo} value={r.repo}>{r.repo ? pathBasename(r.repo) : "(none)"}</option>
             ))}
           </select>
         </div>

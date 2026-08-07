@@ -204,6 +204,15 @@ _HEARTBEAT_INTERVAL_S = 30
 _STALL_CHECK_THRESHOLD_S = 120  # 2 minutes before first check
 _STALL_RECHECK_INTERVAL_S = 120  # re-ask every 2 minutes if sidecar says wait
 
+# If the arbiter itself fails (exception, timeout, or unparseable response)
+# this many times in a row for the same job, stop trusting "no verdict" to
+# mean "everything is fine". A broken arbiter must not be able to leave a
+# job silently stuck forever with no operator-visible signal — so we fall
+# back to treating the tool as stalled and go through the normal
+# interrupt/re-prompt path once the arbiter has proven unreliable for a
+# sustained period.
+_STALL_CHECK_MAX_CONSECUTIVE_FAILURES = 3
+
 _STALL_ARBITER_PROMPT = """\
 A coding agent is running tool `{tool_name}` which has been active for {elapsed}.
 Tool arguments (truncated): {tool_args}
@@ -294,6 +303,7 @@ class RuntimeService:
         self._stall_check_pending: set[str] = set()  # job_ids currently being checked
         self._last_stall_check: dict[str, float] = {}  # job_id → monotonic time of last check
         self._stall_detection_disabled: set[str] = set()  # jobs with stall detection explicitly off
+        self._stall_check_consecutive_failures: dict[str, int] = {}  # job_id → failed/unparseable checks in a row
         self._waiting_for_approval: set[str] = set()
         self._session_ids: dict[str, str] = {}
         self._policy_routers: dict[str, Any] = {}  # job_id → PolicyRouter
@@ -1338,6 +1348,7 @@ class RuntimeService:
         self._stall_check_pending.discard(job_id)
         self._last_stall_check.pop(job_id, None)
         self._stall_detection_disabled.discard(job_id)
+        self._stall_check_consecutive_failures.pop(job_id, None)
         self._waiting_for_approval.discard(job_id)
         self._session_ids.pop(job_id, None)
         # Clean up action policy router state
@@ -1674,6 +1685,7 @@ class RuntimeService:
         self._active_tool.pop(job_id, None)
         self._stall_check_pending.discard(job_id)
         self._last_stall_check.pop(job_id, None)
+        self._stall_check_consecutive_failures.pop(job_id, None)
 
         log.debug("external_session_finalized", job_id=job_id, outcome=outcome)
 
@@ -1952,7 +1964,12 @@ class RuntimeService:
                 verdict = json.loads(response.strip())
             except (json.JSONDecodeError, ValueError):
                 log.debug("stall_check_unparseable", job_id=job_id, response=response[:200])
+                await self._on_stall_check_undetermined(job_id, tool_name, elapsed_human)
                 return
+
+            # A parsed verdict — successful check, regardless of the action —
+            # means the arbiter is healthy again.
+            self._stall_check_consecutive_failures.pop(job_id, None)
 
             action = verdict.get("action", "wait")
             reason = verdict.get("reason", "")
@@ -1976,8 +1993,44 @@ class RuntimeService:
                 )
         except (TimeoutError, OSError, RuntimeError):
             log.debug("stall_check_failed", job_id=job_id, exc_info=True)
+            await self._on_stall_check_undetermined(job_id, tool_name, elapsed_human)
         finally:
             self._stall_check_pending.discard(job_id)
+
+    async def _on_stall_check_undetermined(self, job_id: str, tool_name: str, elapsed_human: str) -> None:
+        """Record an arbiter failure/unparseable-response and escalate if it recurs.
+
+        The arbiter is a soft signal: if it can't produce a verdict we normally
+        just wait and retry next interval. But if it *keeps* failing, silently
+        doing nothing means a genuinely stuck tool call can sit forever with no
+        operator-visible signal (no failure, no interrupt, nothing) — the exact
+        failure mode this stall detector exists to prevent. After enough
+        consecutive undetermined checks, fall back to the same interrupt/
+        re-prompt path used for a confirmed stall, so the job never depends on
+        the arbiter being reliable in order to make forward progress.
+        """
+        failures = self._stall_check_consecutive_failures.get(job_id, 0) + 1
+        self._stall_check_consecutive_failures[job_id] = failures
+        if failures < _STALL_CHECK_MAX_CONSECUTIVE_FAILURES:
+            return
+
+        log.warning(
+            "stall_check_repeatedly_undetermined_escalating",
+            job_id=job_id,
+            tool_name=tool_name,
+            elapsed=elapsed_human,
+            consecutive_failures=failures,
+        )
+        self._stall_check_consecutive_failures.pop(job_id, None)
+        await self._handle_stall_interrupt(
+            job_id,
+            tool_name,
+            elapsed_human,
+            reason=(
+                f"stall detector itself failed {failures} times in a row and could not "
+                "determine whether this tool call is stuck"
+            ),
+        )
 
     async def _handle_stall_interrupt(self, job_id: str, tool_name: str, elapsed: str, reason: str) -> None:
         """Interrupt the stalled tool and re-prompt the agent."""

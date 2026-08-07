@@ -29,6 +29,16 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+if sys.platform == "win32":
+    # Windows consoles default sys.stdout/stderr to the legacy ANSI code page
+    # (e.g. CP1252), not UTF-8. This script prints Unicode glyphs like "✓",
+    # which raise UnicodeEncodeError under that default. Reconfigure here so
+    # the script works regardless of the user's console code page (mirrors
+    # the same fix in backend/main.py).
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = REPO_ROOT / "frontend"
 

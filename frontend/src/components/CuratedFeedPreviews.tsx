@@ -19,6 +19,7 @@ import type { TranscriptEntry } from "../store";
 import { SdkIcon } from "./SdkBadge";
 import { Tooltip } from "./ui/tooltip";
 import { cn } from "../lib/utils";
+import { pathBasename } from "../lib/paths";
 import {
   formatDuration,
   trimWorktreePaths,
@@ -375,7 +376,7 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
 
   const handleOpenTerminal = useCallback(() => {
     if (!job?.worktreePath) return;
-    createTerminalSession({ cwd: job.worktreePath, jobId: entry.jobId, label: job.branch ?? job.repo?.split("/").pop() ?? "Terminal" });
+    createTerminalSession({ cwd: job.worktreePath, jobId: entry.jobId, label: job.branch || pathBasename(job.repo) || "Terminal" });
   }, [job, entry.jobId, createTerminalSession]);
 
   return (

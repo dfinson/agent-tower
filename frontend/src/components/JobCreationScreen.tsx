@@ -13,6 +13,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Combobox } from "./ui/combobox";
 import { Tooltip } from "./ui/tooltip";
+import { pathBasename } from "../lib/paths";
 
 function sdkStatusDescription(sdk: SDKInfo): string | undefined {
   if (!sdk.enabled) return sdk.hint || "Not installed";
@@ -111,7 +112,7 @@ export function JobCreationScreen() {
       });
     fetchRepos()
       .then((r) => {
-        const items = r.items.map((p) => ({ value: p, label: p.split("/").pop() ?? p }));
+        const items = r.items.map((p) => ({ value: p, label: pathBasename(p) || p }));
         setRepos(items);
         setRepo((prev) => prev ?? items[0]?.value ?? null);
       })
@@ -283,7 +284,7 @@ export function JobCreationScreen() {
             opened={addRepoOpen}
             onClose={() => setAddRepoOpen(false)}
             onAdded={(path) => {
-              const label = path.split("/").pop() ?? path;
+              const label = pathBasename(path) || path;
               setRepos((prev) => {
                 if (prev.some((r) => r.value === path)) return prev;
                 return [...prev, { value: path, label }];

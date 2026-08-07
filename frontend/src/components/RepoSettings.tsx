@@ -6,11 +6,12 @@ import { fetchRepoDetail } from "../api/client";
 import type { RepoDetailResponse } from "../api/types";
 import { RepoIndexIndicator } from "./RepoIndexIndicator";
 import { Spinner } from "./ui/spinner";
+import { pathBasename } from "../lib/paths";
 
 export function RepoSettings() {
   const { repoPath } = useParams<{ repoPath: string }>();
   const decoded = repoPath ? decodeURIComponent(repoPath) : "";
-  const repoName = decoded.split("/").pop() || decoded;
+  const repoName = pathBasename(decoded) || decoded;
 
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<RepoDetailResponse | null>(null);

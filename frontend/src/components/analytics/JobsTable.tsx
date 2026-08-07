@@ -9,6 +9,7 @@ import {
 import { Badge } from "../ui/badge";
 import { Spinner } from "../ui/spinner";
 import { formatRelativeTime, formatUsd, formatDuration, downloadCsv, STATUS_COLORS, CsvButton } from "./helpers";
+import { pathBasename } from "../../lib/paths";
 
 // ---------------------------------------------------------------------------
 // Jobs table
@@ -113,7 +114,7 @@ export function JobsTable({ period }: { period: number }) {
         <tbody>
           {jobs.map((j) => {
             const shortId = j.job_id?.slice(0, 8) || "—";
-            const repoName = j.repo ? j.repo.split("/").pop() : "—";
+            const repoName = j.repo ? pathBasename(j.repo) : "—";
             const statusColor = STATUS_COLORS[j.status] || "#666";
             const when = j.completed_at || j.created_at;
             return (
