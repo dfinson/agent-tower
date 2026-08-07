@@ -110,6 +110,23 @@ def resume_job(base_url: str, job_id: str) -> bool:
 
 def _find_pids_on_port(port: int) -> list[int]:
     """Return PIDs of processes listening on the given TCP port."""
+    if sys.platform == "win32":
+        # lsof/ss are POSIX-only and silently unavailable here — without a
+        # Windows-specific lookup this always returns [], so stop_server()
+        # never actually kills the old process. It keeps running and holds
+        # the port, so the "new" server process fails to bind and exits
+        # almost immediately, while all traffic keeps hitting the stale old
+        # process (including its unmodified code) — the restart is a no-op.
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", f"(Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue).OwningProcess"],
+                capture_output=True,
+                text=True,
+            )
+            return [int(p) for p in result.stdout.split() if p.strip().isdigit()]
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            return []
+
     # Try lsof first (available on most POSIX systems)
     try:
         result = subprocess.run(
@@ -163,9 +180,10 @@ def stop_server(port: int, graceful_timeout: int = 15) -> bool:
 
     # Force-kill anything still running
     print("  Graceful timeout reached — sending SIGKILL.")
+    kill_signal = signal.SIGTERM if sys.platform == "win32" else signal.SIGKILL
     for pid in _find_pids_on_port(port):
         with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
+            os.kill(pid, kill_signal)
     time.sleep(1)
     still_up = _find_pids_on_port(port)
     if still_up:
