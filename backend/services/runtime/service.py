@@ -213,6 +213,15 @@ _STALL_RECHECK_INTERVAL_S = 120  # re-ask every 2 minutes if sidecar says wait
 # sustained period.
 _STALL_CHECK_MAX_CONSECUTIVE_FAILURES = 3
 
+# Stall detection above only fires while a tool call is actively tracked
+# (``_active_tool`` is set). If the agent/SDK hangs *between* tool calls —
+# e.g. waiting on the underlying LLM API — there is no tool call to ask the
+# arbiter about, and without this fallback the whole stall-detection
+# subsystem would be blind to that hang forever. After this much total
+# inactivity with no tool in flight, treat the session as stalled directly
+# (no arbiter round-trip needed — there's nothing tool-specific to judge).
+_STALL_NO_TOOL_INACTIVITY_THRESHOLD_S = 300  # 5 minutes
+
 _STALL_ARBITER_PROMPT = """\
 A coding agent is running tool `{tool_name}` which has been active for {elapsed}.
 Tool arguments (truncated): {tool_args}
@@ -1907,12 +1916,58 @@ class RuntimeService:
         except asyncio.CancelledError:
             log.debug("heartbeat_loop_cancelled", job_id=job_id)
 
+    async def _check_general_inactivity(self, job_id: str) -> None:
+        """Detect stalls that happen *between* tool calls.
+
+        ``_check_stall`` only runs its checks while a tool call is being
+        tracked in ``_active_tool``. If the agent/SDK subprocess itself
+        hangs (e.g. waiting on the LLM API, or a stuck pipe) with no tool
+        call in flight, that hang is otherwise invisible to the whole
+        stall-detection subsystem — heartbeats keep publishing, but nothing
+        ever notices ``last_activity_at`` has stopped advancing. There is no
+        tool-specific context to ask the arbiter about here, so once
+        inactivity crosses the threshold we escalate directly.
+        """
+        last = self._last_activity.get(job_id)
+        if job_id in self._waiting_for_approval:
+            return  # legitimately paused for a human, not stalled
+        if last is None:
+            return
+        inactive_s = time.monotonic() - last
+        if inactive_s < _STALL_NO_TOOL_INACTIVITY_THRESHOLD_S:
+            return
+        last_check = self._last_stall_check.get(job_id, 0.0)
+        if (time.monotonic() - last_check) < _STALL_RECHECK_INTERVAL_S:
+            return
+        self._last_stall_check[job_id] = time.monotonic()
+
+        elapsed_human = f"{int(inactive_s // 60)}m{int(inactive_s % 60)}s"
+        log.warning(
+            "stall_detected_general_inactivity",
+            job_id=job_id,
+            elapsed=elapsed_human,
+        )
+        try:
+            await self._handle_stall_interrupt(
+                job_id,
+                tool_name="(no active tool)",
+                elapsed=elapsed_human,
+                reason=(
+                    f"the agent session has shown no activity for {elapsed_human} and is not "
+                    "inside a tracked tool call"
+                ),
+            )
+        except Exception:
+            log.error("stall_general_inactivity_interrupt_raised", job_id=job_id, exc_info=True)
+            raise
+
     async def _check_stall(self, job_id: str) -> None:
         """Ask the sidecar session whether the active tool is stuck."""
         if job_id in self._stall_detection_disabled:
             return
         active = self._active_tool.get(job_id)
         if not active:
+            await self._check_general_inactivity(job_id)
             return
         if self._sidecar_sessions is None:
             return
@@ -2022,15 +2077,19 @@ class RuntimeService:
             consecutive_failures=failures,
         )
         self._stall_check_consecutive_failures.pop(job_id, None)
-        await self._handle_stall_interrupt(
-            job_id,
-            tool_name,
-            elapsed_human,
-            reason=(
-                f"stall detector itself failed {failures} times in a row and could not "
-                "determine whether this tool call is stuck"
-            ),
-        )
+        try:
+            await self._handle_stall_interrupt(
+                job_id,
+                tool_name,
+                elapsed_human,
+                reason=(
+                    f"stall detector itself failed {failures} times in a row and could not "
+                    "determine whether this tool call is stuck"
+                ),
+            )
+        except Exception:
+            log.error("stall_escalation_interrupt_raised", job_id=job_id, exc_info=True)
+            raise
 
     async def _handle_stall_interrupt(self, job_id: str, tool_name: str, elapsed: str, reason: str) -> None:
         """Interrupt the stalled tool and re-prompt the agent."""
