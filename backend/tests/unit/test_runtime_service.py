@@ -1721,3 +1721,168 @@ class TestStartOrEnqueueCapacitySafety:
         assert runtime.running_count <= config.runtime.max_concurrent_jobs
 
         await runtime.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Stall detection — arbiter reliability
+# ---------------------------------------------------------------------------
+
+
+class FakeArbiterSidecar:
+    """Minimal sidecar double exposing only the ``complete()`` surface used by
+    ``RuntimeService._check_stall``."""
+
+    def __init__(self, responder: Callable[[], str]) -> None:
+        self._responder = responder
+
+    async def complete(self, prompt: str, timeout: float = 15.0) -> str:
+        return self._responder()
+
+
+class FakeSidecarSessionManager:
+    """Minimal sidecar-session-manager double: always hands back the same
+    fake sidecar for any (job_id, name) pair."""
+
+    def __init__(self, sidecar: FakeArbiterSidecar) -> None:
+        self._sidecar = sidecar
+
+    def get(self, job_id: str, name: str) -> FakeArbiterSidecar:
+        return self._sidecar
+
+
+def _active_tool_far_in_past(seconds: float = 200.0) -> tuple[str, str, str]:
+    started = datetime.now(UTC).timestamp() - seconds
+    started_iso = datetime.fromtimestamp(started, tz=UTC).isoformat()
+    return ("powershell", started_iso, '{"command": "mvn test"}')
+
+
+class TestStallDetectionArbiterReliability:
+    """A broken/unreliable arbiter must not let a job hang forever with zero
+    operator-visible signal — see the bug this guards against: a live job sat
+    in `running` for ~2 hours with the arbiter repeatedly failing/timing out
+    and `_check_stall` silently doing nothing each time."""
+
+    async def test_single_arbiter_failure_does_not_escalate(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+        adapter: FakeAgentAdapter,
+        config: CPLConfig,
+    ) -> None:
+        def _raise() -> str:
+            raise TimeoutError("arbiter timed out")
+
+        sidecar = FakeArbiterSidecar(_raise)
+        runtime = _make_runtime(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            adapter_registry=FakeAdapterRegistry(adapter),
+            config=config,
+            sidecar_sessions=FakeSidecarSessionManager(sidecar),
+        )
+        runtime._handle_stall_interrupt = AsyncMock()  # type: ignore[method-assign]
+        job_id = "job-stall-1"
+        runtime._active_tool[job_id] = _active_tool_far_in_past()
+
+        await runtime._check_stall(job_id)
+
+        runtime._handle_stall_interrupt.assert_not_called()
+        assert runtime._stall_check_consecutive_failures[job_id] == 1
+
+    async def test_repeated_arbiter_failures_escalate_to_interrupt(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+        adapter: FakeAgentAdapter,
+        config: CPLConfig,
+    ) -> None:
+        def _raise() -> str:
+            raise TimeoutError("arbiter timed out")
+
+        sidecar = FakeArbiterSidecar(_raise)
+        runtime = _make_runtime(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            adapter_registry=FakeAdapterRegistry(adapter),
+            config=config,
+            sidecar_sessions=FakeSidecarSessionManager(sidecar),
+        )
+        runtime._handle_stall_interrupt = AsyncMock()  # type: ignore[method-assign]
+        job_id = "job-stall-2"
+        runtime._active_tool[job_id] = _active_tool_far_in_past()
+
+        # Consecutive exceptions never update _last_stall_check, so each call
+        # proceeds immediately without needing to fast-forward the recheck
+        # interval.
+        for _ in range(3):
+            await runtime._check_stall(job_id)
+
+        runtime._handle_stall_interrupt.assert_called_once()
+        call_kwargs = runtime._handle_stall_interrupt.call_args
+        assert call_kwargs.args[0] == job_id
+        assert "3 times in a row" in call_kwargs.kwargs["reason"]
+        # Escalation resets the counter so it doesn't fire on every subsequent tick.
+        assert job_id not in runtime._stall_check_consecutive_failures
+
+    async def test_unparseable_responses_also_escalate(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+        adapter: FakeAgentAdapter,
+        config: CPLConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import backend.services.runtime.service as runtime_service_module
+
+        monkeypatch.setattr(runtime_service_module, "_STALL_RECHECK_INTERVAL_S", 0)
+
+        sidecar = FakeArbiterSidecar(lambda: "not json")
+        runtime = _make_runtime(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            adapter_registry=FakeAdapterRegistry(adapter),
+            config=config,
+            sidecar_sessions=FakeSidecarSessionManager(sidecar),
+        )
+        runtime._handle_stall_interrupt = AsyncMock()  # type: ignore[method-assign]
+        job_id = "job-stall-3"
+        runtime._active_tool[job_id] = _active_tool_far_in_past()
+
+        for _ in range(3):
+            await runtime._check_stall(job_id)
+
+        runtime._handle_stall_interrupt.assert_called_once()
+
+    async def test_successful_verdict_resets_failure_counter(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+        adapter: FakeAgentAdapter,
+        config: CPLConfig,
+    ) -> None:
+        calls = {"n": 0}
+
+        def _flaky() -> str:
+            calls["n"] += 1
+            if calls["n"] <= 2:
+                raise TimeoutError("arbiter timed out")
+            return json.dumps({"action": "wait", "reason": "legitimately slow build"})
+
+        sidecar = FakeArbiterSidecar(_flaky)
+        runtime = _make_runtime(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            adapter_registry=FakeAdapterRegistry(adapter),
+            config=config,
+            sidecar_sessions=FakeSidecarSessionManager(sidecar),
+        )
+        runtime._handle_stall_interrupt = AsyncMock()  # type: ignore[method-assign]
+        job_id = "job-stall-4"
+        runtime._active_tool[job_id] = _active_tool_far_in_past()
+
+        # Two failures (short of the threshold), then one healthy response.
+        for _ in range(3):
+            await runtime._check_stall(job_id)
+
+        runtime._handle_stall_interrupt.assert_not_called()
+        assert job_id not in runtime._stall_check_consecutive_failures
