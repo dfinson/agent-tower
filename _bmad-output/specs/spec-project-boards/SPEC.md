@@ -1,6 +1,6 @@
 ---
 id: SPEC-project-boards
-companions: ["ui-flows.md", "architecture/ARCHITECTURE-SPINE.md"]
+companions: ["ui-flows.md", "../../planning-artifacts/architecture/architecture-codeplane-2026-08-10/ARCHITECTURE-SPINE.md"]
 sources: []
 ---
 

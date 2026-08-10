@@ -1,6 +1,6 @@
 ---
 stepsCompleted: [1, 2, 3, 4]
-inputDocuments: ["_bmad-output/specs/spec-project-boards/SPEC.md", "_bmad-output/specs/spec-project-boards/architecture/ARCHITECTURE-SPINE.md", "_bmad-output/specs/spec-project-boards/ui-flows.md"]
+inputDocuments: ["_bmad-output/specs/spec-project-boards/SPEC.md", "_bmad-output/planning-artifacts/architecture/architecture-codeplane-2026-08-10/ARCHITECTURE-SPINE.md", "_bmad-output/specs/spec-project-boards/ui-flows.md"]
 ---
 
 # codeplane - Epic Breakdown
