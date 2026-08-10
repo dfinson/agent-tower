@@ -127,7 +127,7 @@ class RestartTimeouts:
     response_grace_seconds: float = 2.0
     pause_wait_seconds: float = 10.0
     stop_seconds: float = 15.0
-    readiness_seconds: float = 60.0
+    readiness_seconds: float = 120.0
     remote_probe_seconds: float = 30.0
 
     def to_dict(self) -> dict[str, float]:

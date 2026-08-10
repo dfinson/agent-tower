@@ -109,7 +109,7 @@ class TestRestartTimeouts:
         assert timeouts.response_grace_seconds == 2.0
         assert timeouts.pause_wait_seconds == 10.0
         assert timeouts.stop_seconds == 15.0
-        assert timeouts.readiness_seconds == 60.0
+        assert timeouts.readiness_seconds == 120.0
         assert timeouts.remote_probe_seconds == 30.0
 
     def test_roundtrip(self) -> None:

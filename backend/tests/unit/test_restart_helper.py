@@ -247,6 +247,14 @@ class TestAwaitAdoption:
         )
         assert rh.await_adoption(paths, "req-adopt-1", timeout_seconds=1.0) is True
 
+    def test_returns_true_when_claimed_marker_matches(self) -> None:
+        paths = get_request_paths("req-adopt-claimed")
+        write_json_atomic(
+            paths.claimed,
+            {"requestId": "req-adopt-claimed", "helperPid": 111, "helperProcessTime": 1.0, "claimedAt": "x"},
+        )
+        assert rh.await_adoption(paths, "req-adopt-claimed", timeout_seconds=1.0) is True
+
     def test_ignores_mismatched_request_id_and_times_out(self) -> None:
         paths = get_request_paths("req-adopt-2")
         write_json_atomic(
@@ -258,6 +266,16 @@ class TestAwaitAdoption:
     def test_returns_false_when_marker_never_appears(self) -> None:
         paths = get_request_paths("req-adopt-3")
         assert rh.await_adoption(paths, "req-adopt-3", timeout_seconds=0.3) is False
+
+    def test_final_check_catches_marker_published_at_deadline(self) -> None:
+        paths = get_request_paths("req-adopt-4")
+
+        with (
+            patch.object(rh, "_request_marker_matches", side_effect=[False, False, True]),
+            patch.object(rh.time, "monotonic", side_effect=[0.0, 0.0, 0.1]),
+            patch.object(rh.time, "sleep"),
+        ):
+            assert rh.await_adoption(paths, "req-adopt-4", timeout_seconds=0.05) is True
 
 
 # ---------------------------------------------------------------------------

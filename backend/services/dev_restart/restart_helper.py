@@ -165,8 +165,19 @@ def spawn_detached_helper(python_executable: Path, helper_script: Path, request_
     return proc.pid
 
 
+def _request_marker_matches(path: Path, request_id: str) -> bool:
+    """True when *path* exists and names the expected restart request."""
+    if not path.exists():
+        return False
+    try:
+        payload = read_json_file(path)
+    except RestartProtocolError:
+        return False
+    return payload.get("requestId") == request_id
+
+
 def await_adoption(paths: RestartRequestPaths, request_id: str, timeout_seconds: float) -> bool:
-    """Block until ``<id>.started.json`` exists and names this exact request.
+    """Block until a claimed/started marker names this exact request.
 
     Parent success requires adoption, not restart completion (AD-3) — this
     only proves a helper claimed the request and is proceeding; it says
@@ -174,16 +185,13 @@ def await_adoption(paths: RestartRequestPaths, request_id: str, timeout_seconds:
     """
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        if paths.started.exists():
-            try:
-                started = read_json_file(paths.started)
-            except RestartProtocolError:
-                time.sleep(0.1)
-                continue
-            if started.get("requestId") == request_id:
-                return True
+        if _request_marker_matches(paths.started, request_id) or _request_marker_matches(paths.claimed, request_id):
+            return True
         time.sleep(0.1)
-    return False
+    # One final check closes a race where the helper publishes its marker
+    # right at the deadline and Windows surfaces the file just after the loop's
+    # last iteration.
+    return _request_marker_matches(paths.started, request_id) or _request_marker_matches(paths.claimed, request_id)
 
 
 # ---------------------------------------------------------------------------
