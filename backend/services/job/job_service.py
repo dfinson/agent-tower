@@ -82,7 +82,7 @@ class JobService:
         worktree_names = self._git.list_worktree_names(repo_path)
         if inspect.isawaitable(worktree_names):
             worktree_names = await worktree_names
-        return cast("set[str]", worktree_names)
+        return worktree_names
 
     @classmethod
     def from_session(
