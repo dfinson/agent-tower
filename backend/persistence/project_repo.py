@@ -4,16 +4,12 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
 from backend.models.db import JobRow, ProjectRow
 from backend.models.domain import Project
 from backend.persistence.repository import BaseRepository
-
-if TYPE_CHECKING:
-    pass
 
 
 class RepoJobCounts:
