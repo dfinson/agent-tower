@@ -1,7 +1,7 @@
 """Add chat_messages table.
 
-Revision ID: 0059
-Revises: 0058
+Revision ID: 0061
+Revises: 0060
 Create Date: 2026-08-10
 """
 
@@ -12,8 +12,8 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0059"
-down_revision: Union[str, None] = "0058"
+revision: str = "0061"
+down_revision: Union[str, None] = "0060"
 branch_labels: Union[str, None] = None
 depends_on: Union[str, None] = None
 
