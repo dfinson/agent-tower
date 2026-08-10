@@ -76,6 +76,23 @@ class JobRow(Base):
     artifact_collection_updated_at: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
 
 
+class ProjectRow(Base):
+    """A Project — the sole persistence entity for repo membership (AD-5).
+
+    ``repo_paths`` is stored as a JSON-encoded list of strings rather than a
+    separate join table, matching the additive/thin scope of Story 2.1. A
+    single-repo Project is not a special case — it is a row with one entry.
+    """
+
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    repo_paths: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")  # JSON list
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+
 class EventRow(Base):
     __tablename__ = "events"
 

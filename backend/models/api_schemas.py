@@ -172,6 +172,16 @@ class CreateRepoResponse(CamelModel):
     name: str
 
 
+class CreateProjectRequest(CamelModel):
+    name: str = Field(min_length=1, max_length=200)
+    repo_paths: list[str] = Field(min_length=1)
+
+
+class UpdateProjectRequest(CamelModel):
+    name: str | None = Field(None, min_length=1, max_length=200)
+    repo_paths: list[str] | None = Field(None, min_length=1)
+
+
 class SuggestNamesRequest(CamelModel):
     prompt: str = Field(min_length=1, max_length=50_000)
     repo: str | None = None
@@ -444,6 +454,20 @@ class RepoCostSummary(CamelModel):
     total_cost_usd: float = 0
     total_jobs: int = 0
     total_tokens: int = 0
+
+
+class ProjectResponse(CamelModel):
+    """A Project — the sole entity that owns repo-path membership (AD-5)."""
+
+    id: str
+    name: str
+    repo_paths: list[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectListResponse(CamelModel):
+    items: list[ProjectResponse]
 
 
 class RepoSummaryResponse(CamelModel):

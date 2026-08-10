@@ -155,6 +155,14 @@ class SDKModelMismatchError(CodePlaneError):
     """Raised when a model is incompatible with the selected SDK."""
 
 
+class ProjectNotFoundError(CodePlaneError):
+    """Raised when a Project ID does not exist."""
+
+
+class RepoAlreadyAssignedError(CodePlaneError):
+    """Raised when a repo path already belongs to a different Project (NFR5)."""
+
+
 class AgentSDK(StrEnum):
     """Supported agent SDK backends."""
 
@@ -665,6 +673,20 @@ class JobSpec:
     parent_job_id: str | None = None
     parent_job_context: str | None = None
     mode: JobMode = JobMode.standard
+
+
+@dataclass
+class Project:
+    """Domain representation of a Project (AD-5) — the sole entity that owns
+    repo-path membership. A single-repo Project is not a special case: it is
+    a Project with one entry in ``repo_paths``.
+    """
+
+    id: str
+    name: str
+    repo_paths: list[str]
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass

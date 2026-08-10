@@ -208,6 +208,7 @@ async def app(
         job_artifacts,
         job_telemetry,
         jobs,
+        projects,
         settings,
         share,
         terminal,
@@ -231,6 +232,7 @@ async def app(
     application.include_router(voice.router, prefix="/api")
     application.include_router(settings.router, prefix="/api")
     application.include_router(credentials.router, prefix="/api")
+    application.include_router(projects.router, prefix="/api")
     application.include_router(share.router, prefix="/api")
     application.include_router(terminal.router, prefix="/api")
     application.include_router(chats.router, prefix="/api")
