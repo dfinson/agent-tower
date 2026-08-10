@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import psutil
+import psutil  # type: ignore[import-untyped]
 import structlog
 
 from backend.services.dev_restart.launch_profile import (

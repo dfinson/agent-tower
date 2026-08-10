@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, cast
 import structlog
 
 from backend.config import load_config
+from backend.models.events import EventKind, new_event
 from backend.models.domain import (
     ACTIVE_STATES,
     TERMINAL_STATES,
@@ -260,13 +261,11 @@ class JobService:
         await self._job_repo.update_title_and_branch(job_id, title=title, description=description)
 
         if self._event_bus is not None:
-            from backend.models.events import EventKind, SessionEvent
-
             await self._event_bus.publish(
-                SessionEvent(
-                    kind=EventKind.job_title_updated,
-                    job_id=job_id,
-                    payload={"title": title, "description": description},
+                new_event(
+                    job_id,
+                    EventKind.job_title_updated,
+                    {"title": title, "description": description},
                 )
             )
         log.info("naming_enrichment_complete", job_id=job_id, title=title)

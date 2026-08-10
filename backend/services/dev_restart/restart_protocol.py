@@ -26,7 +26,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, TextIO
 
-import psutil
+import psutil  # type: ignore[import-untyped]
 import structlog
 
 from backend.config import get_codeplane_dir

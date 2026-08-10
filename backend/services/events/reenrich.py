@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from traceforge.enricher import Enricher as TFEnricher
@@ -43,7 +43,7 @@ _job_locks: dict[str, asyncio.Lock] = {}
 _BATCH_SIZE = 500
 
 
-def _canonical_metadata(metadata: object | None) -> str | None:
+def _canonical_metadata(metadata: Any | None) -> str | None:
     """Serialize event metadata to a stable, order-independent string.
 
     Used to detect whether re-enrichment actually changed an event's metadata.

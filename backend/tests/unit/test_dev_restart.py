@@ -288,23 +288,25 @@ class TestPrepareRestartRequest:
         profile = _profile()
         call_order: list[str] = []
 
+        def record_build(*args: object, **kwargs: object) -> bool:
+            call_order.append("build")
+            return True
+
+        def record_preflight(*args: object, **kwargs: object) -> None:
+            call_order.append("preflight")
+
+        def record_write(*args: object, **kwargs: object) -> MagicMock:
+            call_order.append("write")
+            return MagicMock()
+
         with (
             patch("tools.dev_restart.resolve_target_source_root", return_value=tmp_path),
             patch("backend.services.dev_restart.launch_profile.load_active_profile", return_value=profile),
             patch("backend.services.dev_restart.launch_profile.validate_launch_profile"),
             patch("tools.dev_restart.ensure_secret_resolvable"),
-            patch(
-                "tools.dev_restart.build_frontend",
-                side_effect=lambda *a, **k: call_order.append("build") or True,
-            ),
-            patch(
-                "tools.dev_restart.run_backend_preflight",
-                side_effect=lambda *a, **k: call_order.append("preflight"),
-            ),
-            patch(
-                "tools.dev_restart.write_pending_request",
-                side_effect=lambda *a, **k: call_order.append("write") or MagicMock(),
-            ),
+            patch("tools.dev_restart.build_frontend", side_effect=record_build),
+            patch("tools.dev_restart.run_backend_preflight", side_effect=record_preflight),
+            patch("tools.dev_restart.write_pending_request", side_effect=record_write),
         ):
             dev_restart.prepare_restart_request(self._args())
 

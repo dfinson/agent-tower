@@ -120,7 +120,7 @@ class TestFindPidsOnPortWindows:
         assert _find_pids_on_port_windows(8080) == []
 
     def test_access_denied_returns_empty_without_raising(self) -> None:
-        import psutil
+        import psutil  # type: ignore[import-untyped]
 
         with patch("psutil.net_connections", side_effect=psutil.AccessDenied()):
             assert _find_pids_on_port_windows(8080) == []

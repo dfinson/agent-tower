@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -148,7 +148,7 @@ def _read_ready_marker(tmp_path: Any, request_id: str) -> dict[str, Any]:
 
     path = tmp_path / "dev-restart" / f"{request_id}.ready.json"
     assert path.exists(), f"expected ready marker at {path}"
-    return json.loads(path.read_text(encoding="utf-8"))
+    return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
 
 
 def _ready_marker_path(tmp_path: Any, request_id: str) -> Any:

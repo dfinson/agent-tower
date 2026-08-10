@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
-import psutil
+import psutil  # type: ignore[import-untyped]
 import pytest
 
 from backend.services.dev_restart import restart_helper as rh

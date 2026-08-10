@@ -400,7 +400,7 @@ def up(
         """
         import sys
 
-        import psutil as _psutil
+        import psutil as _psutil  # type: ignore[import-untyped]
 
         from backend.services.dev_restart.launch_profile import (
             LaunchProfileError,
@@ -644,7 +644,7 @@ def _find_pids_on_port(port: int) -> list[int]:
 
 def _find_pids_on_port_windows(port: int) -> list[int]:
     """Windows: enumerate TCP listeners via psutil (no lsof/ss on this platform)."""
-    import psutil  # type: ignore[import-untyped]
+    import psutil
 
     try:
         conns = psutil.net_connections(kind="tcp")
