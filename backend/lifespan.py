@@ -868,8 +868,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     services.runtime_service.set_event_processor(event_processor)
 
+    # --- Governance substrate (traceforge.governance decision + accrual) ---
+    # One process-wide decider owns a SEPARATE durable store (``governance.db``,
+    # TraceForge's own alembic — never touches CodePlane's ``alembic_version``) and
+    # the three preset pipelines. The decision path is read-only (preflight on a
+    # detached clone); the accrual path is driven by a bus subscriber that advances
+    # durable budget/taint only for EXECUTED tool calls. The USD spend reader is a
+    # synchronous read-only closure over CodePlane's ``data.db``.
+    #
+    # This MUST be wired before ``recover_on_startup`` is scheduled below —
+    # recovery synchronously starts any job that was ``running`` at the last
+    # shutdown, and job start requires the governance decider. Previously this
+    # block ran much later in startup, so every recovered job's start would
+    # raise "governance decider not wired" and silently fail, leaving the job
+    # stuck showing "running" in the DB with no actual session behind it.
+    from backend.services.action_policy.cost_ceiling import make_job_spend_reader
+    from backend.services.action_policy.governance import GovernanceDecider, load_usd_ceilings
+    from backend.services.events.governance_subscriber import GovernanceSubscriber
+
+    governance_decider = GovernanceDecider(
+        db_path=get_codeplane_dir() / "governance.db",
+        spend_reader=make_job_spend_reader(get_codeplane_dir() / "data.db"),
+        usd_ceilings=await load_usd_ceilings(session_factory),
+    )
+    governance_subscriber = GovernanceSubscriber(governance_decider)
+    governance_subscriber.subscribe(event_bus)
+    services.runtime_service.set_governance(governance_decider, governance_subscriber)
+
     # Recover orphaned jobs from a previous crash (background — don't block startup).
-    # Must run AFTER the trail service is subscribed so it receives SessionResumed events.
+    # Must run AFTER the trail service is subscribed so it receives SessionResumed events,
+    # and AFTER governance is wired (see note above) since job start requires it.
     asyncio.create_task(
         services.runtime_service.recover_on_startup(),
         name="recover-on-startup",
@@ -1213,26 +1241,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     telemetry_subscriber.subscribe(event_bus)
     services.runtime_service.set_telemetry_subscriber(telemetry_subscriber)
-
-    # --- Governance substrate (traceforge.governance decision + accrual) ---
-    # One process-wide decider owns a SEPARATE durable store (``governance.db``,
-    # TraceForge's own alembic — never touches CodePlane's ``alembic_version``) and
-    # the three preset pipelines. The decision path is read-only (preflight on a
-    # detached clone); the accrual path is driven by a bus subscriber that advances
-    # durable budget/taint only for EXECUTED tool calls. The USD spend reader is a
-    # synchronous read-only closure over CodePlane's ``data.db``.
-    from backend.services.action_policy.cost_ceiling import make_job_spend_reader
-    from backend.services.action_policy.governance import GovernanceDecider, load_usd_ceilings
-    from backend.services.events.governance_subscriber import GovernanceSubscriber
-
-    governance_decider = GovernanceDecider(
-        db_path=get_codeplane_dir() / "governance.db",
-        spend_reader=make_job_spend_reader(get_codeplane_dir() / "data.db"),
-        usd_ceilings=await load_usd_ceilings(session_factory),
-    )
-    governance_subscriber = GovernanceSubscriber(governance_decider)
-    governance_subscriber.subscribe(event_bus)
-    services.runtime_service.set_governance(governance_decider, governance_subscriber)
 
     # --- Story pre-generation drain loop (background) ---
     from backend.services.story.service import StoryService as _StoryServiceCls
