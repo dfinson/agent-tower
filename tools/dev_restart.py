@@ -259,7 +259,18 @@ def main() -> None:
         metavar="SECONDS",
         help="Seconds to wait after pausing before stopping the server (default: 10)",
     )
+    # Private mode: not a public command (SPEC AD-9). Only the parent's own
+    # detached spawn (backend.services.dev_restart.restart_helper.spawn_detached_helper)
+    # invokes this script with --helper <request-path>; a developer never
+    # passes it directly. Kept out of --help via argparse.SUPPRESS.
+    parser.add_argument("--helper", metavar="REQUEST_PATH", default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
+
+    if args.helper is not None:
+        from backend.services.dev_restart.restart_helper import run_helper
+
+        sys.exit(run_helper(Path(args.helper)))
+
     base_url = f"http://{args.host}:{args.port}"
 
     # ------------------------------------------------------------------
