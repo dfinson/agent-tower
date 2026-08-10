@@ -212,6 +212,7 @@ async def app(
         settings,
         share,
         terminal,
+        tracker_links,
         voice,
         workspace,
     )
@@ -236,6 +237,7 @@ async def app(
     application.include_router(share.router, prefix="/api")
     application.include_router(terminal.router, prefix="/api")
     application.include_router(chats.router, prefix="/api")
+    application.include_router(tracker_links.router, prefix="/api")
 
     # -- dishka DI container (replaces app.state) --------------------------
     container = make_async_container(

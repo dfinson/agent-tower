@@ -46,6 +46,7 @@ from backend.api import (
     share,
     sidecar_templates,
     terminal,
+    tracker_links,
     trail,
     utility_sessions,
     voice,
@@ -229,6 +230,7 @@ def _register_routes(app: FastAPI) -> None:
     app.include_router(sidecar_templates.router, prefix="/api")
     app.include_router(chats.router, prefix="/api")
     app.include_router(projects.router, prefix="/api")
+    app.include_router(tracker_links.router, prefix="/api")
 
 
 def _register_domain_exception_handlers(app: FastAPI) -> None:
