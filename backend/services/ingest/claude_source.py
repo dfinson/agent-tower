@@ -15,7 +15,7 @@ import structlog
 
 from backend.models.domain import Job, JobSource, JobState
 from backend.models.events import EventKind
-from backend.services.ingest._base import TraceForgeIngestBase
+from backend.services.ingest._base import TraceForgeIngestBase, _repo_name_from_path
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -355,7 +355,7 @@ class ClaudeSessionStateWatcher(TraceForgeIngestBase):
             base_ref = await self._git.rev_parse("HEAD", cwd=repo_path)
         except Exception:
             base_ref = "HEAD"
-        job_id = f"{Path(repo_path).name}-{hashlib.sha256(session_id.encode()).hexdigest()[:12]}"
+        job_id = f"{_repo_name_from_path(repo_path)}-{hashlib.sha256(session_id.encode()).hexdigest()[:12]}"
         now = datetime.now(UTC)
         try:
             from backend.persistence.database import serialized_write

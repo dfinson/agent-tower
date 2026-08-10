@@ -280,9 +280,10 @@ class TestStopServer:
     @patch("time.sleep", return_value=None)
     @patch("backend.cli._kill_process_group")
     @patch("os.kill")
+    @patch("os.getpgid", return_value=100)
     @patch("backend.cli._find_pids_on_port")
     def test_escalates_to_sigkill_after_timeout(
-        self, mock_find_pids, _mock_os_kill, mock_kill_group, _mock_sleep, _mock_monotonic, capsys
+        self, mock_find_pids, _mock_getpgid, _mock_os_kill, mock_kill_group, _mock_sleep, _mock_monotonic, capsys
     ) -> None:
         """Preserve existing graceful-then-force behavior for the target
         PID(s): still bound to the port after the timeout -> escalate."""

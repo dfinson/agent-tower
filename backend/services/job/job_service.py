@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import glob
+import inspect
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -74,6 +75,14 @@ class JobService:
         self._event_repo = event_repo
         self._event_bus = event_bus
         self._coderecon = coderecon
+
+    async def _list_worktree_names(self, repo_path: str) -> set[str]:
+        if self._git is None:
+            return set()
+        worktree_names = self._git.list_worktree_names(repo_path)
+        if inspect.isawaitable(worktree_names):
+            worktree_names = await worktree_names
+        return cast("set[str]", worktree_names)
 
     @classmethod
     def from_session(
@@ -215,7 +224,7 @@ class JobService:
             from backend.services.completers.naming_service import heuristic_slug
 
             existing_job_ids = await self._job_repo.list_ids()
-            existing_worktrees = self._git.list_worktree_names(resolved_repo) if self._git else set()
+            existing_worktrees = await self._list_worktree_names(resolved_repo)
             exclude_names = existing_job_ids | existing_worktrees
             base_slug = heuristic_slug(spec.prompt)
             candidate = base_slug
@@ -244,7 +253,7 @@ class JobService:
             return
         try:
             existing_branches = await self._git.list_branches(resolved_repo) if self._git else set()
-            existing_worktrees = self._git.list_worktree_names(resolved_repo) if self._git else set()
+            existing_worktrees = await self._list_worktree_names(resolved_repo)
             title, description, _branch, _worktree_name = await self._naming.generate(
                 spec.prompt,
                 existing_branches=existing_branches,

@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 from datetime import UTC, datetime
+from os import fspath
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -29,6 +30,12 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 _PERSIST_EVERY_EVENTS = 64
+
+
+def _repo_name_from_path(path: str) -> str:
+    """Return the final path segment for either POSIX or Windows separators."""
+    normalized = fspath(path).replace("\\", "/").rstrip("/")
+    return normalized.rsplit("/", 1)[-1]
 
 
 class TraceForgeIngestBase:

@@ -152,7 +152,11 @@ def spawn_detached_helper(python_executable: Path, helper_script: Path, request_
     }
 
     if sys.platform == "win32":
-        popen_kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        popen_kwargs["creationflags"] = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+            subprocess,
+            "CREATE_NEW_PROCESS_GROUP",
+            0,
+        )
     else:
         popen_kwargs["start_new_session"] = True
 
