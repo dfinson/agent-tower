@@ -74,29 +74,29 @@ SPEC.md is complete and internally consistent for its 14 capabilities: every Cap
 
 | Requirement | PRD Requirement (summary) | Epic Coverage | Status |
 | --- | --- | --- | --- |
-| FR1 | Board scoped to one repo/Project | Epic 1, Story 1.3 | ✓ Covered |
-| FR2 | Projects Overview at `/repos` index | Epic 1, Story 1.2 | ✓ Covered |
-| FR3 | Rolled-up cross-Project attention signal | Epic 1, Story 1.4 | ✓ Covered |
-| FR4 | Idle Projects still appear | Epic 1, Story 1.2/1.4 | ✓ Covered |
-| FR5 | Name filter, generic across card types | Epic 1, Story 1.5 | ✓ Covered |
-| FR6 | Adding a repo only via Project create/edit | Epic 1, Story 1.1 | ✓ Covered |
-| FR7 | Global Credential + per-Project TrackerLink, poll sync, approval write-back | Epic 2, Stories 2.1-2.4 | ✓ Covered |
-| FR8 | Recipe vocabulary widened (`chained`, `spawn_task`, `tracker_write`, `story_node`, `tracker_ticket`) | Epic 3, Story 3.1 | ✓ Covered |
-| FR9 | Dual TaskLink creation (ingest / manual-assign-to-ticket), cross-repo `depends_on`, optional `epic_id` | Epic 3, Stories 3.2/3.3 | ✓ Covered |
-| FR10 | TaskLink cards render, auto-spawn on completion | Epic 3, Stories 3.4/3.5 | ✓ Covered |
-| FR11 | `tracker_write` reuses approval flow, targets paired ticket only | Epic 3, Story 3.6 | ✓ Covered |
-| FR12 | Chat entity, launch Job / attach chain, conditional Epic-label | Epic 4, Stories 4.1-4.3 | ✓ Covered |
-| FR13 | `codeplane_tracker` MCP tool, approval-gated | Epic 5, Story 5.1 | ✓ Covered |
-| FR14 | `codeplane_pr` MCP tool, idempotent, shared `_create_pr` | Epic 5, Story 5.2 | ✓ Covered |
-| NFR1 | PAT encrypted at rest, never logged/in-prompt | Epic 2, Story 2.1 | ✓ Covered |
-| NFR2 | Poll-based sync only, no webhooks | Epic 2, Story 2.3 | ✓ Covered |
-| NFR3 | No OAuth, PAT-only for all 3 providers | Epic 2, Story 2.5 | ✓ Covered |
-| NFR4 | Single batch call, never N per-Project fetches | Epic 1, Stories 1.2/1.4 | ✓ Covered |
-| NFR5 | A repo belongs to at most one Project | Epic 1, Story 1.1 | ✓ Covered |
-| NFR6 | Existing Job schema / single-board consumers unbroken | Epic 1, Story 1.1 | ✓ Covered |
+| FR1 | Board scoped to one repo/Project | Epic 2, Story 2.3 | ✓ Covered |
+| FR2 | Projects Overview at `/repos` index | Epic 2, Story 2.2 | ✓ Covered |
+| FR3 | Rolled-up cross-Project attention signal | Epic 2, Story 2.4 | ✓ Covered |
+| FR4 | Idle Projects still appear | Epic 2, Story 2.2/2.4 | ✓ Covered |
+| FR5 | Name filter, generic across card types | Epic 2, Story 2.5 | ✓ Covered |
+| FR6 | Adding a repo only via Project create/edit | Epic 2, Story 2.1 | ✓ Covered |
+| FR7 | Global Credential + per-Project TrackerLink, poll sync, approval write-back | Epic 3, Stories 3.1-3.4 | ✓ Covered |
+| FR8 | Recipe vocabulary widened (`chained`, `spawn_task`, `tracker_write`, `story_node`, `tracker_ticket`) | Epic 4, Story 4.1 | ✓ Covered |
+| FR9 | Dual TaskLink creation (ingest / manual-assign-to-ticket), cross-repo `depends_on`, optional `epic_id` | Epic 4, Stories 4.2/4.3 | ✓ Covered |
+| FR10 | TaskLink cards render, auto-spawn on completion | Epic 4, Stories 4.4/4.5 | ✓ Covered |
+| FR11 | `tracker_write` reuses approval flow, targets paired ticket only | Epic 4, Story 4.6 | ✓ Covered |
+| FR12 | Chat entity, launch Job / attach chain, conditional Epic-label | Epic 5, Stories 5.1-5.3 | ✓ Covered |
+| FR13 | `codeplane_tracker` MCP tool, approval-gated | Epic 6, Story 6.1 | ✓ Covered |
+| FR14 | `codeplane_pr` MCP tool, idempotent, shared `_create_pr` | Epic 6, Story 6.2 | ✓ Covered |
+| NFR1 | PAT encrypted at rest, never logged/in-prompt | Epic 3, Story 3.1 | ✓ Covered |
+| NFR2 | Poll-based sync only, no webhooks | Epic 3, Story 3.3 | ✓ Covered |
+| NFR3 | No OAuth, PAT-only for all 3 providers | Epic 3, Story 3.5 | ✓ Covered |
+| NFR4 | Single batch call, never N per-Project fetches | Epic 2, Stories 2.2/2.4 | ✓ Covered |
+| NFR5 | A repo belongs to at most one Project | Epic 2, Story 2.1 | ✓ Covered |
+| NFR6 | Existing Job schema / single-board consumers unbroken | Epic 2, Story 2.1 | ✓ Covered |
 | NFR7 | Analytics/cost/health stay repo-keyed, thin aggregate only | Cross-cutting (no dedicated story; constraint on implementation, not a user-facing capability) | ⚠ Constraint-only, not story-traced |
-| NFR8 | Chat has zero `GitService` dependency | Epic 4, Story 4.1 | ✓ Covered |
-| NFR9 | Per-provider PAT scope guidance surfaced at Credential-creation | Epic 2, Story 2.5 | ✓ Covered |
+| NFR8 | Chat has zero `GitService` dependency | Epic 5, Story 5.1 | ✓ Covered |
+| NFR9 | Per-provider PAT scope guidance surfaced at Credential-creation | Epic 3, Story 3.5 | ✓ Covered |
 
 ### Missing Requirements
 
@@ -145,30 +145,30 @@ Applied `create-epics-and-stories`-standard checks rigorously against all 5 epic
 | Epic | User-value title? | Independent of later epics? |
 | --- | --- | --- |
 | 1: Project-based organization | ✓ (no technical-milestone naming) | ✓ standalone |
-| 2: Tracker integration | ✓ | ✓ uses only Epic 1 output (Project) |
-| 3: Task Recipe chaining | ✓ | ✓ uses Epic 1/2 output only (Project, TrackerLink) — backward, permitted |
-| 4: Chat | ✓ | ✓ uses Epic 1/3 output only (Project, TaskLink chain) — backward, permitted |
-| 5: Agent-facing MCP tools | ✓ | ✓ uses Epic 1/2 output only (Project, TrackerLink) — backward, permitted |
+| 2: Tracker integration | ✓ | ✓ uses only Epic 2 output (Project) |
+| 3: Task Recipe chaining | ✓ | ✓ uses Epic 2/2 output only (Project, TrackerLink) — backward, permitted |
+| 4: Chat | ✓ | ✓ uses Epic 2/3 output only (Project, TaskLink chain) — backward, permitted |
+| 5: Agent-facing MCP tools | ✓ | ✓ uses Epic 2/2 output only (Project, TrackerLink) — backward, permitted |
 
-No technical-milestone epics found (no "Database Setup," "API Development," or similar). No epic requires a later epic to function — every cross-epic reference (Epic 3→2, Epic 4→1/3, Epic 5→1/2) points strictly backward.
+No technical-milestone epics found (no "Database Setup," "API Development," or similar). No epic requires a later epic to function — every cross-epic reference (Epic 4→2, Epic 5→1/3, Epic 6→1/2) points strictly backward.
 
 ### Story Quality Assessment
 
-All 22 stories use consistent As-a/I-want/So-that framing with Given/When/Then ACs; all are independently completable within their own epic without referencing a later story's output. Database/entity creation is deferred to first need in every case: `ProjectRow` (1.1), `CredentialRow`/`TrackerLinkRow` (2.1/2.2), no new table for the recipe vocabulary widening (3.1, reuses `SidecarTemplateRow.definition_json`), `TaskLinkRow` (3.2/3.3), `ChatRow` (4.1).
+All 22 stories use consistent As-a/I-want/So-that framing with Given/When/Then ACs; all are independently completable within their own epic without referencing a later story's output. Database/entity creation is deferred to first need in every case: `ProjectRow` (2.1), `CredentialRow`/`TrackerLinkRow` (3.1/3.2), no new table for the recipe vocabulary widening (4.1, reuses `SidecarTemplateRow.definition_json`), `TaskLinkRow` (4.2/4.3), `ChatRow` (5.1).
 
-**🟡 Minor Concern:** Story 1.5's second AC bullet ("the same filter mechanism is applied generically... so it also filters Task Recipe/TaskLink cards once Epic 3 introduces them") references Epic 3, which doesn't exist yet at Epic-1 implementation time. This isn't a blocking forward *dependency* (Story 1.5 is fully completable and shippable using only Project cards), but that specific bullet isn't independently testable until Epic 3's TaskLink cards exist — a strict reading of "Testable: each AC can be verified independently?" flags it. **Recommendation:** reword as an implementation note ("the filter must be implemented generically at the card-rendering layer, not Project-card-specific, to avoid rework in Epic 3") rather than a testable AC, or defer verification of that specific bullet to Epic 3, Story 3.4's own ACs.
+**🟡 Minor Concern:** Story 2.5's second AC bullet ("the same filter mechanism is applied generically... so it also filters Task Recipe/TaskLink cards once Epic 4 introduces them") references Epic 4, which doesn't exist yet at Epic-1 implementation time. This isn't a blocking forward *dependency* (Story 2.5 is fully completable and shippable using only Project cards), but that specific bullet isn't independently testable until Epic 4's TaskLink cards exist — a strict reading of "Testable: each AC can be verified independently?" flags it. **Recommendation:** reword as an implementation note ("the filter must be implemented generically at the card-rendering layer, not Project-card-specific, to avoid rework in Epic 4") rather than a testable AC, or defer verification of that specific bullet to Epic 4, Story 4.4's own ACs.
 
 No other violations found: no forward within-epic dependencies, no vague/non-measurable ACs, no missing error-path coverage (rejection/deletion-blocked/duplicate-prevention cases are explicitly covered throughout).
 
 ### Special Implementation Checks
 
-Brownfield project (existing CodePlane codebase) — no starter-template requirement applies. Brownfield indicators present throughout: Story 1.1 explicitly preserves the existing `Job`/`JobSummary` schema and consumers; Story 3.1 explicitly preserves existing `SidecarTemplateRow` validation; integration points with existing systems (`GitService`, `codeplane_approval`, `merge_service._create_pr`) are named in nearly every story.
+Brownfield project (existing CodePlane codebase) — no starter-template requirement applies. Brownfield indicators present throughout: Story 2.1 explicitly preserves the existing `Job`/`JobSummary` schema and consumers; Story 4.1 explicitly preserves existing `SidecarTemplateRow` validation; integration points with existing systems (`GitService`, `codeplane_approval`, `merge_service._create_pr`) are named in nearly every story.
 
 ### Quality Assessment Summary
 
 - 🔴 Critical Violations: none
 - 🟠 Major Issues: none
-- 🟡 Minor Concerns: 1 (Story 1.5 forward-reference AC wording, non-blocking)
+- 🟡 Minor Concerns: 1 (Story 2.5 forward-reference AC wording, non-blocking)
 
 ## Summary and Recommendations
 
@@ -182,13 +182,13 @@ None. Zero critical or major violations across document discovery, FR/NFR extrac
 
 ### Recommended Next Steps
 
-1. (Optional, cosmetic) Reword Story 1.5's second AC bullet to state the generic-filter implementation requirement as a design note rather than an Epic-3-dependent testable assertion — see Epic Quality Review for exact wording.
-2. Proceed to implementation starting with Epic 1 (Project-based organization), Story 1.1 — it has no unresolved dependencies and establishes `ProjectRow`, the foundation every later epic builds on.
+1. (Optional, cosmetic) Reword Story 2.5's second AC bullet to state the generic-filter implementation requirement as a design note rather than an Epic-3-dependent testable assertion — see Epic Quality Review for exact wording.
+2. Proceed to implementation starting with Epic 2 (Project-based organization), Story 2.1 — it has no unresolved dependencies and establishes `ProjectRow`, the foundation every later epic builds on.
 3. Consider running `bmad-sprint-planning` next to sequence the 22 stories into sprints, now that readiness is confirmed.
 
 ### Final Note
 
-This assessment found 1 issue (a Minor Concern, non-blocking) across 4 validation categories (document discovery, FR/NFR coverage, UX alignment, epic quality). All 14 FRs and 9 NFRs trace to specific stories with testable acceptance criteria; no epic requires a later epic to function; no technical-milestone epics exist; database/entity creation is deferred to first need throughout. The spec/architecture/UX/epics artifact set is ready for implementation as-is; the one Minor Concern may be fixed opportunistically but does not block starting Epic 1.
+This assessment found 1 issue (a Minor Concern, non-blocking) across 4 validation categories (document discovery, FR/NFR coverage, UX alignment, epic quality). All 14 FRs and 9 NFRs trace to specific stories with testable acceptance criteria; no epic requires a later epic to function; no technical-milestone epics exist; database/entity creation is deferred to first need throughout. The spec/architecture/UX/epics artifact set is ready for implementation as-is; the one Minor Concern may be fixed opportunistically but does not block starting Epic 2.
 
 **Assessed:** 2026-08-10, via `bmad-check-implementation-readiness` steps 1-6, against `_bmad-output/specs/spec-project-boards/SPEC.md`, `_bmad-output/planning-artifacts/architecture/architecture-codeplane-2026-08-10/ARCHITECTURE-SPINE.md`, `_bmad-output/specs/spec-project-boards/ui-flows.md`, and `_bmad-output/planning-artifacts/epics.md`.
 

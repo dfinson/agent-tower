@@ -63,43 +63,43 @@ UX-DR5: `ChatPanel.tsx` + `/repos/:project/chats` tab — flat list, conversatio
 
 | Requirement | Epic |
 | --- | --- |
-| FR1, FR2, FR3, FR4, FR5, FR6, NFR5, NFR6, UX-DR1, UX-DR2 | Epic 1 |
-| FR7, NFR1, NFR2, NFR3, NFR9, UX-DR3 | Epic 2 |
-| FR8, FR9, FR10, FR11, UX-DR4 | Epic 3 |
-| FR12, NFR8, UX-DR5 | Epic 4 |
-| FR13, FR14 | Epic 5 |
+| FR1, FR2, FR3, FR4, FR5, FR6, NFR5, NFR6, UX-DR1, UX-DR2 | Epic 2 |
+| FR7, NFR1, NFR2, NFR3, NFR9, UX-DR3 | Epic 3 |
+| FR8, FR9, FR10, FR11, UX-DR4 | Epic 4 |
+| FR12, NFR8, UX-DR5 | Epic 5 |
+| FR13, FR14 | Epic 6 |
 | NFR2, NFR4, NFR7 | Cross-cutting (all epics) |
 
 ## Epic List
 
-### Epic 1: Project-based organization
+### Epic 2: Project-based organization
 Users can create/edit Projects (single- or multi-repo) and see them organized as an overview + per-Project board — one complete, standalone outcome. No standalone "register a repo" action exists outside this epic.
 **FRs covered:** FR1, FR2, FR3, FR4, FR5, FR6, NFR5, NFR6, UX-DR1, UX-DR2
 
-### Epic 2: Tracker integration
+### Epic 3: Tracker integration
 Users connect a Jira/Azure DevOps/GitHub Projects account once (a global Credential) and attach it to any Project as a TrackerLink; they see ticket/board state pulled in via polling, and any write-back is visible as a normal approval request before it takes effect.
 **FRs covered:** FR7, NFR1, NFR2, NFR3, NFR9, UX-DR3
 
-### Epic 3: Task Recipe chaining
+### Epic 4: Task Recipe chaining
 Users who have already run BMAD or spec-kit to produce a dependency-linked task list can ingest that graph per-Project and watch it execute end-to-end on the board — one task's job completing auto-starts the next dependent task's job — with tracker-write outputs routed through the same approval gate as any other write-back.
 **FRs covered:** FR8, FR9, FR10, FR11, UX-DR4
 
-### Epic 4: Chat
+### Epic 5: Chat
 Users can open a persistent, purely conversational Chat with zero git footprint to think something through, then launch one or more Jobs from it (Chat stays open) and/or attach it to a Task Recipe chain to narrate progress and optionally gate auto-spawn behind an approval.
 **FRs covered:** FR12, NFR8, UX-DR5
 
-### Epic 5: Agent-facing MCP tools
+### Epic 6: Agent-facing MCP tools
 An agent running inside a Job can act mid-run — comment/transition the linked tracker ticket, or proactively request a PR — without ever holding a Credential's decrypted PAT, routed through the same approval gate a human-initiated write already uses.
 **FRs covered:** FR13, FR14
 
 ## Epic Sections
 
-### Epic 1: Project-based organization
+### Epic 2: Project-based organization
 
 **Goal:** Users can create/edit Projects (single- or multi-repo) and see them organized as an overview + per-Project board.
 **FRs:** FR1, FR2, FR3, FR4, FR5, FR6, NFR5, NFR6, UX-DR1, UX-DR2
 
-#### Story 1.1: Create/Edit a Project
+#### Story 2.1: Create/Edit a Project
 
 As a CodePlane user,
 I want to create or edit a Project (one repo or many),
@@ -120,7 +120,7 @@ So that adding a repo always happens through Project membership, never a bare re
 **When** Project creation/editing runs
 **Then** neither schema changes structurally, and existing single-board consumers (`KanbanBoard`, `MobileJobList`, `frontend/e2e`) continue to function unmodified (NFR6)
 
-#### Story 1.2: View Projects Overview
+#### Story 2.2: View Projects Overview
 
 As a CodePlane user,
 I want to see all my Projects as cards on one overview screen,
@@ -137,7 +137,7 @@ So that I can see what exists and what needs attention without navigating into e
 **When** the Overview loads
 **Then** its card renders with zero counts, not omitted from the grid
 
-#### Story 1.3: View a Project's board
+#### Story 2.3: View a Project's board
 
 As a CodePlane user,
 I want to open a Kanban board scoped to just one Project,
@@ -154,7 +154,7 @@ So that I only see that Project's jobs, never another Project's noise mixed in.
 **When** I refresh the page or share the link
 **Then** the same scoped board loads (state lives in the URL route param, not client-only state)
 
-#### Story 1.4: See cross-Project attention signal
+#### Story 2.4: See cross-Project attention signal
 
 As a CodePlane user managing several Projects,
 I want one rolled-up signal for anything needing attention across all Projects,
@@ -165,13 +165,13 @@ So that I don't have to open every board to check for problems.
 **Given** two or more Projects, at least one with an awaiting-input or failed job
 **When** I view the Overview
 **Then** I see a single combined count (awaiting input + failed, summed across all Projects)
-**And** the count updates when a job's state changes, sourced from the same batch summary call as Story 1.2 (no second endpoint)
+**And** the count updates when a job's state changes, sourced from the same batch summary call as Story 2.2 (no second endpoint)
 
 **Given** no Project has any awaiting-input or failed job
 **When** I view the Overview
 **Then** the attention signal shows zero / is not alarmingly rendered
 
-#### Story 1.5: Filter Projects by name
+#### Story 2.5: Filter Projects by name
 
 As a CodePlane user with many Projects,
 I want to filter the Overview and sidebar by name,
@@ -182,18 +182,18 @@ So that I can find a specific Project quickly as the list grows.
 **Given** a search/filter box on the Projects Overview and the sidebar Project list
 **When** I type a partial name match
 **Then** only matching Project cards remain visible in both locations
-**And** the same filter mechanism is applied generically at the card-rendering layer, so it also filters Task Recipe/TaskLink cards once Epic 3 introduces them (no Epic-1-only special case)
+**And** the same filter mechanism is applied generically at the card-rendering layer, so it also filters Task Recipe/TaskLink cards once Epic 4 introduces them (no Epic-2-only special case)
 
 **Given** the filter text matches nothing
 **When** I view the filtered list
 **Then** an empty state is shown, not an error
 
-### Epic 2: Tracker integration
+### Epic 3: Tracker integration
 
 **Goal:** Users connect a Jira/Azure DevOps/GitHub Projects account once and attach it to any Project; ticket state pulls in via polling, write-backs go through approval.
 **FRs:** FR7, NFR1, NFR2, NFR3, NFR9, UX-DR3
 
-#### Story 2.1: Register a Credential
+#### Story 3.1: Register a Credential
 
 As a CodePlane user,
 I want to register a provider account (Jira, Azure DevOps, or GitHub Projects) once,
@@ -210,7 +210,7 @@ So that I don't have to re-enter credentials for every Project that needs it.
 **When** I attempt to delete it
 **Then** the deletion is blocked until all referencing TrackerLinks are removed
 
-#### Story 2.2: Attach a TrackerLink to a Project
+#### Story 3.2: Attach a TrackerLink to a Project
 
 As a CodePlane user,
 I want to attach a Credential to a Project via a TrackerLink,
@@ -224,7 +224,7 @@ So that my Project's board reflects that Project's ticket state.
 **And** a Project can have more than one TrackerLink (e.g. referencing two external boards)
 **And** any number of Projects may attach the same Credential (Credential is global, not consumed per-attachment)
 
-#### Story 2.3: View synced ticket state
+#### Story 3.3: View synced ticket state
 
 As a CodePlane user,
 I want to see my linked tracker's ticket/board state inside CodePlane,
@@ -240,7 +240,7 @@ So that I don't have to leave CodePlane to check status.
 **When** I change it in settings
 **Then** subsequent polls honor the new interval
 
-#### Story 2.4: Approve a tracker write-back
+#### Story 3.4: Approve a tracker write-back
 
 As a CodePlane user,
 I want any outbound tracker write to require my approval first,
@@ -256,7 +256,7 @@ So that nothing is written to an external tracker without my knowledge.
 **When** I reject it
 **Then** the write is discarded and never sent to the external tracker
 
-#### Story 2.5: See per-provider PAT scope guidance
+#### Story 3.5: See per-provider PAT scope guidance
 
 As a CodePlane user registering a Credential,
 I want to see the minimal token scope required for my provider,
@@ -276,12 +276,12 @@ So that I don't over-grant permissions I don't need.
 **When** I look for an OAuth app connection option
 **Then** none exists — PAT-only, confirming NFR3
 
-### Epic 3: Task Recipe chaining
+### Epic 4: Task Recipe chaining
 
 **Goal:** Users populate a Project's task graph (by ingestion or manual ticket-assignment) and watch it execute end-to-end on the board.
 **FRs:** FR8, FR9, FR10, FR11, UX-DR4
 
-#### Story 3.1: Widen the Task Recipe vocabulary
+#### Story 4.1: Widen the Task Recipe vocabulary
 
 As a CodePlane user relying on existing sidecar templates,
 I want the recipe schema to support chained, tracker-aware task recipes,
@@ -294,7 +294,7 @@ So that new chaining capability is additive and never breaks my existing sidecar
 **Then** `chained`, `spawn_task`, `tracker_write`, `story_node`, and `tracker_ticket` are accepted as new valid values, and every existing template continues to validate and run unchanged
 **And** no new schema table, version flag, or migration is introduced — the same `definition_json` column is reused
 
-#### Story 3.2: Ingest a task graph into a Project
+#### Story 4.2: Ingest a task graph into a Project
 
 As a CodePlane user who has run BMAD or spec-kit,
 I want to ingest my existing dependency-linked task list into a Project,
@@ -314,7 +314,7 @@ So that I don't have to hand-author board cards for work already planned.
 **When** ingestion runs
 **Then** the source files are read-only — never modified, and never ingested across a Project boundary
 
-#### Story 3.3: Manually assign a task to an existing ticket
+#### Story 4.3: Manually assign a task to an existing ticket
 
 As a CodePlane user with a tracker ticket that has no BMAD/spec-kit backing,
 I want to create a task recipe node directly against that ticket with my own prompt,
@@ -334,7 +334,7 @@ So that I can automate work the ticket describes without first authoring a plann
 **When** I view it later
 **Then** nothing requires it to ever gain a `story_node_id` — it remains valid indefinitely without BMAD/spec-kit backing
 
-#### Story 3.4: See TaskLink cards on the board
+#### Story 4.4: See TaskLink cards on the board
 
 As a CodePlane user watching a Project board,
 I want to see task recipe nodes as cards alongside regular job cards,
@@ -342,7 +342,7 @@ So that I can see the whole graph of planned and running work in one place.
 
 **Acceptance Criteria:**
 
-**Given** a Project with TaskLinks created via ingestion (3.2), manual assignment (3.3), or both
+**Given** a Project with TaskLinks created via ingestion (4.2), manual assignment (4.3), or both
 **When** I view that Project's board
 **Then** every TaskLink renders as a card in the same column grid as job cards, through one client-side rendering pass (not a separate screen)
 
@@ -354,7 +354,7 @@ So that I can see the whole graph of planned and running work in one place.
 **When** I view the board
 **Then** the card renders in its normal (non-greyed) state, ready to spawn or already linked to a running `job_id`
 
-#### Story 3.5: Auto-spawn the next task on completion
+#### Story 4.5: Auto-spawn the next task on completion
 
 As a CodePlane user running a task chain,
 I want the next dependent task to start automatically when its prerequisite completes,
@@ -374,7 +374,7 @@ So that I don't have to manually start every step of a planned sequence.
 **When** its dependencies become satisfied again for any reason
 **Then** it is never spawned a second time — one TaskLink points at zero-or-one real Job, never more
 
-#### Story 3.6: Route recipe tracker-writes to the paired ticket
+#### Story 4.6: Route recipe tracker-writes to the paired ticket
 
 As a CodePlane user running a task chain paired with tracker tickets,
 I want a completed task's tracker write to land on the exact ticket it's paired with,
@@ -384,7 +384,7 @@ So that status updates never land on the wrong ticket.
 
 **Given** a TaskLink with a `tracker_ticket_ref` set
 **When** its recipe's `tracker_write` output route fires
-**Then** it creates a `codeplane_approval` entry (the same mechanism as Epic 2's Story 2.4) targeting that specific ticket, not any other ticket the Project might be linked to
+**Then** it creates a `codeplane_approval` entry (the same mechanism as Epic 3's Story 3.4) targeting that specific ticket, not any other ticket the Project might be linked to
 
 **Given** a TaskLink with no `tracker_ticket_ref` set
 **When** its recipe would otherwise route to `tracker_write`
@@ -394,12 +394,12 @@ So that status updates never land on the wrong ticket.
 **When** it is approved or rejected
 **Then** it behaves identically to any other `codeplane_approval` entry — same UI, same resolution path
 
-### Epic 4: Chat
+### Epic 5: Chat
 
 **Goal:** Users can open a persistent, purely conversational Chat with zero git footprint, launch one or more Jobs from it, and/or attach it to a Task Recipe chain to narrate/gate progress.
 **FRs:** FR12, NFR8, UX-DR5
 
-#### Story 4.1: Start a Chat
+#### Story 5.1: Start a Chat
 
 As a CodePlane user,
 I want to open a persistent, purely conversational Chat,
@@ -419,7 +419,7 @@ So that I can think something through before committing to a real run, with zero
 **When** I later launch a Job or attach it to a chain from that Chat
 **Then** `project_id` is settled at that moment, from whichever happens first
 
-#### Story 4.2: Launch a Job from a Chat
+#### Story 5.2: Launch a Job from a Chat
 
 As a CodePlane user who has been thinking something through in a Chat,
 I want to launch a real Job from that conversation,
@@ -439,7 +439,7 @@ So that I can commit to doing the work only once it's worth it, without losing t
 **When** I launch a second Job from it later
 **Then** a second, independent Job is created — one Chat can launch more than one Job over its lifetime
 
-#### Story 4.3: Attach a Chat to a Task Recipe chain
+#### Story 5.3: Attach a Chat to a Task Recipe chain
 
 As a CodePlane user who would rather supervise a chain than let it run unattended,
 I want to attach my Chat to a running Task Recipe chain,
@@ -459,7 +459,7 @@ So that I can narrate and watch its progress conversationally.
 **When** I detach it
 **Then** the chain continues to exist and run exactly as before, and the Chat remains open
 
-#### Story 4.4: Gate a chain's auto-spawn behind approval
+#### Story 5.4: Gate a chain's auto-spawn behind approval
 
 As a CodePlane user supervising a chain via an attached Chat,
 I want the chain's next step to require my approval instead of starting automatically,
@@ -473,18 +473,18 @@ So that I stay in control of a chain I'm actively watching.
 
 **Given** a TaskLink chain with no attached Chat
 **When** a dependent TaskLink's dependencies become satisfied
-**Then** the existing ungated auto-spawn behavior (Story 3.5) is completely unchanged — attaching a Chat is what switches a specific chain into gated mode, nothing else does
+**Then** the existing ungated auto-spawn behavior (Story 4.5) is completely unchanged — attaching a Chat is what switches a specific chain into gated mode, nothing else does
 
 **Given** a gated chain's approval is rejected
 **When** I check the chain afterward
 **Then** the next TaskLink is never spawned, and the chain remains stalled at that point until a manual retry or a new approval
 
-### Epic 5: Agent-facing MCP tools
+### Epic 6: Agent-facing MCP tools
 
 **Goal:** An agent running inside a Job can act mid-run — comment/transition the linked tracker ticket, or proactively request a PR — without ever holding a Credential's decrypted PAT.
 **FRs:** FR13, FR14
 
-#### Story 5.1: Agent comments/transitions a tracker ticket mid-job
+#### Story 6.1: Agent comments/transitions a tracker ticket mid-job
 
 As a developer running an agent-driven Job,
 I want the agent to be able to comment on or transition the linked tracker ticket itself,
@@ -504,7 +504,7 @@ So that ticket status stays current without me doing it manually after the fact.
 **When** I check the ticket afterward
 **Then** no write reaches the external tracker
 
-#### Story 5.2: Agent requests a PR mid-job
+#### Story 6.2: Agent requests a PR mid-job
 
 As a developer running an agent-driven Job,
 I want the agent to be able to proactively request a PR while still working,
