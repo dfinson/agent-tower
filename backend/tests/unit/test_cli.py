@@ -494,6 +494,9 @@ class TestUpLaunchProfilePublication:
             origin="https://example.devtunnels.ms",
             externally_managed=False,
             name="cpl-tunnel-abc",
+            # A freshly generated devtunnel name (no explicit --tunnel-name)
+            # is one-shot, not stable across a restart.
+            origin_is_reusable=False,
         )
         with (
             patch("backend.config.get_codeplane_dir", return_value=tmp_path),
@@ -507,7 +510,7 @@ class TestUpLaunchProfilePublication:
         assert written["tunnelOwnership"] == "managed"
         assert written["tunnelName"] == "cpl-tunnel-abc"
         assert written["tunnelOrigin"] == "https://example.devtunnels.ms"
-        assert written["tunnelOriginReusable"] is None
+        assert written["tunnelOriginReusable"] is False
         assert written["passwordSource"] == {"kind": "unreplayable"}
         assert written["tunnelCredentialSource"] == {
             "kind": "resolvable",
