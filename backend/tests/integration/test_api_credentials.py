@@ -13,11 +13,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from backend.api.credentials import CreateCredentialRequest
 from backend.services.credentials import encryption
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fastapi import FastAPI
     from httpx import AsyncClient
 
 
@@ -44,6 +46,55 @@ class TestProviderGuidance:
         for text in guidance.values():
             assert isinstance(text, str)
             assert text
+
+    @pytest.mark.asyncio
+    async def test_github_guidance_names_fine_grained_pat_scopes(self, client: AsyncClient) -> None:
+        """Story 3.5 AC1 (NFR9): fine-grained scopes for tracker writes and PR creation."""
+        resp = await client.get("/api/settings/credentials/guidance")
+        github_guidance = resp.json()["guidance"]["github"]
+        assert "Issues: Read & write" in github_guidance
+        assert "Contents: Read & write" in github_guidance
+        assert "Pull requests: Read & write" in github_guidance
+
+    @pytest.mark.asyncio
+    async def test_jira_guidance_states_full_account_scope_and_approval_gate(
+        self, client: AsyncClient
+    ) -> None:
+        """Story 3.5 AC2 (NFR9): Jira tokens can't be scoped below the full account;
+        the approval gate, not token scope, is the real security boundary."""
+        resp = await client.get("/api/settings/credentials/guidance")
+        jira_guidance = resp.json()["guidance"]["jira"]
+        assert "full account" in jira_guidance
+        assert "approval" in jira_guidance.lower()
+        assert "security boundary" in jira_guidance
+
+    @pytest.mark.asyncio
+    async def test_azure_devops_guidance_states_org_scope_and_approval_gate(
+        self, client: AsyncClient
+    ) -> None:
+        """Story 3.5 AC2 (NFR9): Azure DevOps PATs are organization-scoped, not
+        project-scoped; the approval gate is the real security boundary."""
+        resp = await client.get("/api/settings/credentials/guidance")
+        azure_guidance = resp.json()["guidance"]["azure_devops"]
+        assert "organization-scoped" in azure_guidance
+        assert "Work Items: Read & write" in azure_guidance
+        assert "Code: Read & write" in azure_guidance
+        assert "approval gate" in azure_guidance
+
+    @pytest.mark.asyncio
+    async def test_no_oauth_route_registered_on_credentials_router(self, app: FastAPI) -> None:
+        """Story 3.5 AC3/NFR3: PAT-only — no OAuth app connection route exists."""
+        credential_paths = [
+            route.path for route in app.routes if getattr(route, "path", "").startswith("/api/settings/credentials")
+        ]
+        assert credential_paths, "expected credential routes to be registered"
+        assert not any("oauth" in path.lower() for path in credential_paths)
+
+    def test_create_credential_request_has_no_oauth_field(self) -> None:
+        """Story 3.5 AC3/NFR3: the create-Credential schema is PAT-only."""
+        field_names = set(CreateCredentialRequest.model_fields)
+        assert not any("oauth" in name.lower() for name in field_names)
+        assert field_names == {"provider", "label", "base_url", "pat"}
 
 
 class TestCreateCredential:

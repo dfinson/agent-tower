@@ -71,7 +71,7 @@ development_status:
   3-2-attach-a-trackerlink-to-a-project: backlog
   3-3-view-synced-ticket-state: backlog
   3-4-approve-a-tracker-write-back: backlog
-  3-5-see-per-provider-pat-scope-guidance: backlog
+  3-5-see-per-provider-pat-scope-guidance: review
   epic-3-retrospective: optional
 
   epic-4: in-progress
