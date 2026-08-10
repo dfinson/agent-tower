@@ -50,10 +50,10 @@ story_location: _bmad-output/implementation-artifacts
 development_status:
   epic-1: in-progress
   1-1-persist-the-active-launch-profile: ready-for-dev
-  1-2-prepare-restart-without-outage: backlog
-  1-3-hand-off-to-a-detached-helper: backlog
-  1-4-pause-jobs-and-replace-codeplane: backlog
-  1-5-prove-recovery-and-local-readiness: backlog
-  1-6-restore-configured-remote-access: backlog
-  1-7-harden-diagnostics-and-native-restart-evidence: backlog
+  1-2-prepare-restart-without-outage: ready-for-dev
+  1-3-hand-off-to-a-detached-helper: ready-for-dev
+  1-4-pause-jobs-and-replace-codeplane: ready-for-dev
+  1-5-prove-recovery-and-local-readiness: ready-for-dev
+  1-6-restore-configured-remote-access: ready-for-dev
+  1-7-harden-diagnostics-and-native-restart-evidence: ready-for-dev
   epic-1-retrospective: optional
