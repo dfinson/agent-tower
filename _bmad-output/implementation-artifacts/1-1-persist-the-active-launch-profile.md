@@ -1,6 +1,6 @@
 # Story 1.1: Persist the Active Launch Profile
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -19,30 +19,30 @@ so that self-restart can reproduce the active instance safely.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Establish one reusable active-launch-profile contract (AC: 1, 2, 3, 4, 5)
-  - [ ] Define schema version `1`, required fields, closed secret-source variants, and valid local/remote field combinations.
-  - [ ] Resolve the profile path through `get_codeplane_dir() / "run.json"` so `CODEPLANE_HOME` remains authoritative.
-  - [ ] Keep schema parsing, serialization, atomic persistence, and validation in one focused internal helper surface. Do not duplicate the contract between `backend/cli.py` and future restart tooling.
-- [ ] Task 2: Preserve the provenance of resolved `cpl up` options (AC: 1, 2, 4, 5)
-  - [ ] Track whether passwords and tunnel credentials came from environment or `.env`, provider login state, a CLI literal, auto-generation, or were not required.
-  - [ ] Build a secret-free immutable profile payload only after effective provider, tunnel handle, authentication mode, host, port, and native paths are resolved.
-  - [ ] Persist the actual tunnel identity returned by remote startup, not an unresolved input default.
-- [ ] Task 3: Publish the profile only after the listener is bound (AC: 1, 3)
-  - [ ] Integrate a post-bind callback or small `uvicorn.Server` subclass that awaits `super().startup()` before writing.
-  - [ ] Confirm the server reports started and the current PID owns the configured listener before publishing.
-  - [ ] Never write immediately before `server.run()`, because Uvicorn has not bound the socket at that point.
-  - [ ] On publication failure, exit startup nonzero, preserve any previously complete profile, and remove only the failed temporary file.
-- [ ] Task 4: Implement fail-closed profile validation for later restart use (AC: 3, 4, 5)
-  - [ ] Reject missing, unreadable, malformed, incomplete, or unsupported-schema profiles.
-  - [ ] Verify live process identity using PID plus `psutil.Process(pid).create_time()`.
-  - [ ] Verify that exact identity owns the recorded listener by reusing or extracting existing port-owner logic. Do not use process-name scans.
-  - [ ] Reject malformed required secret-source records and required `unreplayable` sources without performing build, pause, or stop work.
-- [ ] Task 5: Add focused profile and CLI regression tests (AC: 1-6)
-  - [ ] Test every required field and local/remote combination.
-  - [ ] Test same-directory temporary write plus atomic replacement, interrupted-write behavior, and temporary-file cleanup.
-  - [ ] Test dead PID, reused PID, creation-time mismatch, wrong listener owner, unsupported schema, malformed JSON, and process-inspection errors.
-  - [ ] Test secret-source classification and assert serialized profile and errors do not contain representative password or token values.
-  - [ ] Preserve existing `cpl up`, `down`, and `restart` tests and CLI behavior.
+- [x] Task 1: Establish one reusable active-launch-profile contract (AC: 1, 2, 3, 4, 5)
+  - [x] Define schema version `1`, required fields, closed secret-source variants, and valid local/remote field combinations.
+  - [x] Resolve the profile path through `get_codeplane_dir() / "run.json"` so `CODEPLANE_HOME` remains authoritative.
+  - [x] Keep schema parsing, serialization, atomic persistence, and validation in one focused internal helper surface. Do not duplicate the contract between `backend/cli.py` and future restart tooling.
+- [x] Task 2: Preserve the provenance of resolved `cpl up` options (AC: 1, 2, 4, 5)
+  - [x] Track whether passwords and tunnel credentials came from environment or `.env`, provider login state, a CLI literal, auto-generation, or were not required.
+  - [x] Build a secret-free immutable profile payload only after effective provider, tunnel handle, authentication mode, host, port, and native paths are resolved.
+  - [x] Persist the actual tunnel identity returned by remote startup, not an unresolved input default.
+- [x] Task 3: Publish the profile only after the listener is bound (AC: 1, 3)
+  - [x] Integrate a post-bind callback or small `uvicorn.Server` subclass that awaits `super().startup()` before writing.
+  - [x] Confirm the server reports started and the current PID owns the configured listener before publishing.
+  - [x] Never write immediately before `server.run()`, because Uvicorn has not bound the socket at that point.
+  - [x] On publication failure, exit startup nonzero, preserve any previously complete profile, and remove only the failed temporary file.
+- [x] Task 4: Implement fail-closed profile validation for later restart use (AC: 3, 4, 5)
+  - [x] Reject missing, unreadable, malformed, incomplete, or unsupported-schema profiles.
+  - [x] Verify live process identity using PID plus `psutil.Process(pid).create_time()`.
+  - [x] Verify that exact identity owns the recorded listener by reusing or extracting existing port-owner logic. Do not use process-name scans.
+  - [x] Reject malformed required secret-source records and required `unreplayable` sources without performing build, pause, or stop work.
+- [x] Task 5: Add focused profile and CLI regression tests (AC: 1-6)
+  - [x] Test every required field and local/remote combination.
+  - [x] Test same-directory temporary write plus atomic replacement, interrupted-write behavior, and temporary-file cleanup.
+  - [x] Test dead PID, reused PID, creation-time mismatch, wrong listener owner, unsupported schema, malformed JSON, and process-inspection errors.
+  - [x] Test secret-source classification and assert serialized profile and errors do not contain representative password or token values.
+  - [x] Preserve existing `cpl up`, `down`, and `restart` tests and CLI behavior.
 
 ## Dev Notes
 
@@ -214,12 +214,30 @@ No `project-context.md` file exists. Follow repository instructions, the canonic
 
 ### Agent Model Used
 
-To be completed by the dev agent.
+Claude Sonnet 5 (GitHub Copilot CLI), integration-owner session.
 
 ### Debug Log References
 
+- `uv run pytest backend/tests/unit/test_restart_protocol.py backend/tests/unit/test_launch_profile.py backend/tests/unit/test_cli.py backend/tests/unit/test_tunnel_service.py -q` → 158 passed.
+- `uv run ruff check backend/cli.py backend/services/dev_restart/ backend/services/sharing/tunnel_service.py backend/tests/unit/test_cli.py backend/tests/unit/test_launch_profile.py backend/tests/unit/test_restart_protocol.py` → all checks passed.
+
 ### Completion Notes List
 
-- Ultimate context engine analysis completed, comprehensive developer guide created.
+- Implemented `backend/services/dev_restart/restart_protocol.py` and `launch_profile.py` as the single reusable active-launch-profile contract (schema v1, closed `SecretSource` union, atomic persistence via same-directory temp file + `os.replace`, fail-closed validation). This module is the locked shared API consumed by later restart stories (1.2-1.7); its public signatures were coordinated and broadcast to sibling implementation sessions working Stories 1.3-1.4 and 1.5-1.7.
+- Extended the schema (still v1, additive/optional fields only, backward compatible with previously-written profiles) with `tunnelOrigin`/`tunnelOriginReusable` to support exact-origin probing needed by the remote-recovery story; `tunnel_origin_reusable` is sourced from `TunnelHandle.origin_is_reusable` via `getattr(..., None)` so this story's publication path does not depend on that sibling field landing first.
+- Wired `backend/cli.py`'s `up()` command: added `SecretSource` provenance tracking at every password/tunnel-credential resolution branch (literal `--password`, `.env`/env `CPL_PASSWORD`, auto-generated, Cloudflare Access disabling password, externally-managed tunnel, devtunnel/cloudflare managed) and a `_LaunchProfileServer(uvicorn.Server)` subclass that publishes `run.json` only after `await super().startup()` succeeds and the current PID is confirmed to own the configured port via the existing `_find_pids_on_port` helper (reused, not duplicated). Publication failure raises `LaunchProfileError`, which is not caught by the existing `except (KeyboardInterrupt, SystemExit)` — it propagates and exits nonzero.
+- Added `TunnelHandle.name` to `backend/services/sharing/tunnel_service.py` (populated in `start_remote_access()` for both devtunnel and cloudflare branches) since the profile must persist a real, stable tunnel identity rather than an unresolved `--tunnel-name` input.
+- Added `backend/tests/unit/test_restart_protocol.py` (27 tests) and `test_launch_profile.py` (56 tests) covering schema round-trips (local/remote, camelCase field names, backward-compatible missing-optional-field loads), every impossible local/remote combination, atomic write/interrupted-write/temp-file-cleanup behavior, dead/reused-PID/wrong-listener-owner refusals, malformed/unsupported-schema refusals, secret redaction (representative sentinel secrets asserted absent from JSON and errors), and lock/identity primitives.
+- Added a new `TestUpLaunchProfilePublication` class (8 tests) to `backend/tests/unit/test_cli.py` exercising `cpl up` end-to-end through `CliRunner` with all real side effects stubbed (frontend build, migrations, dashboard/logging, Uvicorn socket binding) but the real `write_active_launch_profile`/`build_active_launch_profile` code path exercised: local/no-password, literal `--password`, env `CPL_PASSWORD`, remote devtunnel (managed + externally-managed), remote Cloudflare with Access, `--host 0.0.0.0` auto-generated password, and listener-ownership-failure aborting startup nonzero without writing a profile. All 31 pre-existing `test_cli.py` tests and all 36 `test_tunnel_service.py` tests remain passing unmodified.
+- Did not modify `tools/dev_restart.py`, add any REST route, MCP tool, frontend control, database migration, daemon, service manager, supervisor, gateway, or rollback mechanism, per the story's implementation boundary.
 
 ### File List
+
+- `backend/services/dev_restart/__init__.py` (new)
+- `backend/services/dev_restart/restart_protocol.py` (new)
+- `backend/services/dev_restart/launch_profile.py` (new)
+- `backend/cli.py` (modified — `up()` provenance tracking, `_LaunchProfileServer`, post-bind publication)
+- `backend/services/sharing/tunnel_service.py` (modified — added `TunnelHandle.name`)
+- `backend/tests/unit/test_restart_protocol.py` (new)
+- `backend/tests/unit/test_launch_profile.py` (new)
+- `backend/tests/unit/test_cli.py` (modified — added `TestUpLaunchProfilePublication`)

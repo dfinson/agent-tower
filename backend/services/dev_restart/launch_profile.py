@@ -121,6 +121,8 @@ class LaunchProfile:
     provider: str
     tunnel_ownership: str | None
     tunnel_name: str | None
+    tunnel_origin: str | None
+    tunnel_origin_reusable: bool | None
     password_source: SecretSource
     tunnel_credential_source: SecretSource
     started_pid: int
@@ -139,6 +141,8 @@ class LaunchProfile:
             "provider": self.provider,
             "tunnelOwnership": self.tunnel_ownership,
             "tunnelName": self.tunnel_name,
+            "tunnelOrigin": self.tunnel_origin,
+            "tunnelOriginReusable": self.tunnel_origin_reusable,
             "passwordSource": self.password_source.to_dict(),
             "tunnelCredentialSource": self.tunnel_credential_source.to_dict(),
             "startedPid": self.started_pid,
@@ -197,6 +201,14 @@ class LaunchProfile:
         if tunnel_name is not None and not isinstance(tunnel_name, str):
             raise LaunchProfileInvalidError("tunnelName must be a string or null")
 
+        tunnel_origin = data.get("tunnelOrigin")
+        if tunnel_origin is not None and not isinstance(tunnel_origin, str):
+            raise LaunchProfileInvalidError("tunnelOrigin must be a string or null")
+
+        tunnel_origin_reusable = data.get("tunnelOriginReusable")
+        if tunnel_origin_reusable is not None and not isinstance(tunnel_origin_reusable, bool):
+            raise LaunchProfileInvalidError("tunnelOriginReusable must be a boolean or null")
+
         password_source = SecretSource.from_dict(data.get("passwordSource"))
         tunnel_credential_source = SecretSource.from_dict(data.get("tunnelCredentialSource"))
 
@@ -215,6 +227,8 @@ class LaunchProfile:
             provider=provider,
             tunnel_ownership=tunnel_ownership,
             tunnel_name=tunnel_name,
+            tunnel_origin=tunnel_origin,
+            tunnel_origin_reusable=tunnel_origin_reusable,
             password_source=password_source,
             tunnel_credential_source=tunnel_credential_source,
             started_pid=started_pid,
@@ -231,6 +245,10 @@ class LaunchProfile:
                 raise LaunchProfileInvalidError("provider must be 'local' when remote is false")
             if self.tunnel_ownership is not None or self.tunnel_name is not None:
                 raise LaunchProfileInvalidError("tunnelOwnership/tunnelName must be null when remote is false")
+            if self.tunnel_origin is not None or self.tunnel_origin_reusable is not None:
+                raise LaunchProfileInvalidError(
+                    "tunnelOrigin/tunnelOriginReusable must be null when remote is false"
+                )
         else:
             if self.provider not in ("devtunnel", "cloudflare"):
                 raise LaunchProfileInvalidError("provider must be 'devtunnel' or 'cloudflare' when remote is true")
@@ -256,6 +274,8 @@ def build_active_launch_profile(
     provider: str,
     tunnel_ownership: str | None,
     tunnel_name: str | None,
+    tunnel_origin: str | None = None,
+    tunnel_origin_reusable: bool | None = None,
     password_source: SecretSource,
     tunnel_credential_source: SecretSource,
     started_pid: int,
@@ -273,6 +293,8 @@ def build_active_launch_profile(
         provider=provider,
         tunnel_ownership=tunnel_ownership,
         tunnel_name=tunnel_name,
+        tunnel_origin=tunnel_origin,
+        tunnel_origin_reusable=tunnel_origin_reusable,
         password_source=password_source,
         tunnel_credential_source=tunnel_credential_source,
         started_pid=started_pid,

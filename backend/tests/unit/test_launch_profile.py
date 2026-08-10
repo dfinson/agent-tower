@@ -72,6 +72,8 @@ def _remote_profile(**overrides: object) -> LaunchProfile:
         provider="devtunnel",
         tunnel_ownership="managed",
         tunnel_name="cpl-ab12cd34",
+        tunnel_origin="https://cpl-ab12cd34.devtunnels.ms",
+        tunnel_origin_reusable=True,
         password_source=SecretSource.resolvable("environment", "CPL_PASSWORD"),
         tunnel_credential_source=SecretSource.resolvable("provider-login", "devtunnel"),
         started_pid=4242,
@@ -137,12 +139,48 @@ class TestLaunchProfileSchema:
             "provider",
             "tunnelOwnership",
             "tunnelName",
+            "tunnelOrigin",
+            "tunnelOriginReusable",
             "passwordSource",
             "tunnelCredentialSource",
             "startedPid",
             "startedProcessTime",
             "writtenAt",
         }
+
+    def test_tunnel_origin_and_reusable_roundtrip(self) -> None:
+        profile = _remote_profile(tunnel_origin="https://cpl-fixed.example.com", tunnel_origin_reusable=False)
+        restored = LaunchProfile.from_dict(json.loads(json.dumps(profile.to_dict())))
+        assert restored.tunnel_origin == "https://cpl-fixed.example.com"
+        assert restored.tunnel_origin_reusable is False
+
+    def test_missing_tunnel_origin_fields_default_to_none(self) -> None:
+        """Older profiles written before these fields existed must still load (schema stays v1)."""
+        data = _local_profile().to_dict()
+        del data["tunnelOrigin"]
+        del data["tunnelOriginReusable"]
+        restored = LaunchProfile.from_dict(data)
+        assert restored.tunnel_origin is None
+        assert restored.tunnel_origin_reusable is None
+
+    def test_wrong_type_for_tunnel_origin_raises(self) -> None:
+        data = _remote_profile().to_dict()
+        data["tunnelOrigin"] = 12345
+        with pytest.raises(LaunchProfileInvalidError):
+            LaunchProfile.from_dict(data)
+
+    def test_wrong_type_for_tunnel_origin_reusable_raises(self) -> None:
+        data = _remote_profile().to_dict()
+        data["tunnelOriginReusable"] = "yes"
+        with pytest.raises(LaunchProfileInvalidError):
+            LaunchProfile.from_dict(data)
+
+    def test_local_mode_with_tunnel_origin_raises(self) -> None:
+        """Impossible local/remote combination: remote=false but tunnelOrigin is set."""
+        data = _local_profile().to_dict()
+        data["tunnelOrigin"] = "https://should-not-be-set.example.com"
+        with pytest.raises(LaunchProfileInvalidError):
+            LaunchProfile.from_dict(data)
 
     def test_unsupported_schema_version_raises(self) -> None:
         data = _local_profile().to_dict()
