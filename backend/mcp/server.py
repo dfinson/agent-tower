@@ -164,6 +164,7 @@ def create_mcp_server(
     _register_artifact_tool(mcp, state)
     _register_settings_tool(mcp)
     _register_repo_tool(mcp, state)
+    _register_project_tool(mcp)
     _register_health_tool(mcp, state)
 
     return mcp
@@ -753,6 +754,86 @@ def _register_repo_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                     return {"error": f"Repository '{repo_path}' not found in allowlist"}
                 resp.raise_for_status()
                 return {"status": "removed", "path": repo_path}
+
+
+# ---------------------------------------------------------------------------
+# Project Management (Story 2.1 / CAP-6)
+# ---------------------------------------------------------------------------
+
+
+def _register_project_tool(mcp: FastMCP) -> None:
+    @mcp.tool(
+        name="codeplane_project",
+        title="Manage Projects",
+        annotations=ToolAnnotations(title="Manage Projects", destructiveHint=True, openWorldHint=True),
+        description=(
+            "Manage Projects — the sole entity that owns repo-path membership. Actions: "
+            "list, get, create, update."
+            "\n\n"
+            "- list: no extra params"
+            "\n- get: project_id (required)"
+            "\n- create: name (required), repo_paths (required, list of one or more repo paths)"
+            "\n- update: project_id (required); name and/or repo_paths (optional, repo_paths replaces "
+            "the full membership list)"
+        ),
+    )
+    async def codeplane_project(
+        action: Literal["list", "get", "create", "update"],
+        project_id: str | None = None,
+        name: str | None = None,
+        repo_paths: list[str] | None = None,
+    ) -> McpToolResult:
+        import httpx
+
+        config = load_config()
+        base_url = f"http://{config.server.host}:{config.server.port}/api"
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            if action == "list":
+                resp = await client.get(f"{base_url}/settings/projects")
+                resp.raise_for_status()
+                result: dict[str, Any] = resp.json()
+                return result
+
+            if action == "get":
+                if not project_id:
+                    return {"error": "project_id is required for get"}
+                resp = await client.get(f"{base_url}/settings/projects/{project_id}")
+                if resp.status_code == 404:
+                    return {"error": f"Project '{project_id}' does not exist."}
+                resp.raise_for_status()
+                result = resp.json()
+                return result
+
+            if action == "create":
+                if not name:
+                    return {"error": "name is required for create"}
+                if not repo_paths:
+                    return {"error": "repo_paths is required for create"}
+                body: dict[str, Any] = {"name": name, "repoPaths": repo_paths}
+                resp = await client.post(f"{base_url}/settings/projects", json=body)
+                if resp.status_code >= 400:
+                    detail = resp.json().get("detail", resp.text)
+                    return {"error": str(detail)}
+                result = resp.json()
+                return result
+
+            if action == "update":
+                if not project_id:
+                    return {"error": "project_id is required for update"}
+                body = {}
+                if name is not None:
+                    body["name"] = name
+                if repo_paths is not None:
+                    body["repoPaths"] = repo_paths
+                resp = await client.patch(f"{base_url}/settings/projects/{project_id}", json=body)
+                if resp.status_code == 404:
+                    return {"error": f"Project '{project_id}' does not exist."}
+                if resp.status_code >= 400:
+                    detail = resp.json().get("detail", resp.text)
+                    return {"error": str(detail)}
+                result = resp.json()
+                return result
 
 
 # ---------------------------------------------------------------------------

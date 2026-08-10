@@ -22,6 +22,7 @@ from backend.persistence.event_repo import EventRepository
 from backend.persistence.file_access_repo import FileAccessRepository
 from backend.persistence.job_repo import JobRepository
 from backend.persistence.latency_attribution_repo import LatencyAttributionRepository
+from backend.persistence.project_repo import ProjectRepository
 from backend.persistence.sidecar_template_repo import SidecarTemplateRepository
 from backend.persistence.step_repo import StepRepository
 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
@@ -45,6 +46,7 @@ from backend.services.ingest.claude_source import ClaudeSessionStateWatcher
 from backend.services.job.approval_service import ApprovalService
 from backend.services.job.job_service import JobService
 from backend.services.merge_service import MergeService
+from backend.services.project.project_service import ProjectService
 from backend.services.runtime import RuntimeService
 from backend.services.sharing.push_service import PushService
 from backend.services.sharing.share_service import ShareService
@@ -234,6 +236,14 @@ class RequestProvider(Provider):
     @provide
     def job_repo(self, session: AsyncSession) -> JobRepository:
         return JobRepository(session)
+
+    @provide
+    def project_repo(self, session: AsyncSession) -> ProjectRepository:
+        return ProjectRepository(session)
+
+    @provide
+    def project_service(self, project_repo: ProjectRepository, config: CPLConfig) -> ProjectService:
+        return ProjectService(project_repo, config)
 
     @provide
     def telemetry_spans_repo(self, session: AsyncSession) -> TelemetrySpansRepository:

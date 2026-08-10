@@ -41,6 +41,7 @@ from backend.api import (
     notifications,
     policy_settings,
     preview,
+    projects,
     settings,
     share,
     sidecar_templates,
@@ -57,6 +58,8 @@ from backend.models.domain import (
     CodePlaneError,
     InvalidStateTransitionError,
     JobNotFoundError,
+    ProjectNotFoundError,
+    RepoAlreadyAssignedError,
     RepoNotAllowedError,
     SDKModelMismatchError,
     StateConflictError,
@@ -225,6 +228,7 @@ def _register_routes(app: FastAPI) -> None:
     app.include_router(metrics.router, prefix="/api")
     app.include_router(sidecar_templates.router, prefix="/api")
     app.include_router(chats.router, prefix="/api")
+    app.include_router(projects.router, prefix="/api")
 
 
 def _register_domain_exception_handlers(app: FastAPI) -> None:
@@ -241,6 +245,14 @@ def _register_domain_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RepoNotAllowedError)
     async def _repo_not_allowed(request: Request, exc: RepoNotAllowedError) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(ProjectNotFoundError)
+    async def _project_not_found(request: Request, exc: ProjectNotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(RepoAlreadyAssignedError)
+    async def _repo_already_assigned(request: Request, exc: RepoAlreadyAssignedError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.exception_handler(ApprovalNotFoundError)
     async def _approval_not_found(request: Request, exc: ApprovalNotFoundError) -> JSONResponse:

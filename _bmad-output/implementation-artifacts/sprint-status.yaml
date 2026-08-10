@@ -58,8 +58,8 @@ development_status:
   1-7-harden-diagnostics-and-native-restart-evidence: review
   epic-1-retrospective: optional
 
-  epic-2: backlog
-  2-1-create-edit-a-project: backlog
+  epic-2: in-progress
+  2-1-create-edit-a-project: review
   2-2-view-projects-overview: backlog
   2-3-view-a-projects-board: backlog
   2-4-see-cross-project-attention-signal: backlog
