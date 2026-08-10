@@ -122,6 +122,51 @@ const REPOS = {
 const OBSERVATIONS: unknown[] = [];
 const ANALYTICS_JOBS = { items: [], cursor: null, hasMore: false };
 const COST_DRIVERS: unknown[] = [];
+const FLEET_COST_DRIVERS = {
+  period: 7,
+  summary: [],
+  dimension: "activity",
+};
+const FLEET_LATENCY_DRIVERS = {
+  period: 7,
+  dimension: "activity",
+  summary: [],
+  avgJobDurationMs: 0,
+  p50JobDurationMs: 0,
+  p95JobDurationMs: 0,
+};
+const YIELD = {
+  period: 7,
+  categories: [],
+  costPerMergeUsd: 0,
+  totalCostUsd: 0,
+  totalJobs: 0,
+};
+const MODEL_EFFICIENCY = {
+  period: 7,
+  models: [],
+};
+const CACHE_EFFICIENCY = {
+  period: 7,
+  dimension: "phase",
+  buckets: [],
+};
+const EXECUTIVE_SUMMARY = {
+  buildingUsd: 0,
+  thinkingUsd: 0,
+  wastedUsd: 0,
+  totalUsd: 0,
+  buildingPct: 0,
+  thinkingPct: 0,
+  wastedPct: 0,
+  wasteBreakdown: {
+    retryUsd: 0,
+    failedJobsUsd: 0,
+    compactionUsd: 0,
+    rereadsUsd: 0,
+  },
+  periodDays: 7,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -183,6 +228,81 @@ async function setupAnalyticsMocks(page: import("@playwright/test").Page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(COST_DRIVERS),
+    });
+  });
+
+  await page.route("**/api/analytics/latency-drivers*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(FLEET_LATENCY_DRIVERS),
+    });
+  });
+
+  await page.route("**/api/analytics/yield*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(YIELD),
+    });
+  });
+
+  await page.route("**/api/analytics/model-efficiency*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(MODEL_EFFICIENCY),
+    });
+  });
+
+  await page.route("**/api/analytics/cache-efficiency*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(CACHE_EFFICIENCY),
+    });
+  });
+
+  await page.route("**/api/analytics/executive-summary*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(EXECUTIVE_SUMMARY),
+    });
+  });
+
+  await page.route("**/api/metrics", async (route) => {
+    const method = route.request().method();
+    if (method !== "GET") {
+      return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({}) });
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ metrics: [] }),
+    });
+  });
+
+  await page.route("**/api/metrics/chat*", async (route) => {
+    const method = route.request().method();
+    if (method !== "POST") {
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ conversations: [] }) });
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        conversationId: "conversation-1",
+        message: {
+          messageId: "message-1",
+          narrative: "No metrics available in the test fixture.",
+          error: false,
+          title: "Test Metric",
+          viz: "table",
+          vizData: [],
+          sqlQueries: ["select 1"],
+        },
+      }),
     });
   });
 }

@@ -185,9 +185,12 @@ export function SharedJobView() {
       <div className="rounded-lg border border-border bg-card p-5 mb-4">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div className="flex items-center gap-2 min-w-0">
-            <h1 className="text-lg font-bold text-foreground break-words">
-              {job.title || job.id}
-            </h1>
+            <div className="min-w-0">
+              <h1 className="text-lg font-bold text-foreground break-words">
+                {job.title || job.id}
+              </h1>
+              {job.title && <p className="text-xs font-mono text-muted-foreground break-all">{job.id}</p>}
+            </div>
             {job.sdk && <SdkBadge sdk={job.sdk} />}
           </div>
           <span aria-live="polite"><StateBadge state={job.state} /></span>

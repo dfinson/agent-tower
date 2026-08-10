@@ -43,6 +43,8 @@ export function JobHeaderCard({
   onCostClick,
   actionProps,
 }: JobHeaderCardProps) {
+  const jobLabel = job.title || job.id;
+  const showJobId = !!job.title;
   const shouldAutoExpand = EXPAND_STATES.has(job.state);
   const [expanded, setExpanded] = useState(shouldAutoExpand);
   const [userOverride, setUserOverride] = useState(false);
@@ -73,8 +75,9 @@ export function JobHeaderCard({
             <img src="/mark.png" alt="" className="h-6 w-6 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
           </button>
 
-          <button onClick={() => setSheetOpen(true)} className="flex items-center gap-1.5 min-w-0">
-            <h1 className="text-sm font-semibold text-foreground truncate">{job.title || job.id}</h1>
+          <button onClick={() => setSheetOpen(true)} className="flex flex-col items-start gap-0.5 min-w-0 text-left">
+            <h1 className="text-sm font-semibold text-foreground truncate max-w-full">{jobLabel}</h1>
+            {showJobId && <span className="text-[11px] font-mono text-muted-foreground truncate max-w-full">{job.id}</span>}
           </button>
 
           <span aria-live="polite"><StateBadge state={job.state} /></span>
@@ -157,7 +160,10 @@ export function JobHeaderCard({
             {expanded
               ? <ChevronDown size={16} className="text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />
               : <ChevronRight size={16} className="text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />}
-            <h1 className="text-base lg:text-lg font-semibold text-foreground truncate">{job.title || job.id}</h1>
+            <div className="min-w-0 text-left">
+              <h1 className="text-base lg:text-lg font-semibold text-foreground truncate">{jobLabel}</h1>
+              {showJobId && <p className="text-[11px] font-mono text-muted-foreground truncate">{job.id}</p>}
+            </div>
           </button>
 
           <span aria-live="polite"><StateBadge state={job.state} /></span>
