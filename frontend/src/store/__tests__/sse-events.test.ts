@@ -8,6 +8,9 @@ import {
   selectActiveJobs,
   selectSignoffJobs,
   selectAttentionJobs,
+  selectActiveJobsForRepo,
+  selectSignoffJobsForRepo,
+  selectAttentionJobsForRepo,
   selectArchivedJobs,
   selectArchivedCount,
 } from "../index";
@@ -374,6 +377,49 @@ describe("column selectors", () => {
     expect(secondJob).toBeDefined();
     expect(firstJob?.id).toBe("j-2");
     expect(secondJob?.id).toBe("j-1");
+  });
+});
+
+// ---- Repo-scoped column selectors (Story 2.3 / CAP-1 RepoBoard) -----------
+
+describe("repo-scoped column selectors", () => {
+  beforeEach(() => {
+    useStore.setState({
+      jobs: {
+        "j-1": makeJob({ id: "j-1", repo: "/repos/a", state: "running" }),
+        "j-2": makeJob({ id: "j-2", repo: "/repos/b", state: "running" }),
+        "j-3": makeJob({ id: "j-3", repo: "/repos/a", state: "waiting_for_approval" }),
+        "j-4": makeJob({ id: "j-4", repo: "/repos/b", state: "waiting_for_approval" }),
+        "j-5": makeJob({ id: "j-5", repo: "/repos/a", state: "failed" }),
+        "j-6": makeJob({ id: "j-6", repo: "/repos/b", state: "failed" }),
+        "j-7": makeJob({ id: "j-7", repo: "/repos/a", state: "running", archivedAt: "2025-01-01" }),
+      },
+    });
+  });
+
+  it("selectActiveJobsForRepo only returns active jobs for the given repo", () => {
+    const active = selectActiveJobsForRepo("/repos/a")(useStore.getState());
+    expect(active.map((j) => j.id)).toEqual(["j-1"]);
+  });
+
+  it("selectSignoffJobsForRepo only returns signoff jobs for the given repo", () => {
+    const signoff = selectSignoffJobsForRepo("/repos/a")(useStore.getState());
+    expect(signoff.map((j) => j.id)).toEqual(["j-3"]);
+  });
+
+  it("selectAttentionJobsForRepo only returns failed jobs for the given repo", () => {
+    const attention = selectAttentionJobsForRepo("/repos/a")(useStore.getState());
+    expect(attention.map((j) => j.id)).toEqual(["j-5"]);
+  });
+
+  it("excludes archived jobs from the repo-scoped active selector", () => {
+    const active = selectActiveJobsForRepo("/repos/a")(useStore.getState());
+    expect(active.map((j) => j.id)).not.toContain("j-7");
+  });
+
+  it("returns an empty array for a repo with no matching jobs", () => {
+    const active = selectActiveJobsForRepo("/repos/nonexistent")(useStore.getState());
+    expect(active).toEqual([]);
   });
 });
 
