@@ -45,6 +45,10 @@ class TunnelHandle:
     proc: subprocess.Popen[str] | None = None
     watchdog: TunnelWatchdog | None = None
     externally_managed: bool = False
+    # Stable tunnel identity (devtunnel name or Cloudflare hostname) after
+    # startup -- the active launch profile persists this for restart replay
+    # (Story 1.1, ARCHITECTURE-SPINE.md AD-5). ``None`` when no tunnel applies.
+    name: str | None = None
 
     def close(self) -> None:
         if self.watchdog is not None:
@@ -352,7 +356,7 @@ def start_remote_access(
         return TunnelHandle(provider=provider)
     if provider is RemoteProvider.devtunnel:
         origin, proc, resolved_name = _start_devtunnel(port, tunnel_name=tunnel_name)
-        handle = TunnelHandle(provider=provider, origin=origin, proc=proc)
+        handle = TunnelHandle(provider=provider, origin=origin, proc=proc, name=resolved_name)
         handle.watchdog = TunnelWatchdog(
             tunnel_url=origin,
             restart_command=["devtunnel", "host", resolved_name],
@@ -366,7 +370,14 @@ def start_remote_access(
         port, cloudflare_token=cloudflare_token, cloudflare_hostname=cloudflare_hostname
     )
     externally_managed = cf_proc is None
-    handle = TunnelHandle(provider=provider, origin=origin, proc=cf_proc, externally_managed=externally_managed)
+    resolved_hostname = (cloudflare_hostname or "").removeprefix("https://").rstrip("/") or None
+    handle = TunnelHandle(
+        provider=provider,
+        origin=origin,
+        proc=cf_proc,
+        externally_managed=externally_managed,
+        name=resolved_hostname,
+    )
     if cf_proc is not None:
         # We started our own process — attach a watchdog to keep it alive
         handle.watchdog = TunnelWatchdog(
