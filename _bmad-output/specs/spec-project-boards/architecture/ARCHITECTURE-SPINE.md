@@ -8,7 +8,7 @@ scope: 'Repo/Project-scoped Kanban board (CAP-1) and cross-project overview with
 status: final
 created: '2026-08-06'
 updated: '2026-08-07'
-binds: ["CAP-1", "CAP-2", "CAP-3", "CAP-4", "CAP-5", "CAP-6", "CAP-7", "CAP-8", "CAP-9", "CAP-10", "CAP-11", "CAP-12"]
+binds: ["CAP-1", "CAP-2", "CAP-3", "CAP-4", "CAP-5", "CAP-6", "CAP-7", "CAP-8", "CAP-9", "CAP-10", "CAP-11", "CAP-12", "CAP-13", "CAP-14"]
 sources: ["_bmad-output/specs/spec-project-boards/SPEC.md"]
 companions: []
 ---
@@ -123,6 +123,18 @@ flowchart TD
   - **Launch a Job** (`POST /settings/chats/{id}/launch-job`) calls the same job-creation service function AD-10 established for `spawn_task`, passing the chat transcript as the new Job's seed prompt/context, and provisions a worktree/branch for the first time at that call. If `project_id` is still null, the user is prompted to pick a Project/repo at this call, and the result is written back onto the `ChatRow`. The Chat itself is untouched by this beyond that write-back — it remains open and can launch further Jobs later.
   - **Attach to a chain** (`POST /settings/chats/{id}/attach-chain`) links the `ChatRow` to a specific `task_link_id` (owned by `recipe_service.py` alongside `TaskLinkRow`, AD-9) in gating mode. If `project_id` is still null, it is settled from the chain's Project at this call. CAP-10's `spawn_task` dispatch checks for an active, gated Chat attached to the completing `TaskLink`'s chain before firing: if none exists, behavior is exactly AD-10's existing ungated auto-spawn; if one exists, `spawn_task` creates a `codeplane_approval` entry (the same mechanism AD-7/CAP-11 already use) instead of calling the job-creation service directly, and only calls it once that approval is granted. Narration in this mode is read-only status text derived from polling the chain's `TaskLinkRow`/Job states — it never calls `GitService` or the job-creation function on its own.
 
+### AD-13 — `codeplane_tracker` is a second caller of the existing approval gate, not a second write mechanism
+
+- **Binds:** CAP-13, CAP-11
+- **Prevents:** An agent-initiated tracker write bypassing approval by inventing its own path to `tracker_adapter.py`; a second, differently-shaped approval entry type for agent-initiated vs. recipe-initiated writes; the agent needing its own copy of a Credential's PAT.
+- **Rule:** A new `codeplane_tracker` MCP tool (comment, transition) resolves the calling Job's Project and its TrackerLink(s) server-side, then calls the exact same `codeplane_approval`-creation function AD-7/CAP-11's `tracker_write` output route already calls — same approval shape, same resolution/execution path once granted, only the caller (agent-initiated vs. recipe-initiated) differs. The agent never receives or handles the Credential's decrypted secret; CodePlane resolves and uses it server-side on the agent's behalf.
+
+### AD-14 — `codeplane_pr` and completion-time auto-PR share one `_create_pr` implementation
+
+- **Binds:** CAP-14
+- **Prevents:** A second, divergent PR-creation code path growing up beside `merge_service._create_pr`; duplicate PRs from calling both the agent tool and the automatic completion path for the same Job.
+- **Rule:** A new `codeplane_pr` MCP tool, callable mid-job, invokes `merge_service._create_pr` directly (the same function the existing completion/merge-strategy path calls) rather than a parallel implementation. `_create_pr` becomes idempotent per Job (checks for an existing PR on the Job before creating one) so a Job that calls `codeplane_pr` and then completes normally does not get a second PR from the automatic path, and vice versa.
+
 ## Consistency Conventions
 
 | Concern | Convention |
@@ -174,7 +186,7 @@ backend/
     recipe_service.py         # NEW — owns TaskLinkRow, on-demand Project-scoped ingestion (AD-9), spawn_task dispatch via existing job-creation function with Chat-attach gate check (AD-10, AD-12)
     chat_service.py           # NEW — owns ChatRow, no GitService dependency by construction; launch_job() and attach_chain() call the shared job-creation function / recipe_service respectively (AD-12)
   mcp/
-    server.py                 # EXISTING — new codeplane_project tool added alongside unchanged codeplane_repo/codeplane_job tools
+    server.py                 # EXISTING — new codeplane_project tool added alongside unchanged codeplane_repo/codeplane_job tools; new agent-facing codeplane_tracker (CAP-13) and codeplane_pr (CAP-14) tools added
 ```
 
 ## Capability → Architecture Map
@@ -193,6 +205,8 @@ backend/
 | CAP-10 Chained TaskLink cards on the board | `RepoBoard.tsx` (renders alongside job cards), `backend/api/projects.py` (task-links endpoint), `recipe_service.py` (spawn_task) | AD-10, AD-11 |
 | CAP-11 tracker_write reuses CAP-7's approval gate | `recipe_service.py` → existing approval service | AD-7, AD-10 |
 | CAP-12 Persistent Chat: launch Jobs and/or gate a recipe chain | `ChatPanel.tsx`, `backend/api/chats.py`, `chat_service.py`, `recipe_service.py` (gate check), existing approval service | AD-12 |
+| CAP-13 Agent-facing `codeplane_tracker` MCP tool | `mcp/server.py` (new tool), `tracker_adapter.py`, existing approval service | AD-13, AD-7 |
+| CAP-14 Agent-facing `codeplane_pr` MCP tool | `mcp/server.py` (new tool), `merge_service/_service.py` (`_create_pr`, made idempotent per Job) | AD-14 |
 
 ## Deferred
 
