@@ -27,6 +27,17 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Configure git authentication for coderecon
+        env:
+          CODERECON_TOKEN: ${{ secrets.CODERECON_TOKEN }}
+        run: |
+          if [ -z "$CODERECON_TOKEN" ]; then
+            echo "::error::CODERECON_TOKEN secret is missing"
+            exit 1
+          fi
+
+          git config --global url."https://x-access-token:${CODERECON_TOKEN}@github.com/dfinson/coderecon.git".insteadOf "https://github.com/dfinson/coderecon.git"
+
       - name: Install backend dependencies
         run: uv sync
 
