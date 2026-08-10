@@ -57,6 +57,16 @@ describe("IntegrationsSettings", () => {
     expect(screen.queryByText(/^secret$|token value/i)).not.toBeInTheDocument();
   });
 
+  it("never renders an OAuth or app-connection option (Story 3.5 AC3/NFR3)", async () => {
+    render(<IntegrationsSettings />);
+    await waitFor(() => {
+      expect(screen.getByText(/fine-grained PAT/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/OAuth/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /connect/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Personal Access Token")).toHaveAttribute("type", "password");
+  });
+
   it("shows per-provider guidance and submits a new credential", async () => {
     vi.mocked(createCredential).mockResolvedValue({
       id: "cred-new",
