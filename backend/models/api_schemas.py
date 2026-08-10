@@ -1600,6 +1600,31 @@ class ChatListResponse(CamelModel):
     items: list[ChatResponse]
 
 
+class AddChatMessageRequest(CamelModel):
+    """Append a message to a Chat's transcript."""
+
+    role: str = Field(min_length=1, max_length=50)
+    content: str = Field(min_length=1, max_length=50_000)
+
+
+class ChatMessageResponse(CamelModel):
+    id: str
+    chat_id: str
+    role: str
+    content: str
+    created_at: datetime
+
+
+class LaunchJobFromChatRequest(CamelModel):
+    """Launch a Job from a Chat, seeded from its transcript (CAP-12/AD-12, Story 5.2)."""
+
+    repo: str = Field(min_length=1)
+    base_ref: str | None = None
+    branch: str | None = None
+    model: str | None = None
+    sdk: str | None = None
+
+
 
 # ---------------------------------------------------------------------------
 # Utility / operational responses
