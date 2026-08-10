@@ -10,12 +10,15 @@ from backend.services.sharing.tunnel_service import (
     _CODEPLANE_TUNNEL_PREFIX,
     RemoteProvider,
     TunnelHandle,
+    TunnelOwnership,
     TunnelStartError,
     TunnelWatchdog,
+    _external_tunnel_origin,
     _find_existing_codeplane_tunnel,
     _lookup_devtunnel,
     _start_output_drain,
     _wait_for_startup,
+    start_remote_access,
     validate_remote_provider,
 )
 
@@ -581,3 +584,170 @@ class TestGiveupCooldown:
 
         # Should have attempted restart at least twice (initial + after cooldown)
         assert call_count >= 2
+
+
+# ---------------------------------------------------------------------------
+# Explicit tunnel ownership (SPEC CAP-6 / ARCHITECTURE-SPINE AD-8)
+# ---------------------------------------------------------------------------
+
+
+class TestExternalTunnelOwnership:
+    """``ownership=external`` must never spawn a connector or scan processes."""
+
+    def test_external_cloudflare_resolves_origin_without_process_or_scan(self) -> None:
+        with (
+            patch("backend.services.sharing.tunnel_service.subprocess.Popen") as mock_popen,
+            patch("backend.services.sharing.tunnel_service._cloudflared_already_running") as mock_scan,
+        ):
+            handle = start_remote_access(
+                RemoteProvider.cloudflare,
+                port=8080,
+                cloudflare_hostname="codeplane.example.com",
+                cloudflare_token="tok",
+                ownership=TunnelOwnership.external,
+            )
+
+        mock_popen.assert_not_called()
+        mock_scan.assert_not_called()
+        assert handle.origin == "https://codeplane.example.com"
+        assert handle.proc is None
+        assert handle.watchdog is None
+        assert handle.externally_managed is True
+
+    def test_external_cloudflare_requires_hostname(self) -> None:
+        with pytest.raises(TunnelStartError):
+            start_remote_access(
+                RemoteProvider.cloudflare,
+                port=8080,
+                cloudflare_hostname=None,
+                ownership=TunnelOwnership.external,
+            )
+
+    @patch(
+        "backend.services.sharing.tunnel_service._list_devtunnels",
+        return_value=[{"tunnelId": "my-stable-name.usw2"}],
+    )
+    def test_external_devtunnel_resolves_origin_without_spawning(self, _mock) -> None:
+        with patch("backend.services.sharing.tunnel_service.subprocess.Popen") as mock_popen:
+            handle = start_remote_access(
+                RemoteProvider.devtunnel,
+                port=8080,
+                tunnel_name="my-stable-name",
+                ownership=TunnelOwnership.external,
+            )
+
+        mock_popen.assert_not_called()
+        assert handle.origin == "https://my-stable-name-8080.usw2.devtunnels.ms"
+        assert handle.proc is None
+        assert handle.externally_managed is True
+
+    @patch("backend.services.sharing.tunnel_service._list_devtunnels", return_value=[])
+    def test_external_devtunnel_unknown_name_raises(self, _mock) -> None:
+        with pytest.raises(TunnelStartError):
+            start_remote_access(
+                RemoteProvider.devtunnel,
+                port=8080,
+                tunnel_name="does-not-exist",
+                ownership=TunnelOwnership.external,
+            )
+
+    def test_external_devtunnel_requires_explicit_name(self) -> None:
+        with pytest.raises(TunnelStartError):
+            _external_tunnel_origin(RemoteProvider.devtunnel, port=8080, cloudflare_hostname=None, tunnel_name=None)
+
+    def test_external_unsupported_provider_raises(self) -> None:
+        with pytest.raises(TunnelStartError):
+            _external_tunnel_origin(RemoteProvider.local, port=8080, cloudflare_hostname=None, tunnel_name=None)
+
+
+class TestManagedTunnelOwnership:
+    """``ownership=managed`` must always start and own a fresh connector."""
+
+    def test_managed_cloudflare_never_calls_reuse_scan(self) -> None:
+        proc = _FakeProc(poll_result=None)
+        with (
+            patch("backend.services.sharing.tunnel_service.subprocess.Popen", return_value=_as_popen(proc)),
+            patch("backend.services.sharing.tunnel_service._cloudflared_already_running") as mock_scan,
+            patch("backend.services.sharing.tunnel_service._wait_for_startup"),
+            patch("backend.services.sharing.tunnel_service._start_output_drain"),
+        ):
+            handle = start_remote_access(
+                RemoteProvider.cloudflare,
+                port=8080,
+                cloudflare_hostname="codeplane.example.com",
+                cloudflare_token="tok",
+                ownership=TunnelOwnership.managed,
+            )
+
+        # Managed ownership must never consult the legacy process-scan heuristic —
+        # it always starts and owns its own connector.
+        mock_scan.assert_not_called()
+        assert handle.origin == "https://codeplane.example.com"
+        assert handle.proc is _as_popen(proc)
+        assert handle.externally_managed is False
+        assert handle.watchdog is not None
+
+    def test_legacy_none_ownership_preserves_reuse_scan_behavior(self) -> None:
+        """Back-compat: omitting ``ownership`` keeps today's auto-detect behavior."""
+        with patch(
+            "backend.services.sharing.tunnel_service._cloudflared_already_running", return_value=True
+        ) as mock_scan:
+            handle = start_remote_access(
+                RemoteProvider.cloudflare,
+                port=8080,
+                cloudflare_hostname="codeplane.example.com",
+                cloudflare_token="tok",
+            )
+
+        mock_scan.assert_called_once()
+        assert handle.proc is None
+        assert handle.externally_managed is True
+
+
+class TestOriginReusability:
+    """``origin_is_reusable`` distinguishes stable identities from generated ones."""
+
+    def test_cloudflare_origin_is_always_reusable(self) -> None:
+        with patch("backend.services.sharing.tunnel_service._cloudflared_already_running", return_value=True):
+            handle = start_remote_access(
+                RemoteProvider.cloudflare,
+                port=8080,
+                cloudflare_hostname="codeplane.example.com",
+                cloudflare_token="tok",
+            )
+        assert handle.origin_is_reusable is True
+
+    @patch("backend.services.sharing.tunnel_service._list_devtunnels", return_value=[])
+    def test_devtunnel_generated_name_is_not_reusable(self, _mock) -> None:
+        proc = _FakeProc(poll_result=None)
+        with (
+            patch("backend.services.sharing.tunnel_service.subprocess.run") as mock_run,
+            patch("backend.services.sharing.tunnel_service.subprocess.Popen", return_value=_as_popen(proc)),
+            patch("backend.services.sharing.tunnel_service._wait_for_startup"),
+            patch("backend.services.sharing.tunnel_service._start_output_drain"),
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            with patch(
+                "backend.services.sharing.tunnel_service._lookup_devtunnel",
+                return_value=(True, "usw2"),
+            ):
+                handle = start_remote_access(RemoteProvider.devtunnel, port=8080)
+
+        assert handle.origin_is_reusable is False
+
+    @patch(
+        "backend.services.sharing.tunnel_service._list_devtunnels",
+        return_value=[{"tunnelId": "cpl-existing.usw2"}],
+    )
+    def test_devtunnel_reused_existing_is_reusable(self, _mock) -> None:
+        proc = _FakeProc(poll_result=None)
+        with (
+            patch("backend.services.sharing.tunnel_service.subprocess.run") as mock_run,
+            patch("backend.services.sharing.tunnel_service.subprocess.Popen", return_value=_as_popen(proc)),
+            patch("backend.services.sharing.tunnel_service._wait_for_startup"),
+            patch("backend.services.sharing.tunnel_service._start_output_drain"),
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            handle = start_remote_access(RemoteProvider.devtunnel, port=8080)
+
+        assert handle.origin_is_reusable is True
