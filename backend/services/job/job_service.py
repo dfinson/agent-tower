@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, cast
 import structlog
 
 from backend.config import load_config
-from backend.models.events import EventKind, new_event
 from backend.models.domain import (
     ACTIVE_STATES,
     TERMINAL_STATES,
@@ -26,6 +25,7 @@ from backend.models.domain import (
     StateConflictError,
     validate_state_transition,
 )
+from backend.models.events import EventKind, new_event
 from backend.services.adapters.agent_adapter import validate_sdk_model
 from backend.services.completers.naming_service import NamingError
 from backend.services.git.git_service import GitError
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from backend.config import CPLConfig
-    from backend.models.events import EventKind, SessionEvent
+    from backend.models.events import SessionEvent
     from backend.persistence.event_repo import EventRepository
     from backend.persistence.job_repo import JobRepository
     from backend.services.coderecon.coderecon_service import CodeReconService
