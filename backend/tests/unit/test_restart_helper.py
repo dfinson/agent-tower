@@ -154,12 +154,18 @@ class TestSpawnDetachedHelper:
 class TestAwaitAdoption:
     def test_returns_true_when_started_marker_matches(self) -> None:
         paths = get_request_paths("req-adopt-1")
-        write_json_atomic(paths.started, {"requestId": "req-adopt-1", "helperPid": 111, "helperProcessTime": 1.0, "startedAt": "x"})
+        write_json_atomic(
+            paths.started,
+            {"requestId": "req-adopt-1", "helperPid": 111, "helperProcessTime": 1.0, "startedAt": "x"},
+        )
         assert rh.await_adoption(paths, "req-adopt-1", timeout_seconds=1.0) is True
 
     def test_ignores_mismatched_request_id_and_times_out(self) -> None:
         paths = get_request_paths("req-adopt-2")
-        write_json_atomic(paths.started, {"requestId": "someone-else", "helperPid": 111, "helperProcessTime": 1.0, "startedAt": "x"})
+        write_json_atomic(
+            paths.started,
+            {"requestId": "someone-else", "helperPid": 111, "helperProcessTime": 1.0, "startedAt": "x"},
+        )
         assert rh.await_adoption(paths, "req-adopt-2", timeout_seconds=0.3) is False
 
     def test_returns_false_when_marker_never_appears(self) -> None:
@@ -279,7 +285,9 @@ class TestListRunningJobs:
     def test_single_page(self) -> None:
         profile = _local_profile()
         with patch.object(
-            rh, "_http_request", return_value=(200, {"items": [{"id": "j1"}, {"id": "j2"}], "hasMore": False, "cursor": None})
+            rh,
+            "_http_request",
+            return_value=(200, {"items": [{"id": "j1"}, {"id": "j2"}], "hasMore": False, "cursor": None}),
         ) as mock_req:
             jobs = rh._list_running_jobs(profile)
 
@@ -300,9 +308,11 @@ class TestListRunningJobs:
 
     def test_failure_aborts_before_returning_any_jobs(self) -> None:
         profile = _local_profile()
-        with patch.object(rh, "_http_request", return_value=(500, None)):
-            with pytest.raises(rh.HelperAbort) as excinfo:
-                rh._list_running_jobs(profile)
+        with (
+            patch.object(rh, "_http_request", return_value=(500, None)),
+            pytest.raises(rh.HelperAbort) as excinfo,
+        ):
+            rh._list_running_jobs(profile)
 
         assert excinfo.value.reason == "job_list_failed"
 
@@ -375,9 +385,9 @@ class TestStopOldProcess:
             patch.object(rh, "profile_owns_listener", return_value=True),
             patch.object(rh.time, "monotonic", side_effect=_FakeClock(increment=0.05)),
             patch.object(rh.time, "sleep"),
+            pytest.raises(rh.HelperAbort) as excinfo,
         ):
-            with pytest.raises(rh.HelperAbort) as excinfo:
-                rh._stop_old_process(profile, timeout_seconds=0.01, request_id="req-stop-3")
+            rh._stop_old_process(profile, timeout_seconds=0.01, request_id="req-stop-3")
 
         assert excinfo.value.phase == RestartPhase.stopping
         fake_proc.terminate.assert_called_once()
@@ -551,7 +561,9 @@ def test_cleanup_success_removes_all_markers() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _write_pending_request(request_id: str, target_source_root: Path, profile: LaunchProfile, **timeout_overrides: float) -> Path:
+def _write_pending_request(
+    request_id: str, target_source_root: Path, profile: LaunchProfile, **timeout_overrides: float
+) -> Path:
     paths = get_request_paths(request_id)
     timeouts = RestartTimeouts(
         adoption_seconds=timeout_overrides.get("adoption_seconds", 0.1),
@@ -633,7 +645,11 @@ class TestRunHelperIntegration:
         paths = get_request_paths("req-run-3")
 
         with (
-            patch.object(rh, "_list_running_jobs", side_effect=rh.HelperAbort(RestartPhase.failed, "job_list_failed", status=500)),
+            patch.object(
+                rh,
+                "_list_running_jobs",
+                side_effect=rh.HelperAbort(RestartPhase.failed, "job_list_failed", status=500),
+            ),
             patch.object(rh, "_pause_jobs") as mock_pause,
             patch.object(rh, "_stop_old_process") as mock_stop,
             patch.object(rh, "_start_replacement") as mock_start,

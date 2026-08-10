@@ -76,7 +76,7 @@ _RUNNING_STATE = "running"
 _REDACTED_KEY_MARKERS = ("password", "token", "cookie", "authorization", "secret", "credential")
 
 
-class HelperAbort(Exception):
+class HelperAbort(Exception):  # noqa: N818 - intentional control-flow signal, not an error condition
     """Raised internally by helper phases to unwind to the top-level handler.
 
     Carries the phase that was active and a short, redaction-safe reason so
@@ -225,7 +225,9 @@ def _claim_request(
     return RestartRequest.from_dict(payload)
 
 
-def _write_started_marker(paths: RestartRequestPaths, request_id: str, helper_pid: int, helper_process_time: float) -> None:
+def _write_started_marker(
+    paths: RestartRequestPaths, request_id: str, helper_pid: int, helper_process_time: float
+) -> None:
     write_json_atomic(
         paths.started,
         {
@@ -252,7 +254,9 @@ def _base_url(profile: LaunchProfile) -> str:
     return f"http://{profile.host}:{profile.port}"
 
 
-def _http_request(method: str, url: str, body: dict[str, Any] | None = None, timeout: float = 10.0) -> tuple[int, dict[str, Any] | None]:
+def _http_request(
+    method: str, url: str, body: dict[str, Any] | None = None, timeout: float = 10.0
+) -> tuple[int, dict[str, Any] | None]:
     data = json.dumps(body).encode() if body is not None else None
     headers = {"Content-Type": "application/json"} if data else {}
     req = urllib.request.Request(url, data=data, headers=headers, method=method)  # noqa: S310
@@ -409,7 +413,9 @@ def _start_replacement(
     env["CODEPLANE_RESTART_NONCE"] = nonce
     env["CODEPLANE_RESTART_REQUEST_ID"] = request_id
 
-    log_phase(RestartPhase.starting, request_id, host=profile.host, port=profile.port, dev=profile.dev, remote=profile.remote)
+    log_phase(
+        RestartPhase.starting, request_id, host=profile.host, port=profile.port, dev=profile.dev, remote=profile.remote
+    )
 
     return subprocess.Popen(  # noqa: S603 - fixed argv, recorded native executable
         args,
@@ -528,7 +534,12 @@ def _run_claimed(
             log_phase(RestartPhase.pausing, request_id, failed_job_ids=failed_pauses)
         time.sleep(request.timeouts.pause_wait_seconds)
 
-        log_phase(RestartPhase.stopping, request_id, pid=request.launch_profile.started_pid, port=request.launch_profile.port)
+        log_phase(
+            RestartPhase.stopping,
+            request_id,
+            pid=request.launch_profile.started_pid,
+            port=request.launch_profile.port,
+        )
         _stop_old_process(request.launch_profile, request.timeouts.stop_seconds, request_id)
 
         child = _start_replacement(request.launch_profile, request.target_source_root, request.nonce, request_id)
