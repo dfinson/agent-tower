@@ -8,16 +8,16 @@ referenced rule needs (AC2); ``project_id`` is a plain string column, not a
 foreign key, since the Project entity does not exist yet. No data is attached
 to ``tracker_links`` by this story — that is Story 3.2's scope.
 
-Revision ID: 0058
-Revises: 0057
+Revision ID: 0059
+Revises: 0058
 """
 
 import sqlalchemy as sa
 
 from alembic import op
 
-revision = "0058"
-down_revision = "0057"
+revision = "0059"
+down_revision = "0058"
 branch_labels = None
 depends_on = None
 
