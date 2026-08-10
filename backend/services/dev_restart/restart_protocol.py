@@ -37,6 +37,7 @@ log = structlog.get_logger()
 _DEV_RESTART_SUBDIR = "dev-restart"
 _RESTART_LOG_FILENAME = "restart.log"
 _RESTART_LOCK_FILENAME = "restart.lock"
+_REPLACEMENT_LOG_SUFFIX = ".server.log"
 
 # psutil.Process.create_time() is a float; allow a small epsilon for
 # platform/float-precision jitter without weakening the PID-reuse check.
@@ -64,6 +65,17 @@ def get_restart_log_path() -> Path:
     return get_dev_restart_dir() / _RESTART_LOG_FILENAME
 
 
+def get_replacement_log_path(request_id: str) -> Path:
+    """Return the per-request replacement stdout/stderr log path.
+
+    The replacement must never inherit ``restart.log`` itself: keeping the
+    helper's log file open in the long-lived server process can block the next
+    attempt's restart-log rotation on Windows. A request-specific sibling log
+    preserves diagnostics without holding ``restart.log`` across attempts.
+    """
+    return get_dev_restart_dir() / f"{request_id}{_REPLACEMENT_LOG_SUFFIX}"
+
+
 # Story 1.7 AC3: rotate at 5 MiB with exactly one backup.
 _RESTART_LOG_MAX_BYTES = 5 * 1024 * 1024
 _RESTART_LOG_BACKUP_SUFFIX = ".1"
@@ -86,8 +98,11 @@ def rotate_restart_log_if_needed(log_path: Path, max_bytes: int = _RESTART_LOG_M
     if size < max_bytes:
         return
     backup_path = log_path.with_name(log_path.name + _RESTART_LOG_BACKUP_SUFFIX)
-    backup_path.unlink(missing_ok=True)
-    log_path.replace(backup_path)
+    try:
+        backup_path.unlink(missing_ok=True)
+        log_path.replace(backup_path)
+    except OSError as exc:
+        raise RestartProtocolError(f"could not rotate {log_path}: {exc}") from exc
 
 
 def get_restart_lock_path() -> Path:
@@ -127,7 +142,7 @@ class RestartTimeouts:
     response_grace_seconds: float = 2.0
     pause_wait_seconds: float = 10.0
     stop_seconds: float = 15.0
-    readiness_seconds: float = 120.0
+    readiness_seconds: float = 60.0
     remote_probe_seconds: float = 30.0
 
     def to_dict(self) -> dict[str, float]:

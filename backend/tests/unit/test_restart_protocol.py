@@ -20,6 +20,7 @@ from backend.services.dev_restart.restart_protocol import (
     RestartTimeouts,
     acquire_restart_lock,
     get_dev_restart_dir,
+    get_replacement_log_path,
     get_request_paths,
     get_restart_lock_path,
     get_restart_log_path,
@@ -53,6 +54,9 @@ class TestPaths:
 
     def test_restart_log_path(self, tmp_path: Path) -> None:
         assert get_restart_log_path() == tmp_path / "dev-restart" / "restart.log"
+
+    def test_replacement_log_path(self, tmp_path: Path) -> None:
+        assert get_replacement_log_path("req-123") == tmp_path / "dev-restart" / "req-123.server.log"
 
     def test_restart_lock_path(self, tmp_path: Path) -> None:
         assert get_restart_lock_path() == tmp_path / "dev-restart" / "restart.lock"
@@ -101,6 +105,31 @@ class TestRotateRestartLog:
         siblings = list(log_path.parent.glob("restart.log*"))
         assert siblings == [backup_path]
 
+    def test_rotation_raises_restart_protocol_error_when_replace_fails(self, tmp_path: Path) -> None:
+        log_path = get_restart_log_path()
+        log_path.write_bytes(b"z" * 2048)
+
+        with (
+            patch("pathlib.Path.replace", side_effect=PermissionError("file is locked")),
+            pytest.raises(RestartProtocolError, match="could not rotate"),
+        ):
+            rotate_restart_log_if_needed(log_path, max_bytes=1024)
+
+    def test_rotation_succeeds_while_replacement_uses_different_log_file(self, tmp_path: Path) -> None:
+        log_path = get_restart_log_path()
+        replacement_log_path = get_replacement_log_path("req-123")
+        log_path.write_bytes(b"q" * 2048)
+        replacement_log_path.write_text("replacement still running\n", encoding="utf-8")
+
+        with replacement_log_path.open("a", encoding="utf-8") as replacement_log_handle:
+            replacement_log_handle.write("more output\n")
+            replacement_log_handle.flush()
+            rotate_restart_log_if_needed(log_path, max_bytes=1024)
+
+        assert not log_path.exists()
+        assert log_path.with_name("restart.log.1").read_bytes() == b"q" * 2048
+        assert replacement_log_path.read_text(encoding="utf-8") == "replacement still running\nmore output\n"
+
 
 class TestRestartTimeouts:
     def test_defaults_match_spec(self) -> None:
@@ -109,7 +138,7 @@ class TestRestartTimeouts:
         assert timeouts.response_grace_seconds == 2.0
         assert timeouts.pause_wait_seconds == 10.0
         assert timeouts.stop_seconds == 15.0
-        assert timeouts.readiness_seconds == 120.0
+        assert timeouts.readiness_seconds == 60.0
         assert timeouts.remote_probe_seconds == 30.0
 
     def test_roundtrip(self) -> None:

@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.services.dev_restart.launch_profile import SecretSource, build_active_launch_profile
-from backend.services.dev_restart.restart_protocol import RestartTimeouts, get_request_paths
+from backend.services.dev_restart.restart_protocol import RestartProtocolError, RestartTimeouts, get_request_paths
 from tools import dev_restart
 
 if TYPE_CHECKING:
@@ -504,3 +504,26 @@ class TestRunParent:
             assert dev_restart.run_parent(self._args()) == 1
 
         mock_await.assert_not_called()
+
+    def test_restart_log_rotation_failure_returns_nonzero_without_spawning_helper(self, tmp_path: Path) -> None:
+        paths = get_request_paths("req-abc")
+        timeouts = RestartTimeouts()
+
+        with (
+            patch(
+                "tools.dev_restart.prepare_restart_request",
+                return_value=(paths, "req-abc", timeouts),
+            ),
+            patch(
+                "backend.services.dev_restart.restart_protocol.get_restart_log_path",
+                return_value=tmp_path / "restart.log",
+            ),
+            patch(
+                "backend.services.dev_restart.restart_protocol.rotate_restart_log_if_needed",
+                side_effect=RestartProtocolError("could not rotate restart.log: file is locked"),
+            ),
+            patch("backend.services.dev_restart.restart_helper.spawn_detached_helper") as mock_spawn,
+        ):
+            assert dev_restart.run_parent(self._args()) == 1
+
+        mock_spawn.assert_not_called()

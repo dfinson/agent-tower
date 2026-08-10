@@ -316,12 +316,11 @@ def run_parent(args: argparse.Namespace) -> int:
 
     try:
         paths, request_id, timeouts = prepare_restart_request(args)
+        log_path = get_restart_log_path()
+        rotate_restart_log_if_needed(log_path)
     except (DevRestartError, RestartProtocolError) as exc:
         print(f"\n✗ Restart preparation failed: {exc}\n  The current server has NOT been restarted.\n", file=sys.stderr)
         return 1
-
-    log_path = get_restart_log_path()
-    rotate_restart_log_if_needed(log_path)
     print(f"[4/4] Spawning detached restart helper (log: {log_path})…")
     try:
         with open(log_path, "a", encoding="utf-8") as log_handle:

@@ -564,8 +564,12 @@ class TestStartReplacement:
         --dev, --remote, --provider, --tunnel-name)."""
         profile = _local_profile(executable=sys.executable, host="127.0.0.1", port=9001, dev=True, remote=False)
         fake_proc = MagicMock()
+        replacement_log_path = tmp_path / "req-start-1.server.log"
 
-        with patch.object(rh.subprocess, "Popen", return_value=fake_proc) as mock_popen:
+        with (
+            patch.object(rh, "get_replacement_log_path", return_value=replacement_log_path),
+            patch.object(rh.subprocess, "Popen", return_value=fake_proc) as mock_popen,
+        ):
             result = rh._start_replacement(profile, tmp_path, nonce="nonce-abc", request_id="req-start-1")
 
         assert result is fake_proc
@@ -588,15 +592,20 @@ class TestStartReplacement:
         assert kwargs["env"]["CODEPLANE_RESTART_NONCE"] == "nonce-abc"
         assert kwargs["env"]["CODEPLANE_RESTART_REQUEST_ID"] == "req-start-1"
         assert kwargs["stdin"] == subprocess.DEVNULL
-        assert kwargs["stdout"] is sys.stdout
-        assert kwargs["stderr"] is sys.stderr
+        assert kwargs["stdout"] is kwargs["stderr"]
+        assert kwargs["stdout"] is not sys.stdout
+        assert kwargs["stderr"] is not sys.stderr
+        assert Path(kwargs["stdout"].name) == replacement_log_path
 
     def test_builds_exact_remote_argv_with_explicit_provider_and_tunnel_name(self, tmp_path: Path) -> None:
         """--provider is always explicit, never left to the CLI default (AC5: reproduce the
         recorded provider exactly, including non-default providers like cloudflare)."""
         profile = _remote_profile(host="0.0.0.0", port=9002, provider="cloudflare", tunnel_name="cpl-abc123")  # noqa: S104
 
-        with patch.object(rh.subprocess, "Popen", return_value=MagicMock()) as mock_popen:
+        with (
+            patch.object(rh, "get_replacement_log_path", return_value=tmp_path / "req-start-2.server.log"),
+            patch.object(rh.subprocess, "Popen", return_value=MagicMock()) as mock_popen,
+        ):
             rh._start_replacement(profile, tmp_path, nonce="n", request_id="req-start-2")
 
         args = mock_popen.call_args[0][0]
@@ -625,7 +634,12 @@ class TestStartReplacement:
         auto-detect path."""
         profile = _remote_profile(provider="devtunnel", tunnel_name="cpl-managed1", tunnel_ownership="managed")
 
-        with patch.object(rh.subprocess, "Popen", return_value=MagicMock()) as mock_popen:
+        with (
+            patch.object(
+                rh, "get_replacement_log_path", return_value=tmp_path / "req-start-ownership-managed.server.log"
+            ),
+            patch.object(rh.subprocess, "Popen", return_value=MagicMock()) as mock_popen,
+        ):
             rh._start_replacement(profile, tmp_path, nonce="n", request_id="req-start-ownership-managed")
 
         args = mock_popen.call_args[0][0]
@@ -637,7 +651,12 @@ class TestStartReplacement:
         resolves the exact recorded origin (AD-8, SPEC CAP-6)."""
         profile = _remote_profile(provider="cloudflare", tunnel_name=None, tunnel_ownership="external")
 
-        with patch.object(rh.subprocess, "Popen", return_value=MagicMock()) as mock_popen:
+        with (
+            patch.object(
+                rh, "get_replacement_log_path", return_value=tmp_path / "req-start-ownership-external.server.log"
+            ),
+            patch.object(rh.subprocess, "Popen", return_value=MagicMock()) as mock_popen,
+        ):
             rh._start_replacement(profile, tmp_path, nonce="n", request_id="req-start-ownership-external")
 
         args = mock_popen.call_args[0][0]
@@ -646,7 +665,10 @@ class TestStartReplacement:
     def test_never_invokes_resume_endpoint(self, tmp_path: Path) -> None:
         """Exactly one replacement is started; nothing in this module ever calls /resume."""
         profile = _local_profile()
-        with patch.object(rh.subprocess, "Popen", return_value=MagicMock()) as mock_popen:
+        with (
+            patch.object(rh, "get_replacement_log_path", return_value=tmp_path / "req-start-3.server.log"),
+            patch.object(rh.subprocess, "Popen", return_value=MagicMock()) as mock_popen,
+        ):
             rh._start_replacement(profile, tmp_path, nonce="n", request_id="req-start-3")
 
         mock_popen.assert_called_once()
