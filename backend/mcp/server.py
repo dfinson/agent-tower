@@ -56,6 +56,7 @@ if TYPE_CHECKING:
     from backend.config import CPLConfig
     from backend.models.domain import Job
     from backend.services.job.approval_service import ApprovalService
+    from backend.services.merge_service import MergeService
     from backend.services.runtime import RuntimeService
     from backend.services.sidecar.session import SidecarSessionManager
 
@@ -91,6 +92,7 @@ class MCPState:
     session_factory: async_sessionmaker[AsyncSession]
     runtime_service: RuntimeService
     approval_service: ApprovalService
+    merge_service: MergeService
     sidecar_sessions: SidecarSessionManager | None = None
 
 
@@ -141,6 +143,7 @@ def create_mcp_server(
     session_factory: async_sessionmaker[AsyncSession],
     runtime_service: RuntimeService,
     approval_service: ApprovalService,
+    merge_service: MergeService,
     sidecar_sessions: SidecarSessionManager | None = None,
 ) -> FastMCP:
     """Create and configure the MCP server with all CodePlane tools."""
@@ -148,6 +151,7 @@ def create_mcp_server(
         session_factory=session_factory,
         runtime_service=runtime_service,
         approval_service=approval_service,
+        merge_service=merge_service,
         sidecar_sessions=sidecar_sessions,
     )
 
@@ -159,6 +163,7 @@ def create_mcp_server(
     )
 
     _register_job_tool(mcp, state)
+    _register_pr_tool(mcp, state)
     _register_approval_tool(mcp, state)
     _register_workspace_tool(mcp, state)
     _register_artifact_tool(mcp, state)
@@ -349,6 +354,50 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                 seq=0,
                 timestamp=datetime.now(UTC),
             ).model_dump(mode="json")
+
+
+# ---------------------------------------------------------------------------
+# Agent-initiated PR request (CAP-14)
+# ---------------------------------------------------------------------------
+
+
+def _register_pr_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
+    @mcp.tool(
+        name="codeplane_pr",
+        title="Request a Pull Request",
+        annotations=ToolAnnotations(title="Request a Pull Request", destructiveHint=True, openWorldHint=True),
+        description=(
+            "Proactively request a PR for the calling Job while it is still running, "
+            "instead of waiting for the automatic completion-time PR/merge step."
+            "\n\n"
+            "- job_id (required)"
+            "\n\n"
+            "Idempotent per Job: if a PR already exists for this Job (created via an "
+            "earlier call to this tool, or the automatic completion-time path), the "
+            "existing PR is returned instead of creating a duplicate. The agent never "
+            "receives or handles the underlying Credential's decrypted PAT — CodePlane "
+            "resolves and uses it server-side."
+        ),
+    )
+    async def codeplane_pr(job_id: str | None = None) -> McpToolResult:
+        if not job_id:
+            return {"error": "job_id is required"}
+
+        sf = mcp_state.session_factory
+        config = load_config()
+        async with sf() as session:
+            svc = _make_job_service(mcp_state, session, config, git=False)
+            try:
+                job = await svc.get_job(job_id)
+            except JobNotFoundError as exc:
+                return {"error": str(exc)}
+
+        result = await mcp_state.merge_service.request_pr_for_job(job)
+
+        if result.error:
+            return {"error": result.error}
+
+        return {"pr_url": result.pr_url, "status": str(result.status)}
 
 
 # ---------------------------------------------------------------------------
