@@ -121,7 +121,3 @@ scorecard.png
 *.tsbuildinfo
 site/
 .playwright-mcp/
-
-# BMAD planning and implementation runtime output
-/_bmad-output/planning-artifacts/
-/_bmad-output/implementation-artifacts/
