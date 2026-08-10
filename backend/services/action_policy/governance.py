@@ -180,6 +180,7 @@ def _classification_from_meta(meta: SessionMeta) -> Classification:
         reason=reason,
     )
 
+
 _PWSH_HEADS = frozenset({"powershell", "pwsh"})
 _CMD_HEADS = frozenset({"cmd", "cmd.exe"})
 
@@ -299,9 +300,7 @@ class GovernanceDecider:
     def _policy_assessors_for(self, profile: PresetProfile) -> tuple[PolicyAssessor, ...]:
         """Built-in policy assessors + CP's USD ceiling assessor (when configured)."""
         assessors = _build_policy_assessors(profile.policy)
-        if self._spend_reader is not None and (
-            profile.ceiling_usd is not None or profile.warn_usd is not None
-        ):
+        if self._spend_reader is not None and (profile.ceiling_usd is not None or profile.warn_usd is not None):
             assessors = (
                 *assessors,
                 JobSpendCeilingAssessor(profile.ceiling_usd, profile.warn_usd, self._spend_reader),
@@ -415,9 +414,7 @@ class GovernanceDecider:
         self._pipeline_for(job_id).grant_trust(job_id, key, ttl_seconds, reason=reason)
         return True
 
-    def grant_session_trust(
-        self, job_id: str, ttl_seconds: float, *, reason: str = "operator trusted session"
-    ) -> None:
+    def grant_session_trust(self, job_id: str, ttl_seconds: float, *, reason: str = "operator trusted session") -> None:
         """Blanket session trust — waive every NON-security-critical gate for the TTL.
 
         Backs the operator "trust this whole session" action. Because it grants
@@ -440,9 +437,7 @@ class GovernanceDecider:
         with self._rebuild_lock:
             self._pipelines = self._build_pipelines()
 
-    def set_usd_ceilings(
-        self, usd_ceilings: dict[Preset, tuple[float | None, float | None]]
-    ) -> None:
+    def set_usd_ceilings(self, usd_ceilings: dict[Preset, tuple[float | None, float | None]]) -> None:
         """Replace the per-preset USD ceiling overrides (call before ``rebuild``).
 
         Used when the operator edits the cost-ceiling config mid-run; the next

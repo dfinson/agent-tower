@@ -109,6 +109,7 @@ def _extract_target_hosts(command: str) -> list[str]:
             hosts.append(m.group(1).lower())
     return hosts
 
+
 _MONITOR_SYSTEM_PROMPT = """\
 You are a security monitor for a coding agent. You decide whether an agent \
 action should be allowed based on project context.

@@ -404,9 +404,7 @@ def _fake_server_run(self: object) -> None:
     asyncio.run(self.startup())  # type: ignore[attr-defined]
 
 
-def _invoke_up(
-    args: list[str], *, owning_pids: list[int] | None = None
-) -> tuple[object, dict[str, object] | None]:
+def _invoke_up(args: list[str], *, owning_pids: list[int] | None = None) -> tuple[object, dict[str, object] | None]:
     """Invoke ``cpl up <args>`` with all real side effects (frontend build,
     migrations, dashboard, logging, actual Uvicorn socket binding) stubbed
     out, returning the CliRunner result and the profile dict written via
@@ -589,9 +587,7 @@ class TestUpLaunchProfilePublication:
                 "backend.services.sharing.tunnel_service.start_remote_access", return_value=fake_handle
             ) as mock_start,
         ):
-            result, written = _invoke_up(
-                ["--remote", "--provider", "devtunnel", "--tunnel-ownership", "managed"]
-            )
+            result, written = _invoke_up(["--remote", "--provider", "devtunnel", "--tunnel-ownership", "managed"])
         assert result.exit_code == 0, result.output
         assert mock_start.call_args.kwargs["ownership"] is TunnelOwnership.managed
 
@@ -613,9 +609,7 @@ class TestUpLaunchProfilePublication:
                 "backend.services.sharing.tunnel_service.start_remote_access", return_value=fake_handle
             ) as mock_start,
         ):
-            result, written = _invoke_up(
-                ["--remote", "--provider", "devtunnel", "--tunnel-ownership", "external"]
-            )
+            result, written = _invoke_up(["--remote", "--provider", "devtunnel", "--tunnel-ownership", "external"])
         assert result.exit_code == 0, result.output
         assert mock_start.call_args.kwargs["ownership"] is TunnelOwnership.external
 
@@ -640,7 +634,6 @@ class TestUpLaunchProfilePublication:
             result, written = _invoke_up(["--remote", "--provider", "devtunnel"])
         assert result.exit_code == 0, result.output
         assert mock_start.call_args.kwargs["ownership"] is None
-
 
     def test_zero_bind_host_autogenerates_unreplayable_password(self, tmp_path: object) -> None:
         with patch("backend.config.get_codeplane_dir", return_value=tmp_path):

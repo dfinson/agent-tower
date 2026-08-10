@@ -34,9 +34,7 @@ def _make_event(role: str, content: str, *, kind: str = "transcript_entry") -> A
         else:
             kind = EventKind.message_system
 
-    return new_event(
-        session_id="j1", kind=kind, payload={"content": content, "timestamp": "2025-01-01T00:00:00Z"}
-    )
+    return new_event(session_id="j1", kind=kind, payload={"content": content, "timestamp": "2025-01-01T00:00:00Z"})
 
 
 @dataclass

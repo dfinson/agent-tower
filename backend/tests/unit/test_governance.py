@@ -99,51 +99,87 @@ D = RecommendedAction.DENY
 # (label, action_factory, {preset: (expected_action, expected_reason_code)})
 # Grounded in the real TraceForge 0.1.2 per-preset decision output.
 _MATRIX: list[tuple[str, object, dict[Preset, tuple[RecommendedAction, str]]]] = [
-    ("read", _read, {
-        Preset.autonomous: (A, "allow"),
-        Preset.supervised: (A, "allow"),
-        Preset.locked: (A, "allow"),
-    }),
-    ("write", _write, {
-        Preset.autonomous: (A, "allow"),
-        Preset.supervised: (W, "mutating_savepoint"),
-        Preset.locked: (E, "mutating_locked"),
-    }),
-    ("ls", _ls, {
-        Preset.autonomous: (A, "allow"),
-        Preset.supervised: (A, "allow"),
-        Preset.locked: (W, "readonly_shell_locked"),
-    }),
-    ("git_add", _git_add, {
-        Preset.autonomous: (A, "allow"),
-        Preset.supervised: (W, "mutating_savepoint"),
-        Preset.locked: (E, "mutating_locked"),
-    }),
-    ("rm", _rm, {
-        Preset.autonomous: (E, "destructive_action"),
-        Preset.supervised: (E, "destructive_action"),
-        Preset.locked: (E, "destructive_action"),
-    }),
-    ("dd", _dd, {
-        Preset.autonomous: (E, "raw_block_device_write"),
-        Preset.supervised: (E, "raw_block_device_write"),
-        Preset.locked: (E, "raw_block_device_write"),
-    }),
-    ("curl|sh", _curl_pipe_sh, {
-        Preset.autonomous: (D, "piped_network_exec"),
-        Preset.supervised: (D, "piped_network_exec"),
-        Preset.locked: (D, "piped_network_exec"),
-    }),
-    ("git_push", _git_push, {
-        Preset.autonomous: (E, "mutating_with_network"),
-        Preset.supervised: (E, "mutating_with_network"),
-        Preset.locked: (E, "mutating_locked"),
-    }),
-    ("write_env", _write_env, {
-        Preset.autonomous: (E, "protected_path"),
-        Preset.supervised: (E, "protected_path"),
-        Preset.locked: (D, "protected_path"),
-    }),
+    (
+        "read",
+        _read,
+        {
+            Preset.autonomous: (A, "allow"),
+            Preset.supervised: (A, "allow"),
+            Preset.locked: (A, "allow"),
+        },
+    ),
+    (
+        "write",
+        _write,
+        {
+            Preset.autonomous: (A, "allow"),
+            Preset.supervised: (W, "mutating_savepoint"),
+            Preset.locked: (E, "mutating_locked"),
+        },
+    ),
+    (
+        "ls",
+        _ls,
+        {
+            Preset.autonomous: (A, "allow"),
+            Preset.supervised: (A, "allow"),
+            Preset.locked: (W, "readonly_shell_locked"),
+        },
+    ),
+    (
+        "git_add",
+        _git_add,
+        {
+            Preset.autonomous: (A, "allow"),
+            Preset.supervised: (W, "mutating_savepoint"),
+            Preset.locked: (E, "mutating_locked"),
+        },
+    ),
+    (
+        "rm",
+        _rm,
+        {
+            Preset.autonomous: (E, "destructive_action"),
+            Preset.supervised: (E, "destructive_action"),
+            Preset.locked: (E, "destructive_action"),
+        },
+    ),
+    (
+        "dd",
+        _dd,
+        {
+            Preset.autonomous: (E, "raw_block_device_write"),
+            Preset.supervised: (E, "raw_block_device_write"),
+            Preset.locked: (E, "raw_block_device_write"),
+        },
+    ),
+    (
+        "curl|sh",
+        _curl_pipe_sh,
+        {
+            Preset.autonomous: (D, "piped_network_exec"),
+            Preset.supervised: (D, "piped_network_exec"),
+            Preset.locked: (D, "piped_network_exec"),
+        },
+    ),
+    (
+        "git_push",
+        _git_push,
+        {
+            Preset.autonomous: (E, "mutating_with_network"),
+            Preset.supervised: (E, "mutating_with_network"),
+            Preset.locked: (E, "mutating_locked"),
+        },
+    ),
+    (
+        "write_env",
+        _write_env,
+        {
+            Preset.autonomous: (E, "protected_path"),
+            Preset.supervised: (E, "protected_path"),
+            Preset.locked: (D, "protected_path"),
+        },
+    ),
 ]
 
 
@@ -206,9 +242,7 @@ def test_hard_gate_reaches_human_on_every_preset(
     decider.register_job(JID, preset)
     cls = decider.classify(factory())  # type: ignore[operator]
     assert cls.recommended_action in (RecommendedAction.ESCALATE, RecommendedAction.DENY)
-    assert is_security_critical(cls.reason_code), (
-        f"{label} reason {cls.reason_code!r} must be security-critical"
-    )
+    assert is_security_critical(cls.reason_code), f"{label} reason {cls.reason_code!r} must be security-critical"
 
 
 def test_hard_gate_not_waived_by_session_trust(tmp_path: Path) -> None:

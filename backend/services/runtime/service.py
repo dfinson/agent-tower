@@ -1953,8 +1953,7 @@ class RuntimeService:
                 tool_name="(no active tool)",
                 elapsed=elapsed_human,
                 reason=(
-                    f"the agent session has shown no activity for {elapsed_human} and is not "
-                    "inside a tracked tool call"
+                    f"the agent session has shown no activity for {elapsed_human} and is not inside a tracked tool call"
                 ),
             )
         except Exception:

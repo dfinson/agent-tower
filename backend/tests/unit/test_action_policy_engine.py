@@ -147,9 +147,7 @@ def _make_policy_event() -> SessionEvent:
 def _make_policy_repo(*, preset: str, batch_window: float) -> MagicMock:
     """A PolicyRepository stub for the slimmed reload (config + mcp + usd only)."""
     repo = MagicMock()
-    repo.get_config = AsyncMock(
-        return_value={"preset": preset, "batch_window_seconds": batch_window}
-    )
+    repo.get_config = AsyncMock(return_value={"preset": preset, "batch_window_seconds": batch_window})
     repo.list_mcp_configs = AsyncMock(return_value=[])
     repo.get_usd_ceilings = AsyncMock(return_value={})
     return repo

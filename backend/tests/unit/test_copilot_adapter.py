@@ -620,9 +620,7 @@ class TestOnEventCallback:
 
         events = self._drain_queue(queue)
         # Only log events (from tool started etc.) might appear, no mapped event
-        mapped = [
-            e for e in events if e.kind in TRANSCRIPT_KINDS or e.kind == EventKind.job_failed
-        ]
+        mapped = [e for e in events if e.kind in TRANSCRIPT_KINDS or e.kind == EventKind.job_failed]
         assert len(mapped) == 0
 
     @pytest.mark.asyncio
@@ -875,9 +873,7 @@ class TestEventTelemetry:
 
         events = self._drain_queue(queue)
 
-        transcripts = [
-            e for e in events if e.kind == EventKind.tool_call_completed
-        ]
+        transcripts = [e for e in events if e.kind == EventKind.tool_call_completed]
         assert len(transcripts) == 1
         assert transcripts[0].payload["tool_name"] == "bash"
         assert transcripts[0].payload["success"] is True
@@ -1439,9 +1435,7 @@ class TestToolResultExtraction:
             if e is not None:
                 events.append(e)
 
-        transcripts = [
-            e for e in events if e.kind == EventKind.tool_call_completed
-        ]
+        transcripts = [e for e in events if e.kind == EventKind.tool_call_completed]
         assert len(transcripts) == 1
         assert transcripts[0].payload["result"] == ""
 
@@ -1492,9 +1486,7 @@ class TestToolResultExtraction:
             if e is not None:
                 events.append(e)
 
-        transcripts = [
-            e for e in events if e.kind == EventKind.tool_call_completed
-        ]
+        transcripts = [e for e in events if e.kind == EventKind.tool_call_completed]
         assert len(transcripts) == 1
         assert transcripts[0].payload["result"] == "plain string result"
 

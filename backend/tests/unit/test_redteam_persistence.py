@@ -199,16 +199,12 @@ class TestDuplicatePKs:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         await event_repo.append(
-            new_event(
-                event_id="evt-dup", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={}
-            )
+            new_event(event_id="evt-dup", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={})
         )
         await session.flush()
         with pytest.raises(IntegrityError):
             await event_repo.append(
-                new_event(
-                    event_id="evt-dup", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={}
-                )
+                new_event(event_id="evt-dup", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={})
             )
             await session.flush()
 
@@ -557,9 +553,7 @@ class TestEventPayloadEdgeCases:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         await event_repo.append(
-            new_event(
-                event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload=deep
-            )
+            new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload=deep)
         )
         await session.commit()
         events = await event_repo.list_after(0)
@@ -583,9 +577,7 @@ class TestEventPayloadEdgeCases:
         event_repo = EventRepository(session)
         now = datetime.now(UTC)
         await event_repo.append(
-            new_event(
-                event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload=payload
-            )
+            new_event(event_id="evt-1", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload=payload)
         )
         await session.commit()
         events = await event_repo.list_after(0)

@@ -323,9 +323,7 @@ def acquire_restart_lock(request_id: str, helper_pid: int, helper_process_time: 
         with contextlib.suppress(OSError):
             path.unlink()
         raise
-    return RestartLock(
-        request_id=request_id, helper_pid=helper_pid, helper_process_time=helper_process_time, path=path
-    )
+    return RestartLock(request_id=request_id, helper_pid=helper_pid, helper_process_time=helper_process_time, path=path)
 
 
 def release_restart_lock(lock: RestartLock) -> None:

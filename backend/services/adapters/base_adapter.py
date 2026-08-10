@@ -313,9 +313,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             payload["input_tokens"] = totals.get("input_tokens", 0)
             payload["output_tokens"] = totals.get("output_tokens", 0)
         await self._event_bus.publish(
-            new_event(
-                session_id=job_id, timestamp=datetime.now(UTC), kind=EventKind.telemetry_updated, payload=payload
-            )
+            new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=EventKind.telemetry_updated, payload=payload)
         )
 
     # ------------------------------------------------------------------

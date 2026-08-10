@@ -101,7 +101,5 @@ def is_hard_gated_command(command: str) -> bool:
     """
     stripped = _strip_quoted_strings(command)
     return bool(
-        _GIT_HARD_GATE_RE.search(stripped)
-        or _GIT_RESET_HARD_RE.search(stripped)
-        or _GIT_FORCE_PUSH_RE.search(stripped)
+        _GIT_HARD_GATE_RE.search(stripped) or _GIT_RESET_HARD_RE.search(stripped) or _GIT_FORCE_PUSH_RE.search(stripped)
     )

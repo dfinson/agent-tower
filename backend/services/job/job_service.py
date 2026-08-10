@@ -746,9 +746,7 @@ class JobService:
         if error:
             payload["error"] = error
 
-        return new_event(
-            session_id=job_id, timestamp=datetime.now(UTC), kind=EventKind.job_resolved, payload=payload
-        )
+        return new_event(session_id=job_id, timestamp=datetime.now(UTC), kind=EventKind.job_resolved, payload=payload)
 
     async def archive_job(self, job_id: str) -> Job:
         """Archive a job (hide from Kanban board) and clean up its worktree."""

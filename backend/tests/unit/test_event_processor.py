@@ -111,9 +111,7 @@ class TestProcessEvent:
         proc = EventProcessor(bus, diff_service=diff_svc)
 
         # Missing worktree_path/base_ref => not diff-eligible.
-        result = await proc.process_event(
-            "j1", _tf(EventKind.tool_call_completed, {"tool_name": "write_file"})
-        )
+        result = await proc.process_event("j1", _tf(EventKind.tool_call_completed, {"tool_name": "write_file"}))
         assert result is not None
         diff_svc.on_worktree_file_modified.assert_not_awaited()
 
