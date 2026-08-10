@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import psutil
@@ -420,6 +420,20 @@ class TestPauseJobs:
 
         assert failed == ["j2"]
 
+    def test_malformed_job_record_logged_and_skipped_not_aborted(self) -> None:
+        """A job record missing (or with a non-string) ``id`` must not raise and
+        abort the batch (AD-7): pausing must continue for every remaining job."""
+        profile = _local_profile()
+        jobs: list[dict[str, Any]] = [{"no_id_field": "oops"}, {"id": "j2"}, {"id": 12345}]
+        with patch.object(rh, "_http_request", return_value=(204, None)) as mock_http:
+            failed = rh._pause_jobs(profile, jobs, "req-pause-3")
+
+        assert failed == []
+        # Only the one well-formed job record ("j2") was actually paused --
+        # the missing-id and non-string-id records were skipped, not raised.
+        mock_http.assert_called_once()
+        assert mock_http.call_args[0][1].endswith("/api/jobs/j2/pause")
+
 
 # ---------------------------------------------------------------------------
 # Story 1.4 — exact old-process stop with port-release proof
@@ -496,6 +510,28 @@ class TestStopOldProcess:
         fake_proc.terminate.assert_not_called()
         fake_proc.kill.assert_not_called()
 
+    def test_uses_canonical_tight_tolerance_not_a_loose_one(self) -> None:
+        """Regression: a naive inline ``< 1.0`` tolerance would wrongly treat a PID
+        reused within a second as the original process. The canonical
+        ``is_identity_alive`` check (0.01s tolerance) must reject this and never
+        signal the reused process."""
+        profile = _local_profile(started_pid=1234, started_process_time=100.0)
+        fake_proc = MagicMock()
+        # 0.5s later: within a naive "< 1.0s" window, but well outside the
+        # canonical 0.01s identity tolerance -- must be treated as reused.
+        fake_proc.create_time.return_value = 100.5
+
+        with (
+            patch.object(rh.psutil, "Process", return_value=fake_proc),
+            patch.object(rh, "profile_owns_listener", return_value=False),
+            patch.object(rh.time, "monotonic", side_effect=_FakeClock()),
+            patch.object(rh.time, "sleep"),
+        ):
+            rh._stop_old_process(profile, timeout_seconds=1.0, request_id="req-stop-5")
+
+        fake_proc.terminate.assert_not_called()
+        fake_proc.kill.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Story 1.4 — exactly-one replacement launch, nonce propagation, no /resume
@@ -558,7 +594,33 @@ class TestStartReplacement:
             "cloudflare",
             "--tunnel-name",
             "cpl-abc123",
+            "--tunnel-ownership",
+            "managed",
         ]
+
+    def test_replays_managed_tunnel_ownership_exactly(self, tmp_path: Path) -> None:
+        """Restart must replay the recorded ownership exactly (AD-8) so a managed
+        connector is started again rather than falling back to the legacy
+        auto-detect path."""
+        profile = _remote_profile(provider="devtunnel", tunnel_name="cpl-managed1", tunnel_ownership="managed")
+
+        with patch.object(rh.subprocess, "Popen", return_value=MagicMock()) as mock_popen:
+            rh._start_replacement(profile, tmp_path, nonce="n", request_id="req-start-ownership-managed")
+
+        args = mock_popen.call_args[0][0]
+        assert args[-2:] == ["--tunnel-ownership", "managed"]
+
+    def test_replays_external_tunnel_ownership_exactly(self, tmp_path: Path) -> None:
+        """An externally-owned connector must be replayed as ``external`` so the
+        replacement never scans for or spawns a connector process — it only
+        resolves the exact recorded origin (AD-8, SPEC CAP-6)."""
+        profile = _remote_profile(provider="cloudflare", tunnel_name=None, tunnel_ownership="external")
+
+        with patch.object(rh.subprocess, "Popen", return_value=MagicMock()) as mock_popen:
+            rh._start_replacement(profile, tmp_path, nonce="n", request_id="req-start-ownership-external")
+
+        args = mock_popen.call_args[0][0]
+        assert args[-2:] == ["--tunnel-ownership", "external"]
 
     def test_never_invokes_resume_endpoint(self, tmp_path: Path) -> None:
         """Exactly one replacement is started; nothing in this module ever calls /resume."""

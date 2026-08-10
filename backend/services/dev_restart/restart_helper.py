@@ -54,6 +54,7 @@ from backend.services.dev_restart.restart_protocol import (
     RestartTimeouts,
     acquire_restart_lock,
     get_request_paths,
+    is_identity_alive,
     log_phase,
     read_json_file,
     release_restart_lock,
@@ -306,12 +307,18 @@ def _pause_jobs(profile: LaunchProfile, jobs: Sequence[dict[str, Any]], request_
 
     Once the first pause request is sent, the helper always continues
     toward restart (AD-7) — individual failures are recorded, never
-    aborted on. Returns the ids of jobs whose pause request failed.
+    aborted on. A job record missing (or with a non-string) ``id`` is a
+    per-job data problem, not a reason to abort the batch and strand the
+    remaining jobs unpaused: it is logged and skipped like any other
+    per-job failure. Returns the ids of jobs whose pause request failed.
     """
     failed: list[str] = []
     base_url = _base_url(profile)
     for job in jobs:
-        job_id = job["id"]
+        job_id = job.get("id")
+        if not isinstance(job_id, str):
+            log_phase(RestartPhase.pausing, request_id, ok=False, reason="malformed_job_record")
+            continue
         status, _ = _http_request("POST", f"{base_url}/api/jobs/{job_id}/pause")
         if status != 204:
             failed.append(job_id)
@@ -330,16 +337,23 @@ def _stop_old_process(profile: LaunchProfile, timeout_seconds: float, request_id
     """Stop only the recorded old PID/creation-time; the helper's own
     session/process group is never included (it was detached at spawn).
 
+    Uses the canonical ``is_identity_alive`` check (0.01s creation-time
+    tolerance) before every signal, not an inline looser tolerance — a
+    reused PID whose creation time merely happens to fall within a wide
+    window must never be terminated/killed as if it were the original
+    process (AD-4/Consistency Conventions: "Process ownership: exact
+    spawned PID/process handle; process-name scans are not ownership").
+
     Stop completes only once that identity is absent *and* the configured
     port has no listener (AD-4/Consistency Conventions) — port-release
     proof, not merely "we sent a signal".
     """
     pid = profile.started_pid
+    process_time = profile.started_process_time
 
-    with contextlib.suppress(psutil.NoSuchProcess, ProcessLookupError):
-        proc = psutil.Process(pid)
-        if abs(proc.create_time() - profile.started_process_time) < 1.0:
-            proc.terminate()
+    if is_identity_alive(pid, process_time):
+        with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied, ProcessLookupError):
+            psutil.Process(pid).terminate()
 
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -348,10 +362,9 @@ def _stop_old_process(profile: LaunchProfile, timeout_seconds: float, request_id
         time.sleep(0.25)
 
     # Escalate once, then re-check for the remainder of the budget.
-    with contextlib.suppress(psutil.NoSuchProcess, ProcessLookupError):
-        proc = psutil.Process(pid)
-        if abs(proc.create_time() - profile.started_process_time) < 1.0:
-            proc.kill()
+    if is_identity_alive(pid, process_time):
+        with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied, ProcessLookupError):
+            psutil.Process(pid).kill()
 
     deadline = time.monotonic() + max(timeout_seconds, 2.0)
     while time.monotonic() < deadline:
@@ -377,9 +390,13 @@ def _start_replacement(
     triggers the exact same ``if __name__ == "__main__": cli()`` entry point
     (verified against ``backend/main.py``/``backend/cli.py``'s ``up``
     command options: ``--host``, ``--port``, ``--dev``, ``--remote``,
-    ``--provider``, ``--tunnel-name``). ``--provider`` is always passed
-    explicitly (never left to the CLI default) so a non-default recorded
-    provider (e.g. cloudflare) is reproduced exactly. Resolvable secret
+    ``--provider``, ``--tunnel-name``, ``--tunnel-ownership``).
+    ``--provider`` is always passed explicitly (never left to the CLI
+    default) so a non-default recorded provider (e.g. cloudflare) is
+    reproduced exactly. ``--tunnel-ownership`` is likewise replayed exactly
+    from ``profile.tunnel_ownership`` when remote access was recorded (AD-8)
+    so the replacement never re-derives ownership through the legacy
+    auto-detect/process-scan path. Resolvable secret
     references (Dev Notes) need no extra flag: every defined
     ``SecretSource`` kind is either an inherited environment variable
     (``env = dict(os.environ)`` below) or external provider-login state,
@@ -413,6 +430,12 @@ def _start_replacement(
         args.extend(["--provider", profile.provider])
         if profile.tunnel_name:
             args.extend(["--tunnel-name", profile.tunnel_name])
+        if profile.tunnel_ownership:
+            # Replay the exact ownership recorded at original launch time
+            # (managed vs. external, AD-8) so the replacement never falls
+            # back to the legacy auto-detect/process-scan path for what
+            # was originally an externally-owned connector.
+            args.extend(["--tunnel-ownership", profile.tunnel_ownership])
 
     env = dict(os.environ)
     env["CODEPLANE_RESTART_NONCE"] = nonce

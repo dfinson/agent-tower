@@ -117,6 +117,16 @@ def _build_frontend() -> bool:
 @click.option("--password", default=None, help="Set auth password (auto-generated with --remote)")
 @click.option("--no-password", is_flag=True, help="Disable password auth (not allowed with --remote)")
 @click.option("--tunnel-name", default=None, help="Dev Tunnel name (default: random, reused across restarts)")
+@click.option(
+    "--tunnel-ownership",
+    default=None,
+    type=click.Choice(["managed", "external"], case_sensitive=False),
+    help=(
+        "Explicit remote-connector ownership (managed: CodePlane starts and owns the "
+        "connector; external: never scan or spawn, only resolve the recorded origin). "
+        "Replayed automatically by restart; not normally set by hand."
+    ),
+)
 @click.option("--skip-preflight", is_flag=True, help="Skip preflight checks")
 @click.option("--phone", is_flag=True, help="Shortcut for --remote: enable tunnel + QR code for mobile access")
 def up(
@@ -128,6 +138,7 @@ def up(
     password: str | None,
     no_password: bool,
     tunnel_name: str | None,
+    tunnel_ownership: str | None,
     skip_preflight: bool,
     phone: bool,
 ) -> None:
@@ -141,6 +152,7 @@ def up(
     from backend.services.sharing.tunnel_service import (
         RemoteProvider,
         TunnelHandle,
+        TunnelOwnership,
         TunnelStartError,
         start_remote_access,
         validate_remote_provider,
@@ -296,12 +308,14 @@ def up(
 
     if remote:
         try:
+            explicit_ownership = TunnelOwnership(tunnel_ownership) if tunnel_ownership else None
             tunnel_handle = start_remote_access(
                 remote_provider,
                 port=port,
                 cloudflare_token=cloudflare_token,
                 cloudflare_hostname=cloudflare_hostname,
                 tunnel_name=tunnel_name,
+                ownership=explicit_ownership,
             )
         except TunnelStartError as exc:
             click.secho(f"ERROR: {exc}", fg="red", err=True)

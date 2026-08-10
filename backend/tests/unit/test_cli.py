@@ -571,6 +571,77 @@ class TestUpLaunchProfilePublication:
         assert written["tunnelOwnership"] == "external"
         assert written["tunnelCredentialSource"] == {"kind": "not_required"}
 
+    def test_tunnel_ownership_flag_propagates_managed_explicitly(self, tmp_path: object) -> None:
+        """``--tunnel-ownership managed`` (as replayed by restart, AD-8) must reach
+        ``start_remote_access`` as an explicit ``TunnelOwnership.managed`` value,
+        never left as the implicit ``None`` legacy auto-detect default."""
+        from backend.services.sharing.tunnel_service import RemoteProvider, TunnelHandle, TunnelOwnership
+
+        fake_handle = TunnelHandle(
+            provider=RemoteProvider.devtunnel,
+            origin="https://example.devtunnels.ms",
+            externally_managed=False,
+            name="cpl-tunnel-abc",
+        )
+        with (
+            patch("backend.config.get_codeplane_dir", return_value=tmp_path),
+            patch(
+                "backend.services.sharing.tunnel_service.start_remote_access", return_value=fake_handle
+            ) as mock_start,
+        ):
+            result, written = _invoke_up(
+                ["--remote", "--provider", "devtunnel", "--tunnel-ownership", "managed"]
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_start.call_args.kwargs["ownership"] is TunnelOwnership.managed
+
+    def test_tunnel_ownership_flag_propagates_external_explicitly(self, tmp_path: object) -> None:
+        """``--tunnel-ownership external`` must reach ``start_remote_access`` as an
+        explicit ``TunnelOwnership.external`` value so no connector is scanned
+        for or spawned — only the recorded origin is resolved (AD-8)."""
+        from backend.services.sharing.tunnel_service import RemoteProvider, TunnelHandle, TunnelOwnership
+
+        fake_handle = TunnelHandle(
+            provider=RemoteProvider.devtunnel,
+            origin="https://already-running.devtunnels.ms",
+            externally_managed=True,
+            name="already-running",
+        )
+        with (
+            patch("backend.config.get_codeplane_dir", return_value=tmp_path),
+            patch(
+                "backend.services.sharing.tunnel_service.start_remote_access", return_value=fake_handle
+            ) as mock_start,
+        ):
+            result, written = _invoke_up(
+                ["--remote", "--provider", "devtunnel", "--tunnel-ownership", "external"]
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_start.call_args.kwargs["ownership"] is TunnelOwnership.external
+
+    def test_tunnel_ownership_omitted_preserves_legacy_autodetect(self, tmp_path: object) -> None:
+        """When ``--tunnel-ownership`` is not passed (a normal manual ``cpl up``,
+        not a restart replay), ``ownership`` stays ``None`` so the pre-existing
+        auto-detect behavior is unchanged for callers that have not opted in."""
+        from backend.services.sharing.tunnel_service import RemoteProvider, TunnelHandle
+
+        fake_handle = TunnelHandle(
+            provider=RemoteProvider.devtunnel,
+            origin="https://example.devtunnels.ms",
+            externally_managed=False,
+            name="cpl-tunnel-abc",
+        )
+        with (
+            patch("backend.config.get_codeplane_dir", return_value=tmp_path),
+            patch(
+                "backend.services.sharing.tunnel_service.start_remote_access", return_value=fake_handle
+            ) as mock_start,
+        ):
+            result, written = _invoke_up(["--remote", "--provider", "devtunnel"])
+        assert result.exit_code == 0, result.output
+        assert mock_start.call_args.kwargs["ownership"] is None
+
+
     def test_zero_bind_host_autogenerates_unreplayable_password(self, tmp_path: object) -> None:
         with patch("backend.config.get_codeplane_dir", return_value=tmp_path):
             result, written = _invoke_up(["--host", "0.0.0.0"])

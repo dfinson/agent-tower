@@ -51,13 +51,14 @@ Claude Sonnet 5 (GitHub Copilot CLI), Stories 1.3-1.4 sibling session, integrate
 ### Debug Log References
 
 - `uv run pytest backend/tests/unit/test_restart_helper.py -q` -> 68 passed
+- Post-review fixes: `uv run pytest backend/tests/unit/test_restart_helper.py -q` -> 41 passed (full-fresh module count after new regression tests added); combined suite -> 276 passed
 
 ### Completion Notes List
 
 - Comprehensive developer guide generated.
-- `_list_running_jobs()` retrieves the complete paginated running-job list before any pause is sent, raising `HelperAbort` on retrieval failure (AC1). `_pause_jobs()` sends a pause request per job, records individual failures without aborting (AC2/AD-7 partial-pause invariant), fixed to use direct `job["id"]` indexing (type-safety fix; a running job record missing `id` is a genuine schema violation worth surfacing, not a job pause to skip silently).
-- `_stop_old_process()` stops only the recorded PID/creation-time identity and verifies both identity absence and port release (AC3/AC4).
-- `_start_replacement()` launches exactly one `python -m backend.main up` replacement from the validated target source with the recorded executable/host/port/dev/remote/provider/tunnel-name, the request nonce via `CODEPLANE_RESTART_NONCE`, and the request id via `CODEPLANE_RESTART_REQUEST_ID`; never calls `/resume` (AC5/AC6).
+- `_list_running_jobs()` retrieves the complete paginated running-job list before any pause is sent, raising `HelperAbort` on retrieval failure (AC1). `_pause_jobs()` sends a pause request per job and records individual failures without aborting (AC2/AD-7 partial-pause invariant); a malformed job record (missing or non-string `id`) is validated with `isinstance` inside the per-job loop, logged, and skipped rather than raised, so one bad record can never abort the batch after some jobs are already paused (fixed post-review: an earlier revision used direct `job["id"]` indexing outside the per-job guard, which would raise `KeyError` uncaught and strand the remaining jobs unpaused, violating AD-7's continue-always guarantee).
+- `_stop_old_process()` stops only the recorded PID/creation-time identity and verifies both identity absence and port release (AC3/AC4), using the canonical `is_identity_alive()` helper (0.01s creation-time tolerance) before every `terminate()`/`kill()` call, instead of an inline `< 1.0s` tolerance that risked signaling an unrelated process if the old PID were reused within a second (fixed post-review; regression test `test_uses_canonical_tight_tolerance_not_a_loose_one` proves a 0.5s-later reused PID is never signaled).
+- `_start_replacement()` launches exactly one `python -m backend.main up` replacement from the validated target source with the recorded executable/host/port/dev/remote/provider/tunnel-name/tunnel-ownership, the request nonce via `CODEPLANE_RESTART_NONCE`, and the request id via `CODEPLANE_RESTART_REQUEST_ID`; never calls `/resume` (AC5/AC6). `--tunnel-ownership` is now replayed exactly from `profile.tunnel_ownership` (fixed post-review: it was previously omitted from the replacement argv, so a restarted external tunnel would fall back to `cli.py`'s legacy auto-detect/process-scan path instead of resolving the exact recorded origin).
 
 ### File List
 
