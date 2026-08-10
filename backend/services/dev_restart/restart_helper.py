@@ -59,6 +59,11 @@ from backend.services.dev_restart.restart_protocol import (
     release_restart_lock,
     write_json_atomic,
 )
+from backend.services.dev_restart.restart_remote import (
+    RemoteProbeError,
+    probe_remote_origin,
+    resolve_remote_probe_target,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -547,11 +552,27 @@ def _run_claimed(
         log_phase(RestartPhase.checking_health, request_id, child_pid=child.pid)
         new_pid = _wait_for_ready(paths, request_id, child, request.timeouts.readiness_seconds)
 
-        # Remote-origin restoration is Story 1.6's scope. When the profile is
-        # local-only, success is local readiness (AD-4: "local profile ->
-        # succeeded"). Remote probing is intentionally not implemented here.
+        # Local readiness alone is success for a local profile (AD-4: "local
+        # profile -> succeeded"). A remote profile additionally requires the
+        # recorded tunnel origin to be reachable again before the restart is
+        # considered successful (Story 1.6/SPEC.md CAP-6) — origin
+        # resolution and the bounded probe are owned entirely by
+        # restart_remote; this only wires the phase transition and failure
+        # handling around it, never duplicating probe/network logic locally.
         if request.launch_profile.remote:
             log_phase(RestartPhase.checking_remote, request_id, provider=request.launch_profile.provider)
+            try:
+                replacement_profile = load_active_profile()
+            except LaunchProfileError as exc:
+                raise HelperAbort(
+                    RestartPhase.checking_remote, "remote_profile_unavailable", detail=str(exc)[:500]
+                ) from exc
+            try:
+                target = resolve_remote_probe_target(request.launch_profile, replacement_profile)
+                probe_remote_origin(target.origin, request.timeouts.remote_probe_seconds)
+            except RemoteProbeError as exc:
+                raise HelperAbort(RestartPhase.checking_remote, "remote_probe_failed", detail=str(exc)[:500]) from exc
+            log_phase(RestartPhase.checking_remote, request_id, origin_changed=target.changed)
 
         log_phase(RestartPhase.succeeded, request_id, new_pid=new_pid)
         _cleanup_success(paths)

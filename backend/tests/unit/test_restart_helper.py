@@ -29,6 +29,7 @@ from backend.services.dev_restart.restart_protocol import (
     read_json_file,
     write_json_atomic,
 )
+from backend.services.dev_restart.restart_remote import RemoteProbeError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -692,3 +693,125 @@ class TestRunHelperIntegration:
 
         assert exit_code == 0
         assert not paths.pending.exists()
+
+
+class TestCheckingRemotePhase:
+    """Story 1.6: after local readiness, a remote profile must be probed at
+    the resolved origin via restart_remote before the restart succeeds.
+    Origin resolution and the network probe are never reimplemented here --
+    only resolve_remote_probe_target/probe_remote_origin are exercised.
+    """
+
+    def _run_remote_restart(
+        self, tmp_path: Path, request_id: str, old_profile: LaunchProfile, new_profile: LaunchProfile
+    ) -> tuple[int, MagicMock]:
+        pending_path = _write_pending_request(request_id, tmp_path, old_profile)
+        paths = get_request_paths(request_id)
+        fake_child = MagicMock()
+        fake_child.poll.return_value = None
+
+        def fake_start_replacement(profile: LaunchProfile, root: Path, nonce: str, req_id: str) -> MagicMock:
+            write_json_atomic(paths.ready, {"requestId": req_id, "pid": new_profile.started_pid, "writtenAt": "now"})
+            return fake_child
+
+        probe_mock = MagicMock()
+        with (
+            patch.object(rh, "_list_running_jobs", return_value=[]),
+            patch.object(rh, "_pause_jobs", return_value=[]),
+            patch.object(rh, "_stop_old_process"),
+            patch.object(rh, "_start_replacement", side_effect=fake_start_replacement),
+            patch.object(rh, "load_active_profile", return_value=new_profile),
+            patch.object(rh, "profile_owns_listener", return_value=True),
+            patch.object(rh, "probe_remote_origin", probe_mock),
+        ):
+            exit_code = rh.run_helper(pending_path)
+        return exit_code, probe_mock
+
+    def test_reusable_origin_probes_the_original_recorded_origin(self, tmp_path: Path) -> None:
+        old_profile = _remote_profile(
+            started_pid=os.getpid(),
+            started_process_time=psutil.Process().create_time(),
+            tunnel_origin="https://cpl-fixed.usw2.devtunnels.ms",
+            tunnel_origin_reusable=True,
+        )
+        # The replacement's own recorded origin is irrelevant for a reusable
+        # tunnel -- resolve_remote_probe_target must ignore it entirely.
+        new_profile = _remote_profile(
+            started_pid=88881,
+            started_process_time=7.0,
+            tunnel_origin="https://should-be-ignored.example",
+            tunnel_origin_reusable=True,
+        )
+
+        exit_code, probe_mock = self._run_remote_restart(tmp_path, "req-remote-1", old_profile, new_profile)
+
+        assert exit_code == 0
+        probe_mock.assert_called_once_with("https://cpl-fixed.usw2.devtunnels.ms", pytest.approx(0.1))
+        paths = get_request_paths("req-remote-1")
+        assert not paths.pending.exists()
+        assert not paths.ready.exists()
+
+    def test_non_reusable_origin_probes_the_replacement_origin_and_reports_change(self, tmp_path: Path) -> None:
+        old_profile = _remote_profile(
+            started_pid=os.getpid(),
+            started_process_time=psutil.Process().create_time(),
+            tunnel_origin="https://cpl-old.usw2.devtunnels.ms",
+            tunnel_origin_reusable=False,
+        )
+        new_profile = _remote_profile(
+            started_pid=88882,
+            started_process_time=8.0,
+            tunnel_origin="https://cpl-new.usw2.devtunnels.ms",
+            tunnel_origin_reusable=False,
+        )
+
+        exit_code, probe_mock = self._run_remote_restart(tmp_path, "req-remote-2", old_profile, new_profile)
+
+        assert exit_code == 0
+        probe_mock.assert_called_once_with("https://cpl-new.usw2.devtunnels.ms", pytest.approx(0.1))
+
+    def test_probe_timeout_aborts_restart_without_cleanup(self, tmp_path: Path) -> None:
+        old_profile = _remote_profile(
+            started_pid=os.getpid(),
+            started_process_time=psutil.Process().create_time(),
+            tunnel_origin="https://cpl-fixed.usw2.devtunnels.ms",
+            tunnel_origin_reusable=True,
+        )
+        new_profile = _remote_profile(
+            started_pid=88883,
+            started_process_time=9.0,
+            tunnel_origin="https://cpl-fixed.usw2.devtunnels.ms",
+            tunnel_origin_reusable=True,
+        )
+        pending_path = _write_pending_request("req-remote-3", tmp_path, old_profile)
+        paths = get_request_paths("req-remote-3")
+        fake_child = MagicMock()
+        fake_child.poll.return_value = None
+
+        def fake_start_replacement(profile: LaunchProfile, root: Path, nonce: str, req_id: str) -> MagicMock:
+            write_json_atomic(paths.ready, {"requestId": req_id, "pid": new_profile.started_pid, "writtenAt": "now"})
+            return fake_child
+
+        with (
+            patch.object(rh, "_list_running_jobs", return_value=[]),
+            patch.object(rh, "_pause_jobs", return_value=[]),
+            patch.object(rh, "_stop_old_process"),
+            patch.object(rh, "_start_replacement", side_effect=fake_start_replacement),
+            patch.object(rh, "load_active_profile", return_value=new_profile),
+            patch.object(rh, "profile_owns_listener", return_value=True),
+            patch.object(
+                rh,
+                "probe_remote_origin",
+                side_effect=RemoteProbeError("remote origin https://cpl-fixed.usw2.devtunnels.ms timed out"),
+            ),
+        ):
+            exit_code = rh.run_helper(pending_path)
+
+        assert exit_code == 1
+        # Readiness had already succeeded (the ready marker was written), but
+        # a failed remote probe must retain every artifact for diagnosis --
+        # never clean up on a failure path (AD-10/AD-11).
+        assert paths.claimed.exists()
+        assert paths.started.exists()
+        assert paths.ready.exists()
+        assert not get_restart_lock_path().exists()
