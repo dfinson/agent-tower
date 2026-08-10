@@ -206,6 +206,15 @@ class TestConstants:
         assert "ephemeral" in _ALLOWED_LIFETIMES
         assert "windowed" in _ALLOWED_LIFETIMES
         assert "persistent" in _ALLOWED_LIFETIMES
+        assert "chained" in _ALLOWED_LIFETIMES
+
+    def test_allowed_output_routes_include_task_recipe_chaining(self):
+        assert "spawn_task" in _ALLOWED_OUTPUT_ROUTES
+        assert "tracker_write" in _ALLOWED_OUTPUT_ROUTES
+
+    def test_allowed_context_sources_include_task_recipe_chaining(self):
+        assert "story_node" in _ALLOWED_CONTEXT_SOURCES
+        assert "tracker_ticket" in _ALLOWED_CONTEXT_SOURCES
 
     def test_allowed_scopes(self):
         assert "global" in _ALLOWED_SCOPES

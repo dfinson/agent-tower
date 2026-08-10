@@ -18,17 +18,31 @@ from backend.models.domain import SidecarTemplate
 log = structlog.get_logger()
 
 # Context sources available to custom sidecars (safe subset).
-_ALLOWED_CONTEXT_SOURCES = ["trigger_event", "job_diff", "job_prompt", "recent_messages"]
+# `story_node` and `tracker_ticket` (CAP-8/AD-8) support Task Recipe chaining —
+# a `chained` recipe's context may come from an ingested/assigned story node or a
+# paired tracker ticket, in addition to the original job-scoped sources.
+_ALLOWED_CONTEXT_SOURCES = [
+    "trigger_event",
+    "job_diff",
+    "job_prompt",
+    "recent_messages",
+    "story_node",
+    "tracker_ticket",
+]
 
 # Output routes available to custom sidecars.
-_ALLOWED_OUTPUT_ROUTES = ["event_bus", "job_metadata", "agent_message", "gate"]
+# `spawn_task` and `tracker_write` (CAP-8/AD-8) let a `chained` recipe spawn the next
+# dependent TaskLink's job or route a completion write to a paired tracker ticket.
+_ALLOWED_OUTPUT_ROUTES = ["event_bus", "job_metadata", "agent_message", "gate", "spawn_task", "tracker_write"]
 
 # Trigger conditions available to custom sidecars.
 _ALLOWED_CONDITIONS = ["event", "timer", "threshold", "manual", "regex", "file_pattern", "content_match"]
 
 # Allowed phases, lifetimes, and scopes.
 _ALLOWED_PHASES = ["preflight", "midflight", "postflight"]
-_ALLOWED_LIFETIMES = ["ephemeral", "windowed", "persistent"]
+# `chained` (CAP-8/AD-8) is a Task Recipe lifetime that spans multiple jobs, rather
+# than being scoped to one job's lifetime like the original three values.
+_ALLOWED_LIFETIMES = ["ephemeral", "windowed", "persistent", "chained"]
 _ALLOWED_SCOPES = ["global", "repo", "job"]
 
 # Tool access levels and category names.
