@@ -560,6 +560,49 @@ class TrackerLinkRow(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class TaskLinkRow(Base):
+    """A thin, Project-scoped correlation row for an ingested/assigned task node (Story 4.2, AD-9).
+
+    Populated by two independent creation paths (only ingestion is implemented
+    in this story): (1) ingestion — parsed from BMAD stories or spec-kit
+    ``tasks.md`` in a Project's member repos, setting ``story_node_id``; or
+    (2) manual assignment (Story 4.3, not yet implemented) — targeting an
+    existing tracker ticket, setting ``tracker_ticket_ref``/``prompt_override``
+    with ``story_node_id`` left null. Exactly one of ``story_node_id`` /
+    ``tracker_ticket_ref`` is guaranteed non-null at creation, never neither.
+
+    ``story_node_id`` is only unique within one repo, so uniqueness/upsert
+    matching is on ``(project_id, repo_path, story_node_id)`` — never a bare
+    ``story_node_id``. ``depends_on`` is stored as a JSON list of composite
+    ``"{repo_path}::{story_node_id}"`` strings so a dependency edge always
+    unambiguously names its target, whether same-repo or a sibling member
+    repo of the same Project.
+    """
+
+    __tablename__ = "task_links"
+    __table_args__ = (
+        Index(
+            "ix_task_links_project_repo_node",
+            "project_id",
+            "repo_path",
+            "story_node_id",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    project_id: Mapped[str] = mapped_column(String, ForeignKey("projects.id"), nullable=False, index=True)
+    repo_path: Mapped[str] = mapped_column(String, nullable=False)
+    story_node_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    depends_on: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")  # JSON list
+    job_id: Mapped[str | None] = mapped_column(String, ForeignKey("jobs.id"), nullable=True)
+    tracker_ticket_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    prompt_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    epic_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+
 class SidecarTemplateRow(Base):
     __tablename__ = "sidecar_templates"
 

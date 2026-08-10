@@ -25,6 +25,7 @@ from backend.persistence.latency_attribution_repo import LatencyAttributionRepos
 from backend.persistence.project_repo import ProjectRepository
 from backend.persistence.sidecar_template_repo import SidecarTemplateRepository
 from backend.persistence.step_repo import StepRepository
+from backend.persistence.task_link_repo import TaskLinkRepository
 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 from backend.services.adapters.platform_adapter import PlatformRegistry
@@ -47,6 +48,7 @@ from backend.services.job.approval_service import ApprovalService
 from backend.services.job.job_service import JobService
 from backend.services.merge_service import MergeService
 from backend.services.project.project_service import ProjectService
+from backend.services.recipe.recipe_service import RecipeService
 from backend.services.runtime import RuntimeService
 from backend.services.sharing.push_service import PushService
 from backend.services.sharing.share_service import ShareService
@@ -244,6 +246,14 @@ class RequestProvider(Provider):
     @provide
     def project_service(self, project_repo: ProjectRepository, config: CPLConfig) -> ProjectService:
         return ProjectService(project_repo, config)
+
+    @provide
+    def task_link_repo(self, session: AsyncSession) -> TaskLinkRepository:
+        return TaskLinkRepository(session)
+
+    @provide
+    def recipe_service(self, task_link_repo: TaskLinkRepository, project_service: ProjectService) -> RecipeService:
+        return RecipeService(task_link_repo, project_service)
 
     @provide
     def telemetry_spans_repo(self, session: AsyncSession) -> TelemetrySpansRepository:
