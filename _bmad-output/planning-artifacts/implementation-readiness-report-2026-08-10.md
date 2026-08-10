@@ -138,7 +138,7 @@ None.
 
 ## Epic Quality Review
 
-Applied `create-epics-and-stories`-standard checks rigorously against all 5 epics / 23 stories.
+Applied `create-epics-and-stories`-standard checks rigorously against all 5 epics / 22 stories.
 
 ### Epic Structure Validation
 
@@ -154,7 +154,7 @@ No technical-milestone epics found (no "Database Setup," "API Development," or s
 
 ### Story Quality Assessment
 
-All 23 stories use consistent As-a/I-want/So-that framing with Given/When/Then ACs; all are independently completable within their own epic without referencing a later story's output. Database/entity creation is deferred to first need in every case: `ProjectRow` (1.1), `CredentialRow`/`TrackerLinkRow` (2.1/2.2), no new table for the recipe vocabulary widening (3.1, reuses `SidecarTemplateRow.definition_json`), `TaskLinkRow` (3.2/3.3), `ChatRow` (4.1).
+All 22 stories use consistent As-a/I-want/So-that framing with Given/When/Then ACs; all are independently completable within their own epic without referencing a later story's output. Database/entity creation is deferred to first need in every case: `ProjectRow` (1.1), `CredentialRow`/`TrackerLinkRow` (2.1/2.2), no new table for the recipe vocabulary widening (3.1, reuses `SidecarTemplateRow.definition_json`), `TaskLinkRow` (3.2/3.3), `ChatRow` (4.1).
 
 **🟡 Minor Concern:** Story 1.5's second AC bullet ("the same filter mechanism is applied generically... so it also filters Task Recipe/TaskLink cards once Epic 3 introduces them") references Epic 3, which doesn't exist yet at Epic-1 implementation time. This isn't a blocking forward *dependency* (Story 1.5 is fully completable and shippable using only Project cards), but that specific bullet isn't independently testable until Epic 3's TaskLink cards exist — a strict reading of "Testable: each AC can be verified independently?" flags it. **Recommendation:** reword as an implementation note ("the filter must be implemented generically at the card-rendering layer, not Project-card-specific, to avoid rework in Epic 3") rather than a testable AC, or defer verification of that specific bullet to Epic 3, Story 3.4's own ACs.
 
@@ -184,7 +184,7 @@ None. Zero critical or major violations across document discovery, FR/NFR extrac
 
 1. (Optional, cosmetic) Reword Story 1.5's second AC bullet to state the generic-filter implementation requirement as a design note rather than an Epic-3-dependent testable assertion — see Epic Quality Review for exact wording.
 2. Proceed to implementation starting with Epic 1 (Project-based organization), Story 1.1 — it has no unresolved dependencies and establishes `ProjectRow`, the foundation every later epic builds on.
-3. Consider running `bmad-sprint-planning` next to sequence the 23 stories into sprints, now that readiness is confirmed.
+3. Consider running `bmad-sprint-planning` next to sequence the 22 stories into sprints, now that readiness is confirmed.
 
 ### Final Note
 
