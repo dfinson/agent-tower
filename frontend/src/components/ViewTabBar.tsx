@@ -38,10 +38,20 @@ export function ViewTabBar({
   });
 
   return (
-    <div className="hidden md:flex items-center gap-0.5 mx-3 mt-1.5 px-3 h-9 rounded-lg border border-border bg-card shrink-0 overflow-x-auto scrollbar-none">
+    <div
+      className="hidden md:flex items-center gap-0.5 mx-3 mt-1.5 px-3 h-9 rounded-lg border border-border bg-card shrink-0 overflow-x-auto scrollbar-none"
+      role="tablist"
+      aria-label="Job detail views"
+    >
       {visibleTabs.map(({ id, icon: Icon, label, tip }) => (
         <Tooltip key={id} content={tip} side="bottom">
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === id}
+            aria-controls={`job-view-panel-${id}`}
+            id={`job-view-tab-${id}`}
+            tabIndex={activeTab === id ? 0 : -1}
             onClick={() => onTabChange(id)}
             className={cn(
               "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap relative",
