@@ -58,6 +58,7 @@ from backend.services.sidecar.template_service import SidecarTemplateService
 from backend.services.steps.diff_service import StepDiffService
 from backend.services.story.service import StoryService
 from backend.services.terminal.terminal_service import TerminalService
+from backend.services.tracker_write_service import TrackerWriteService
 from backend.services.trail import TrailService
 
 # NewType wrappers for plain values that need unique DI keys
@@ -99,6 +100,10 @@ class AppProvider(Provider):
     @provide
     def git_service(self, config: CPLConfig) -> GitService:
         return GitService(config)
+
+    @provide
+    def tracker_write_service(self, approval_service: ApprovalService) -> TrackerWriteService:
+        return TrackerWriteService(approval_service)
 
     @provide
     def diff_service(self, git_service: GitService, event_bus: EventBus, coderecon: CodeReconService) -> DiffService:
