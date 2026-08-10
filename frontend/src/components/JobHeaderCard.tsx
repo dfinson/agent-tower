@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, XCircle, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge } from "lucide-react";
 import type { JobSummary } from "../store";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
@@ -63,6 +63,86 @@ export function JobHeaderCard({
 
   const isActive = ["running", "agent_running", "queued"].includes(job.state);
   const accent = ACCENT[job.state] ?? "border-t-gray-500/40";
+  const statusBanner = (() => {
+    if (job.modelDowngraded) {
+      return (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-amber-500">
+            <ArrowDownCircle size={14} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium">Model downgraded</p>
+              <p className="text-xs text-amber-400">
+                {job.requestedModel} → {job.actualModel}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (job.state === "failed") {
+      return (
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-red-500">
+            <XCircle size={14} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium">Job failed</p>
+              <p className="text-xs text-red-400 whitespace-pre-wrap break-words">
+                {job.failureReason ?? "No additional details available"}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (job.state === "canceled") {
+      return (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-amber-500">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium">Job canceled</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (job.state === "completed") {
+      return (
+        <div className="rounded-md border border-green-500/30 bg-green-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-green-600">
+            <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium">Job completed</p>
+              <p className="text-xs text-green-600/80">
+                {job.resolution === "merged" && "Changes merged into base branch"}
+                {job.resolution === "pr_created" && "Pull request created"}
+                {job.resolution === "discarded" && "Changes discarded"}
+                {job.resolution === "conflict" && "Merge conflict — needs manual resolution"}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (job.state === "review" && hasMergeConflict) {
+      return (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-amber-500">
+            <GitMerge size={14} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium">Merge conflict</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  })();
 
   return (
     <>
@@ -105,6 +185,8 @@ export function JobHeaderCard({
           {(job.description || job.prompt) && (
             <p className="text-sm text-muted-foreground">{job.description ?? job.prompt}</p>
           )}
+
+          {statusBanner}
 
           {job.progressHeadline && isActive && (
             <p className="text-sm italic text-primary/70">{job.progressHeadline}</p>
@@ -190,6 +272,8 @@ export function JobHeaderCard({
             {(job.description || job.prompt) && (
               <p className="text-sm text-foreground/60 line-clamp-2">{job.description ?? job.prompt}</p>
             )}
+
+            {statusBanner}
 
             {job.progressHeadline && isActive && (
               <p className="text-xs italic text-primary/70 truncate">

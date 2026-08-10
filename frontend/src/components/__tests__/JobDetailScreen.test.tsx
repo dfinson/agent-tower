@@ -146,7 +146,7 @@ describe("JobDetailScreen", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole("button", { name: "Artifacts" })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: "Artifacts" })).toBeInTheDocument();
     await waitFor(() => expect(fetchArtifacts).toHaveBeenCalledTimes(1));
 
     act(() => {
