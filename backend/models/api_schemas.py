@@ -1573,6 +1573,7 @@ class ChatResponse(CamelModel):
 class ChatListResponse(CamelModel):
     items: list[ChatResponse]
 
+
 # ---------------------------------------------------------------------------
 # Utility / operational responses
 # ---------------------------------------------------------------------------

@@ -27,7 +27,6 @@ def _resolved(path: str) -> str:
     return str(Path(path).expanduser().resolve())
 
 
-
 class TestCreateProject:
     @pytest.mark.asyncio
     async def test_create_single_repo_project(self, client: AsyncClient) -> None:
