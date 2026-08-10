@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, TextIO, cast
 
 import psutil  # type: ignore[import-untyped]
 import structlog
@@ -251,7 +251,7 @@ def is_identity_alive(pid: int, process_time: float) -> bool:
     reused PID from being mistaken for the original process.
     """
     try:
-        actual = psutil.Process(pid).create_time()
+        actual = cast("float", psutil.Process(pid).create_time())
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         return False
     return abs(actual - process_time) <= _CREATE_TIME_TOLERANCE_SECONDS

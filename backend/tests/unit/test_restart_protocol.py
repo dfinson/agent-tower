@@ -10,7 +10,7 @@ import os
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-import psutil
+import psutil  # type: ignore[import-untyped]
 import pytest
 
 from backend.services.dev_restart.restart_protocol import (
