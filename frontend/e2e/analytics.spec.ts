@@ -120,7 +120,7 @@ const REPOS = {
 };
 
 const OBSERVATIONS: unknown[] = [];
-const ANALYTICS_JOBS = { items: [], cursor: null, hasMore: false };
+const ANALYTICS_JOBS = { period: 7, jobs: [] };
 const COST_DRIVERS: unknown[] = [];
 const FLEET_COST_DRIVERS = {
   period: 7,
