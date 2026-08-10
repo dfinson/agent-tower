@@ -497,6 +497,52 @@ class MCPServerConfigRow(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+# ---------------------------------------------------------------------------
+# Tracker integration tables (CAP-6/CAP-7, AD-6)
+# ---------------------------------------------------------------------------
+
+
+class CredentialRow(Base):
+    """A global, Project-independent integration credential (Story 3.1, AD-6).
+
+    Registered once in Settings > Integrations and referenced by any number of
+    ``TrackerLinkRow``s. ``encrypted_secret`` holds the PAT encrypted at rest
+    via ``backend.services.credentials.encryption`` — never plaintext, never
+    returned by any API response, never logged.
+    """
+
+    __tablename__ = "credentials"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    label: Mapped[str] = mapped_column(String, nullable=False)
+    base_url: Mapped[str] = mapped_column(String, nullable=False)
+    encrypted_secret: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class TrackerLinkRow(Base):
+    """Many-to-many join between a Project and a Credential (AD-6).
+
+    Only the referential-integrity anchor needed for Story 3.1's
+    delete-blocked-while-referenced rule (AC2) exists here. ``project_id`` is
+    a plain string, deliberately not a foreign key to a ``ProjectRow`` — that
+    entity does not exist yet, and Credential registration (this story) must
+    not depend on Project existing. Attach/create endpoints for this table
+    are out of scope for this story (Story 3.2).
+    """
+
+    __tablename__ = "tracker_links"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    project_id: Mapped[str] = mapped_column(String, nullable=False)
+    credential_id: Mapped[str] = mapped_column(
+        String, ForeignKey("credentials.id"), nullable=False, index=True
+    )
+    external_ref: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class SidecarTemplateRow(Base):
     __tablename__ = "sidecar_templates"
 

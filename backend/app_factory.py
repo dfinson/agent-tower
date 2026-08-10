@@ -30,6 +30,7 @@ from backend.api import (
     approvals,
     artifacts,
     chats,
+    credentials,
     events,
     health,
     hooks,
@@ -220,6 +221,7 @@ def _register_routes(app: FastAPI) -> None:
     app.include_router(trail.router, prefix="/api")
     # Action policy settings
     app.include_router(policy_settings.router, prefix="/api")
+    app.include_router(credentials.router, prefix="/api")
     app.include_router(metrics.router, prefix="/api")
     app.include_router(sidecar_templates.router, prefix="/api")
     app.include_router(chats.router, prefix="/api")

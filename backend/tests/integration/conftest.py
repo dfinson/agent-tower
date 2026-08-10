@@ -202,6 +202,7 @@ async def app(
         approvals,
         artifacts,
         chats,
+        credentials,
         events,
         health,
         job_artifacts,
@@ -229,6 +230,7 @@ async def app(
     application.include_router(workspace.router, prefix="/api")
     application.include_router(voice.router, prefix="/api")
     application.include_router(settings.router, prefix="/api")
+    application.include_router(credentials.router, prefix="/api")
     application.include_router(share.router, prefix="/api")
     application.include_router(terminal.router, prefix="/api")
     application.include_router(chats.router, prefix="/api")

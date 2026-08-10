@@ -1,0 +1,212 @@
+import { useEffect, useState, useCallback } from "react";
+import { Trash2, Plus } from "lucide-react";
+import { toast } from "sonner";
+import {
+  fetchCredentials,
+  fetchCredentialGuidance,
+  createCredential,
+  deleteCredential,
+} from "../api/client";
+import type { Credential, CredentialProvider } from "../api/client";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Spinner } from "./ui/spinner";
+import { ConfirmDialog } from "./ui/confirm-dialog";
+
+const PROVIDERS: Array<{ value: CredentialProvider; label: string }> = [
+  { value: "github", label: "GitHub Projects" },
+  { value: "jira", label: "Jira" },
+  { value: "azure_devops", label: "Azure DevOps" },
+];
+
+/**
+ * Settings > Integrations — global Credential registry (Story 3.1, CAP-6/CAP-7).
+ *
+ * A Credential (provider + label + base URL + PAT) is registered once here,
+ * independent of any Project, and may later be attached to any number of
+ * Projects via a TrackerLink (Story 3.2, not implemented by this screen).
+ * The PAT is write-only: it is sent once on creation and never returned or
+ * rendered by any subsequent read.
+ */
+export function IntegrationsSettings() {
+  const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [guidance, setGuidance] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+
+  const [provider, setProvider] = useState<CredentialProvider>("github");
+  const [label, setLabel] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [pat, setPat] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [credsResp, guidanceResp] = await Promise.all([fetchCredentials(), fetchCredentialGuidance()]);
+      setCredentials(credsResp.credentials);
+      setGuidance(guidanceResp.guidance);
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handleCreate = async () => {
+    if (!label.trim() || !baseUrl.trim() || !pat.trim()) {
+      toast.error("Provider, label, base URL, and PAT are all required.");
+      return;
+    }
+    setCreating(true);
+    try {
+      await createCredential({ provider, label: label.trim(), baseUrl: baseUrl.trim(), pat: pat.trim() });
+      setLabel("");
+      setBaseUrl("");
+      setPat("");
+      toast.success("Credential registered.");
+      await load();
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteCredential(id);
+      toast.success("Credential deleted.");
+      await load();
+    } catch (e) {
+      // Delete is blocked (409) while any TrackerLink still references this Credential.
+      toast.error(String(e));
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-border bg-card p-5">
+        <p className="text-sm font-semibold mb-4">Integrations</p>
+        <div className="flex justify-center py-4">
+          <Spinner />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-5 space-y-5">
+      <div>
+        <p className="text-sm font-semibold">Integrations</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Register a provider account once here — attach it to any Project later via a
+          TrackerLink. The PAT is encrypted at rest and never shown again after saving.
+        </p>
+      </div>
+
+      {/* Registered credentials */}
+      <div className="space-y-2">
+        {credentials.length === 0 && (
+          <p className="text-xs text-muted-foreground">No credentials registered yet.</p>
+        )}
+        {credentials.map((cred) => (
+          <div
+            key={cred.id}
+            className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-xs"
+          >
+            <div>
+              <span className="font-medium">{cred.label}</span>
+              <span className="text-muted-foreground ml-2 capitalize">
+                {cred.provider.replace("_", " ")}
+              </span>
+              <p className="text-muted-foreground">{cred.baseUrl}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`Delete ${cred.label}`}
+              onClick={() => setPendingDeleteId(cred.id)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      {/* Register a new credential */}
+      <div className="space-y-2 border-t border-border pt-4">
+        <Label>Provider</Label>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {PROVIDERS.map((p) => (
+            <button
+              key={p.value}
+              onClick={() => setProvider(p.value)}
+              className={`text-left rounded-md border px-3 py-2 text-xs transition-colors ${
+                provider === p.value
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-background text-foreground hover:bg-muted"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {guidance[provider] && (
+          <p className="text-xs text-muted-foreground">{guidance[provider]}</p>
+        )}
+
+        <div className="space-y-1.5">
+          <Label htmlFor="credential-label">Label</Label>
+          <Input
+            id="credential-label"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="e.g. Personal GitHub"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="credential-base-url">Base URL</Label>
+          <Input
+            id="credential-base-url"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://api.github.com"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="credential-pat">Personal Access Token</Label>
+          <Input
+            id="credential-pat"
+            type="password"
+            value={pat}
+            onChange={(e) => setPat(e.target.value)}
+            placeholder="•••••••••"
+          />
+        </div>
+        <Button onClick={handleCreate} disabled={creating} className="mt-1">
+          <Plus className="h-4 w-4 mr-1" />
+          {creating ? "Registering…" : "Register Credential"}
+        </Button>
+      </div>
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        onClose={() => setPendingDeleteId(null)}
+        onConfirm={async () => {
+          if (pendingDeleteId) await handleDelete(pendingDeleteId);
+        }}
+        title="Delete Credential"
+        description="Deleting a Credential still referenced by a TrackerLink will be rejected. Are you sure you want to delete this Credential?"
+        confirmLabel="Delete"
+        variant="destructive"
+      />
+    </div>
+  );
+}

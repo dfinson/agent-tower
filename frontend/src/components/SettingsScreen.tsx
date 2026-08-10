@@ -10,6 +10,7 @@ import {
 import type { Settings } from "../api/types";
 import { AddRepoModal } from "./AddRepoModal";
 import { PolicySettingsPanel } from "./PolicySettingsPanel";
+import { IntegrationsSettings } from "./IntegrationsSettings";
 import { RepoIndexIndicator } from "./RepoIndexIndicator";
 import { SidecarLibraryPanel } from "./SidecarLibraryPanel";
 import { Button } from "./ui/button";
@@ -281,6 +282,9 @@ export function SettingsScreen() {
 
       {/* Action Policy */}
       <PolicySettingsPanel />
+
+      {/* Integrations */}
+      <IntegrationsSettings />
 
       {/* Retention */}
       <div className="rounded-lg border border-border bg-card p-5">
