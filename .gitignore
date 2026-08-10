@@ -123,5 +123,16 @@ site/
 .playwright-mcp/
 
 # BMAD planning and implementation runtime output
-/_bmad-output/planning-artifacts/
-/_bmad-output/implementation-artifacts/
+/_bmad-output/planning-artifacts/*
+!/_bmad-output/planning-artifacts/epics.md
+!/_bmad-output/planning-artifacts/implementation-readiness-report-*.md
+!/_bmad-output/planning-artifacts/architecture/
+/_bmad-output/planning-artifacts/architecture/*
+!/_bmad-output/planning-artifacts/architecture/architecture-codeplane-self-restart-2026-08-07/
+!/_bmad-output/planning-artifacts/architecture/architecture-codeplane-self-restart-2026-08-07/.memlog.md
+!/_bmad-output/planning-artifacts/architecture/architecture-codeplane-self-restart-2026-08-07/ARCHITECTURE-SPINE.md
+!/_bmad-output/planning-artifacts/architecture/architecture-codeplane-self-restart-2026-08-07/SOLUTION-DESIGN.md
+/_bmad-output/planning-artifacts/architecture/architecture-codeplane-self-restart-2026-08-07/reviews/
+/_bmad-output/implementation-artifacts/*
+!/_bmad-output/implementation-artifacts/sprint-status.yaml
+!/_bmad-output/implementation-artifacts/*.md
