@@ -585,6 +585,46 @@ export function updateUsdCeilings(
   });
 }
 
+// --- Credentials (Story 3.1, global Settings > Integrations) ---
+
+export type CredentialProvider = "github" | "jira" | "azure_devops";
+
+export interface Credential {
+  id: string;
+  provider: CredentialProvider;
+  label: string;
+  baseUrl: string;
+  createdAt: string;
+}
+
+export interface CreateCredentialRequest {
+  provider: CredentialProvider;
+  label: string;
+  baseUrl: string;
+  pat: string;
+}
+
+export function fetchCredentials(): Promise<{ credentials: Credential[] }> {
+  return request("/settings/credentials");
+}
+
+export function fetchCredentialGuidance(): Promise<{ guidance: Record<string, string> }> {
+  return request("/settings/credentials/guidance");
+}
+
+export function createCredential(body: CreateCredentialRequest): Promise<Credential> {
+  return request("/settings/credentials", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteCredential(credentialId: string): Promise<void> {
+  return request(`/settings/credentials/${encodeURIComponent(credentialId)}`, {
+    method: "DELETE",
+  });
+}
+
 // --- Operator Messages ---
 
 export function sendOperatorMessage(
