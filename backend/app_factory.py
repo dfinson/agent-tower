@@ -29,6 +29,7 @@ from backend.api import (
     analytics,
     approvals,
     artifacts,
+    chats,
     events,
     health,
     hooks,
@@ -221,6 +222,7 @@ def _register_routes(app: FastAPI) -> None:
     app.include_router(policy_settings.router, prefix="/api")
     app.include_router(metrics.router, prefix="/api")
     app.include_router(sidecar_templates.router, prefix="/api")
+    app.include_router(chats.router, prefix="/api")
 
 
 def _register_domain_exception_handlers(app: FastAPI) -> None:

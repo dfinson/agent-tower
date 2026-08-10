@@ -201,6 +201,7 @@ async def app(
     from backend.api import (
         approvals,
         artifacts,
+        chats,
         events,
         health,
         job_artifacts,
@@ -230,6 +231,7 @@ async def app(
     application.include_router(settings.router, prefix="/api")
     application.include_router(share.router, prefix="/api")
     application.include_router(terminal.router, prefix="/api")
+    application.include_router(chats.router, prefix="/api")
 
     # -- dishka DI container (replaces app.state) --------------------------
     container = make_async_container(

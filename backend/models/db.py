@@ -534,6 +534,28 @@ class SecondarySessionRow(Base):
     __table_args__ = (Index("ix_secondary_sessions_job_id", "job_id"),)
 
 
+class ChatRow(Base):
+    """A persistent, purely conversational chat with no git footprint.
+
+    ``project_id`` is intentionally nullable: a Chat may be started from
+    global navigation with no Project context, and is settled later when
+    a Job is launched from it or it is attached to a Task Recipe chain
+    (see Stories 5.2/5.3). No column here or in ``ChatRepository``/
+    ``ChatService`` may ever reference ``GitService`` (AD-12, NFR8).
+    """
+
+    __tablename__ = "chats"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    last_message_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, server_default="open")
+
+    __table_args__ = (Index("ix_chats_project_id", "project_id"),)
+
+
 class SecondarySessionEntryRow(Base):
     __tablename__ = "secondary_session_entries"
 
