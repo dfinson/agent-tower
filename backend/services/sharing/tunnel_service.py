@@ -32,6 +32,20 @@ class RemoteProvider(StrEnum):
     cloudflare = "cloudflare"
 
 
+class TunnelOwnership(StrEnum):
+    """Explicit connector ownership for a remote access provider.
+
+    ``managed`` means this CodePlane instance starts and owns the connector
+    process outright. ``external`` means CodePlane never starts, scans for,
+    or otherwise controls a connector process — it only resolves the exact
+    recorded hostname/tunnel name into an origin string so the caller can
+    probe it (SPEC CAP-6, ARCHITECTURE-SPINE AD-8).
+    """
+
+    managed = "managed"
+    external = "external"
+
+
 class TunnelStartError(CodePlaneError):
     """Raised when a remote access provider cannot be started."""
 
@@ -45,6 +59,16 @@ class TunnelHandle:
     proc: subprocess.Popen[str] | None = None
     watchdog: TunnelWatchdog | None = None
     externally_managed: bool = False
+    # Stable tunnel identity (devtunnel name or Cloudflare hostname) after
+    # startup -- the active launch profile persists this for restart replay
+    # (Story 1.1, ARCHITECTURE-SPINE.md AD-5). ``None`` when no tunnel applies.
+    name: str | None = None
+    # True when ``origin`` is a stable, explicitly configured identity (a
+    # named Dev Tunnel or a fixed Cloudflare hostname) rather than a name
+    # generated for this run. Restart tooling uses this to decide whether the
+    # origin can be reused as-is or must be republished after restart
+    # (ARCHITECTURE-SPINE AD-8: "reusable" vs "non-reusable" origin).
+    origin_is_reusable: bool = False
 
     def close(self) -> None:
         if self.watchdog is not None:
@@ -339,6 +363,73 @@ def validate_remote_provider(
     )
 
 
+def _external_tunnel_origin(
+    provider: RemoteProvider,
+    *,
+    port: int,
+    cloudflare_hostname: str | None,
+    tunnel_name: str | None,
+) -> str:
+    """Resolve the exact recorded origin for an externally owned tunnel.
+
+    Never spawns a connector process and never scans local OS processes
+    (SPEC CAP-6, ARCHITECTURE-SPINE AD-8) — it only resolves the origin
+    string from configuration or a name-based tunnel-service lookup (a
+    remote lookup by exact name, not a local process enumeration).
+    """
+    if provider is RemoteProvider.cloudflare:
+        if not cloudflare_hostname:
+            raise TunnelStartError(
+                "External Cloudflare tunnel ownership requires CPL_CLOUDFLARE_HOSTNAME to resolve the origin."
+            )
+        hostname = cloudflare_hostname.removeprefix("https://").rstrip("/")
+        return f"https://{hostname}"
+
+    if provider is RemoteProvider.devtunnel:
+        if not tunnel_name:
+            raise TunnelStartError("External Dev Tunnel ownership requires an explicit tunnel name.")
+        exists, region = _lookup_devtunnel(tunnel_name)
+        if not exists or not region:
+            raise TunnelStartError(f"Dev Tunnel {tunnel_name!r} was not found; cannot resolve its origin externally.")
+        return f"https://{tunnel_name}-{port}.{region}.devtunnels.ms"
+
+    raise TunnelStartError(f"External tunnel ownership is not supported for provider {provider.value!r}.")
+
+
+def _start_cloudflare_managed(
+    port: int,
+    *,
+    cloudflare_token: str | None,
+    cloudflare_hostname: str | None,
+) -> tuple[str, subprocess.Popen[str]]:
+    """Start and exclusively own a fresh cloudflared connector.
+
+    Unlike ``_start_cloudflare``'s legacy auto-detect path, this never scans
+    local processes to decide whether to reuse an existing connector
+    (SPEC CAP-6, ARCHITECTURE-SPINE AD-8): explicit ``managed`` ownership
+    always means CodePlane starts and owns the connector itself.
+    """
+    if not cloudflare_token or not cloudflare_hostname:
+        raise TunnelStartError("Cloudflare remote access requires a tunnel token and hostname.")
+
+    hostname = cloudflare_hostname.removeprefix("https://").rstrip("/")
+    tunnel_url = f"https://{hostname}"
+
+    env = {**__import__("os").environ, "TUNNEL_TOKEN": cloudflare_token}
+    proc = subprocess.Popen(
+        ["cloudflared", "tunnel", "--no-autoupdate", "run"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=env,
+    )
+    _wait_for_startup(proc, label="cloudflare")
+    _start_output_drain(proc)
+
+    log.debug("tunnel_started", provider="cloudflare", url=tunnel_url, port=port, ownership="managed")
+    return tunnel_url, proc
+
+
 def start_remote_access(
     provider: RemoteProvider,
     *,
@@ -346,13 +437,47 @@ def start_remote_access(
     cloudflare_token: str | None = None,
     cloudflare_hostname: str | None = None,
     tunnel_name: str | None = None,
+    ownership: TunnelOwnership | None = None,
 ) -> TunnelHandle:
-    """Start the selected remote access provider."""
+    """Start the selected remote access provider.
+
+    ``ownership`` is an explicit opt-in (SPEC CAP-6, ARCHITECTURE-SPINE AD-8):
+
+    - ``TunnelOwnership.external`` never starts a connector or scans local
+      processes; it only resolves the exact recorded hostname/tunnel name.
+    - ``TunnelOwnership.managed`` always starts and owns a fresh connector,
+      skipping any reuse-detection heuristics.
+    - ``None`` (default) preserves the pre-existing auto-detect behavior for
+      callers that have not yet been updated to record explicit ownership.
+    """
     if provider is RemoteProvider.local:
         return TunnelHandle(provider=provider)
+
+    if ownership is TunnelOwnership.external:
+        origin = _external_tunnel_origin(
+            provider,
+            port=port,
+            cloudflare_hostname=cloudflare_hostname,
+            tunnel_name=tunnel_name,
+        )
+        log.info("tunnel_external_ownership", provider=provider.value, origin=origin)
+        return TunnelHandle(
+            provider=provider,
+            origin=origin,
+            proc=None,
+            externally_managed=True,
+            origin_is_reusable=True,
+        )
+
     if provider is RemoteProvider.devtunnel:
-        origin, proc, resolved_name = _start_devtunnel(port, tunnel_name=tunnel_name)
-        handle = TunnelHandle(provider=provider, origin=origin, proc=proc)
+        origin, proc, resolved_name, origin_is_reusable = _start_devtunnel(port, tunnel_name=tunnel_name)
+        handle = TunnelHandle(
+            provider=provider,
+            origin=origin,
+            proc=proc,
+            name=resolved_name,
+            origin_is_reusable=origin_is_reusable,
+        )
         handle.watchdog = TunnelWatchdog(
             tunnel_url=origin,
             restart_command=["devtunnel", "host", resolved_name],
@@ -362,11 +487,28 @@ def start_remote_access(
         )
         handle.watchdog.start()
         return handle
-    origin, cf_proc = _start_cloudflare(
-        port, cloudflare_token=cloudflare_token, cloudflare_hostname=cloudflare_hostname
-    )
+
+    cf_proc: subprocess.Popen[str] | None
+    if ownership is TunnelOwnership.managed:
+        origin, cf_proc = _start_cloudflare_managed(
+            port, cloudflare_token=cloudflare_token, cloudflare_hostname=cloudflare_hostname
+        )
+    else:
+        # ownership is None: legacy auto-detect path, preserved for callers
+        # that have not yet been updated to record explicit ownership.
+        origin, cf_proc = _start_cloudflare(
+            port, cloudflare_token=cloudflare_token, cloudflare_hostname=cloudflare_hostname
+        )
     externally_managed = cf_proc is None
-    handle = TunnelHandle(provider=provider, origin=origin, proc=cf_proc, externally_managed=externally_managed)
+    resolved_hostname = (cloudflare_hostname or "").removeprefix("https://").rstrip("/") or None
+    handle = TunnelHandle(
+        provider=provider,
+        origin=origin,
+        proc=cf_proc,
+        externally_managed=externally_managed,
+        name=resolved_hostname,
+        origin_is_reusable=True,  # a Cloudflare origin is always a fixed configured hostname
+    )
     if cf_proc is not None:
         # We started our own process — attach a watchdog to keep it alive
         handle.watchdog = TunnelWatchdog(
@@ -429,19 +571,29 @@ def _find_existing_codeplane_tunnel() -> tuple[str, str] | None:
     return None
 
 
-def _start_devtunnel(port: int, *, tunnel_name: str | None = None) -> tuple[str, subprocess.Popen[str], str]:
+def _start_devtunnel(
+    port: int, *, tunnel_name: str | None = None
+) -> tuple[str, subprocess.Popen[str], str, bool]:
+    # Reusable means the identity is either explicitly configured by the
+    # caller or an already-registered codeplane tunnel — restart tooling can
+    # rely on the exact same origin next time. A freshly generated random
+    # name is not yet known anywhere else, so it is not reusable this run
+    # (ARCHITECTURE-SPINE AD-8).
     if tunnel_name:
         # Explicit name — use as-is
         exists, region = _lookup_devtunnel(tunnel_name)
+        origin_is_reusable = True
     else:
         # Auto mode — reuse an existing codeplane tunnel or generate a random name
         existing = _find_existing_codeplane_tunnel()
         if existing:
             tunnel_name, region = existing
             exists = True
+            origin_is_reusable = True
         else:
             tunnel_name = f"{_CODEPLANE_TUNNEL_PREFIX}{secrets.token_hex(4)}"
             exists, region = False, None
+            origin_is_reusable = False
 
     if not exists:
         create_result = _run_capture(["devtunnel", "create", tunnel_name, "--expiration", "30d"])
@@ -467,7 +619,7 @@ def _start_devtunnel(port: int, *, tunnel_name: str | None = None) -> tuple[str,
 
     tunnel_url = f"https://{tunnel_name}-{port}.{region}.devtunnels.ms"
     log.debug("tunnel_started", provider="devtunnel", url=tunnel_url)
-    return tunnel_url, proc, tunnel_name
+    return tunnel_url, proc, tunnel_name, origin_is_reusable
 
 
 def _cloudflared_already_running() -> bool:

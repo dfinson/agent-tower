@@ -382,3 +382,279 @@ class TestRestart:
             result = runner.invoke(cli, ["restart", "--remote"])  # noqa: F841
         args = mock_exec.call_args[0][1]
         assert "--remote" in args
+
+
+# ---------------------------------------------------------------------------
+# cpl up — active launch profile publication (Story 1.1)
+# ---------------------------------------------------------------------------
+
+
+async def _fake_startup(self: object, sockets: list[object] | None = None) -> None:
+    """Stand-in for ``uvicorn.Server.startup`` that skips real socket
+    binding and lifespan startup but still sets ``self.started`` so
+    ``_LaunchProfileServer.startup`` proceeds to publish."""
+    self.started = True  # type: ignore[attr-defined]
+
+
+def _fake_server_run(self: object) -> None:
+    """Stand-in for ``uvicorn.Server.run`` that drives startup synchronously
+    instead of entering the real (blocking) serve loop."""
+    import asyncio
+
+    asyncio.run(self.startup())  # type: ignore[attr-defined]
+
+
+def _invoke_up(
+    args: list[str], *, owning_pids: list[int] | None = None
+) -> tuple[object, dict[str, object] | None]:
+    """Invoke ``cpl up <args>`` with all real side effects (frontend build,
+    migrations, dashboard, logging, actual Uvicorn socket binding) stubbed
+    out, returning the CliRunner result and the profile dict written via
+    ``write_active_launch_profile`` (``None`` if it was never called).
+
+    ``owning_pids`` overrides the listener-owner check consulted during
+    publication; defaults to the current process (the happy path)."""
+    import os
+
+    from backend.services.dev_restart import launch_profile as launch_profile_module
+
+    written: dict[str, object] | None = None
+    real_write = launch_profile_module.write_active_launch_profile
+    resolved_owning_pids = owning_pids if owning_pids is not None else [os.getpid()]
+
+    def _capture_write(profile: object) -> None:
+        nonlocal written
+        written = profile.to_dict()  # type: ignore[attr-defined]
+        real_write(profile)
+
+    runner = CliRunner()
+    fake_app = SimpleNamespace(state=SimpleNamespace())
+    with (
+        patch("backend.services.setup.service.validate_preflight", return_value=True),
+        patch("backend.cli._build_frontend", return_value=True),
+        patch("backend.console_dashboard.ConsoleLog.create_if_tty", return_value=None),
+        patch("backend.logging_config.setup_logging"),
+        patch("backend.persistence.database.run_migrations"),
+        patch("backend.app_factory.create_app", return_value=fake_app),
+        patch("backend.cli._find_pids_on_port", return_value=resolved_owning_pids),
+        patch("backend.services.sharing.tunnel_service.validate_remote_provider", return_value=None),
+        patch("uvicorn.Server.startup", new=_fake_startup),
+        patch("uvicorn.Server.run", new=_fake_server_run),
+        patch(
+            "backend.services.dev_restart.launch_profile.write_active_launch_profile",
+            side_effect=_capture_write,
+        ),
+    ):
+        result = runner.invoke(cli, ["up", *args])
+    return result, written
+
+
+class TestUpLaunchProfilePublication:
+    def test_local_mode_no_password(self, tmp_path: object) -> None:
+        with patch("backend.config.get_codeplane_dir", return_value=tmp_path):
+            result, written = _invoke_up(["--no-password"])
+        assert result.exit_code == 0, result.output
+        assert written is not None
+        assert written["remote"] is False
+        assert written["provider"] == "local"
+        assert written["tunnelOwnership"] is None
+        assert written["passwordSource"] == {"kind": "not_required"}
+        assert written["tunnelCredentialSource"] == {"kind": "not_required"}
+
+    def test_literal_password_is_unreplayable(self, tmp_path: object) -> None:
+        with patch("backend.config.get_codeplane_dir", return_value=tmp_path):
+            result, written = _invoke_up(["--password", "literal-secret-do-not-leak"])
+        assert result.exit_code == 0, result.output
+        assert written is not None
+        assert written["passwordSource"] == {"kind": "unreplayable"}
+        assert "literal-secret-do-not-leak" not in result.output
+        assert "literal-secret-do-not-leak" not in str(written)
+
+    def test_env_password_is_resolvable(self, tmp_path: object) -> None:
+        with (
+            patch("backend.config.get_codeplane_dir", return_value=tmp_path),
+            patch.dict("os.environ", {"CPL_PASSWORD": "env-secret-do-not-leak"}),
+        ):
+            result, written = _invoke_up([])
+        assert result.exit_code == 0, result.output
+        assert written is not None
+        assert written["passwordSource"] == {
+            "kind": "resolvable",
+            "provider": "environment",
+            "reference": "CPL_PASSWORD",
+        }
+        assert "env-secret-do-not-leak" not in result.output
+        assert "env-secret-do-not-leak" not in str(written)
+
+    def test_remote_devtunnel_credential_and_password_are_classified(self, tmp_path: object) -> None:
+        from backend.services.sharing.tunnel_service import RemoteProvider, TunnelHandle
+
+        fake_handle = TunnelHandle(
+            provider=RemoteProvider.devtunnel,
+            origin="https://example.devtunnels.ms",
+            externally_managed=False,
+            name="cpl-tunnel-abc",
+            # An explicitly named tunnel identity is stable across a restart.
+            origin_is_reusable=True,
+        )
+        with (
+            patch("backend.config.get_codeplane_dir", return_value=tmp_path),
+            patch("backend.services.sharing.tunnel_service.start_remote_access", return_value=fake_handle),
+        ):
+            result, written = _invoke_up(["--remote", "--provider", "devtunnel"])
+        assert result.exit_code == 0, result.output
+        assert written is not None
+        assert written["remote"] is True
+        assert written["provider"] == "devtunnel"
+        assert written["tunnelOwnership"] == "managed"
+        assert written["tunnelName"] == "cpl-tunnel-abc"
+        assert written["tunnelOrigin"] == "https://example.devtunnels.ms"
+        assert written["tunnelOriginReusable"] is True
+        assert written["passwordSource"] == {"kind": "unreplayable"}
+        assert written["tunnelCredentialSource"] == {
+            "kind": "resolvable",
+            "provider": "provider-login",
+            "reference": "devtunnel",
+        }
+
+    def test_remote_cloudflare_access_disables_password_source(self, tmp_path: object) -> None:
+        from backend.services.sharing.tunnel_service import RemoteProvider, TunnelHandle
+
+        fake_handle = TunnelHandle(
+            provider=RemoteProvider.cloudflare,
+            origin="https://cpl.example.com",
+            externally_managed=False,
+            name="cpl.example.com",
+        )
+        with (
+            patch("backend.config.get_codeplane_dir", return_value=tmp_path),
+            patch("backend.services.sharing.tunnel_service.start_remote_access", return_value=fake_handle),
+            patch.dict(
+                "os.environ",
+                {
+                    "CPL_CLOUDFLARE_TUNNEL_TOKEN": "cf-token-do-not-leak",
+                    "CPL_CLOUDFLARE_HOSTNAME": "cpl.example.com",
+                },
+            ),
+        ):
+            result, written = _invoke_up(["--remote", "--provider", "cloudflare"])
+        assert result.exit_code == 0, result.output
+        assert written is not None
+        assert written["remote"] is True
+        assert written["provider"] == "cloudflare"
+        assert written["tunnelOwnership"] == "managed"
+        assert written["passwordSource"] == {"kind": "not_required"}
+        assert written["tunnelCredentialSource"] == {
+            "kind": "resolvable",
+            "provider": "environment",
+            "reference": "CPL_CLOUDFLARE_TUNNEL_TOKEN",
+        }
+        assert "cf-token-do-not-leak" not in result.output
+        assert "cf-token-do-not-leak" not in str(written)
+
+    def test_externally_managed_tunnel_credential_not_required(self, tmp_path: object) -> None:
+        from backend.services.sharing.tunnel_service import RemoteProvider, TunnelHandle
+
+        fake_handle = TunnelHandle(
+            provider=RemoteProvider.devtunnel,
+            origin="https://already-running.devtunnels.ms",
+            externally_managed=True,
+            name="already-running",
+        )
+        with (
+            patch("backend.config.get_codeplane_dir", return_value=tmp_path),
+            patch("backend.services.sharing.tunnel_service.start_remote_access", return_value=fake_handle),
+        ):
+            result, written = _invoke_up(["--remote", "--provider", "devtunnel"])
+        assert result.exit_code == 0, result.output
+        assert written is not None
+        assert written["tunnelOwnership"] == "external"
+        assert written["tunnelCredentialSource"] == {"kind": "not_required"}
+
+    def test_tunnel_ownership_flag_propagates_managed_explicitly(self, tmp_path: object) -> None:
+        """``--tunnel-ownership managed`` (as replayed by restart, AD-8) must reach
+        ``start_remote_access`` as an explicit ``TunnelOwnership.managed`` value,
+        never left as the implicit ``None`` legacy auto-detect default."""
+        from backend.services.sharing.tunnel_service import RemoteProvider, TunnelHandle, TunnelOwnership
+
+        fake_handle = TunnelHandle(
+            provider=RemoteProvider.devtunnel,
+            origin="https://example.devtunnels.ms",
+            externally_managed=False,
+            name="cpl-tunnel-abc",
+        )
+        with (
+            patch("backend.config.get_codeplane_dir", return_value=tmp_path),
+            patch(
+                "backend.services.sharing.tunnel_service.start_remote_access", return_value=fake_handle
+            ) as mock_start,
+        ):
+            result, written = _invoke_up(
+                ["--remote", "--provider", "devtunnel", "--tunnel-ownership", "managed"]
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_start.call_args.kwargs["ownership"] is TunnelOwnership.managed
+
+    def test_tunnel_ownership_flag_propagates_external_explicitly(self, tmp_path: object) -> None:
+        """``--tunnel-ownership external`` must reach ``start_remote_access`` as an
+        explicit ``TunnelOwnership.external`` value so no connector is scanned
+        for or spawned — only the recorded origin is resolved (AD-8)."""
+        from backend.services.sharing.tunnel_service import RemoteProvider, TunnelHandle, TunnelOwnership
+
+        fake_handle = TunnelHandle(
+            provider=RemoteProvider.devtunnel,
+            origin="https://already-running.devtunnels.ms",
+            externally_managed=True,
+            name="already-running",
+        )
+        with (
+            patch("backend.config.get_codeplane_dir", return_value=tmp_path),
+            patch(
+                "backend.services.sharing.tunnel_service.start_remote_access", return_value=fake_handle
+            ) as mock_start,
+        ):
+            result, written = _invoke_up(
+                ["--remote", "--provider", "devtunnel", "--tunnel-ownership", "external"]
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_start.call_args.kwargs["ownership"] is TunnelOwnership.external
+
+    def test_tunnel_ownership_omitted_preserves_legacy_autodetect(self, tmp_path: object) -> None:
+        """When ``--tunnel-ownership`` is not passed (a normal manual ``cpl up``,
+        not a restart replay), ``ownership`` stays ``None`` so the pre-existing
+        auto-detect behavior is unchanged for callers that have not opted in."""
+        from backend.services.sharing.tunnel_service import RemoteProvider, TunnelHandle
+
+        fake_handle = TunnelHandle(
+            provider=RemoteProvider.devtunnel,
+            origin="https://example.devtunnels.ms",
+            externally_managed=False,
+            name="cpl-tunnel-abc",
+        )
+        with (
+            patch("backend.config.get_codeplane_dir", return_value=tmp_path),
+            patch(
+                "backend.services.sharing.tunnel_service.start_remote_access", return_value=fake_handle
+            ) as mock_start,
+        ):
+            result, written = _invoke_up(["--remote", "--provider", "devtunnel"])
+        assert result.exit_code == 0, result.output
+        assert mock_start.call_args.kwargs["ownership"] is None
+
+
+    def test_zero_bind_host_autogenerates_unreplayable_password(self, tmp_path: object) -> None:
+        with patch("backend.config.get_codeplane_dir", return_value=tmp_path):
+            result, written = _invoke_up(["--host", "0.0.0.0"])
+        assert result.exit_code == 0, result.output
+        assert written is not None
+        assert written["host"] == "0.0.0.0"
+        assert written["passwordSource"] == {"kind": "unreplayable"}
+
+    def test_publication_failure_when_pid_does_not_own_port(self, tmp_path: object) -> None:
+        """If the ownership check fails, publication must raise and startup
+        must not silently continue -- exercised directly via a failing
+        ``_find_pids_on_port`` override layered on top of the base patch set."""
+        with patch("backend.config.get_codeplane_dir", return_value=tmp_path):
+            result, written = _invoke_up(["--no-password"], owning_pids=[999999])
+        assert result.exit_code != 0
+        assert written is None

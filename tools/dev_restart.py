@@ -1,33 +1,37 @@
 #!/usr/bin/env python3
 """
-dev_restart.py — Graceful CodePlane server restart for frontend development.
+dev_restart.py — Graceful, native CodePlane self-restart for developers.
 
-Intended for use by agents working on this repository. Pauses all running
-agent sessions, rebuilds the frontend, restarts the CodePlane server, then
-resumes the sessions that were paused.
+Prepares a restart while the current server stays available (frontend build,
+backend compile/import preflight, active-launch-profile and secret
+re-validation), then hands execution to a detached helper that survives both
+this process and the CodePlane server it replaces. See
+``_bmad-output/planning-artifacts/architecture/architecture-codeplane-self-restart-2026-08-07/SOLUTION-DESIGN.md``
+for the full parent/helper design.
 
 Usage:
-    python tools/dev_restart.py [--port 8080] [--host 127.0.0.1] [--pause-wait 10]
+    uv run python tools/dev_restart.py [--source PATH] [--adoption-seconds N] ...
 
-The script exits non-zero if the frontend build fails, in which case the
-server is NOT restarted so the existing instance keeps running.
+The script exits non-zero on any preparation, spawn, or adoption failure. In
+every such case the current server keeps running untouched — pause and stop
+only ever happen inside the detached helper, after adoption succeeds.
 """
 
 from __future__ import annotations
 
 import argparse
-import contextlib
-import json
-import os
 import platform
 import shutil
-import signal
 import subprocess
 import sys
-import time
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import Request, urlopen
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from backend.services.dev_restart.launch_profile import LaunchProfile, SecretSource
+    from backend.services.dev_restart.restart_protocol import RestartRequestPaths, RestartTimeouts
 
 if sys.platform == "win32":
     # Windows consoles default sys.stdout/stderr to the legacy ANSI code page
@@ -42,163 +46,125 @@ if sys.platform == "win32":
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = REPO_ROOT / "frontend"
 
-# Jobs in these states will be collected before restart and resumed after.
-# waiting_for_approval jobs are already paused — we don't send a pause signal
-# but we do resume them once the server is back up.
-_RESUMABLE_STATES = ("running", "waiting_for_approval")
+# Marker files a directory must contain to be treated as a native CodePlane
+# checkout (AC 1) — cheap, no-import structural check before any subprocess
+# or profile validation runs against it.
+_CHECKOUT_MARKERS = ("backend/app_factory.py", "pyproject.toml")
+
+
+class DevRestartError(Exception):
+    """Any parent-mode preparation failure. Always leaves the current server running."""
 
 
 # ---------------------------------------------------------------------------
-# API helpers
+# Target source resolution and validation (AC 1)
 # ---------------------------------------------------------------------------
 
 
-def _request(method: str, url: str, body: dict | None = None) -> tuple[int, dict | None]:
-    """Perform an HTTP request; returns (status_code, parsed_body | None)."""
-    data = json.dumps(body).encode() if body is not None else None
-    headers = {"Content-Type": "application/json"} if data else {}
-    req = Request(url, data=data, headers=headers, method=method)
-    try:
-        with urlopen(req, timeout=10) as resp:
-            raw = resp.read()
-            try:
-                return resp.status, json.loads(raw) if raw else None
-            except json.JSONDecodeError:
-                return resp.status, None
-    except URLError:
-        return 0, None
-
-
-def list_jobs(base_url: str, state: str) -> list[dict]:
-    """Return jobs in the given state (handles pagination)."""
-    results: list[dict] = []
-    cursor: str | None = None
-    while True:
-        path = f"/api/jobs?state={state}&limit=100"
-        if cursor:
-            path += f"&cursor={cursor}"
-        status, body = _request("GET", f"{base_url}{path}")
-        if status != 200 or not body:
-            break
-        results.extend(body.get("items", []))
-        if not body.get("hasMore"):
-            break
-        cursor = body.get("cursor")
-    return results
-
-
-def pause_job(base_url: str, job_id: str) -> bool:
-    """Send a pause signal to a running job. Returns True on success."""
-    status, _ = _request("POST", f"{base_url}/api/jobs/{job_id}/pause")
-    return status == 204
-
-
-def resume_job(base_url: str, job_id: str) -> bool:
-    """Resume a failed job after server restart. Returns True on success."""
-    instruction = (
-        "Resuming after a scheduled CodePlane server restart (frontend rebuild). "
-        "Please continue exactly where you left off."
-    )
-    status, _ = _request("POST", f"{base_url}/api/jobs/{job_id}/resume", {"instruction": instruction})
-    return status == 200
-
-
-# ---------------------------------------------------------------------------
-# Process management
-# ---------------------------------------------------------------------------
-
-
-def _find_pids_on_port(port: int) -> list[int]:
-    """Return PIDs of processes listening on the given TCP port."""
-    # Try lsof first (available on most POSIX systems)
-    try:
-        result = subprocess.run(
-            ["lsof", "-ti", f":{port}", "-sTCP:LISTEN"],
-            capture_output=True,
-            text=True,
+def resolve_target_source_root(source: str | None) -> Path:
+    """Resolve ``--source`` to an absolute native path, defaulting to the
+    repository containing this invoked script (Story 1.2 AC 1). Refuses a
+    path that does not look like a CodePlane checkout before any build,
+    preflight, or profile validation is attempted against it.
+    """
+    root = Path(source).expanduser().resolve() if source else REPO_ROOT
+    missing = [marker for marker in _CHECKOUT_MARKERS if not (root / marker).is_file()]
+    if missing:
+        raise DevRestartError(
+            f"{root} does not look like a CodePlane checkout (missing: {', '.join(missing)})"
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return [int(p) for p in result.stdout.strip().splitlines() if p.strip().isdigit()]
-    except FileNotFoundError:
-        pass  # lsof not available — try ss fallback
-
-    # Fallback: ss (Linux)
-    try:
-        import re
-
-        result = subprocess.run(
-            ["ss", "-tlnp", f"sport = :{port}"],
-            capture_output=True,
-            text=True,
-        )
-        pids = re.findall(r"pid=(\d+)", result.stdout)
-        return [int(p) for p in pids]
-    except (FileNotFoundError, subprocess.SubprocessError, OSError):
-        pass  # ss not available — no PIDs found
-
-    return []
-
-
-def stop_server(port: int, graceful_timeout: int = 15) -> bool:
-    """SIGTERM the server, wait for it to stop, SIGKILL if needed."""
-    pids = _find_pids_on_port(port)
-    if not pids:
-        print("  No process found listening on that port — already stopped?")
-        return True
-
-    print(f"  Found process(es) on port {port}: PIDs {pids}")
-    for pid in pids:
-        try:
-            os.kill(pid, signal.SIGTERM)
-            print(f"  Sent SIGTERM to PID {pid}")
-        except ProcessLookupError:
-            pass  # process already exited
-
-    deadline = time.monotonic() + graceful_timeout
-    while time.monotonic() < deadline:
-        if not _find_pids_on_port(port):
-            print("  Server stopped gracefully.")
-            return True
-        time.sleep(0.5)
-
-    # Force-kill anything still running
-    print("  Graceful timeout reached — sending SIGKILL.")
-    for pid in _find_pids_on_port(port):
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
-    time.sleep(1)
-    still_up = _find_pids_on_port(port)
-    if still_up:
-        print(f"  WARNING: process(es) {still_up} still alive after SIGKILL.")
-        return False
-    return True
-
-
-def start_server(host: str, port: int) -> int:
-    """Start CodePlane in the background, detached from this process. Returns PID."""
-    proc = subprocess.Popen(
-        ["uv", "run", "cpl", "up", "--host", host, "--port", str(port)],
-        cwd=REPO_ROOT,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,  # detach: survives after this script exits
-    )
-    return proc.pid
-
-
-def wait_for_health(base_url: str, timeout: int = 60) -> bool:
-    """Poll /health until the server responds 200."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        status, _ = _request("GET", f"{base_url}/health")
-        if status == 200:
-            return True
-        time.sleep(1)
-    return False
+    return root
 
 
 # ---------------------------------------------------------------------------
-# Frontend build
+# Secret re-resolution (AC 4) — never serializes or logs a secret value
+# ---------------------------------------------------------------------------
+
+
+def _dotenv_value(key: str, source_root: Path) -> str | None:
+    """Mirror `cpl up`'s .env-then-environment precedence, resolved against
+    *source_root* (the target being restarted into), not this process's own
+    environment file.
+    """
+    import os
+
+    dotenv_path = source_root / ".env"
+    if dotenv_path.is_file():
+        for line in dotenv_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                key_part, _, value_part = stripped.partition("=")
+                if key_part.strip() == key:
+                    value = value_part.strip()
+                    if value:
+                        return value
+    return os.environ.get(key) or None
+
+
+def ensure_secret_resolvable(source: SecretSource, target_source_root: Path, *, label: str) -> None:
+    """Re-resolve *source* against the target checkout without ever reading,
+    serializing, or logging its actual value (Story 1.2 Dev Notes).
+
+    ``unreplayable`` is already refused unconditionally by
+    ``validate_launch_profile()`` (AD-5) before this is ever called; the
+    branch here exists only so this function fails closed if ever invoked
+    on its own. ``resolvable`` sources are checked for *current*
+    resolvability -- a stale or since-revoked reference must fail before
+    outage, not merely be well-formed.
+    """
+    if source.kind == "not_required":
+        return
+    if source.kind == "unreplayable":
+        raise DevRestartError(f"{label} is not replayable; restart refused")
+
+    if source.provider == "environment":
+        if not source.reference or not _dotenv_value(source.reference, target_source_root):
+            raise DevRestartError(
+                f"{label} references environment variable {source.reference!r}, which cannot be resolved "
+                f"from {target_source_root} (.env or process environment)"
+            )
+        return
+    if source.provider == "provider-login":
+        if source.reference == "devtunnel" and shutil.which("devtunnel") is None:
+            raise DevRestartError(f"{label} requires the 'devtunnel' CLI, which was not found on PATH")
+        return
+    raise DevRestartError(f"{label} has an unrecognized provider {source.provider!r}; restart refused")
+
+
+# ---------------------------------------------------------------------------
+# Backend compile/import preflight (AC 3)
+# ---------------------------------------------------------------------------
+
+
+def run_backend_preflight(executable: str, target_source_root: Path) -> None:
+    """Run ``compileall`` over ``backend``/``tools``, then import
+    ``backend.app_factory``, using the recorded active executable directly
+    against *target_source_root* -- no dependency sync, no runtime mutation
+    (Story 1.2 AC 3).
+    """
+    compile_result = subprocess.run(  # noqa: S603 - fixed argv, recorded native executable
+        [executable, "-m", "compileall", "-q", "backend", "tools"],
+        cwd=str(target_source_root),
+        capture_output=True,
+        text=True,
+    )
+    if compile_result.returncode != 0:
+        detail = (compile_result.stdout + compile_result.stderr).strip()
+        raise DevRestartError(f"backend preflight failed: compileall over backend/tools reported errors:\n{detail}")
+
+    import_result = subprocess.run(  # noqa: S603 - fixed argv, recorded native executable
+        [executable, "-c", "import backend.app_factory"],
+        cwd=str(target_source_root),
+        capture_output=True,
+        text=True,
+    )
+    if import_result.returncode != 0:
+        detail = (import_result.stdout + import_result.stderr).strip()
+        raise DevRestartError(f"backend preflight failed: could not import backend.app_factory:\n{detail}")
+
+
+# ---------------------------------------------------------------------------
+# Frontend build (AC 2)
 # ---------------------------------------------------------------------------
 
 
@@ -214,11 +180,162 @@ def _resolve_npm_command() -> str:
     return resolved
 
 
-def build_frontend() -> bool:
-    """Run `npm run build` in the frontend directory. Streams output live."""
+def build_frontend(frontend_dir: Path = FRONTEND_DIR) -> bool:
+    """Run `npm run build` in *frontend_dir* (defaults to this checkout's
+    frontend). Streams output live. Runs while the current server remains
+    available (Story 1.2 AC 2) -- always before helper spawn, pause, or stop.
+    """
     npm = _resolve_npm_command()
-    result = subprocess.run([npm, "run", "build"], cwd=FRONTEND_DIR)
+    result = subprocess.run([npm, "run", "build"], cwd=frontend_dir)
     return result.returncode == 0
+
+
+# ---------------------------------------------------------------------------
+# Pending-request write (AC 5)
+# ---------------------------------------------------------------------------
+
+
+def write_pending_request(
+    request_id: str,
+    target_source_root: Path,
+    profile: LaunchProfile,
+    timeouts: RestartTimeouts,
+) -> RestartRequestPaths:
+    """Atomically write the secret-free ``<id>.pending.json`` request (AC 5).
+
+    Contains only the request ID, validated native target source, the
+    already secret-free launch profile, and phase timeouts -- no credential
+    values, per the wire contract in
+    ``backend.services.dev_restart.restart_protocol``.
+    """
+    from backend.services.dev_restart.restart_protocol import get_request_paths, write_json_atomic
+
+    paths = get_request_paths(request_id)
+    payload = {
+        "requestId": request_id,
+        "targetSourceRoot": str(target_source_root),
+        "launchProfile": profile.to_dict(),
+        "timeouts": timeouts.to_dict(),
+        "createdAt": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    write_json_atomic(paths.pending, payload)
+    return paths
+
+
+# ---------------------------------------------------------------------------
+# Parent-mode orchestration (Story 1.2 + handoff to the Story 1.3 helper)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_timeouts(args: argparse.Namespace) -> RestartTimeouts:
+    from backend.services.dev_restart.restart_protocol import RestartTimeouts
+
+    defaults = RestartTimeouts()
+    return RestartTimeouts(
+        adoption_seconds=args.adoption_seconds if args.adoption_seconds is not None else defaults.adoption_seconds,
+        response_grace_seconds=(
+            args.response_grace_seconds
+            if args.response_grace_seconds is not None
+            else defaults.response_grace_seconds
+        ),
+        pause_wait_seconds=(
+            args.pause_wait_seconds if args.pause_wait_seconds is not None else defaults.pause_wait_seconds
+        ),
+        stop_seconds=args.stop_seconds if args.stop_seconds is not None else defaults.stop_seconds,
+        readiness_seconds=(
+            args.readiness_seconds if args.readiness_seconds is not None else defaults.readiness_seconds
+        ),
+        remote_probe_seconds=(
+            args.remote_probe_seconds if args.remote_probe_seconds is not None else defaults.remote_probe_seconds
+        ),
+    )
+
+
+def prepare_restart_request(args: argparse.Namespace) -> tuple[RestartRequestPaths, str, RestartTimeouts]:
+    """Run every preparation step (AC 1-5) in the required order and write
+    the pending request. Raises ``DevRestartError``/the underlying
+    launch-profile or restart-protocol error on any failure -- callers must
+    not send pause or stop after a raised exception (AC 6).
+    """
+    from backend.services.dev_restart.launch_profile import (
+        LaunchProfileError,
+        load_active_profile,
+        validate_launch_profile,
+    )
+
+    timeouts = _resolve_timeouts(args)
+    target_source_root = resolve_target_source_root(args.source)
+
+    try:
+        profile = load_active_profile()
+        validate_launch_profile(profile, require_replayable_secrets=True)
+    except LaunchProfileError as exc:
+        raise DevRestartError(f"active launch profile is invalid or stale: {exc}") from exc
+
+    ensure_secret_resolvable(profile.password_source, target_source_root, label="password source")
+    ensure_secret_resolvable(profile.tunnel_credential_source, target_source_root, label="tunnel credential source")
+
+    print(f"[1/4] Building the frontend at {target_source_root}…")
+    if not build_frontend(target_source_root / "frontend"):
+        raise DevRestartError("frontend build failed")
+    print("  ✓ Frontend build succeeded.")
+
+    print("[2/4] Running backend compile/import preflight…")
+    run_backend_preflight(profile.executable, target_source_root)
+    print("  ✓ Preflight succeeded.")
+
+    request_id = uuid.uuid4().hex
+    print(f"[3/4] Writing restart request {request_id}…")
+    paths = write_pending_request(request_id, target_source_root, profile, timeouts)
+
+    return paths, request_id, timeouts
+
+
+def run_parent(args: argparse.Namespace) -> int:
+    """Full parent-mode flow: prepare (AC 1-6), then hand off to the
+    detached helper (Story 1.3) and wait for adoption. Returns the process
+    exit code.
+    """
+    from backend.services.dev_restart.restart_helper import await_adoption, spawn_detached_helper
+    from backend.services.dev_restart.restart_protocol import (
+        RestartProtocolError,
+        get_restart_log_path,
+        rotate_restart_log_if_needed,
+    )
+
+    try:
+        paths, request_id, timeouts = prepare_restart_request(args)
+    except (DevRestartError, RestartProtocolError) as exc:
+        print(f"\n✗ Restart preparation failed: {exc}\n  The current server has NOT been restarted.\n", file=sys.stderr)
+        return 1
+
+    log_path = get_restart_log_path()
+    rotate_restart_log_if_needed(log_path)
+    print(f"[4/4] Spawning detached restart helper (log: {log_path})…")
+    try:
+        with open(log_path, "a", encoding="utf-8") as log_handle:
+            helper_pid = spawn_detached_helper(
+                Path(sys.executable), Path(__file__).resolve(), paths.pending, log_handle
+            )
+    except OSError as exc:
+        print(
+            f"\n✗ Could not spawn the detached restart helper: {exc}\n  The current server has NOT been restarted.\n",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"  Helper spawned (PID {helper_pid}); waiting up to {timeouts.adoption_seconds:.0f}s for adoption…")
+    if not await_adoption(paths, request_id, timeouts.adoption_seconds):
+        print(
+            f"\n✗ Helper did not adopt request {request_id} within {timeouts.adoption_seconds:.0f}s.\n"
+            f"  The current server has NOT been restarted. Check the log: {log_path}\n",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"\n✓ Helper adopted request {request_id}; restart is continuing in the background.")
+    print(f"  Follow progress in the log: {log_path}\n")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -228,98 +345,39 @@ def build_frontend() -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Gracefully restart CodePlane for frontend development.",
+        description="Native CodePlane self-restart for developers.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("--host", default="127.0.0.1", help="CodePlane bind host (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8080, help="CodePlane port (default: 8080)")
     parser.add_argument(
-        "--pause-wait",
-        type=int,
-        default=10,
-        metavar="SECONDS",
-        help="Seconds to wait after pausing before stopping the server (default: 10)",
+        "--source",
+        default=None,
+        metavar="PATH",
+        help="Native path to the target CodePlane source (default: the repository containing this script)",
     )
+    parser.add_argument("--adoption-seconds", type=float, default=None, help="Override the adoption-wait timeout")
+    parser.add_argument(
+        "--response-grace-seconds", type=float, default=None, help="Override the helper's response-grace timeout"
+    )
+    parser.add_argument("--pause-wait-seconds", type=float, default=None, help="Override the pause-wait timeout")
+    parser.add_argument("--stop-seconds", type=float, default=None, help="Override the old-process stop timeout")
+    parser.add_argument("--readiness-seconds", type=float, default=None, help="Override the readiness-wait timeout")
+    parser.add_argument(
+        "--remote-probe-seconds", type=float, default=None, help="Override the remote-origin probe timeout"
+    )
+    # Private mode: not a public command (SPEC AD-9). Only this script's own
+    # detached spawn (backend.services.dev_restart.restart_helper.spawn_detached_helper)
+    # invokes it with --helper <request-path>; a developer never passes it
+    # directly. Kept out of --help via argparse.SUPPRESS.
+    parser.add_argument("--helper", metavar="REQUEST_PATH", default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    base_url = f"http://{args.host}:{args.port}"
 
-    # ------------------------------------------------------------------
-    # 1. Collect active sessions
-    # ------------------------------------------------------------------
-    print("\n[1/6] Checking for active agent sessions…")
-    active_jobs: list[dict] = []
-    for state in _RESUMABLE_STATES:
-        jobs = list_jobs(base_url, state)
-        active_jobs.extend(jobs)
+    if args.helper is not None:
+        from backend.services.dev_restart.restart_helper import run_helper
 
-    running_jobs = [j for j in active_jobs if j.get("state") == "running"]
-    paused_jobs = [j for j in active_jobs if j.get("state") == "waiting_for_approval"]
+        sys.exit(run_helper(Path(args.helper)))
 
-    if active_jobs:
-        print(f"  {len(running_jobs)} running, {len(paused_jobs)} waiting for approval")
-        for j in active_jobs:
-            print(f"    • {j['id'][:8]}… {j.get('state'):24s} {j.get('title') or '(untitled)'}")
-    else:
-        print("  No active sessions found.")
-
-    # ------------------------------------------------------------------
-    # 2. Pause running sessions
-    # ------------------------------------------------------------------
-    if running_jobs:
-        print(f"\n[2/6] Pausing {len(running_jobs)} running session(s)…")
-        for job in running_jobs:
-            ok = pause_job(base_url, job["id"])
-            mark = "✓" if ok else "✗ (pause signal failed — will still be recovered on restart)"
-            print(f"  {mark}  {job['id'][:8]}…")
-        print(f"  Waiting {args.pause_wait}s for agents to reach a stopping point…")
-        time.sleep(args.pause_wait)
-    else:
-        print("\n[2/6] No running sessions to pause.")
-
-    # ------------------------------------------------------------------
-    # 3. Stop the server
-    # ------------------------------------------------------------------
-    print(f"\n[3/6] Stopping CodePlane server on port {args.port}…")
-    stop_server(args.port)
-
-    # ------------------------------------------------------------------
-    # 4. Rebuild frontend
-    # ------------------------------------------------------------------
-    print("\n[4/6] Building frontend…")
-    if not build_frontend():
-        print("\n  ✗ Frontend build failed. The server has NOT been restarted.")
-        print("    Fix the build errors and run this script again.")
-        print("    (You may also restart the server manually: uv run cpl up)\n")
-        sys.exit(1)
-    print("  ✓ Frontend build succeeded.")
-
-    # ------------------------------------------------------------------
-    # 5. Start the server
-    # ------------------------------------------------------------------
-    print(f"\n[5/6] Starting CodePlane server ({args.host}:{args.port})…")
-    pid = start_server(args.host, args.port)
-    print(f"  Server started (PID {pid}). Waiting for health check…")
-
-    if not wait_for_health(base_url):
-        print("  ✗ Server did not become healthy within 60 s.")
-        print("    Check the CodePlane logs for errors.")
-        sys.exit(1)
-    print("  ✓ Server is healthy.")
-
-    # ------------------------------------------------------------------
-    # 6. Resume previously active sessions
-    # ------------------------------------------------------------------
-    if active_jobs:
-        print(f"\n[6/6] Resuming {len(active_jobs)} session(s)…")
-        for job in active_jobs:
-            ok = resume_job(base_url, job["id"])
-            mark = "✓" if ok else "✗ (resume failed — you may need to resume manually)"
-            print(f"  {mark}  {job['id'][:8]}… {job.get('title') or '(untitled)'}")
-    else:
-        print("\n[6/6] No sessions to resume.")
-
-    print("\n✓ Done. CodePlane is running with the latest frontend build.\n")
+    sys.exit(run_parent(args))
 
 
 if __name__ == "__main__":

@@ -117,6 +117,16 @@ def _build_frontend() -> bool:
 @click.option("--password", default=None, help="Set auth password (auto-generated with --remote)")
 @click.option("--no-password", is_flag=True, help="Disable password auth (not allowed with --remote)")
 @click.option("--tunnel-name", default=None, help="Dev Tunnel name (default: random, reused across restarts)")
+@click.option(
+    "--tunnel-ownership",
+    default=None,
+    type=click.Choice(["managed", "external"], case_sensitive=False),
+    help=(
+        "Explicit remote-connector ownership (managed: CodePlane starts and owns the "
+        "connector; external: never scan or spawn, only resolve the recorded origin). "
+        "Replayed automatically by restart; not normally set by hand."
+    ),
+)
 @click.option("--skip-preflight", is_flag=True, help="Skip preflight checks")
 @click.option("--phone", is_flag=True, help="Shortcut for --remote: enable tunnel + QR code for mobile access")
 def up(
@@ -128,6 +138,7 @@ def up(
     password: str | None,
     no_password: bool,
     tunnel_name: str | None,
+    tunnel_ownership: str | None,
     skip_preflight: bool,
     phone: bool,
 ) -> None:
@@ -141,6 +152,7 @@ def up(
     from backend.services.sharing.tunnel_service import (
         RemoteProvider,
         TunnelHandle,
+        TunnelOwnership,
         TunnelStartError,
         start_remote_access,
         validate_remote_provider,
@@ -217,17 +229,32 @@ def up(
             raise SystemExit(1)
 
     # Password priority: --password flag > CPL_PASSWORD env/dotenv > auto-generate for remote
+    #
+    # ``password_source`` classifies *how* the effective password was
+    # resolved -- persisted in the active launch profile (Story 1.1) so
+    # restart can refuse to replay a source it cannot resolve again. Never
+    # infer replayability from the literal value; classify the branch
+    # actually taken by CLI precedence.
+    from backend.services.dev_restart.launch_profile import SecretSource
+
     effective_password: str | None = password
+    password_source: SecretSource = SecretSource.not_required()
+
+    if password:
+        # Literal --password value has no durable reference to replay.
+        password_source = SecretSource.unreplayable()
 
     if not effective_password and not no_password:
         env_pw = _env("CPL_PASSWORD")
         if env_pw:
             effective_password = env_pw
+            password_source = SecretSource.resolvable("environment", "CPL_PASSWORD")
 
     if not effective_password and not no_password and remote:
         from backend.services.auth.middleware import generate_password
 
         effective_password = generate_password()
+        password_source = SecretSource.unreplayable()
 
     # Block unauthenticated binding on all interfaces — validate before migrations
     if host == "0.0.0.0" and no_password:  # noqa: S104
@@ -265,6 +292,7 @@ def up(
         from backend.services.auth.middleware import generate_password as _gen_pw
 
         effective_password = _gen_pw()
+        password_source = SecretSource.unreplayable()
         click.secho(
             "WARNING: Binding to 0.0.0.0 — password auth auto-enabled.",
             fg="yellow",
@@ -273,20 +301,34 @@ def up(
 
     tunnel_origin: str | None = None
     tunnel_handle: TunnelHandle | None = None
+    # Closed secret-source classification for the tunnel credential (Story
+    # 1.1) -- not_required unless a managed remote connector actually
+    # consumed one.
+    tunnel_credential_source: SecretSource = SecretSource.not_required()
 
     if remote:
         try:
+            explicit_ownership = TunnelOwnership(tunnel_ownership) if tunnel_ownership else None
             tunnel_handle = start_remote_access(
                 remote_provider,
                 port=port,
                 cloudflare_token=cloudflare_token,
                 cloudflare_hostname=cloudflare_hostname,
                 tunnel_name=tunnel_name,
+                ownership=explicit_ownership,
             )
         except TunnelStartError as exc:
             click.secho(f"ERROR: {exc}", fg="red", err=True)
             raise SystemExit(1) from exc
         tunnel_origin = tunnel_handle.origin
+
+        if tunnel_handle.externally_managed:
+            # CodePlane did not start this connector -- no credential of ours was used.
+            tunnel_credential_source = SecretSource.not_required()
+        elif remote_provider is RemoteProvider.devtunnel:
+            tunnel_credential_source = SecretSource.resolvable("provider-login", "devtunnel")
+        elif remote_provider is RemoteProvider.cloudflare:
+            tunnel_credential_source = SecretSource.resolvable("environment", "CPL_CLOUDFLARE_TUNNEL_TOKEN")
 
         if remote_provider is RemoteProvider.cloudflare and tunnel_origin:  # noqa: SIM102
             # Cloudflare Access check deferred to lifespan — requires the backend
@@ -298,6 +340,7 @@ def up(
                     msg="Disabling local password auth — Cloudflare Access will be verified after startup",
                 )
                 effective_password = None
+                password_source = SecretSource.not_required()
 
     # --- Cloudflare Access JWT verification ---
     # When CPL_CF_ACCESS_TEAM and CPL_CF_ACCESS_AUD are set, CodePlane will
@@ -344,7 +387,93 @@ def up(
         log_level="warning" if dashboard else "info",
         timeout_graceful_shutdown=5,
     )
-    server = uvicorn.Server(uv_config)
+
+    def _publish_active_launch_profile() -> None:
+        """Publish the active launch profile once the listener has bound (Story 1.1).
+
+        Called only from ``_LaunchProfileServer.startup()`` after
+        ``await super().startup()`` has returned successfully -- i.e. after
+        Uvicorn has created the listening socket and completed lifespan
+        startup. A write issued any earlier (e.g. immediately before
+        ``server.run()``) could publish a profile for a server that then
+        fails to bind or fails lifespan startup.
+        """
+        import sys
+
+        import psutil as _psutil
+
+        from backend.services.dev_restart.launch_profile import (
+            LaunchProfileError,
+            build_active_launch_profile,
+            write_active_launch_profile,
+        )
+
+        pid = os.getpid()
+        try:
+            created_time = _psutil.Process(pid).create_time()
+        except _psutil.Error as exc:
+            log.error("launch_profile_publish_failed", reason="process_inspection_failed", exc_info=True)
+            raise LaunchProfileError("could not inspect own process for launch profile publication") from exc
+
+        # Confirm the exact PID owns the configured port before publishing
+        # (reuses the same listener-owner helper `cpl down`/`cpl restart` use
+        # -- never a process-name scan).
+        if pid not in _find_pids_on_port(port):
+            log.error("launch_profile_publish_failed", reason="listener_ownership_unconfirmed", pid=pid, port=port)
+            raise LaunchProfileError(f"PID {pid} does not appear to own the listener on port {port}")
+
+        tunnel_ownership: str | None = None
+        resolved_tunnel_name: str | None = None
+        resolved_tunnel_origin: str | None = None
+        resolved_tunnel_origin_reusable: bool | None = None
+        if remote:
+            externally_managed = tunnel_handle is not None and tunnel_handle.externally_managed
+            tunnel_ownership = "external" if externally_managed else "managed"
+            resolved_tunnel_name = tunnel_handle.name if tunnel_handle is not None else None
+            resolved_tunnel_origin = tunnel_handle.origin if tunnel_handle is not None else None
+            # ``origin_is_reusable`` is populated by the remote-recovery tunnel
+            # integration (Story 1.6); tolerate its absence with getattr so
+            # this story's publication path does not depend on that story's
+            # TunnelHandle field landing first.
+            resolved_tunnel_origin_reusable = (
+                getattr(tunnel_handle, "origin_is_reusable", None) if tunnel_handle is not None else None
+            )
+
+        profile = build_active_launch_profile(
+            executable=sys.executable,
+            working_directory=os.getcwd(),
+            host=host,
+            port=port,
+            dev=dev,
+            remote=remote,
+            provider=str(remote_provider),
+            tunnel_ownership=tunnel_ownership,
+            tunnel_name=resolved_tunnel_name,
+            tunnel_origin=resolved_tunnel_origin,
+            tunnel_origin_reusable=resolved_tunnel_origin_reusable,
+            password_source=password_source,
+            tunnel_credential_source=tunnel_credential_source,
+            started_pid=pid,
+            started_process_time=created_time,
+        )
+        try:
+            write_active_launch_profile(profile)
+        except OSError as exc:
+            log.error("launch_profile_publish_failed", reason="write_failed", exc_info=True)
+            raise LaunchProfileError("failed to write active launch profile") from exc
+        log.info("launch_profile_published", pid=pid, port=port)
+
+    class _LaunchProfileServer(uvicorn.Server):
+        """``uvicorn.Server`` subclass that publishes the active launch profile
+        immediately after the listener socket is bound and lifespan startup
+        completes -- never before ``server.run()`` binds the socket."""
+
+        async def startup(self, sockets: list[Any] | None = None) -> None:
+            await super().startup(sockets=sockets)
+            if self.started:
+                _publish_active_launch_profile()
+
+    server = _LaunchProfileServer(uv_config)
 
     _exit_signal_count = 0
 

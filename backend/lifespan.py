@@ -86,6 +86,93 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 
+# Set by the restart helper on the replacement process's environment before
+# exec (SPEC.md CAP-5; matches backend/services/dev_restart/restart_helper.py's
+# ``env["CODEPLANE_RESTART_REQUEST_ID"] = request_id``). Absent on every normal
+# ``cpl up`` launch, which is exactly what keeps readiness-marker publication —
+# and the lazy import of the shared restart-protocol module below — out of the
+# ordinary startup path.
+_RESTART_REQUEST_ID_ENV = "CODEPLANE_RESTART_REQUEST_ID"
+
+
+async def _publish_restart_readiness(
+    request_id: str,
+    recovery_task: asyncio.Task[Any],
+    remote_check_task: asyncio.Task[Any] | None,
+) -> None:
+    """Write the atomic restart-ready marker once recovery and deferred remote validation succeed.
+
+    Runs only for a restart-triggered startup (``request_id`` is only ever
+    non-empty when the replacement process was launched by the restart
+    helper). The marker is the developer's signal that startup recovery *and*
+    any deferred remote validation for this run both already completed
+    *successfully* — not merely that the port is reachable (SPEC.md CAP-5).
+    If either step fails or is cancelled, the marker is deliberately **not**
+    written and the failure is re-raised (no broad failure-tolerance catch
+    that publishes readiness anyway) — the helper's readiness wait should time
+    out and report a real failure rather than observe a false "ready" signal.
+    Diagnostic detail (which phase failed, why) is redacted structlog output
+    only; per ARCHITECTURE-SPINE.md AD-12 and the locked wire contract, the
+    marker itself carries nothing but ``{requestId, pid, writtenAt}`` — no
+    error text, tokens, or hostnames.
+    """
+    try:
+        await recovery_task
+    except asyncio.CancelledError:
+        log.warning("restart_readiness_recovery_cancelled", request_id=request_id)
+        raise
+    except Exception as exc:
+        log.warning(
+            "restart_readiness_recovery_failed",
+            request_id=request_id,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        raise
+
+    if remote_check_task is not None:
+        try:
+            await remote_check_task
+        except asyncio.CancelledError:
+            log.warning("restart_readiness_remote_check_cancelled", request_id=request_id)
+            raise
+        except Exception as exc:
+            # A failed/killed remote check (e.g. the Cloudflare Access
+            # shutdown path) means this startup is not actually ready —
+            # distinguished from a recovery failure only by which log event
+            # fires; the marker is withheld in both cases.
+            log.warning(
+                "restart_readiness_remote_check_failed",
+                request_id=request_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            raise
+
+    # Lazy, function-local import: normal startup (no restart request id)
+    # never imports the shared restart-protocol module at all. When a real
+    # restart-triggered startup reaches this point but the module is still
+    # missing, this fails loudly (ImportError) rather than falling back to a
+    # duplicated marker-path/JSON implementation — see coordination with the
+    # restart-protocol integration slice (backend/services/dev_restart/).
+    from backend.services.dev_restart.restart_protocol import get_request_paths, write_json_atomic
+
+    paths = get_request_paths(request_id)
+    write_json_atomic(
+        paths.ready,
+        {
+            "requestId": request_id,
+            "pid": os.getpid(),
+            "writtenAt": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        },
+    )
+    log.info(
+        "restart_readiness_published",
+        request_id=request_id,
+        pid=os.getpid(),
+    )
+
+
 async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> None:
     """Verify Cloudflare Access is active after the server starts accepting connections.
 
@@ -868,9 +955,39 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     services.runtime_service.set_event_processor(event_processor)
 
+    # --- Governance substrate (traceforge.governance decision + accrual) ---
+    # One process-wide decider owns a SEPARATE durable store (``governance.db``,
+    # TraceForge's own alembic — never touches CodePlane's ``alembic_version``) and
+    # the three preset pipelines. The decision path is read-only (preflight on a
+    # detached clone); the accrual path is driven by a bus subscriber that advances
+    # durable budget/taint only for EXECUTED tool calls. The USD spend reader is a
+    # synchronous read-only closure over CodePlane's ``data.db``.
+    #
+    # This MUST be wired before ``recover_on_startup`` is scheduled below —
+    # recovery synchronously starts any job that was ``running`` at the last
+    # shutdown, and job start requires the governance decider. Previously this
+    # block ran much later in startup, so every recovered job's start would
+    # raise "governance decider not wired" and silently fail, leaving the job
+    # stuck showing "running" in the DB with no actual session behind it.
+    from backend.services.action_policy.cost_ceiling import make_job_spend_reader
+    from backend.services.action_policy.governance import GovernanceDecider, load_usd_ceilings
+    from backend.services.events.governance_subscriber import GovernanceSubscriber
+
+    governance_decider = GovernanceDecider(
+        db_path=get_codeplane_dir() / "governance.db",
+        spend_reader=make_job_spend_reader(get_codeplane_dir() / "data.db"),
+        usd_ceilings=await load_usd_ceilings(session_factory),
+    )
+    governance_subscriber = GovernanceSubscriber(governance_decider)
+    governance_subscriber.subscribe(event_bus)
+    services.runtime_service.set_governance(governance_decider, governance_subscriber)
+
     # Recover orphaned jobs from a previous crash (background — don't block startup).
-    # Must run AFTER the trail service is subscribed so it receives SessionResumed events.
-    asyncio.create_task(
+    # Must run AFTER the trail service is subscribed so it receives SessionResumed events,
+    # and AFTER governance is wired (see note above) since job start requires it.
+    # The task reference is kept (not fire-and-forget-discarded) so a restart-triggered
+    # startup can await its completion before publishing the readiness marker below.
+    recovery_task = asyncio.create_task(
         services.runtime_service.recover_on_startup(),
         name="recover-on-startup",
     )
@@ -1214,26 +1331,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     telemetry_subscriber.subscribe(event_bus)
     services.runtime_service.set_telemetry_subscriber(telemetry_subscriber)
 
-    # --- Governance substrate (traceforge.governance decision + accrual) ---
-    # One process-wide decider owns a SEPARATE durable store (``governance.db``,
-    # TraceForge's own alembic — never touches CodePlane's ``alembic_version``) and
-    # the three preset pipelines. The decision path is read-only (preflight on a
-    # detached clone); the accrual path is driven by a bus subscriber that advances
-    # durable budget/taint only for EXECUTED tool calls. The USD spend reader is a
-    # synchronous read-only closure over CodePlane's ``data.db``.
-    from backend.services.action_policy.cost_ceiling import make_job_spend_reader
-    from backend.services.action_policy.governance import GovernanceDecider, load_usd_ceilings
-    from backend.services.events.governance_subscriber import GovernanceSubscriber
-
-    governance_decider = GovernanceDecider(
-        db_path=get_codeplane_dir() / "governance.db",
-        spend_reader=make_job_spend_reader(get_codeplane_dir() / "data.db"),
-        usd_ceilings=await load_usd_ceilings(session_factory),
-    )
-    governance_subscriber = GovernanceSubscriber(governance_decider)
-    governance_subscriber.subscribe(event_bus)
-    services.runtime_service.set_governance(governance_decider, governance_subscriber)
-
     # --- Story pre-generation drain loop (background) ---
     from backend.services.story.service import StoryService as _StoryServiceCls
 
@@ -1343,10 +1440,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # after the server is accepting connections.  Scheduled as a background
     # task — it runs once the event loop resumes after yield.
     tunnel_handle = getattr(app.state, "tunnel_handle", None)
+    remote_check_task: asyncio.Task[Any] | None = None
     if tunnel_handle is not None and tunnel_handle.origin and tunnel_handle.provider.value == "cloudflare":
-        _fire_and_forget(
+        remote_check_task = _fire_and_forget(
             _deferred_cloudflare_access_check(tunnel_handle, app),
             name="cloudflare-access-check",
+        )
+
+    # --- Restart readiness marker (SPEC.md CAP-5) ---
+    # Only present on a restart-triggered launch — the helper sets this on
+    # the replacement process's environment before exec. Absent on every
+    # normal ``cpl up`` startup, so the lazy restart-protocol import above
+    # is never reached outside an actual restart.
+    restart_request_id = os.environ.get(_RESTART_REQUEST_ID_ENV)
+    if restart_request_id:
+        _fire_and_forget(
+            _publish_restart_readiness(restart_request_id, recovery_task, remote_check_task),
+            name="publish-restart-readiness",
         )
 
     yield
