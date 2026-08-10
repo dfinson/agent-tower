@@ -1,11 +1,14 @@
 """Tests for tools/dev_restart.py: frontend build, target-source resolution,
-secret re-resolution, backend preflight, pending-request write, and the
-Story 1.2 parent-mode preparation/handoff flow.
+secret re-resolution, backend preflight, pending-request write, parent/helper
+importability when run as a script, and the Story 1.2 parent-mode
+preparation/handoff flow.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib
+import sys
 from subprocess import CompletedProcess
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
@@ -78,6 +81,7 @@ def test_build_frontend_invokes_resolved_npm_and_streams_output() -> None:
 
     with (
         patch("tools.dev_restart._resolve_npm_command", return_value=npm_path),
+        patch("pathlib.Path.is_dir", return_value=True),
         patch(
             "tools.dev_restart.subprocess.run",
             return_value=CompletedProcess([npm_path, "run", "build"], returncode=0),
@@ -93,12 +97,54 @@ def test_build_frontend_preserves_failed_build_result() -> None:
 
     with (
         patch("tools.dev_restart._resolve_npm_command", return_value=npm_path),
+        patch("pathlib.Path.is_dir", return_value=True),
         patch(
             "tools.dev_restart.subprocess.run",
             return_value=CompletedProcess([npm_path, "run", "build"], returncode=1),
         ),
     ):
         assert dev_restart.build_frontend() is False
+
+
+def test_build_frontend_installs_dependencies_when_node_modules_missing(tmp_path: Path) -> None:
+    npm_path = r"C:\Program Files\nodejs\npm.cmd"
+    results = [
+        CompletedProcess([npm_path, "ci"], returncode=0),
+        CompletedProcess([npm_path, "run", "build"], returncode=0),
+    ]
+
+    with (
+        patch("tools.dev_restart._resolve_npm_command", return_value=npm_path),
+        patch("tools.dev_restart.subprocess.run", side_effect=results) as mock_run,
+    ):
+        assert dev_restart.build_frontend(tmp_path) is True
+
+    install_args, build_args = (call.args[0] for call in mock_run.call_args_list)
+    assert install_args == [npm_path, "ci"]
+    assert build_args == [npm_path, "run", "build"]
+
+
+def test_build_frontend_aborts_when_dependency_install_fails(tmp_path: Path) -> None:
+    npm_path = r"C:\Program Files\nodejs\npm.cmd"
+
+    with (
+        patch("tools.dev_restart._resolve_npm_command", return_value=npm_path),
+        patch(
+            "tools.dev_restart.subprocess.run",
+            return_value=CompletedProcess([npm_path, "ci"], returncode=1),
+        ) as mock_run,
+    ):
+        assert dev_restart.build_frontend(tmp_path) is False
+
+    mock_run.assert_called_once_with([npm_path, "ci"], cwd=tmp_path)
+
+
+def test_import_inserts_repo_root_for_direct_script_execution(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "path", [str(dev_restart.REPO_ROOT / "tools")])
+
+    importlib.reload(dev_restart)
+
+    assert sys.path[0] == str(dev_restart.REPO_ROOT)
 
 
 # ---------------------------------------------------------------------------

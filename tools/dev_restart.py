@@ -46,6 +46,13 @@ if sys.platform == "win32":
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = REPO_ROOT / "frontend"
 
+# Running ``python tools/dev_restart.py`` sets ``sys.path[0]`` to the tools
+# directory, not the repository root. Put the checkout root on sys.path so the
+# script and the detached helper can import ``backend.*`` without depending on
+# the caller to have launched it as a module.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 # Marker files a directory must contain to be treated as a native CodePlane
 # checkout (AC 1) — cheap, no-import structural check before any subprocess
 # or profile validation runs against it.
@@ -186,6 +193,10 @@ def build_frontend(frontend_dir: Path = FRONTEND_DIR) -> bool:
     available (Story 1.2 AC 2) -- always before helper spawn, pause, or stop.
     """
     npm = _resolve_npm_command()
+    if not (frontend_dir / "node_modules").is_dir():
+        install = subprocess.run([npm, "ci"], cwd=frontend_dir)
+        if install.returncode != 0:
+            return False
     result = subprocess.run([npm, "run", "build"], cwd=frontend_dir)
     return result.returncode == 0
 

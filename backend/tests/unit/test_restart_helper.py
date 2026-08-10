@@ -559,6 +559,7 @@ class TestStartReplacement:
             "-m",
             "backend.main",
             "up",
+            "--skip-preflight",
             "--host",
             "127.0.0.1",
             "--port",
@@ -569,8 +570,8 @@ class TestStartReplacement:
         assert kwargs["env"]["CODEPLANE_RESTART_NONCE"] == "nonce-abc"
         assert kwargs["env"]["CODEPLANE_RESTART_REQUEST_ID"] == "req-start-1"
         assert kwargs["stdin"] == subprocess.DEVNULL
-        assert kwargs["stdout"] == subprocess.DEVNULL
-        assert kwargs["stderr"] == subprocess.DEVNULL
+        assert kwargs["stdout"] is sys.stdout
+        assert kwargs["stderr"] is sys.stderr
 
     def test_builds_exact_remote_argv_with_explicit_provider_and_tunnel_name(self, tmp_path: Path) -> None:
         """--provider is always explicit, never left to the CLI default (AC5: reproduce the
@@ -586,6 +587,7 @@ class TestStartReplacement:
             "-m",
             "backend.main",
             "up",
+            "--skip-preflight",
             "--host",
             "0.0.0.0",  # noqa: S104
             "--port",

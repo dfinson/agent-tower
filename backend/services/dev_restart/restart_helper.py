@@ -392,7 +392,12 @@ def _start_replacement(
     triggers the exact same ``if __name__ == "__main__": cli()`` entry point
     (verified against ``backend/main.py``/``backend/cli.py``'s ``up``
     command options: ``--host``, ``--port``, ``--dev``, ``--remote``,
-    ``--provider``, ``--tunnel-name``, ``--tunnel-ownership``).
+    ``--provider``, ``--tunnel-name``, ``--tunnel-ownership``,
+    ``--skip-preflight``).
+    ``--skip-preflight`` is always passed because the parent already completed
+    the restart-only preflight/build pipeline before the old server was ever
+    paused or stopped. Re-running the interactive CLI preflight inside the
+    replacement consumes most of the readiness budget without increasing safety.
     ``--provider`` is always passed explicitly (never left to the CLI
     default) so a non-default recorded provider (e.g. cloudflare) is
     reproduced exactly. ``--tunnel-ownership`` is likewise replayed exactly
@@ -416,6 +421,7 @@ def _start_replacement(
         "-m",
         "backend.main",
         "up",
+        "--skip-preflight",
         "--host",
         profile.host,
         "--port",
@@ -452,8 +458,13 @@ def _start_replacement(
         cwd=str(target_source_root),
         env=env,
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        # Inherit the helper's already-bound restart-log streams instead of
+        # DEVNULL. On Windows, launching ``python -m backend.main up`` with
+        # DEVNULL-backed stdio can terminate the replacement before readiness;
+        # inheriting these writable handles preserves startup diagnostics and
+        # keeps the replacement process alive long enough to publish readiness.
+        stdout=sys.stdout,
+        stderr=sys.stderr,
         start_new_session=(sys.platform != "win32"),
     )
 

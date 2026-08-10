@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json as _json
 import subprocess
+import sys
 from typing import Any
 
 import questionary
@@ -113,6 +114,11 @@ def _prompt_select(choices: list[questionary.Choice]) -> Any:  # noqa: ANN401
         pointer="  →",
         choices=choices,
     ).ask()
+
+
+def _can_prompt_interactively() -> bool:
+    """Return whether inline preflight prompts can safely use the local terminal."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
 
 
 def _offer_inline_fix(warning: CheckResult) -> str:
@@ -221,6 +227,7 @@ def validate_preflight(port: int) -> bool:
     """
     config = load_config()
     results = verify_requirements(port=port, include_optional_dependencies=False, preflight=True)
+    interactive = _can_prompt_interactively()
 
     _console.print()
     _console.print("  [bold]Preflight[/bold]")
@@ -254,6 +261,10 @@ def validate_preflight(port: int) -> bool:
             if w.hint:
                 for line in w.hint.split("\n"):
                     _console.print(f"       → {line}")
+
+            if not interactive:
+                _console.print("       [dim]Non-interactive preflight; continuing without an inline prompt.[/dim]")
+                continue
 
             if not _should_prompt_for_warning(
                 w,
