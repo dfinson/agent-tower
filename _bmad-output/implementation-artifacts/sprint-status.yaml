@@ -1,6 +1,6 @@
 # generated: 2026-08-10
 # last_updated: 2026-08-10
-# project: dfinson-didactic-couscous
+# project: codeplane
 # project_key: NOKEY
 # tracking_system: file-system
 # story_location: _bmad-output/implementation-artifacts
@@ -13,8 +13,8 @@
 #   - done: All stories in epic completed
 #
 # Epic Status Transitions:
-#   - backlog -> in-progress: Automatically when first story is created (via create-story)
-#   - in-progress -> done: Manually when all stories reach 'done' status
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
 #
 # Story Status:
 #   - backlog: Story only exists in epic file
@@ -42,7 +42,7 @@
 
 generated: 2026-08-10
 last_updated: 2026-08-10
-project: dfinson-didactic-couscous
+project: codeplane
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -57,3 +57,40 @@ development_status:
   1-6-restore-configured-remote-access: review
   1-7-harden-diagnostics-and-native-restart-evidence: review
   epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-create-edit-a-project: backlog
+  2-2-view-projects-overview: backlog
+  2-3-view-a-projects-board: backlog
+  2-4-see-cross-project-attention-signal: backlog
+  2-5-filter-projects-by-name: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-register-a-credential: backlog
+  3-2-attach-a-trackerlink-to-a-project: backlog
+  3-3-view-synced-ticket-state: backlog
+  3-4-approve-a-tracker-write-back: backlog
+  3-5-see-per-provider-pat-scope-guidance: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-widen-the-task-recipe-vocabulary: backlog
+  4-2-ingest-a-task-graph-into-a-project: backlog
+  4-3-manually-assign-a-task-to-an-existing-ticket: backlog
+  4-4-see-tasklink-cards-on-the-board: backlog
+  4-5-auto-spawn-the-next-task-on-completion: backlog
+  4-6-route-recipe-tracker-writes-to-the-paired-ticket: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-start-a-chat: backlog
+  5-2-launch-a-job-from-a-chat: backlog
+  5-3-attach-a-chat-to-a-task-recipe-chain: backlog
+  5-4-gate-a-chains-auto-spawn-behind-approval: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-agent-comments-transitions-a-tracker-ticket-mid-job: backlog
+  6-2-agent-requests-a-pr-mid-job: backlog
+  epic-6-retrospective: optional
