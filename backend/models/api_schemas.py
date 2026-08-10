@@ -1514,6 +1514,27 @@ class SidecarTemplateListResponse(CamelModel):
     items: list[SidecarTemplateResponse]
 
 
+class CreateChatRequest(CamelModel):
+    """Create a new Chat. ``project_id`` is always user-overridable at creation."""
+
+    title: str = Field(min_length=1, max_length=200)
+    project_id: str | None = None
+
+
+class ChatResponse(CamelModel):
+    id: str
+    project_id: str | None
+    title: str
+    created_at: datetime
+    last_message_at: datetime
+    status: str
+
+
+class ChatListResponse(CamelModel):
+    items: list[ChatResponse]
+
+
+
 # ---------------------------------------------------------------------------
 # Utility / operational responses
 # ---------------------------------------------------------------------------

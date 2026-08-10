@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.config import CPLConfig
 from backend.persistence.approval_repo import ApprovalRepository
+from backend.persistence.chat_repo import ChatRepository
 from backend.persistence.cost_attribution_repo import CostAttributionRepository
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.file_access_repo import FileAccessRepository
@@ -31,6 +32,7 @@ from backend.services.analytics.model_pricing import ModelPricingService
 from backend.services.analytics.telemetry_query_service import TelemetryQueryService
 from backend.services.artifacts.artifact_service import ArtifactService
 from backend.services.artifacts.diff_service import DiffService
+from backend.services.chat.chat_service import ChatService
 from backend.services.coderecon.coderecon_service import CodeReconService
 from backend.services.completers.naming_service import NamingService
 from backend.services.completers.narrator_completer import NarratorCompleter
@@ -179,6 +181,14 @@ class RequestProvider(Provider):
         sidecar_sessions: SidecarSessionManager,
     ) -> SidecarTemplateService:
         return SidecarTemplateService(repo=repo, sidecar_sessions=sidecar_sessions)
+
+    @provide
+    def chat_repo(self, session: AsyncSession) -> ChatRepository:
+        return ChatRepository(session)
+
+    @provide
+    def chat_service(self, repo: ChatRepository) -> ChatService:
+        return ChatService(repo=repo)
 
     @provide
     def job_service(

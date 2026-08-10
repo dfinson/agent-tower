@@ -262,6 +262,24 @@ SIDECAR_ENRICHER = "enricher"  # trail enrichment + activity titles
 
 
 @dataclass
+class Chat:
+    """A persistent, purely conversational Chat with no git footprint.
+
+    ``project_id`` is nullable — a Chat started from global nav has none
+    until a Job is launched from it or it is attached to a chain (Stories
+    5.2/5.3 settle it then). This dataclass and everything that produces
+    it (``chat_service.py``) must never depend on ``GitService`` (AD-12).
+    """
+
+    id: str
+    project_id: str | None
+    title: str
+    created_at: datetime
+    last_message_at: datetime
+    status: str = "open"
+
+
+@dataclass
 class SidecarTemplate:
     """A saved sidecar definition in the user's library."""
 
