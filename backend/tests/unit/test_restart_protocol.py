@@ -27,6 +27,7 @@ from backend.services.dev_restart.restart_protocol import (
     log_phase,
     read_json_file,
     release_restart_lock,
+    rotate_restart_log_if_needed,
     write_json_atomic,
 )
 
@@ -63,6 +64,42 @@ class TestPaths:
         assert paths.claimed == base / "req-123.claimed.json"
         assert paths.started == base / "req-123.started.json"
         assert paths.ready == base / "req-123.ready.json"
+
+
+class TestRotateRestartLog:
+    def test_missing_log_is_a_noop(self, tmp_path: Path) -> None:
+        log_path = tmp_path / "dev-restart" / "restart.log"
+        rotate_restart_log_if_needed(log_path)
+        assert not log_path.exists()
+
+    def test_small_log_is_not_rotated(self, tmp_path: Path) -> None:
+        log_path = get_restart_log_path()
+        log_path.write_text("small\n", encoding="utf-8")
+        rotate_restart_log_if_needed(log_path, max_bytes=1024)
+        assert log_path.read_text(encoding="utf-8") == "small\n"
+        assert not log_path.with_name("restart.log.1").exists()
+
+    def test_log_at_or_over_max_bytes_rotates_to_single_backup(self, tmp_path: Path) -> None:
+        log_path = get_restart_log_path()
+        log_path.write_bytes(b"x" * 2048)
+        rotate_restart_log_if_needed(log_path, max_bytes=1024)
+        assert not log_path.exists()
+        backup_path = log_path.with_name("restart.log.1")
+        assert backup_path.read_bytes() == b"x" * 2048
+
+    def test_existing_backup_is_replaced_not_accumulated(self, tmp_path: Path) -> None:
+        log_path = get_restart_log_path()
+        backup_path = log_path.with_name("restart.log.1")
+        backup_path.write_bytes(b"old-backup")
+        log_path.write_bytes(b"y" * 2048)
+
+        rotate_restart_log_if_needed(log_path, max_bytes=1024)
+
+        assert backup_path.read_bytes() == b"y" * 2048
+        assert not log_path.exists()
+        # Exactly one backup ever exists -- no .2, .3, etc.
+        siblings = list(log_path.parent.glob("restart.log*"))
+        assert siblings == [backup_path]
 
 
 class TestRestartTimeouts:

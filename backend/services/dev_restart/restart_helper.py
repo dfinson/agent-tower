@@ -311,7 +311,7 @@ def _pause_jobs(profile: LaunchProfile, jobs: Sequence[dict[str, Any]], request_
     failed: list[str] = []
     base_url = _base_url(profile)
     for job in jobs:
-        job_id = job.get("id")
+        job_id = job["id"]
         status, _ = _http_request("POST", f"{base_url}/api/jobs/{job_id}/pause")
         if status != 204:
             failed.append(job_id)

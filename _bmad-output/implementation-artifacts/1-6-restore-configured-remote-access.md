@@ -1,6 +1,6 @@
 # Story 1.6: Restore Configured Remote Access
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -19,13 +19,13 @@ so that I can reconnect after the expected temporary interruption.
 
 ## Tasks / Subtasks
 
-- [ ] Preserve managed versus external tunnel ownership in launch/restart arguments.
-- [ ] Reuse exact Dev Tunnel or Cloudflare identity where supported.
-- [ ] Prevent broad connector process reuse or process scans from becoming ownership evidence.
-- [ ] Add reusable-origin and changed-origin handling.
-- [ ] Add bounded exact-origin remote probing after local readiness.
-- [ ] Distinguish local success from remote validation failure in logs and exit behavior.
-- [ ] Add managed, external, reusable, non-reusable, credential, and redaction tests.
+- [x] Preserve managed versus external tunnel ownership in launch/restart arguments.
+- [x] Reuse exact Dev Tunnel or Cloudflare identity where supported.
+- [x] Prevent broad connector process reuse or process scans from becoming ownership evidence.
+- [x] Add reusable-origin and changed-origin handling.
+- [x] Add bounded exact-origin remote probing after local readiness.
+- [x] Distinguish local success from remote validation failure in logs and exit behavior.
+- [x] Add managed, external, reusable, non-reusable, credential, and redaction tests.
 
 ## Dev Notes
 
@@ -46,12 +46,26 @@ so that I can reconnect after the expected temporary interruption.
 
 ### Agent Model Used
 
-To be completed by the dev agent.
+Claude Sonnet 5 (GitHub Copilot CLI), Stories 1.5-1.6 sibling session, integrated by the integration-owner session.
 
 ### Debug Log References
+
+- `uv run pytest backend/tests/unit/test_tunnel_service.py backend/tests/unit/test_restart_remote.py backend/tests/unit/test_restart_helper.py -q` -> combined pass (part of the 269-test combined suite)
+- `uv run ruff check backend/services/sharing/tunnel_service.py backend/services/dev_restart/restart_remote.py` -> All checks passed
 
 ### Completion Notes List
 
 - Comprehensive developer guide generated.
+- `TunnelOwnership` enum (`external`/`managed`) is an explicit opt-in on `start_remote_access()`; `external` resolves only the exact recorded hostname/tunnel name and never starts a connector or scans local processes (AC1/AC2); `managed` always starts and owns a fresh connector.
+- `TunnelHandle.origin_is_reusable` records whether the resolved origin is stable across a restart; published into `LaunchProfile.tunnel_origin_reusable` by `cli.py` (coordinated with the integration owner's `TunnelHandle.name` field, both populated together).
+- New `backend/services/dev_restart/restart_remote.py`: `RemoteProbeTarget`/`RemoteProbeError`, `resolve_remote_probe_target()` (reusable origin uses the original; non-reusable uses the replacement's and reports whether it changed), `probe_remote_origin()` (bounded exact-origin reachability probe, never scans processes).
+- `restart_helper.py`'s `checking_remote` phase wires these: after local readiness, a remote profile probes the resolved origin, raising `HelperAbort` on failure distinct from local `succeeded` (AC3-AC5).
 
 ### File List
+
+- `backend/services/sharing/tunnel_service.py`
+- `backend/services/dev_restart/restart_remote.py`
+- `backend/tests/unit/test_tunnel_service.py`
+- `backend/tests/unit/test_restart_remote.py`
+- `backend/services/dev_restart/restart_helper.py` (`checking_remote` wiring)
+- `backend/cli.py` (`tunnel_origin`/`tunnel_origin_reusable` publication, Story 1.1 integration)

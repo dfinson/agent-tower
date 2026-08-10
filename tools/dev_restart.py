@@ -297,7 +297,11 @@ def run_parent(args: argparse.Namespace) -> int:
     exit code.
     """
     from backend.services.dev_restart.restart_helper import await_adoption, spawn_detached_helper
-    from backend.services.dev_restart.restart_protocol import RestartProtocolError, get_restart_log_path
+    from backend.services.dev_restart.restart_protocol import (
+        RestartProtocolError,
+        get_restart_log_path,
+        rotate_restart_log_if_needed,
+    )
 
     try:
         paths, request_id, timeouts = prepare_restart_request(args)
@@ -306,6 +310,7 @@ def run_parent(args: argparse.Namespace) -> int:
         return 1
 
     log_path = get_restart_log_path()
+    rotate_restart_log_if_needed(log_path)
     print(f"[4/4] Spawning detached restart helper (log: {log_path})…")
     try:
         with open(log_path, "a", encoding="utf-8") as log_handle:

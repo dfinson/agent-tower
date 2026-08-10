@@ -5,9 +5,11 @@ old-process stop, replacement start, and readiness verification (Story 1.4).
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
@@ -33,6 +35,8 @@ from backend.services.dev_restart.restart_remote import RemoteProbeError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.fixture(autouse=True)
@@ -150,6 +154,87 @@ class TestSpawnDetachedHelper:
         _, kwargs = mock_popen.call_args
         assert kwargs["creationflags"] == subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
         assert "start_new_session" not in kwargs
+
+
+class TestSpawnDetachedHelperNativeSurvival:
+    """Story 1.7 AC6: native process-level proof that a process spawned via
+    ``spawn_detached_helper`` survives its *immediate spawning process*
+    exiting -- the same OS-level detachment property (POSIX new
+    session/process group, Windows ``DETACHED_PROCESS``) that lets the real
+    helper survive the initiator (``tools/dev_restart.py``) and the listener
+    process group being torn down (AD-1). The test never asserts on process
+    *names* (Dev Notes: "Tests must target exact process identity, not
+    executable names") -- it records the grandchild's PID and creation time
+    up front and re-checks that exact identity, mirroring
+    ``is_identity_alive``.
+    """
+
+    def test_grandchild_survives_immediate_parent_exit(self, tmp_path: Path) -> None:
+        pid_file = tmp_path / "grandchild.pid"
+        grandchild_script = tmp_path / "grandchild.py"
+        grandchild_script.write_text(
+            "import os, sys, time\n"
+            "pid_file = sys.argv[2]\n"
+            "tmp_name = pid_file + '.tmp'\n"
+            "with open(tmp_name, 'w', encoding='utf-8') as f:\n"
+            "    f.write(f'{os.getpid()}:{__import__(\"psutil\").Process().create_time()}')\n"
+            "os.replace(tmp_name, pid_file)\n"
+            "time.sleep(10)\n",
+            encoding="utf-8",
+        )
+        fake_parent_script = tmp_path / "fake_parent.py"
+        fake_parent_script.write_text(
+            "import sys\n"
+            f"sys.path.insert(0, {str(_REPO_ROOT)!r})\n"
+            "from pathlib import Path\n"
+            "from backend.services.dev_restart.restart_helper import spawn_detached_helper\n"
+            "python_exe, grandchild_script, pid_file, log_path = sys.argv[1:5]\n"
+            "with open(log_path, 'a', encoding='utf-8') as log_handle:\n"
+            "    spawn_detached_helper(Path(python_exe), Path(grandchild_script), Path(pid_file), log_handle)\n",
+            encoding="utf-8",
+        )
+        log_path = tmp_path / "spawn.log"
+
+        # Run the fake parent to completion -- it spawns the grandchild and
+        # exits immediately without waiting, exactly like the real parent
+        # process handing off to the detached helper.
+        argv = [
+            sys.executable,
+            str(fake_parent_script),
+            sys.executable,
+            str(grandchild_script),
+            str(pid_file),
+            str(log_path),
+        ]
+        result = subprocess.run(  # noqa: S603 - fixed argv, test-owned scripts
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0, f"fake parent failed: {result.stdout}\n{result.stderr}"
+
+        deadline = time.monotonic() + 10
+        while not pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert pid_file.exists(), "grandchild never reported its PID -- spawn did not survive"
+
+        pid_str, _, create_time_str = pid_file.read_text(encoding="utf-8").partition(":")
+        grandchild_pid = int(pid_str)
+        grandchild_create_time = float(create_time_str)
+
+        try:
+            # The fake parent process has already exited (subprocess.run
+            # returned above); the grandchild being alive right now proves
+            # it outlived its immediate spawning process, not merely that it
+            # was launched.
+            assert psutil.pid_exists(grandchild_pid)
+            live_create_time = psutil.Process(grandchild_pid).create_time()
+            assert live_create_time == pytest.approx(grandchild_create_time, abs=0.5)
+        finally:
+            with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+                psutil.Process(grandchild_pid).kill()
 
 
 class TestAwaitAdoption:

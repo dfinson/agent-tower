@@ -64,6 +64,32 @@ def get_restart_log_path() -> Path:
     return get_dev_restart_dir() / _RESTART_LOG_FILENAME
 
 
+# Story 1.7 AC3: rotate at 5 MiB with exactly one backup.
+_RESTART_LOG_MAX_BYTES = 5 * 1024 * 1024
+_RESTART_LOG_BACKUP_SUFFIX = ".1"
+
+
+def rotate_restart_log_if_needed(log_path: Path, max_bytes: int = _RESTART_LOG_MAX_BYTES) -> None:
+    """Rotate *log_path* to a single ``.1`` backup once it reaches *max_bytes*.
+
+    Called once per restart attempt, before the parent opens the log for
+    append -- the log is only ever opened at the start of a bounded
+    parent/helper restart attempt (never held open across attempts), so
+    rotate-on-open is sufficient to bound its size while preserving the most
+    recent prior attempt's output. Any existing backup is replaced so at
+    most one backup is ever retained.
+    """
+    try:
+        size = log_path.stat().st_size
+    except FileNotFoundError:
+        return
+    if size < max_bytes:
+        return
+    backup_path = log_path.with_name(log_path.name + _RESTART_LOG_BACKUP_SUFFIX)
+    backup_path.unlink(missing_ok=True)
+    log_path.replace(backup_path)
+
+
 def get_restart_lock_path() -> Path:
     return get_dev_restart_dir() / _RESTART_LOCK_FILENAME
 

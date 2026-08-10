@@ -1,6 +1,6 @@
 # Story 1.4: Pause Jobs and Replace CodePlane
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -19,13 +19,13 @@ so that self-restart proceeds without losing its coordinator or targeting unrela
 
 ## Tasks / Subtasks
 
-- [ ] Add response-grace and complete running-job-list retrieval.
-- [ ] Send and record all pause requests using existing CodePlane runtime/API behavior.
-- [ ] Preserve the partial-pause invariant: once pause begins, continue to replacement.
-- [ ] Stop only the recorded process identity and verify both identity absence and port release.
-- [ ] Construct one reproducible native `cpl up` launch from the profile and target source.
-- [ ] Pass the request nonce and redirect replacement output.
-- [ ] Add tests for list failure, individual pause failures, wrong PID, PID reuse, bound port, duplicate start, and no resume calls.
+- [x] Add response-grace and complete running-job-list retrieval.
+- [x] Send and record all pause requests using existing CodePlane runtime/API behavior.
+- [x] Preserve the partial-pause invariant: once pause begins, continue to replacement.
+- [x] Stop only the recorded process identity and verify both identity absence and port release.
+- [x] Construct one reproducible native `cpl up` launch from the profile and target source.
+- [x] Pass the request nonce and redirect replacement output.
+- [x] Add tests for list failure, individual pause failures, wrong PID, PID reuse, bound port, duplicate start, and no resume calls.
 
 ## Dev Notes
 
@@ -46,12 +46,20 @@ so that self-restart proceeds without losing its coordinator or targeting unrela
 
 ### Agent Model Used
 
-To be completed by the dev agent.
+Claude Sonnet 5 (GitHub Copilot CLI), Stories 1.3-1.4 sibling session, integrated by the integration-owner session.
 
 ### Debug Log References
+
+- `uv run pytest backend/tests/unit/test_restart_helper.py -q` -> 68 passed
 
 ### Completion Notes List
 
 - Comprehensive developer guide generated.
+- `_list_running_jobs()` retrieves the complete paginated running-job list before any pause is sent, raising `HelperAbort` on retrieval failure (AC1). `_pause_jobs()` sends a pause request per job, records individual failures without aborting (AC2/AD-7 partial-pause invariant), fixed to use direct `job["id"]` indexing (type-safety fix; a running job record missing `id` is a genuine schema violation worth surfacing, not a job pause to skip silently).
+- `_stop_old_process()` stops only the recorded PID/creation-time identity and verifies both identity absence and port release (AC3/AC4).
+- `_start_replacement()` launches exactly one `python -m backend.main up` replacement from the validated target source with the recorded executable/host/port/dev/remote/provider/tunnel-name, the request nonce via `CODEPLANE_RESTART_NONCE`, and the request id via `CODEPLANE_RESTART_REQUEST_ID`; never calls `/resume` (AC5/AC6).
 
 ### File List
+
+- `backend/services/dev_restart/restart_helper.py`
+- `backend/tests/unit/test_restart_helper.py`

@@ -51,9 +51,9 @@ development_status:
   epic-1: in-progress
   1-1-persist-the-active-launch-profile: review
   1-2-prepare-restart-without-outage: review
-  1-3-hand-off-to-a-detached-helper: ready-for-dev
-  1-4-pause-jobs-and-replace-codeplane: ready-for-dev
-  1-5-prove-recovery-and-local-readiness: ready-for-dev
-  1-6-restore-configured-remote-access: ready-for-dev
-  1-7-harden-diagnostics-and-native-restart-evidence: ready-for-dev
+  1-3-hand-off-to-a-detached-helper: review
+  1-4-pause-jobs-and-replace-codeplane: review
+  1-5-prove-recovery-and-local-readiness: review
+  1-6-restore-configured-remote-access: review
+  1-7-harden-diagnostics-and-native-restart-evidence: review
   epic-1-retrospective: optional
