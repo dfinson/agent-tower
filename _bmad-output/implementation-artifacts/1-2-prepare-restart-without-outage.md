@@ -1,6 +1,6 @@
 # Story 1.2: Prepare Restart Without Outage
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -19,13 +19,13 @@ so that invalid code or configuration cannot cause an avoidable outage.
 
 ## Tasks / Subtasks
 
-- [ ] Add parent-mode argument parsing and native target-source resolution to `tools/dev_restart.py`.
-- [ ] Load and validate the Story 1.1 active profile before any build or process action.
-- [ ] Re-resolve required secret references without serializing their values.
-- [ ] Build the target frontend while the current server remains available.
-- [ ] Run backend compile/import preflight with the recorded executable and target working directory.
-- [ ] Atomically write the pending request with documented default and CLI-overridden timeouts.
-- [ ] Add ordering and failure tests proving no pause or stop occurs during preparation.
+- [x] Add parent-mode argument parsing and native target-source resolution to `tools/dev_restart.py`.
+- [x] Load and validate the Story 1.1 active profile before any build or process action.
+- [x] Re-resolve required secret references without serializing their values.
+- [x] Build the target frontend while the current server remains available.
+- [x] Run backend compile/import preflight with the recorded executable and target working directory.
+- [x] Atomically write the pending request with documented default and CLI-overridden timeouts.
+- [x] Add ordering and failure tests proving no pause or stop occurs during preparation.
 
 ## Dev Notes
 
@@ -46,12 +46,24 @@ so that invalid code or configuration cannot cause an avoidable outage.
 
 ### Agent Model Used
 
-To be completed by the dev agent.
+Claude Sonnet 5 (GitHub Copilot CLI), integration-owner session.
 
 ### Debug Log References
+
+- `uv run pytest backend/tests/unit/test_dev_restart.py -q` -> 29 passed
+- `uv run pytest backend/tests/unit/test_dev_restart.py backend/tests/unit/test_restart_helper.py backend/tests/unit/test_restart_protocol.py backend/tests/unit/test_launch_profile.py backend/tests/unit/test_cli.py backend/tests/unit/test_tunnel_service.py -q` -> 220 passed
+- `uv run ruff check backend/tests/unit/test_dev_restart.py tools/dev_restart.py` -> All checks passed
 
 ### Completion Notes List
 
 - Comprehensive developer guide generated.
+- Rewrote `tools/dev_restart.py` parent-mode flow: `resolve_target_source_root`, `ensure_secret_resolvable`, `run_backend_preflight`, `write_pending_request`, `_resolve_timeouts`, `prepare_restart_request`, and `run_parent` implement AC1-AC6 in the strict order profile/secret validation -> frontend build -> backend preflight -> atomic pending write -> helper spawn, with any failure aborting before pause/stop and leaving the listener untouched.
+- Secret re-resolution (`ensure_secret_resolvable`) checks `resolvable` sources against the *target* source root's `.env`/environment or `shutil.which` for provider-login secrets; `unreplayable` required sources or failed resolution raise `DevRestartError` and abort before any build/preflight/write/spawn side effect (AC4, AD-5).
+- `write_pending_request` writes the exact locked wire-contract shape (`requestId`, `targetSourceRoot`, `launchProfile`, `timeouts`, `createdAt`) via the shared `write_json_atomic`/`get_request_paths` from Story 1.1's protocol module -- no secret values are ever serialized.
+- `run_parent` calls `restart_helper.spawn_detached_helper`/`await_adoption` (Story 1.3/1.4) after preparation succeeds; log rotation is deliberately out of scope (Story 1.7).
+- Backward compatible: the pre-existing `build_frontend`/`_resolve_npm_command` tests (5) pass unchanged against the rewrite.
 
 ### File List
+
+- `tools/dev_restart.py`
+- `backend/tests/unit/test_dev_restart.py`

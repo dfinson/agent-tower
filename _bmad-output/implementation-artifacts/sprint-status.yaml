@@ -50,7 +50,7 @@ story_location: _bmad-output/implementation-artifacts
 development_status:
   epic-1: in-progress
   1-1-persist-the-active-launch-profile: review
-  1-2-prepare-restart-without-outage: ready-for-dev
+  1-2-prepare-restart-without-outage: review
   1-3-hand-off-to-a-detached-helper: ready-for-dev
   1-4-pause-jobs-and-replace-codeplane: ready-for-dev
   1-5-prove-recovery-and-local-readiness: ready-for-dev
