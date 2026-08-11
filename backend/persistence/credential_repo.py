@@ -9,7 +9,7 @@ Story 3.1 route.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 from sqlalchemy import delete, select
 
@@ -66,10 +66,10 @@ class CredentialRepository(BaseRepository):
         result = await self._session.execute(
             select(CredentialRow.encrypted_secret).where(CredentialRow.id == credential_id)
         )
-        encrypted_secret = cast("str | None", result.scalar_one_or_none())
+        encrypted_secret = result.scalar_one_or_none()
         if encrypted_secret is None:
             return None
-        return cast("str", decrypt_secret(encrypted_secret))
+        return decrypt_secret(encrypted_secret)  # type: ignore[no-any-return]
 
 
 def _row_to_dict(row: CredentialRow) -> dict[str, Any]:

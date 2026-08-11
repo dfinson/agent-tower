@@ -13,7 +13,7 @@ from backend.models.domain import Project
 from backend.persistence.repository import BaseRepository
 
 if TYPE_CHECKING:
-    import builtins
+    from builtins import list as builtins_list
 
 
 class RepoJobCounts:
@@ -46,7 +46,7 @@ class ProjectRepository(BaseRepository):
             updated_at=row.updated_at,
         )
 
-    async def create(self, project_id: str, name: str, repo_paths: list[str]) -> Project:
+    async def create(self, project_id: str, name: str, repo_paths: builtins_list[str]) -> Project:
         """Insert a new Project row."""
         now = datetime.now(UTC)
         row = ProjectRow(
@@ -67,7 +67,7 @@ class ProjectRepository(BaseRepository):
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
-    async def list(self) -> list[Project]:
+    async def list(self) -> builtins_list[Project]:
         """List all Projects, ordered by creation time."""
         stmt = select(ProjectRow).order_by(ProjectRow.created_at)
         result = await self._session.execute(stmt)
@@ -95,7 +95,7 @@ class ProjectRepository(BaseRepository):
         self,
         project_id: str,
         name: str | None = None,
-        repo_paths: builtins.list[str] | None = None,
+        repo_paths: builtins_list[str] | None = None,
     ) -> Project | None:
         """Update a Project's name and/or repo membership. Returns None if not found."""
         stmt = select(ProjectRow).where(ProjectRow.id == project_id)
@@ -111,7 +111,7 @@ class ProjectRepository(BaseRepository):
         await self._session.flush()
         return self._to_domain(row)
 
-    async def job_counts_by_repo(self, repo_paths: list[str]) -> dict[str, RepoJobCounts]:
+    async def job_counts_by_repo(self, repo_paths: builtins_list[str]) -> dict[str, RepoJobCounts]:
         """Bucket job status counts + last-activity per repo path, in a single query.
 
         Used by ``ProjectService.summary_all`` (Story 2.2 / CAP-2) to build the

@@ -7,7 +7,7 @@ Exercises:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -48,7 +48,7 @@ async def _create_credential(client: AsyncClient) -> str:
         "/api/settings/credentials",
         json={"provider": "github", "label": "GH", "baseUrl": "https://api.github.com", "pat": "p"},
     )
-    return resp.json()["id"]
+    return cast("str", resp.json()["id"])
 
 
 class TestCreateTrackerLink:
