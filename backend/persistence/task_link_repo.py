@@ -126,3 +126,10 @@ class TaskLinkRepository(BaseRepository):
         )
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def get(self, task_link_id: str) -> TaskLink | None:
+        """Retrieve a single TaskLink by ID, or ``None`` if not found (Story 5.3)."""
+        stmt = select(TaskLinkRow).where(TaskLinkRow.id == task_link_id)
+        result = await self._session.execute(stmt)
+        row = result.scalar_one_or_none()
+        return self._to_domain(row) if row else None

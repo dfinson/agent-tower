@@ -658,8 +658,12 @@ class ChatRow(Base):
     created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
     last_message_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="open")
+    task_link_id: Mapped[str | None] = mapped_column(String, ForeignKey("task_links.id"), nullable=True)
 
-    __table_args__ = (Index("ix_chats_project_id", "project_id"),)
+    __table_args__ = (
+        Index("ix_chats_project_id", "project_id"),
+        Index("ix_chats_task_link_id", "task_link_id"),
+    )
 
 
 class ChatMessageRow(Base):

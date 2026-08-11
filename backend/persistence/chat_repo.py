@@ -26,6 +26,7 @@ class ChatRepository(BaseRepository):
             created_at=row.created_at,
             last_message_at=row.last_message_at,
             status=row.status,
+            task_link_id=row.task_link_id,
         )
 
     async def create(self, chat: Chat) -> Chat:
@@ -37,6 +38,7 @@ class ChatRepository(BaseRepository):
             created_at=chat.created_at,
             last_message_at=chat.last_message_at,
             status=chat.status,
+            task_link_id=chat.task_link_id,
         )
         self._session.add(row)
         await self._session.flush()
@@ -63,6 +65,34 @@ class ChatRepository(BaseRepository):
         if row is not None:
             row.project_id = project_id
             await self._session.flush()
+
+    async def attach_to_chain(self, chat_id: str, task_link_id: str) -> Chat | None:
+        """Link a Chat to a Task Recipe chain via its entry ``TaskLink`` (Story 5.3).
+
+        Returns the updated ``Chat``, or ``None`` if the chat does not exist.
+        """
+        stmt = select(ChatRow).where(ChatRow.id == chat_id)
+        result = await self._session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        row.task_link_id = task_link_id
+        await self._session.flush()
+        return self._to_domain(row)
+
+    async def detach_from_chain(self, chat_id: str) -> Chat | None:
+        """Clear a Chat's chain attachment (Story 5.3). The chain itself is untouched.
+
+        Returns the updated ``Chat``, or ``None`` if the chat does not exist.
+        """
+        stmt = select(ChatRow).where(ChatRow.id == chat_id)
+        result = await self._session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        row.task_link_id = None
+        await self._session.flush()
+        return self._to_domain(row)
 
     @staticmethod
     def _message_to_domain(row: ChatMessageRow) -> ChatMessage:

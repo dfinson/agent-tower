@@ -191,8 +191,13 @@ class RequestProvider(Provider):
         return ChatRepository(session)
 
     @provide
-    def chat_service(self, repo: ChatRepository) -> ChatService:
-        return ChatService(repo=repo)
+    def chat_service(
+        self,
+        repo: ChatRepository,
+        task_link_repo: TaskLinkRepository,
+        job_repo: JobRepository,
+    ) -> ChatService:
+        return ChatService(repo=repo, task_link_repo=task_link_repo, job_repo=job_repo)
 
     @provide
     def job_service(

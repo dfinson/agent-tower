@@ -13,19 +13,28 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from backend.models.domain import Chat, ChatMessage, JobSpec
+from backend.models.domain import Chat, ChatChainStatus, ChatMessage, JobSpec, TaskLinkNotFoundError
 
 if TYPE_CHECKING:
     from backend.models.domain import Job
     from backend.persistence.chat_repo import ChatRepository
+    from backend.persistence.job_repo import JobRepository
+    from backend.persistence.task_link_repo import TaskLinkRepository
     from backend.services.job.job_service import JobService
 
 
 class ChatService:
     """Manages the lifecycle of persistent, git-free chats."""
 
-    def __init__(self, repo: ChatRepository) -> None:
+    def __init__(
+        self,
+        repo: ChatRepository,
+        task_link_repo: TaskLinkRepository | None = None,
+        job_repo: JobRepository | None = None,
+    ) -> None:
         self._repo = repo
+        self._task_link_repo = task_link_repo
+        self._job_repo = job_repo
 
     async def create_chat(self, *, title: str, project_id: str | None = None) -> Chat:
         """Create a new Chat.
@@ -130,4 +139,69 @@ class ChatService:
             await self._repo.set_project_id(chat_id, repo)
 
         return job
+
+    async def attach_to_chain(self, chat_id: str, task_link_id: str) -> Chat | None:
+        """Attach a Chat to a Task Recipe chain via its entry ``TaskLink`` (Story 5.3).
+
+        Links the Chat to ``task_link_id``. If ``chat.project_id`` is still
+        null, it is settled from the TaskLink's own Project at this moment
+        (whichever of launch-job/attach-chain happens first settles it).
+        Returns ``None`` if the chat does not exist; raises
+        ``TaskLinkNotFoundError`` if the TaskLink does not exist. This
+        method never touches ``GitService`` or creates a Job — attaching is
+        a pure linking operation.
+        """
+        assert self._task_link_repo is not None  # required collaborator for this operation
+        chat = await self._repo.get(chat_id)
+        if chat is None:
+            return None
+
+        task_link = await self._task_link_repo.get(task_link_id)
+        if task_link is None:
+            raise TaskLinkNotFoundError(f"TaskLink '{task_link_id}' does not exist.")
+
+        if chat.project_id is None:
+            await self._repo.set_project_id(chat_id, task_link.project_id)
+
+        return await self._repo.attach_to_chain(chat_id, task_link_id)
+
+    async def detach_from_chain(self, chat_id: str) -> Chat | None:
+        """Detach a Chat from its Task Recipe chain (Story 5.3).
+
+        The chain and its TaskLinks continue to exist and run exactly as
+        before; only the Chat's link to it is cleared. Returns ``None`` if
+        the chat does not exist.
+        """
+        return await self._repo.detach_from_chain(chat_id)
+
+    async def get_chain_status(self, chat_id: str) -> ChatChainStatus | None:
+        """Read-only narration snapshot of a Chat's attached chain (Story 5.3, AC 2).
+
+        Reflects the attached TaskLink's (and, if spawned, its Job's) state
+        purely by reading existing repositories — it never calls
+        ``GitService`` or any job-creation function itself. Returns ``None``
+        if the chat does not exist or has nothing attached.
+        """
+        assert self._task_link_repo is not None  # required collaborator for this operation
+        chat = await self._repo.get(chat_id)
+        if chat is None or chat.task_link_id is None:
+            return None
+
+        task_link = await self._task_link_repo.get(chat.task_link_id)
+        if task_link is None:
+            return None
+
+        job_state: str | None = None
+        if task_link.job_id is not None and self._job_repo is not None:
+            job = await self._job_repo.get(task_link.job_id)
+            if job is not None:
+                job_state = job.state
+
+        return ChatChainStatus(
+            task_link_id=task_link.id,
+            story_node_id=task_link.story_node_id,
+            repo_path=task_link.repo_path,
+            job_id=task_link.job_id,
+            job_state=job_state,
+        )
 

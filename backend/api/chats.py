@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.api_schemas import (
     AddChatMessageRequest,
+    AttachChatToChainRequest,
+    ChatChainStatusResponse,
     ChatListResponse,
     ChatMessageResponse,
     ChatResponse,
@@ -40,6 +42,7 @@ def _to_response(chat: Chat) -> ChatResponse:
         created_at=chat.created_at,
         last_message_at=chat.last_message_at,
         status=chat.status,
+        task_link_id=chat.task_link_id,
     )
 
 
@@ -154,4 +157,66 @@ async def launch_job_from_chat(
         asyncio.create_task(_setup_and_start(), name=f"setup-{job.id}")
 
     return _job_to_create_response(job)
+
+
+@router.post("/chats/{chat_id}/attach-chain", response_model=ChatResponse)
+async def attach_chat_to_chain(
+    chat_id: str,
+    body: AttachChatToChainRequest,
+    service: FromDishka[ChatService],
+    session: FromDishka[AsyncSession],
+) -> ChatResponse:
+    """Attach a Chat to a Task Recipe chain via its entry TaskLink (Story 5.3).
+
+    Settles ``project_id`` from the TaskLink's Project if it was still
+    null. A pure linking operation — never touches ``GitService`` or
+    creates a Job. Raises 404 (via ``TaskLinkNotFoundError``'s global
+    handler) if the TaskLink does not exist.
+    """
+    chat = await service.attach_to_chain(chat_id, body.task_link_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    await session.commit()
+    return _to_response(chat)
+
+
+@router.post("/chats/{chat_id}/detach-chain", response_model=ChatResponse)
+async def detach_chat_from_chain(
+    chat_id: str,
+    service: FromDishka[ChatService],
+    session: FromDishka[AsyncSession],
+) -> ChatResponse:
+    """Detach a Chat from its Task Recipe chain (Story 5.3).
+
+    The chain continues to run exactly as before; only the Chat's link to
+    it is cleared, and the Chat remains open.
+    """
+    chat = await service.detach_from_chain(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    await session.commit()
+    return _to_response(chat)
+
+
+@router.get("/chats/{chat_id}/chain-status", response_model=ChatChainStatusResponse)
+async def get_chat_chain_status(
+    chat_id: str,
+    service: FromDishka[ChatService],
+) -> ChatChainStatusResponse:
+    """Read-only narration snapshot of a Chat's attached chain (Story 5.3, AC 2).
+
+    Purely reflects existing TaskLink/Job state via read-only polling —
+    never calls ``GitService`` or any job-creation function. 404s if the
+    chat does not exist or has nothing attached.
+    """
+    status = await service.get_chain_status(chat_id)
+    if status is None:
+        raise HTTPException(status_code=404, detail="Chat not found or has no attached chain")
+    return ChatChainStatusResponse(
+        task_link_id=status.task_link_id,
+        story_node_id=status.story_node_id,
+        repo_path=status.repo_path,
+        job_id=status.job_id,
+        job_state=status.job_state,
+    )
 
