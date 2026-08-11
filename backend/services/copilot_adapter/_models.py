@@ -16,7 +16,7 @@ from typing import Any
 
 import structlog
 
-from backend.services.copilot_adapter._client import copilot_github_token
+from backend.services.copilot_adapter._client import create_copilot_client
 
 log = structlog.get_logger(__name__)
 
@@ -31,11 +31,9 @@ async def fetch_copilot_models_raw() -> list[dict[str, Any]]:
 
     Returns a list of dicts suitable for storing in ``CachedModelsBySdk``.
     """
-    from copilot import CopilotClient
     from copilot.client import ModelInfo
 
-    token = copilot_github_token()
-    client = CopilotClient(github_token=token) if token else CopilotClient()
+    client = create_copilot_client()
     await client.start()
     try:
         # pylint: disable=protected-access  # JsonRpcClient not exposed publicly
