@@ -17,6 +17,8 @@ from backend.config import register_repo
 from backend.models.domain import Project, ProjectNotFoundError, ProjectSummary, RepoAlreadyAssignedError
 
 if TYPE_CHECKING:
+    import builtins
+
     from backend.config import CPLConfig
     from backend.persistence.project_repo import ProjectRepository
 
@@ -32,7 +34,9 @@ class ProjectService:
     def _resolve(repo_path: str) -> str:
         return str(Path(repo_path).expanduser().resolve())
 
-    async def _assert_repo_paths_available(self, repo_paths: list[str], *, exclude_project_id: str | None) -> None:
+    async def _assert_repo_paths_available(
+        self, repo_paths: builtins.list[str], *, exclude_project_id: str | None
+    ) -> None:
         """Raise RepoAlreadyAssignedError if any repo_path belongs to another Project (NFR5)."""
         existing = await self._project_repo.list_all_repo_paths(exclude_project_id=exclude_project_id)
         for path in repo_paths:
@@ -40,7 +44,7 @@ class ProjectService:
             if owner is not None:
                 raise RepoAlreadyAssignedError(f"Repo path '{path}' already belongs to Project '{owner}'.")
 
-    async def create(self, name: str, repo_paths: list[str]) -> Project:
+    async def create(self, name: str, repo_paths: builtins.list[str]) -> Project:
         """Create a new Project, registering each repo path via the existing clone/register logic."""
         resolved = [self._resolve(p) for p in repo_paths]
         await self._assert_repo_paths_available(resolved, exclude_project_id=None)
@@ -57,14 +61,14 @@ class ProjectService:
             raise ProjectNotFoundError(f"Project '{project_id}' does not exist.")
         return project
 
-    async def list(self) -> list[Project]:
+    async def list(self) -> builtins.list[Project]:
         return await self._project_repo.list()
 
     async def update(
         self,
         project_id: str,
         name: str | None = None,
-        repo_paths: list[str] | None = None,
+        repo_paths: builtins.list[str] | None = None,
     ) -> Project:
         """Rename a Project and/or replace its repo membership.
 
@@ -87,7 +91,7 @@ class ProjectService:
             raise ProjectNotFoundError(f"Project '{project_id}' does not exist.")
         return updated
 
-    async def summary_all(self) -> list[ProjectSummary]:
+    async def summary_all(self) -> builtins.list[ProjectSummary]:
         """Batch Overview summary for every Project (Story 2.2 / CAP-2).
 
         Computes active/awaitingInput/failed job counts and last-activity per

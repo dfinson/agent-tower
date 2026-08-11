@@ -260,12 +260,13 @@ class JobService:
         await self._job_repo.update_title_and_branch(job_id, title=title, description=description)
 
         if self._event_bus is not None:
-            from backend.models.events import EventKind, SessionEvent
+            from backend.models.events import EventKind, new_event
 
             await self._event_bus.publish(
-                SessionEvent(
+                new_event(
+                    session_id=job_id,
+                    timestamp=datetime.now(UTC),
                     kind=EventKind.job_title_updated,
-                    job_id=job_id,
                     payload={"title": title, "description": description},
                 )
             )

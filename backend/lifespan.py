@@ -81,6 +81,7 @@ if TYPE_CHECKING:
 
     from fastapi import FastAPI
     from sqlalchemy.ext.asyncio import AsyncSession
+    from traceforge.types import TitleUpdate
 
 
 log = structlog.get_logger()
@@ -919,7 +920,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         flush_on_session_end=True,
     )
 
-    async def _on_title_update(update) -> None:  # noqa: ANN001  (TitleUpdate at runtime)
+    async def _on_title_update(update: TitleUpdate) -> None:
         """Convert a TraceForge TitleUpdate to a CodePlane turn_summary event.
 
         Delegates the field mapping to ``build_turn_summary_payload`` (pure,

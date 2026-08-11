@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 import structlog
 from traceforge.enricher import Enricher as TFEnricher
 
-from backend.models.events import EventKind, SessionEvent, new_event
+from backend.models.events import EventKind, EventMetadata, SessionEvent, new_event
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -43,7 +43,7 @@ _job_locks: dict[str, asyncio.Lock] = {}
 _BATCH_SIZE = 500
 
 
-def _canonical_metadata(metadata: object | None) -> str | None:
+def _canonical_metadata(metadata: EventMetadata | None) -> str | None:
     """Serialize event metadata to a stable, order-independent string.
 
     Used to detect whether re-enrichment actually changed an event's metadata.
