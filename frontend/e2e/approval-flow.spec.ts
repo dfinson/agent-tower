@@ -69,7 +69,7 @@ async function setupApprovalMocks(
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   });
   await page.route("**/api/jobs/job-1/diff*", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
   });
   await page.route("**/api/jobs/job-1/approvals*", async (route) => {
     await route.fulfill({
@@ -238,7 +238,7 @@ test.describe("SSE-Driven Approval Events", () => {
       await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
     });
     await page.route("**/api/jobs/job-1/diff*", async (route) => {
-      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
     });
     await page.route("**/api/jobs/job-1/approvals*", async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });

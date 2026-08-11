@@ -1,5 +1,14 @@
 import { useState, useEffect } from "react";
-import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  XCircle,
+  CheckCircle2,
+  AlertTriangle,
+  ArrowDownCircle,
+  GitMerge,
+} from "lucide-react";
 import type { JobSummary } from "../store";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
@@ -61,6 +70,90 @@ export function JobHeaderCard({
 
   const isActive = ["running", "agent_running", "queued"].includes(job.state);
   const accent = ACCENT[job.state] ?? "border-t-gray-500/40";
+  const statusBanner = (() => {
+    if (job.modelDowngraded) {
+      return (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-amber-500">
+            <ArrowDownCircle size={14} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium">Model downgraded</p>
+              <p className="text-xs text-amber-400">
+                {job.requestedModel} → {job.actualModel}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (job.state === "review") {
+      const isConflict = hasMergeConflict;
+      const isSignOff = actionProps.needsResolution && actionProps.hasChanges && !isConflict;
+      return (
+        <div className={`rounded-md border px-3 py-2 ${isConflict ? "border-amber-500/30 bg-amber-500/10" : isSignOff ? "border-blue-500/30 bg-blue-500/10" : "border-green-500/30 bg-green-500/10"}`}>
+          <div className={`flex items-start gap-2 ${isConflict ? "text-amber-500" : isSignOff ? "text-blue-500" : "text-green-500"}`}>
+            <GitMerge size={14} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium">
+                {isConflict ? "Merge conflict" : isSignOff ? "Review required" : "Ready"}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (job.state === "failed") {
+      return (
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-red-500">
+            <XCircle size={14} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium">Job failed</p>
+              <p className="text-xs text-red-400 whitespace-pre-wrap break-words">
+                {job.failureReason ?? "No additional details available"}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (job.state === "canceled") {
+      return (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-amber-500">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium">Job canceled</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (job.state === "completed") {
+      return (
+        <div className="rounded-md border border-green-500/30 bg-green-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-green-600">
+            <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium">Job completed</p>
+              <p className="text-xs text-green-600/80">
+                {job.resolution === "merged" && "Changes merged into base branch"}
+                {job.resolution === "pr_created" && "Pull request created"}
+                {job.resolution === "discarded" && "Changes discarded"}
+                {job.resolution === "conflict" && "Merge conflict — needs manual resolution"}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  })();
 
   return (
     <>
@@ -113,6 +206,8 @@ export function JobHeaderCard({
               {setupStepLabel(job.setupStep)}
             </div>
           )}
+
+          {statusBanner}
 
           <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={() => { setSheetOpen(false); onCostClick(); }} />
 
@@ -197,6 +292,8 @@ export function JobHeaderCard({
                 {setupStepLabel(job.setupStep)}
               </p>
             )}
+
+            {statusBanner}
 
             <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={onCostClick} />
           </div>

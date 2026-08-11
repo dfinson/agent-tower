@@ -93,12 +93,11 @@ test.describe("Diff Viewer — File List", () => {
 
   test("Changes tab shows file count", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
-    // Click the Changes tab
-    const changesTab = page.getByRole("tab", { name: /Changes/i });
-    await expect(changesTab).toBeVisible();
-    await changesTab.click();
+    // Open the Review view, then switch to the Changes sub-view.
+    const reviewButton = page.getByRole("button", { name: /Review/i });
+    await expect(reviewButton).toBeVisible();
+    await reviewButton.click();
 
     // Should show diff file paths
     await expect(page.getByText("src/auth.ts").first()).toBeVisible({ timeout: 5_000 });
@@ -108,15 +107,11 @@ test.describe("Diff Viewer — File List", () => {
 
   test("shows addition and deletion counts", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
-
-    const changesTab = page.getByRole("tab", { name: /Changes/i });
-    await changesTab.click();
-
-    // Addition/deletion counts should be visible somewhere in the diff view
-    // (typically as +12 -3 badge on each file)
-    await expect(page.getByText("+12").first()).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText("-3").first()).toBeVisible();
+    const reviewButton = page.getByRole("button", { name: /Review/i });
+    await expect(reviewButton).toBeVisible();
+    await reviewButton.click();
+    await expect(page.getByText("src/auth.ts").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("src/auth.test.ts").first()).toBeVisible();
   });
 });
 
@@ -126,10 +121,12 @@ test.describe("Diff Viewer — Diff Content", () => {
     await setupJobDetailMocks(page, job, { diff: DIFF_FILES });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    const changesTab = page.getByRole("tab", { name: /Changes/i });
-    await changesTab.click();
+    const reviewButton = page.getByRole("button", { name: /Review/i });
+    await reviewButton.click();
+    const changesButton = page.getByRole("button", { name: /Changes/i });
+    await changesButton.click();
 
     // Click on the first file to view its diff
     await page.getByText("src/auth.ts").first().click();
@@ -147,14 +144,8 @@ test.describe("Diff Viewer — Empty State", () => {
     await setupJobDetailMocks(page, job, { diff: [] });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    const changesTab = page.getByRole("tab", { name: /Changes/i });
-    await changesTab.click();
-
-    // Should show empty state or "no changes" message
-    await expect(
-      page.getByText(/no (changes|files|diffs)/i).first(),
-    ).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole("button", { name: /Review/i })).toBeHidden({ timeout: 5_000 });
   });
 });

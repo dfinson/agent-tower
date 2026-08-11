@@ -16,7 +16,7 @@ const NOW = new Date().toISOString();
 function makeJob(overrides: Record<string, unknown> = {}) {
   return {
     id: "job-1",
-    title: "Test Job",
+    title: "",
     prompt: "Fix the bug",
     state: "running",
     createdAt: NOW,
@@ -115,7 +115,7 @@ async function setupJobDetailMocks(
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   });
   await page.route(`**/api/jobs/${jobId}/diff*`, async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
   });
   await page.route(`**/api/jobs/${jobId}/approvals*`, async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
@@ -135,7 +135,7 @@ test.describe("Job Failure Display", () => {
     await setupJobDetailMocks(page, failedJob);
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // Should display failure banner
     await expect(page.getByText("Job failed")).toBeVisible();
@@ -150,7 +150,7 @@ test.describe("Job Failure Display", () => {
     await setupJobDetailMocks(page, failedJob);
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     await expect(page.getByText("Job failed")).toBeVisible();
     await expect(page.getByText("No additional details available")).toBeVisible();
@@ -228,7 +228,7 @@ test.describe("Canceled Job Display", () => {
     await setupJobDetailMocks(page, canceledJob);
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     await expect(page.getByText("Job canceled")).toBeVisible();
   });
@@ -319,7 +319,7 @@ test.describe("Model Downgrade Banner", () => {
     await setupJobDetailMocks(page, downgradedJob);
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     await expect(page.getByText("Model downgraded", { exact: true })).toBeVisible();
     // Model names appear in both the failure reason and the downgrade banner
@@ -338,7 +338,7 @@ test.describe("Completed Job Display", () => {
     await setupJobDetailMocks(page, mergedJob);
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     await expect(page.getByText("Job completed")).toBeVisible();
     await expect(page.getByText("Changes merged into base branch")).toBeVisible();
@@ -357,12 +357,12 @@ test.describe("Completed Job Display", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify([{ path: "src/main.ts", status: "modified", additions: 5, deletions: 2, hunks: [] }]),
+        body: JSON.stringify({ items: [{ path: "src/main.ts", status: "modified", additions: 5, deletions: 2, hunks: [] }] }),
       });
     });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     await expect(page.getByText("Merge conflict", { exact: false }).first()).toBeVisible();
     await expect(page.locator("button", { hasText: "Resolve with Agent" })).toBeVisible();
