@@ -9,6 +9,8 @@ interface KanbanColumnProps {
   jobs: JobSummary[];
   onLoadMore?: () => void;
   hasMore?: boolean;
+  /** Non-job cards (e.g. TaskLink recipe cards, Story 4.4) rendered after the job list. */
+  extraCards?: React.ReactNode;
 }
 
 export const KanbanColumn = memo(function KanbanColumn({
@@ -16,6 +18,7 @@ export const KanbanColumn = memo(function KanbanColumn({
   jobs,
   onLoadMore,
   hasMore,
+  extraCards,
 }: KanbanColumnProps) {
   return (
     <div className="flex flex-col overflow-hidden h-full rounded-lg border border-border bg-card" role="region" aria-label={title}>
@@ -27,7 +30,7 @@ export const KanbanColumn = memo(function KanbanColumn({
       </div>
 
       <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto p-2">
-        {jobs.length === 0 ? (
+        {jobs.length === 0 && !extraCards ? (
           (() => {
             if (title === "In Progress") {
               return (
@@ -77,6 +80,7 @@ export const KanbanColumn = memo(function KanbanColumn({
         ) : (
           jobs.map((job) => <JobCard key={job.id} job={job} />)
         )}
+        {extraCards}
         {hasMore && onLoadMore && (
           <Button variant="ghost" size="sm" className="w-full" onClick={onLoadMore}>
             Load more

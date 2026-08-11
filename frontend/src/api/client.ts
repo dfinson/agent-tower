@@ -19,6 +19,8 @@ import type {
   RepoDetailResponse,
   RepoListResponse,
   ProjectListSummaryResponse,
+  ProjectListResponse,
+  TaskLinkListResponse,
   SDKListResponse,
   Settings,
   SidecarTemplate,
@@ -406,6 +408,16 @@ export function fetchRepos(): Promise<RepoListResponse> {
 
 export function fetchProjectsSummary(): Promise<ProjectListSummaryResponse> {
   return request("/settings/projects/summary");
+}
+
+/** List every registered Project, including its member repo paths (Story 2.1 / CAP-6). */
+export function fetchProjects(): Promise<ProjectListResponse> {
+  return request("/settings/projects");
+}
+
+/** List a Project's currently persisted TaskLinks (Story 4.2 / CAP-9). */
+export function fetchProjectTaskLinks(projectId: string): Promise<TaskLinkListResponse> {
+  return request(`/settings/projects/${encodeURIComponent(projectId)}/task-links`);
 }
 
 export function fetchRepoDetail(repoPath: string): Promise<RepoDetailResponse> {
