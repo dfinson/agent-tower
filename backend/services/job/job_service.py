@@ -28,7 +28,7 @@ from backend.models.domain import (
 )
 from backend.models.events import EventKind, new_event
 from backend.services.adapters.agent_adapter import validate_sdk_model
-from backend.services.completers.naming_service import NamingError
+from backend.services.completers.naming_service import NamingError, deterministic_fallback_names
 from backend.services.git.git_service import GitError
 
 if TYPE_CHECKING:
@@ -320,33 +320,12 @@ class JobService:
         try:
             title, description, branch, worktree_name = await self._resolve_job_name(spec, resolved_repo)
         except NamingError as exc:
-            import hashlib
-
-            h = hashlib.sha256(f"{spec.prompt}{now.isoformat()}".encode()).hexdigest()[:12]
-            job_id = f"naming-failed-{h}"
-            job = Job(
-                id=job_id,
-                repo=resolved_repo,
-                prompt=spec.prompt,
-                state=JobState.failed,
-                base_ref=base_ref,
-                branch=None,
-                worktree_path=None,
-                session_id=None,
-                created_at=now,
-                updated_at=now,
-                completed_at=now,
-                title=None,
-                description=None,
-                worktree_name=None,
-                preset=spec.preset,
-                model=spec.model,
-                failure_reason=f"Naming failed: {exc}",
-                parent_job_id=spec.parent_job_id,
+            title, description, branch, worktree_name = deterministic_fallback_names(spec.prompt)
+            log.warning(
+                "job_naming_fallback_used",
+                error=str(exc),
+                worktree_name=worktree_name,
             )
-            await self._job_repo.create(job)
-            log.error("job_naming_failed", job_id=job_id, error=str(exc))
-            return job
 
         assert worktree_name is not None
         job_id = worktree_name

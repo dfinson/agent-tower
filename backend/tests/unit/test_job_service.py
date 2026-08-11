@@ -24,6 +24,7 @@ from backend.models.domain import (
 )
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
+from backend.services.completers.naming_service import NamingError
 from backend.services.git.git_service import GitService
 from backend.services.job.job_service import (
     JobNotFoundError,
@@ -180,6 +181,38 @@ class TestJobService:
         assert job.repo == "/repos/test"
         assert job.prompt == "Fix the bug"
         # Branch is stored but worktree is not created yet (background task)
+
+    @pytest.mark.asyncio
+    async def test_create_job_falls_back_when_naming_fails(
+        self,
+        job_service: JobService,
+        session: AsyncSession,
+    ) -> None:
+        with (
+            patch.object(
+                job_service._git,
+                "get_default_branch",
+                new_callable=AsyncMock,
+                return_value="main",
+            ),
+            patch.object(
+                job_service,
+                "_resolve_job_name",
+                new_callable=AsyncMock,
+                side_effect=NamingError("boom"),
+            ),
+        ):
+            job = await job_service.create_job(
+                JobSpec(
+                    repo="/repos/test",
+                    prompt="Fix the bug",
+                )
+            )
+            await session.commit()
+
+        assert job.state == JobState.preparing
+        assert job.id.startswith("task-")
+        assert job.branch == f"feat/{job.id}"
 
     @pytest.mark.asyncio
     async def test_create_job_repo_not_allowed(

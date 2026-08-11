@@ -17,7 +17,16 @@ vi.mock("../../api/client", () => ({
   fetchApprovals: vi.fn().mockResolvedValue([]),
   resolveJob: vi.fn(),
   fetchArtifacts: vi.fn().mockResolvedValue({
-    items: [],
+    items: [{
+      id: "art-1",
+      jobId: "job-1",
+      name: "agent_summary.md",
+      type: "agent_summary",
+      mimeType: "text/markdown",
+      sizeBytes: 1024,
+      phase: "post_completion",
+      createdAt: "2025-01-01T00:00:00Z",
+    }],
     collectionStatus: "completed",
     collectionError: null,
     collectionUpdatedAt: null,
@@ -101,7 +110,16 @@ beforeEach(() => {
   vi.mocked(resolveJob).mockReset();
   vi.mocked(fetchArtifacts).mockReset();
   vi.mocked(fetchArtifacts).mockResolvedValue({
-    items: [],
+    items: [{
+      id: "art-1",
+      jobId: "job-1",
+      name: "agent_summary.md",
+      type: "agent_summary",
+      mimeType: "text/markdown",
+      sizeBytes: 1024,
+      phase: "post_completion",
+      createdAt: "2025-01-01T00:00:00Z",
+    }],
     collectionStatus: "completed",
     collectionError: null,
     collectionUpdatedAt: null,
@@ -134,7 +152,7 @@ beforeEach(() => {
 });
 
 describe("JobDetailScreen", () => {
-  it("keeps the Artifacts tab visible and refetches after artifacts.updated", async () => {
+  it("keeps the Artifacts tab visible when artifacts exist and refetches after artifacts.updated", async () => {
     useStore.setState({ jobs: { "job-1": makeJob() } });
     vi.mocked(fetchJob).mockResolvedValueOnce(makeJob() as any);
 
@@ -146,7 +164,7 @@ describe("JobDetailScreen", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole("tab", { name: "Artifacts" })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: "Artifacts 1" })).toBeInTheDocument();
     await waitFor(() => expect(fetchArtifacts).toHaveBeenCalledTimes(1));
 
     act(() => {
@@ -361,7 +379,7 @@ describe("JobDetailScreen", () => {
 
     expect(await screen.findByRole("button", { name: "Resolve" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Merge" })).not.toBeInTheDocument();
-    expect(screen.getByText("Conflict")).toBeInTheDocument();
+    expect(screen.getAllByText("Conflict")).toHaveLength(2);
   });
 
   it("does not show conflict text when resolution is merged but stale conflict indicators remain", async () => {

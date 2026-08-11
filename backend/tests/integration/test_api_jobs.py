@@ -7,6 +7,7 @@ and merge services, real JobService + EventBus).
 
 from __future__ import annotations
 
+import hashlib
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -143,6 +144,24 @@ class TestJobsCrud:
         )
         resp = await client.post("/api/jobs", json=body)
         assert resp.status_code == 201
+
+    async def test_suggest_names_falls_back_when_naming_fails(
+        self,
+        client: AsyncClient,
+        mock_utility_session: AsyncMock,
+    ) -> None:
+        prompt = "Fix auth bug"
+        mock_utility_session.complete.return_value = ""
+
+        resp = await client.post("/api/jobs/suggest-names", json={"prompt": prompt})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:8]
+        assert data["worktreeName"] == f"task-{digest}"
+        assert data["branchName"] == f"feat/task-{digest}"
+        assert data["title"]
+        assert data["description"]
 
     async def test_create_job_calls_runtime_start(self, client: AsyncClient, mock_runtime_service: AsyncMock) -> None:
         await client.post("/api/jobs", json=_create_body())

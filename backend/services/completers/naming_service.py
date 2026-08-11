@@ -7,6 +7,7 @@ fails to produce valid names after MAX_RETRIES attempts, NamingError is raised.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from typing import Any, Protocol, runtime_checkable
@@ -201,6 +202,24 @@ def heuristic_slug(prompt: str, *, max_words: int = 4, fallback: str = "task") -
     if not slug or not _WORKTREE_RE.match(slug):
         return fallback
     return slug
+
+
+def deterministic_fallback_names(prompt: str) -> tuple[str, str, str, str]:
+    """Build deterministic names when the naming LLM cannot be reached.
+
+    The fallback keeps job creation unblocked and follows the SPEC contract:
+    ``worktree_name`` is always ``task-{sha256(prompt)[:8]}``.
+    """
+    prompt_text = prompt.strip()
+    digest = hashlib.sha256(prompt.encode("utf-8", errors="replace")).hexdigest()[:8]
+    worktree_name = f"task-{digest}"
+    branch_name = f"feat/{worktree_name}"
+    title_words = heuristic_slug(prompt).replace("-", " ").strip()
+    title = title_words.title() if title_words else f"Task {digest}"
+    description = prompt_text or f"Task {digest}"
+    if len(description) > 200:
+        description = description[:197] + "..."
+    return title, description, branch_name, worktree_name
 
 
 def _extract_json(raw: str) -> dict[str, Any] | None:

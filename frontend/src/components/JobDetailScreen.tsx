@@ -95,10 +95,10 @@ export function JobDetailScreen() {
   const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const diffs = useStore(selectJobDiffs(jobId ?? ""));
-  const hasChanges = diffs.length > 0;
+  const hasChanges = diffs.length > 0 || job?.state === "review";
   const hasWorktree = !!job?.worktreePath && !job?.archivedAt;
-  const hasArtifacts = true;
   const [artifactCount, setArtifactCount] = useState(0);
+  const hasArtifacts = artifactCount > 0;
   const artifactVersion = useStore((s) => jobId ? (s.artifactVersions[jobId] ?? 0) : 0);
 
   // Map a transcript turnId to the nearest activity-timeline step turnId.

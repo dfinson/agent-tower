@@ -320,6 +320,25 @@ export function SettingsScreen() {
         </div>
       </div>
 
+      {/* Verification */}
+      <div className="rounded-lg border border-border bg-card p-5">
+        <p className="text-sm font-semibold mb-4">Verification</p>
+        <label className="flex items-start gap-3 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={settings.verify}
+            onChange={(e) => patch({ verify: e.target.checked })}
+            className="mt-1 h-4 w-4 rounded border-border"
+          />
+          <span>
+            <span className="font-medium">Run verification before completion</span>
+            <span className="block text-xs text-muted-foreground">
+              When enabled, jobs request a verification pass before they can be marked complete.
+            </span>
+          </span>
+        </label>
+      </div>
+
 
 
       {/* Notifications */}

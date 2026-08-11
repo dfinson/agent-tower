@@ -5,7 +5,7 @@ import { cn } from "../lib/utils";
 const TAB_ITEMS = [
   { id: "live", icon: Radio, label: "Live", tip: "Real-time agent activity feed" },
   { id: "files", icon: FolderTree, label: "Files", tip: "Browse the workspace file tree" },
-  { id: "review", icon: ScanSearch, label: "Review", tip: "Review code changes and structural analysis", conditional: true },
+  { id: "review", icon: ScanSearch, label: "Changes", tip: "Review code changes and structural analysis" },
   { id: "metrics", icon: BarChart3, label: "Metrics", tip: "Cost, tokens, and performance metrics" },
   { id: "artifacts", icon: Package, label: "Artifacts", tip: "Checkpoints, logs, and exported files", conditional: true },
 ] as const;
@@ -32,7 +32,6 @@ export function ViewTabBar({
   onOpenTerminal,
 }: ViewTabBarProps) {
   const visibleTabs = TAB_ITEMS.filter((t) => {
-    if (t.id === "review") return hasChanges;
     if (t.id === "artifacts") return hasArtifacts;
     return true;
   });
@@ -42,6 +41,7 @@ export function ViewTabBar({
       className="hidden md:flex items-center gap-0.5 mx-3 mt-1.5 px-3 h-9 rounded-lg border border-border bg-card shrink-0 overflow-x-auto scrollbar-none"
       role="tablist"
       aria-label="Job detail views"
+      data-has-changes={hasChanges}
     >
       {visibleTabs.map(({ id, icon: Icon, label, tip }) => (
         <Tooltip key={id} content={tip} side="bottom">

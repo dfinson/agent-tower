@@ -80,6 +80,29 @@ export function JobHeaderCard({
       );
     }
 
+    if (job.state === "review") {
+      const isConflict = actionProps.hasMergeConflict;
+      const isSignOff = actionProps.needsResolution && actionProps.hasChanges && !isConflict;
+      return (
+        <div className={`rounded-md border px-3 py-2 ${isConflict ? "border-amber-500/30 bg-amber-500/10" : isSignOff ? "border-blue-500/30 bg-blue-500/10" : "border-green-500/30 bg-green-500/10"}`}>
+          <div className={`flex items-start gap-2 ${isConflict ? "text-amber-500" : isSignOff ? "text-blue-500" : "text-green-500"}`}>
+            {isConflict ? (
+              <GitMerge size={14} className="mt-0.5 shrink-0" />
+            ) : isSignOff ? (
+              <GitMerge size={14} className="mt-0.5 shrink-0" />
+            ) : (
+              <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
+            )}
+            <div>
+              <p className="text-sm font-medium">
+                {isConflict ? "Merge conflict" : isSignOff ? "Review required" : "Ready"}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     if (job.state === "failed") {
       return (
         <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">
@@ -166,6 +189,9 @@ export function JobHeaderCard({
             <ConnectionStatusIndicator />
             <NavMenuSlideout />
           </div>
+        </div>
+        <div className="px-4 pb-2">
+          <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={onCostClick} />
         </div>
       </div>
 
@@ -265,6 +291,9 @@ export function JobHeaderCard({
           <div className="flex-1" />
           <JobActions {...actionProps} layout="bar" />
         </div>
+        <div className="px-4 pb-2">
+          <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={onCostClick} />
+        </div>
 
         {/* ── Expanded body ── */}
         {expanded && (
@@ -287,7 +316,6 @@ export function JobHeaderCard({
               </p>
             )}
 
-            <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={onCostClick} />
           </div>
         )}
       </div>

@@ -310,7 +310,7 @@ export function JobCreationScreen() {
           />
 
           <div className="flex flex-col gap-1.5">
-            <Label>Preset</Label>
+            <Label>Permission Mode</Label>
             <div className={`flex gap-2 transition-opacity ${!settingsLoaded ? "opacity-50 pointer-events-none" : ""}`}>
               {(
                 [

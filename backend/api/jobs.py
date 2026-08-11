@@ -140,13 +140,13 @@ async def suggest_names(
     Uses a one-shot utility session (suggest-names is called before a job exists).
     Returns 503 if the utility LLM is not configured.
     """
-    from backend.services.completers.naming_service import NamingError
+    from backend.services.completers.naming_service import NamingError, deterministic_fallback_names
 
     try:
         title, description, branch_name, worktree_name = await naming_service.generate(body.prompt)
     except NamingError as exc:
-        log.warning("naming_failed", exc_info=exc)
-        raise HTTPException(status_code=503, detail="Naming failed") from exc
+        log.warning("naming_failed_fallback_used", error=str(exc))
+        title, description, branch_name, worktree_name = deterministic_fallback_names(body.prompt)
 
     return SuggestNamesResponse(
         title=title,

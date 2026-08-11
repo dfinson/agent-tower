@@ -10,7 +10,7 @@ import { cn, isActiveSetupStep, setupStepLabel } from "../lib/utils";
 const TAB_ITEMS = [
   { id: "live", icon: Radio, label: "Live" },
   { id: "files", icon: FolderTree, label: "Files" },
-  { id: "review", icon: ScanSearch, label: "Review", conditional: true },
+  { id: "review", icon: ScanSearch, label: "Changes" },
   { id: "metrics", icon: BarChart3, label: "Metrics" },
   { id: "artifacts", icon: Package, label: "Artifacts", conditional: true },
 ] as const;
@@ -121,7 +121,6 @@ export function JobDetailSidebar({
 
   // Filter visible tabs based on conditional flags
   const visibleTabs = TAB_ITEMS.filter((t) => {
-    if (t.id === "review") return hasChanges;
     if (t.id === "artifacts") return hasArtifacts;
     return true;
   });
@@ -181,6 +180,7 @@ export function JobDetailSidebar({
           sidebarCollapsed && "w-10",
         )}
         style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
+        data-has-changes={hasChanges}
       >
         {sidebarCollapsed ? (
           <Tooltip content="Expand sidebar" side="left">

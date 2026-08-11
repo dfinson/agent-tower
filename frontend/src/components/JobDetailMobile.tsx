@@ -217,7 +217,7 @@ export function MobileBottomNav({
   setMobileMoreOpen,
 }: MobileBottomNavProps) {
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-50 md:hidden flex items-end justify-around border-t border-border bg-card/95 backdrop-blur-sm safe-area-pb landscape:items-center" style={{ height: 52 }}>
+    <nav className="fixed bottom-0 inset-x-0 z-50 md:hidden flex items-end justify-around border-t border-border bg-card/95 backdrop-blur-sm safe-area-pb landscape:items-center" style={{ height: 52 }} data-has-changes={hasChanges}>
       {/* Activity toggle — visually distinct (opens overlay, not a tab) */}
       <button
         onClick={() => { if (tab !== "live") handleTabChange("live"); setMobileActivityOpen((o: boolean) => !o); setMobileMoreOpen(false); }}
@@ -231,7 +231,7 @@ export function MobileBottomNav({
       </button>
       {[
         { id: "live", icon: Radio, label: "Live" },
-        ...(hasChanges ? [{ id: "review", icon: ScanSearch, label: "Review" }] : []),
+        { id: "review", icon: ScanSearch, label: "Changes" },
         { id: "files", icon: FolderTree, label: "Files" },
       ].map(({ id, icon: Icon, label }) => (
         <button
