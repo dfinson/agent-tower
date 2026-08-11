@@ -121,3 +121,52 @@ class TestTaskLinkRepoUpsert:
         project_id = await _make_project(session)
         repo = TaskLinkRepository(session)
         assert await repo.list_by_project(project_id) == []
+
+
+class TestCreateManual:
+    @pytest.mark.asyncio
+    async def test_creates_manual_task_link_without_story_backing(self, session: AsyncSession) -> None:
+        project_id = await _make_project(session)
+        repo = TaskLinkRepository(session)
+
+        created = await repo.create_manual(
+            project_id=project_id,
+            repo_path="/repo/a",
+            tracker_ticket_ref="JIRA-123",
+            prompt_override="Implement the ticket",
+        )
+        await session.commit()
+
+        assert created.project_id == project_id
+        assert created.repo_path == "/repo/a"
+        assert created.tracker_ticket_ref == "JIRA-123"
+        assert created.prompt_override == "Implement the ticket"
+        assert created.story_node_id is None
+        assert created.depends_on == []
+        assert created.job_id is None
+        assert created.epic_id is None
+
+    @pytest.mark.asyncio
+    async def test_same_ticket_ref_creates_independent_persisted_rows(self, session: AsyncSession) -> None:
+        project_id = await _make_project(session)
+        repo = TaskLinkRepository(session)
+
+        first = await repo.create_manual(
+            project_id=project_id,
+            repo_path="/repo/a",
+            tracker_ticket_ref="JIRA-123",
+            prompt_override="Implement part one",
+        )
+        second = await repo.create_manual(
+            project_id=project_id,
+            repo_path="/repo/a",
+            tracker_ticket_ref="JIRA-123",
+            prompt_override="Implement part two",
+        )
+        await session.commit()
+
+        listed = await repo.list_by_project(project_id)
+        assert first.id != second.id
+        assert [task.tracker_ticket_ref for task in listed] == ["JIRA-123", "JIRA-123"]
+        assert [task.prompt_override for task in listed] == ["Implement part one", "Implement part two"]
+        assert all(task.story_node_id is None for task in listed)

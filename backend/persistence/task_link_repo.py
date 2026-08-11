@@ -39,6 +39,33 @@ class TaskLinkRepository(BaseRepository):
             updated_at=row.updated_at,
         )
 
+    async def create_manual(
+        self,
+        *,
+        project_id: str,
+        repo_path: str,
+        tracker_ticket_ref: str,
+        prompt_override: str,
+    ) -> TaskLink:
+        """Insert a fresh manually-assigned TaskLink without story backing."""
+        now = datetime.now(UTC)
+        row = TaskLinkRow(
+            id=str(uuid.uuid4()),
+            project_id=project_id,
+            repo_path=repo_path,
+            story_node_id=None,
+            depends_on="[]",
+            job_id=None,
+            tracker_ticket_ref=tracker_ticket_ref,
+            prompt_override=prompt_override,
+            epic_id=None,
+            created_at=now,
+            updated_at=now,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return self._to_domain(row)
+
     async def upsert_many(
         self,
         project_id: str,

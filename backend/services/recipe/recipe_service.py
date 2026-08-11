@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from backend.models.domain import RepoNotAllowedError
 from backend.services.recipe.parsers import ParsedTask, parse_bmad_stories, parse_spec_kit_tasks
 
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 
 
 class RecipeService:
-    """Orchestrates TaskLink ingestion for a Project."""
+    """Orchestrates Project-scoped TaskLink creation and ingestion."""
 
     def __init__(self, task_link_repo: TaskLinkRepository, project_service: ProjectService) -> None:
         self._task_link_repo = task_link_repo
@@ -86,6 +87,28 @@ class RecipeService:
                 )
 
         return await self._task_link_repo.upsert_many(project_id, entries)
+
+    async def create_manual_task_link(
+        self,
+        *,
+        project_id: str,
+        repo_path: str,
+        tracker_ticket_ref: str,
+        prompt_override: str,
+    ) -> TaskLink:
+        """Create a fresh TaskLink directly against an existing tracker ticket."""
+        project = await self._project_service.get(project_id)
+        resolved_repo_path = str(Path(repo_path).expanduser().resolve())
+        if resolved_repo_path not in project.repo_paths:
+            raise RepoNotAllowedError(
+                f"Repo path '{resolved_repo_path}' does not belong to Project '{project_id}'."
+            )
+        return await self._task_link_repo.create_manual(
+            project_id=project_id,
+            repo_path=resolved_repo_path,
+            tracker_ticket_ref=tracker_ticket_ref,
+            prompt_override=prompt_override,
+        )
 
     async def list_task_links(self, project_id: str) -> list[TaskLink]:
         """List every TaskLink currently persisted for a Project."""

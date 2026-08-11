@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.models.domain import Project
+from backend.models.domain import Project, RepoNotAllowedError, TaskLink
 from backend.services.recipe.recipe_service import RecipeService
 
 if TYPE_CHECKING:
@@ -188,3 +188,64 @@ class TestListTaskLinks:
         mock_project_service.get.assert_awaited_once_with("proj-1")
         mock_task_link_repo.list_by_project.assert_awaited_once_with("proj-1")
         assert result == []
+
+
+class TestCreateManualTaskLink:
+    @pytest.mark.asyncio
+    async def test_creates_manual_link_for_project_member_repo(
+        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+    ) -> None:
+        repo_path = tmp_path / "member-repo"
+        repo_path.mkdir()
+        mock_project_service.get.return_value = _make_project("proj-1", [str(repo_path)])
+        expected = TaskLink(
+            id="task-1",
+            project_id="proj-1",
+            repo_path=str(repo_path),
+            story_node_id=None,
+            depends_on=[],
+            job_id=None,
+            tracker_ticket_ref="JIRA-123",
+            prompt_override="Implement this ticket",
+            epic_id=None,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        mock_task_link_repo.create_manual.return_value = expected
+
+        service = RecipeService(mock_task_link_repo, mock_project_service)
+        result = await service.create_manual_task_link(
+            project_id="proj-1",
+            repo_path=str(repo_path),
+            tracker_ticket_ref="JIRA-123",
+            prompt_override="Implement this ticket",
+        )
+
+        assert result is expected
+        mock_task_link_repo.create_manual.assert_awaited_once_with(
+            project_id="proj-1",
+            repo_path=str(repo_path),
+            tracker_ticket_ref="JIRA-123",
+            prompt_override="Implement this ticket",
+        )
+
+    @pytest.mark.asyncio
+    async def test_rejects_repo_outside_project(
+        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+    ) -> None:
+        member_repo = tmp_path / "member-repo"
+        other_repo = tmp_path / "other-repo"
+        member_repo.mkdir()
+        other_repo.mkdir()
+        mock_project_service.get.return_value = _make_project("proj-1", [str(member_repo)])
+
+        service = RecipeService(mock_task_link_repo, mock_project_service)
+        with pytest.raises(RepoNotAllowedError):
+            await service.create_manual_task_link(
+                project_id="proj-1",
+                repo_path=str(other_repo),
+                tracker_ticket_ref="JIRA-123",
+                prompt_override="Implement this ticket",
+            )
+
+        mock_task_link_repo.create_manual.assert_not_awaited()

@@ -4,7 +4,7 @@ baseline_commit: 4e662805
 
 # Story 4.3: Manually assign a task to an existing ticket
 
-Status: in-progress
+Status: review
 
 ## Story
 
@@ -20,19 +20,19 @@ so that I can automate work the ticket describes without first authoring a plann
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Add manual TaskLink persistence and service behavior on top of Story 4.2 (AC: 1, 2, 3)
-  - [ ] Extend Story 4.2's TaskLink repository/service rather than adding a second model, table, migration, or execution entity.
-  - [ ] Create a fresh row per request with `tracker_ticket_ref` and `prompt_override` set; leave `story_node_id`, `job_id`, and `epic_id` null and initialize `depends_on` empty.
-  - [ ] Preserve multiplicity: do not upsert or enforce uniqueness by `tracker_ticket_ref`.
-  - [ ] Validate the target Project and repo membership using existing Project patterns; do not call tracker provider write APIs or expose credentials.
-- [ ] Task 2: Expose manual assignment through the Project TaskLink API (AC: 1, 2, 3)
-  - [ ] Add a camelCase request/response contract to the existing `/settings/projects/{project_id}/task-links` surface established by Story 4.2.
-  - [ ] Keep the route thin: validate the request, delegate to `recipe_service.py`, and map existing domain errors consistently.
-  - [ ] Return the persisted nullable fields so a later read proves `story_node_id` and `epic_id` remain null.
-- [ ] Task 3: Add comprehensive automated coverage (AC: 1, 2, 3)
-  - [ ] Unit-test manual row creation, independent rows sharing a ticket ref, Project/repo validation, null story/Epic/job fields, and persistence across a later read.
-  - [ ] Integration-test the POST contract, camelCase serialization, validation failures, multiplicity, and GET visibility through the existing TaskLink list endpoint.
-  - [ ] Run the smallest relevant TaskLink/Project/TrackerLink regression suites plus configured lint and type checks.
+- [x] Task 1: Add manual TaskLink persistence and service behavior on top of Story 4.2 (AC: 1, 2, 3)
+  - [x] Extend Story 4.2's TaskLink repository/service rather than adding a second model, table, migration, or execution entity.
+  - [x] Create a fresh row per request with `tracker_ticket_ref` and `prompt_override` set; leave `story_node_id`, `job_id`, and `epic_id` null and initialize `depends_on` empty.
+  - [x] Preserve multiplicity: do not upsert or enforce uniqueness by `tracker_ticket_ref`.
+  - [x] Validate the target Project and repo membership using existing Project patterns; do not call tracker provider write APIs or expose credentials.
+- [x] Task 2: Expose manual assignment through the Project TaskLink API (AC: 1, 2, 3)
+  - [x] Add a camelCase request/response contract to the existing `/settings/projects/{project_id}/task-links` surface established by Story 4.2.
+  - [x] Keep the route thin: validate the request, delegate to `recipe_service.py`, and map existing domain errors consistently.
+  - [x] Return the persisted nullable fields so a later read proves `story_node_id` and `epic_id` remain null.
+- [x] Task 3: Add comprehensive automated coverage (AC: 1, 2, 3)
+  - [x] Unit-test manual row creation, independent rows sharing a ticket ref, Project/repo validation, null story/Epic/job fields, and persistence across a later read.
+  - [x] Integration-test the POST contract, camelCase serialization, validation failures, multiplicity, and GET visibility through the existing TaskLink list endpoint.
+  - [x] Run the smallest relevant TaskLink/Project/TrackerLink regression suites plus configured lint and type checks.
 
 ## Dev Notes
 
@@ -85,12 +85,40 @@ GPT-5.6 Sol (GitHub Copilot CLI).
 
 ### Debug Log References
 
+- Red phase: focused TaskLink tests -> 11 failed, 19 passed before implementation.
+- `uv run --active pytest backend/tests/unit/test_task_link_repo.py backend/tests/unit/test_recipe_service.py backend/tests/integration/test_api_task_links.py -q` -> 30 passed.
+- Focused TaskLink/Project/TrackerLink regression -> 72 passed.
+- `ruff check` on all Story 4.3 production/test files -> all checks passed.
+- `mypy backend/persistence/task_link_repo.py` -> no issues found. The broader service/API command also reported the two pre-existing `list` annotation errors in Project code.
+- Full backend regression reached the pre-existing `TestGetRepoDetail.test_registered_repo` failure (404 vs 200); the same isolated test fails identically on `origin/main`, proving it is not introduced by Story 4.3.
+
+### Implementation Plan
+
+- Reuse Story 4.2's canonical `TaskLinkRow`, repository, service, API response, and migration.
+- Add an insert-only repository method for manual assignments, with Project membership validation in `RecipeService`.
+- Add one POST operation beside the existing GET TaskLink endpoint and cover persistence, multiplicity, nullable fields, validation, and absence of Job creation.
+
 ### Completion Notes List
 
 - Comprehensive implementation context created from Epic 4, CAP-9, AD-9/AD-11, and existing Project/TrackerLink patterns.
+- Added insert-only manual TaskLink creation; repeated assignments to one ticket produce independent persisted rows.
+- Manual rows retain null `story_node_id`, `job_id`, and `epic_id`, an empty dependency list, and the supplied ticket reference/prompt indefinitely.
+- Added the camelCase `POST /api/settings/projects/{project_id}/task-links` contract with non-blank text validation and Project repo-membership enforcement.
+- No model, migration, tracker network call, credential access, Job creation, board rendering, or Story 4.2 ingestion behavior was duplicated or changed.
 
 ### File List
+
+- `_bmad-output/implementation-artifacts/4-3-manually-assign-a-task-to-an-existing-ticket.md` (added)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified)
+- `backend/api/projects.py` (modified)
+- `backend/models/api_schemas.py` (modified)
+- `backend/persistence/task_link_repo.py` (modified)
+- `backend/services/recipe/recipe_service.py` (modified)
+- `backend/tests/integration/test_api_task_links.py` (modified)
+- `backend/tests/unit/test_recipe_service.py` (modified)
+- `backend/tests/unit/test_task_link_repo.py` (modified)
 
 ## Change Log
 
 - 2026-08-10: Story created with explicit Story 4.2 dependency boundary and manual-assignment guardrails.
+- 2026-08-10: Implemented manual TaskLink assignment, API validation, independent same-ticket rows, and focused regression coverage; status set to review.
