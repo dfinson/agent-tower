@@ -57,9 +57,7 @@ class TestProviderGuidance:
         assert "Pull requests: Read & write" in github_guidance
 
     @pytest.mark.asyncio
-    async def test_jira_guidance_states_full_account_scope_and_approval_gate(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_jira_guidance_states_full_account_scope_and_approval_gate(self, client: AsyncClient) -> None:
         """Story 3.5 AC2 (NFR9): Jira tokens can't be scoped below the full account;
         the approval gate, not token scope, is the real security boundary."""
         resp = await client.get("/api/settings/credentials/guidance")
@@ -69,9 +67,7 @@ class TestProviderGuidance:
         assert "security boundary" in jira_guidance
 
     @pytest.mark.asyncio
-    async def test_azure_devops_guidance_states_org_scope_and_approval_gate(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_azure_devops_guidance_states_org_scope_and_approval_gate(self, client: AsyncClient) -> None:
         """Story 3.5 AC2 (NFR9): Azure DevOps PATs are organization-scoped, not
         project-scoped; the approval gate is the real security boundary."""
         resp = await client.get("/api/settings/credentials/guidance")

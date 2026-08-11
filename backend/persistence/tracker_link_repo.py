@@ -27,10 +27,10 @@ class TrackerLinkProjectNotFoundError(Exception):
 
 
 class TrackerLinkRepository(BaseRepository):
-"""Database access for TrackerLinks."""
+    """Database access for TrackerLinks."""
 
-async def create(self, *, link_id: str, project_id: str, credential_id: str, external_ref: str) -> dict[str, Any]:
-    """Attach a Credential to a Project via a new TrackerLink (AC1).
+    async def create(self, *, link_id: str, project_id: str, credential_id: str, external_ref: str) -> dict[str, Any]:
+        """Attach a Credential to a Project via a new TrackerLink (AC1).
 
         Validates both the Project and the Credential exist before inserting,
         since ``project_id`` is a plain string with no DB-level FK constraint.
