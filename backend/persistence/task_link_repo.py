@@ -6,7 +6,7 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from backend.models.db import TaskLinkRow
 from backend.models.domain import TaskLink
@@ -133,3 +133,34 @@ class TaskLinkRepository(BaseRepository):
         result = await self._session.execute(stmt)
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
+
+    async def get_by_job_id(self, job_id: str) -> TaskLink | None:
+        """Find the TaskLink whose ``job_id`` matches, or ``None`` if none does."""
+        stmt = select(TaskLinkRow).where(TaskLinkRow.job_id == job_id)
+        result = await self._session.execute(stmt)
+        row = result.scalar_one_or_none()
+        return self._to_domain(row) if row is not None else None
+
+    async def set_job_id(self, task_link_id: str, job_id: str) -> TaskLink | None:
+        """Set ``job_id`` on a TaskLink, guarded against double-spawn (Story 4.5, AC #3).
+
+        Implemented as a conditional ``UPDATE ... WHERE job_id IS NULL`` (not a
+        read-then-write) so it is safe even if two sibling dependencies complete
+        near-simultaneously and both trigger a spawn attempt for the same
+        dependent TaskLink — only the first write wins, the second observes
+        zero rows affected and returns ``None``.
+        """
+        stmt = (
+            update(TaskLinkRow)
+            .where(TaskLinkRow.id == task_link_id, TaskLinkRow.job_id.is_(None))
+            .values(job_id=job_id, updated_at=datetime.now(UTC))
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        if result.rowcount == 0:  # type: ignore[attr-defined]  # CursorResult.rowcount not in generic stub
+            return None
+
+        fetch_stmt = select(TaskLinkRow).where(TaskLinkRow.id == task_link_id)
+        fetched = await self._session.execute(fetch_stmt)
+        row = fetched.scalar_one_or_none()
+        return self._to_domain(row) if row is not None else None

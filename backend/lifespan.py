@@ -1296,6 +1296,61 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     event_bus.subscribe(_persist_structural_analytics)
 
+    # --- Story 4.5: auto-spawn a dependent TaskLink's job on completion ---
+    # Fires only on EventKind.job_completed (a job reaching JobState.completed —
+    # merged/pr_created/discarded all land here, see backend/services/runtime/service.py).
+    # `resolution` is read from the payload so a "discarded" completion never
+    # satisfies a dependency (see RecipeService._SUCCESSFUL_RESOLUTIONS). All
+    # decision logic (satisfaction check, spawn, idempotency) lives in
+    # RecipeService.handle_job_completed — this closure only wires the event,
+    # opens a session, and starts any newly-spawned job's agent, mirroring the
+    # `codeplane_job create` MCP handler's own setup/start pattern.
+    async def _spawn_dependent_task_links(event: SessionEvent) -> None:
+        if event.kind != EventKind.job_completed:
+            return
+        job_id = event.session_id
+        if not job_id:
+            return
+        resolution = event.payload.get("resolution")
+
+        async def _run_spawn() -> None:
+            try:
+                from backend.persistence.job_repo import JobRepository
+                from backend.persistence.project_repo import ProjectRepository
+                from backend.persistence.task_link_repo import TaskLinkRepository
+                from backend.services.job.job_service import JobService
+                from backend.services.project.project_service import ProjectService
+                from backend.services.recipe.recipe_service import RecipeService
+
+                async with serialized_write(session_factory) as session:
+                    task_link_repo = TaskLinkRepository(session)
+                    job_repo = JobRepository(session)
+                    project_service = ProjectService(ProjectRepository(session), config)
+                    job_service = JobService.from_session(session, config)
+                    recipe_service = RecipeService(
+                        task_link_repo,
+                        project_service,
+                        job_service=job_service,
+                        job_repo=job_repo,
+                    )
+                    spawned_jobs = await recipe_service.handle_job_completed(job_id, resolution=resolution)
+
+                for spawned_job in spawned_jobs:
+
+                    async def _setup_and_start(job: Any = spawned_job) -> None:
+                        try:
+                            await services.runtime_service.setup_and_start(job)
+                        except Exception:
+                            log.warning("task_link_spawn_setup_failed", job_id=job.id, exc_info=True)
+
+                    _fire_and_forget(_setup_and_start(), name=f"task-link-spawn-{spawned_job.id[:8]}")
+            except Exception:
+                log.warning("task_link_spawn_handler_failed", job_id=job_id, exc_info=True)
+
+        _fire_and_forget(_run_spawn(), name=f"task-link-spawn-check-{job_id[:8]}")
+
+    event_bus.subscribe(_spawn_dependent_task_links)
+
     # --- IngestService (operator message routing) ---
     from backend.services.events.ingest_service import IngestService
 
