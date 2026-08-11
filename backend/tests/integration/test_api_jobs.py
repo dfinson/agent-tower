@@ -7,8 +7,8 @@ and merge services, real JobService + EventBus).
 
 from __future__ import annotations
 
-import hashlib
 import asyncio
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
