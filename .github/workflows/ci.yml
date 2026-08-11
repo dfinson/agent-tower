@@ -144,8 +144,7 @@ jobs:
         run: cd frontend && npx playwright test
         env:
           CI: true
-          GITHUB_TOKEN: ${{ github.token }}
-          GH_TOKEN: ${{ github.token }}
+          CODEPLANE_E2E_FAKE_AGENT: "1"
 
       - name: Upload Playwright report
         if: failure()
