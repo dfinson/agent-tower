@@ -8,9 +8,11 @@ import type { JobSummary } from "../../store";
 // Mock the API client
 vi.mock("../../api/client", () => ({
   fetchJobs: vi.fn(),
+  fetchProjects: vi.fn(),
+  fetchProjectTaskLinks: vi.fn(),
 }));
 
-import { fetchJobs } from "../../api/client";
+import { fetchJobs, fetchProjects, fetchProjectTaskLinks } from "../../api/client";
 import { RepoBoard } from "../RepoBoard";
 
 vi.mock("../KanbanSkeleton", () => ({
@@ -34,6 +36,23 @@ function makeJob(overrides: Partial<JobSummary> = {}): JobSummary {
   };
 }
 
+function makeTaskLink(overrides: Partial<any> = {}) {
+  return {
+    id: "tl-1",
+    projectId: "proj-1",
+    repoPath: "/repos/test",
+    storyNodeId: "add-sca",
+    dependsOn: [],
+    jobId: null,
+    trackerTicketRef: null,
+    promptOverride: null,
+    epicId: null,
+    createdAt: "2025-01-01T00:00:00Z",
+    updatedAt: "2025-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
 function renderBoard(repoPath = "/repos/test") {
   return render(
     <MemoryRouter initialEntries={[`/repos/${encodeURIComponent(repoPath)}/board`]}>
@@ -46,6 +65,10 @@ function renderBoard(repoPath = "/repos/test") {
 
 beforeEach(() => {
   vi.mocked(fetchJobs).mockReset();
+  vi.mocked(fetchProjects).mockReset();
+  vi.mocked(fetchProjectTaskLinks).mockReset();
+  vi.mocked(fetchProjects).mockResolvedValue({ items: [] });
+  vi.mocked(fetchProjectTaskLinks).mockResolvedValue({ items: [] });
   useStore.setState({
     jobs: {},
     approvals: {},
@@ -108,5 +131,73 @@ describe("RepoBoard", () => {
     expect(screen.getByText("In Progress")).toBeInTheDocument();
     expect(screen.getByText("Awaiting Input")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Failed" })).toBeInTheDocument();
+  });
+
+  it("renders TaskLink cards for the resolved Project in the In Progress column", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "proj-1", name: "payments", repoPaths: ["/repos/test"], createdAt: "", updatedAt: "" }],
+    } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
+      items: [makeTaskLink({ id: "tl-1", storyNodeId: "add-sca" })],
+    } as any);
+    renderBoard("/repos/test");
+    await waitFor(() => expect(screen.getByText("add-sca")).toBeInTheDocument());
+    expect(screen.getByText("deps satisfied")).toBeInTheDocument();
+  });
+
+  it("greys out a TaskLink card whose dependency's linked job has not completed", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "proj-1", name: "payments", repoPaths: ["/repos/test"], createdAt: "", updatedAt: "" }],
+    } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
+      items: [
+        makeTaskLink({ id: "tl-1", storyNodeId: "add-sca", jobId: "job-running" }),
+        makeTaskLink({ id: "tl-2", storyNodeId: "sca-tests", dependsOn: ["/repos/test::add-sca"] }),
+      ],
+    } as any);
+    useStore.setState({
+      jobs: { "job-running": makeJob({ id: "job-running", state: "running" }) },
+    });
+    renderBoard("/repos/test");
+    await waitFor(() => expect(screen.getByText("sca-tests")).toBeInTheDocument());
+    expect(screen.getByText("waiting on add-sca")).toBeInTheDocument();
+    expect(screen.getByLabelText(/waiting on dependencies/)).toHaveClass("opacity-60");
+  });
+
+  it("renders a TaskLink card as satisfied once its dependency's job has completed", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "proj-1", name: "payments", repoPaths: ["/repos/test"], createdAt: "", updatedAt: "" }],
+    } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
+      items: [
+        makeTaskLink({ id: "tl-1", storyNodeId: "add-sca", jobId: "job-done" }),
+        makeTaskLink({ id: "tl-2", storyNodeId: "sca-tests", dependsOn: ["/repos/test::add-sca"] }),
+      ],
+    } as any);
+    useStore.setState({
+      jobs: { "job-done": makeJob({ id: "job-done", state: "completed" }) },
+    });
+    renderBoard("/repos/test");
+    await waitFor(() => expect(screen.getByText("sca-tests")).toBeInTheDocument());
+    expect(screen.getAllByText("deps satisfied")).toHaveLength(2);
+  });
+
+  it("only renders TaskLink cards whose own repoPath matches the scoped board", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "proj-1", name: "payments", repoPaths: ["/repos/test", "/repos/other"], createdAt: "", updatedAt: "" }],
+    } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
+      items: [
+        makeTaskLink({ id: "tl-1", repoPath: "/repos/test", storyNodeId: "add-sca" }),
+        makeTaskLink({ id: "tl-2", repoPath: "/repos/other", storyNodeId: "other-task" }),
+      ],
+    } as any);
+    renderBoard("/repos/test");
+    await waitFor(() => expect(screen.getByText("add-sca")).toBeInTheDocument());
+    expect(screen.queryByText("other-task")).not.toBeInTheDocument();
   });
 });

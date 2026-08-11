@@ -10,11 +10,47 @@ import {
   selectAttentionJobsForRepo,
 } from "../store";
 import type { JobSummary } from "../store";
-import { fetchJobs } from "../api/client";
+import { fetchJobs, fetchProjects, fetchProjectTaskLinks } from "../api/client";
+import type { TaskLinkResponse } from "../api/types";
 import { KanbanColumn } from "./KanbanColumn";
 import { KanbanSkeleton } from "./KanbanSkeleton";
+import { TaskLinkCard } from "./TaskLinkCard";
 import { KANBAN_COLUMNS } from "../constants/kanban";
 import { pathBasename } from "../lib/paths";
+
+/**
+ * Determine whether a TaskLink's `dependsOn` list is fully satisfied (Story 4.4 / CAP-10).
+ *
+ * A composite `"{repoPath}::{storyNodeId}"` entry is satisfied when its target
+ * TaskLink is found within the full Project TaskLink set (so cross-repo
+ * dependencies resolve) and that target has a `jobId` whose Job has reached
+ * the `completed` state. An unresolvable target, or one whose Job hasn't
+ * completed, is unsatisfied. Empty `dependsOn` is trivially satisfied. This is
+ * read-only render logic — it never triggers a spawn (Story 4.5's concern).
+ */
+function computeSatisfaction(
+  taskLink: TaskLinkResponse,
+  allTaskLinks: TaskLinkResponse[],
+  jobs: Record<string, JobSummary>,
+): { satisfied: boolean; blockingLabel: string | null } {
+  if (taskLink.dependsOn.length === 0) return { satisfied: true, blockingLabel: null };
+
+  const byKey = new Map<string, TaskLinkResponse>();
+  for (const t of allTaskLinks) {
+    if (t.storyNodeId) byKey.set(`${t.repoPath}::${t.storyNodeId}`, t);
+  }
+
+  for (const dep of taskLink.dependsOn) {
+    const target = byKey.get(dep);
+    const targetJob = target?.jobId ? jobs[target.jobId] : undefined;
+    const depSatisfied = !!target && !!targetJob && targetJob.state === "completed";
+    if (!depSatisfied) {
+      const label = target?.storyNodeId ?? dep.split("::").pop() ?? dep;
+      return { satisfied: false, blockingLabel: label };
+    }
+  }
+  return { satisfied: true, blockingLabel: null };
+}
 
 /**
  * Project-scoped Kanban board (Story 2.3 / CAP-1). Child route of the existing
@@ -25,6 +61,11 @@ import { pathBasename } from "../lib/paths";
  * story file); once Story 2.2 wires multi-repo Project membership into the
  * frontend, only the repo-scoped selectors' filter needs to widen — this route and
  * component shape are unaffected.
+ *
+ * Story 4.4 / CAP-10: also fetches the owning Project's TaskLinks (a second,
+ * independent call — `GET /settings/projects/:id/task-links`, AD-11) and renders
+ * them as chained-recipe cards in the "In Progress" column, alongside job cards,
+ * in this same rendering pass.
  */
 export function RepoBoard() {
   const { repoPath } = useParams<{ repoPath: string }>();
@@ -32,7 +73,9 @@ export function RepoBoard() {
   const repoName = pathBasename(decoded) || decoded;
 
   const [loading, setLoading] = useState(true);
+  const [taskLinks, setTaskLinks] = useState<TaskLinkResponse[]>([]);
   const hasJobs = useStore((state) => Object.keys(state.jobs).length > 0);
+  const jobs = useStore((state) => state.jobs);
 
   const activeJobs = useStore(useShallow(selectActiveJobsForRepo(decoded)));
   const signoffJobs = useStore(useShallow(selectSignoffJobsForRepo(decoded)));
@@ -59,7 +102,25 @@ export function RepoBoard() {
     return () => { cancelled = true; };
   }, [decoded]);
 
+  useEffect(() => {
+    if (!decoded) return;
+    let cancelled = false;
+    fetchProjects()
+      .then(async ({ items }) => {
+        const owningProject = items.find((p) => p.repoPaths.includes(decoded));
+        if (!owningProject) return;
+        const { items: links } = await fetchProjectTaskLinks(owningProject.id);
+        if (!cancelled) setTaskLinks(links);
+      })
+      .catch((err) => {
+        if (!cancelled) console.error("Failed to fetch TaskLinks", err);
+      });
+    return () => { cancelled = true; };
+  }, [decoded]);
+
   if (loading && !hasJobs) return <KanbanSkeleton />;
+
+  const boardTaskLinks = taskLinks.filter((t) => t.repoPath === decoded);
 
   return (
     <div>
@@ -81,10 +142,31 @@ export function RepoBoard() {
       </div>
 
       <div className="grid grid-cols-3 gap-3 h-[calc(100dvh-200px)] max-lg:grid-cols-2 max-sm:grid-cols-1">
-        <KanbanColumn title={KANBAN_COLUMNS.IN_PROGRESS} jobs={activeJobs} />
+        <KanbanColumn
+          title={KANBAN_COLUMNS.IN_PROGRESS}
+          jobs={activeJobs}
+          extraCards={
+            boardTaskLinks.length > 0 ? (
+              <>
+                {boardTaskLinks.map((taskLink) => {
+                  const { satisfied, blockingLabel } = computeSatisfaction(taskLink, taskLinks, jobs);
+                  return (
+                    <TaskLinkCard
+                      key={taskLink.id}
+                      taskLink={taskLink}
+                      satisfied={satisfied}
+                      blockingLabel={blockingLabel}
+                    />
+                  );
+                })}
+              </>
+            ) : undefined
+          }
+        />
         <KanbanColumn title={KANBAN_COLUMNS.AWAITING_INPUT} jobs={signoffJobs} />
         <KanbanColumn title={KANBAN_COLUMNS.FAILED} jobs={attentionJobs} />
       </div>
     </div>
   );
 }
+

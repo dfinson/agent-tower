@@ -89,7 +89,10 @@ export interface paths {
          *
          *     Returns immediately with ``state=preparing``. Workspace setup and agent
          *     launch happen in a background task — the frontend watches progress via
-         *     SSE ``job_setup_progress`` events.
+         *     SSE ``job_setup_progress`` events. Naming is also asynchronous: the job
+         *     gets an instant heuristic-slug identity, and if a title wasn't already
+         *     pre-computed by the frontend, the real LLM-generated title/description
+         *     are filled in afterwards and pushed via SSE ``job_title_updated``.
          */
         post: operations["create_job_api_jobs_post"];
         delete?: never;
@@ -464,6 +467,31 @@ export interface paths {
          *     Blocked while the agent is actively running.
          */
         post: operations["restore_to_sha_api_jobs__job_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/reenrich": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reenrich Job
+         * @description Re-enrich historical events for a job through TraceForge.
+         *
+         *     Replays all persisted events through a fresh TraceForge Enricher so
+         *     that classification, visibility, tool_display and other metadata are
+         *     backfilled.  Idempotent — a marker event prevents double processing
+         *     unless ``force=true``.
+         */
+        post: operations["reenrich_job_api_jobs__job_id__reenrich_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1168,6 +1196,11 @@ export interface paths {
         /**
          * Update Settings
          * @description Update settings. Only provided fields are changed.
+         *
+         *     Mutates the app-scoped ``CPLConfig`` singleton in place (rather than a
+         *     freshly ``load_config()``-ed copy) so the change is visible immediately
+         *     to ``GET /settings`` and to any running services holding a reference to
+         *     this same config object — not just after the next server restart.
          */
         put: operations["update_settings_api_settings_put"];
         post?: never;
@@ -1279,30 +1312,6 @@ export interface paths {
          * @description Create a new git repository and register it.
          */
         post: operations["create_repo_endpoint_api_settings_repos_create_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/settings/projects/summary": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Projects Summary
-         * @description Batch Overview summary for every Project (Story 2.2 / CAP-2).
-         *
-         *     Single call for all Projects — the Overview screen never does N
-         *     sequential per-Project fetches. Projects with no jobs at all are still
-         *     included, with all-zero counts.
-         */
-        get: operations["get_projects_summary_api_settings_projects_summary_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2156,33 +2165,33 @@ export interface paths {
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        get: operations["preview_proxy_api_preview__port___path__delete"];
+        get: operations["preview_proxy_api_preview__port___path__post"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        put: operations["preview_proxy_api_preview__port___path__delete"];
+        put: operations["preview_proxy_api_preview__port___path__post"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        post: operations["preview_proxy_api_preview__port___path__delete"];
+        post: operations["preview_proxy_api_preview__port___path__post"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        delete: operations["preview_proxy_api_preview__port___path__delete"];
+        delete: operations["preview_proxy_api_preview__port___path__post"];
         options?: never;
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        head: operations["preview_proxy_api_preview__port___path__delete"];
+        head: operations["preview_proxy_api_preview__port___path__post"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        patch: operations["preview_proxy_api_preview__port___path__delete"];
+        patch: operations["preview_proxy_api_preview__port___path__post"];
         trace?: never;
     };
     "/api/jobs/{job_id}/share": {
@@ -2464,6 +2473,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Credentials */
+        get: operations["list_credentials_api_settings_credentials_get"];
+        put?: never;
+        /** Create Credential */
+        post: operations["create_credential_api_settings_credentials_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/credentials/guidance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Provider Guidance
+         * @description Return per-provider PAT scope guidance (NFR9). Static, no DB access.
+         */
+        get: operations["get_provider_guidance_api_settings_credentials_guidance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/credentials/{credential_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Credential */
+        delete: operations["delete_credential_api_settings_credentials__credential_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/metrics/chat": {
         parameters: {
             query?: never;
@@ -2664,6 +2728,227 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Chats
+         * @description List all chats.
+         */
+        get: operations["list_chats_api_chats_get"];
+        put?: never;
+        /**
+         * Create Chat
+         * @description Start a new Chat. ``project_id`` defaults from caller context and is user-overridable.
+         */
+        post: operations["create_chat_api_chats_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chats/{chat_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Chat
+         * @description Get a single chat by ID.
+         */
+        get: operations["get_chat_api_chats__chat_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chats/{chat_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Chat Message
+         * @description Append a message to a Chat's transcript.
+         */
+        post: operations["add_chat_message_api_chats__chat_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chats/{chat_id}/launch-job": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Launch Job From Chat
+         * @description Launch a new Job from this Chat, seeded from its transcript (CAP-12/AD-12).
+         *
+         *     Provisions a worktree/branch for the first time at this call — the
+         *     Chat itself remains open and unconsumed, and can launch further,
+         *     independent Jobs later (Story 5.2).
+         */
+        post: operations["launch_job_from_chat_api_chats__chat_id__launch_job_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Projects
+         * @description List all registered Projects.
+         */
+        get: operations["list_projects_api_settings_projects_get"];
+        put?: never;
+        /**
+         * Create Project
+         * @description Create a new Project, registering each repo path (AD-5).
+         */
+        post: operations["create_project_api_settings_projects_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/projects/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Projects Summary
+         * @description Batch Overview summary for every Project (Story 2.2 / CAP-2).
+         *
+         *     Single call for all Projects — the Overview screen never does N
+         *     sequential per-Project fetches. Projects with no jobs at all are still
+         *     included, with all-zero counts.
+         */
+        get: operations["get_projects_summary_api_settings_projects_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Project
+         * @description Get a single Project by ID.
+         */
+        get: operations["get_project_api_settings_projects__project_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Project
+         * @description Rename a Project and/or replace its repo membership.
+         */
+        patch: operations["update_project_api_settings_projects__project_id__patch"];
+        trace?: never;
+    };
+    "/api/settings/projects/{project_id}/ingest-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest Project Tasks
+         * @description Ingest BMAD stories / spec-kit tasks for every member repo of a Project (CAP-9).
+         *
+         *     Stateless, on-demand, read-only against every source repo; re-running
+         *     upserts existing TaskLinks rather than duplicating them.
+         */
+        post: operations["ingest_project_tasks_api_settings_projects__project_id__ingest_tasks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/projects/{project_id}/task-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Project Task Links
+         * @description List a Project's currently persisted TaskLinks.
+         */
+        get: operations["list_project_task_links_api_settings_projects__project_id__task_links_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/tracker-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tracker Links */
+        get: operations["list_tracker_links_api_projects__project_id__tracker_links_get"];
+        put?: never;
+        /** Create Tracker Link */
+        post: operations["create_tracker_link_api_projects__project_id__tracker_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2748,6 +3033,16 @@ export interface components {
              * @default 30
              */
             periodDays: number;
+        };
+        /**
+         * AddChatMessageRequest
+         * @description Append a message to a Chat's transcript.
+         */
+        AddChatMessageRequest: {
+            /** Role */
+            role: string;
+            /** Content */
+            content: string;
         };
         /** AnalyticsJobsResponse */
         AnalyticsJobsResponse: {
@@ -3103,6 +3398,48 @@ export interface components {
              */
             jobCount: number;
         };
+        /** ChatListResponse */
+        ChatListResponse: {
+            /** Items */
+            items: components["schemas"]["ChatResponse"][];
+        };
+        /** ChatMessageResponse */
+        ChatMessageResponse: {
+            /** Id */
+            id: string;
+            /** Chatid */
+            chatId: string;
+            /** Role */
+            role: string;
+            /** Content */
+            content: string;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+        };
+        /** ChatResponse */
+        ChatResponse: {
+            /** Id */
+            id: string;
+            /** Projectid */
+            projectId: string | null;
+            /** Title */
+            title: string;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /**
+             * Lastmessageat
+             * Format: date-time
+             */
+            lastMessageAt: string;
+            /** Status */
+            status: string;
+        };
         /** CleanupWorktreesResponse */
         CleanupWorktreesResponse: {
             /** Removed */
@@ -3323,6 +3660,27 @@ export interface components {
                 [key: string]: components["schemas"]["CoveringTestCandidate"][];
             };
         };
+        /**
+         * CreateChatRequest
+         * @description Create a new Chat. ``project_id`` is always user-overridable at creation.
+         */
+        CreateChatRequest: {
+            /** Title */
+            title: string;
+            /** Projectid */
+            projectId?: string | null;
+        };
+        /** CreateCredentialRequest */
+        CreateCredentialRequest: {
+            /** Provider */
+            provider: string;
+            /** Label */
+            label: string;
+            /** Baseurl */
+            baseUrl: string;
+            /** Pat */
+            pat: string;
+        };
         /** CreateJobRequest */
         CreateJobRequest: {
             /** Repo */
@@ -3384,6 +3742,13 @@ export interface components {
              */
             createdAt: string;
         };
+        /** CreateProjectRequest */
+        CreateProjectRequest: {
+            /** Name */
+            name: string;
+            /** Repopaths */
+            repoPaths: string[];
+        };
         /** CreateRepoRequest */
         CreateRepoRequest: {
             /** Path */
@@ -3430,6 +3795,31 @@ export interface components {
             jobId?: string | null;
             /** Pid */
             pid: number;
+        };
+        /** CreateTrackerLinkRequest */
+        CreateTrackerLinkRequest: {
+            /** Credentialid */
+            credentialId: string;
+            /** Externalref */
+            externalRef: string;
+        };
+        /** CredentialListResponse */
+        CredentialListResponse: {
+            /** Credentials */
+            credentials?: components["schemas"]["CredentialResponse"][];
+        };
+        /** CredentialResponse */
+        CredentialResponse: {
+            /** Id */
+            id: string;
+            /** Provider */
+            provider: string;
+            /** Label */
+            label: string;
+            /** Baseurl */
+            baseUrl: string;
+            /** Createdat */
+            createdAt: string;
         };
         /** CustomMetricResponse */
         CustomMetricResponse: {
@@ -4129,6 +4519,14 @@ export interface components {
             /** Stale */
             stale?: boolean | null;
         };
+        /**
+         * IngestTaskGraphResponse
+         * @description Result of an ingestion run — the full upserted TaskLink set for the Project.
+         */
+        IngestTaskGraphResponse: {
+            /** Items */
+            items: components["schemas"]["TaskLinkResponse"][];
+        };
         /** JobContextFlag */
         JobContextFlag: {
             /** Type */
@@ -4629,6 +5027,22 @@ export interface components {
              * @default []
              */
             sidecarSessions: components["schemas"]["SidecarSessionSummary"][];
+        };
+        /**
+         * LaunchJobFromChatRequest
+         * @description Launch a Job from a Chat, seeded from its transcript (CAP-12/AD-12, Story 5.2).
+         */
+        LaunchJobFromChatRequest: {
+            /** Repo */
+            repo: string;
+            /** Baseref */
+            baseRef?: string | null;
+            /** Branch */
+            branch?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Sdk */
+            sdk?: string | null;
         };
         /**
          * LineCoverageResponse
@@ -5412,6 +5826,74 @@ export interface components {
              */
             replacesCount: number;
         };
+        /** ProjectListResponse */
+        ProjectListResponse: {
+            /** Items */
+            items: components["schemas"]["ProjectResponse"][];
+        };
+        /** ProjectListSummaryResponse */
+        ProjectListSummaryResponse: {
+            /** Items */
+            items: components["schemas"]["ProjectSummaryResponse"][];
+        };
+        /**
+         * ProjectResponse
+         * @description A Project — the sole entity that owns repo-path membership (AD-5).
+         */
+        ProjectResponse: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Repopaths */
+            repoPaths: string[];
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /**
+             * Updatedat
+             * Format: date-time
+             */
+            updatedAt: string;
+        };
+        /**
+         * ProjectSummaryResponse
+         * @description Batch Overview summary for one Project (Story 2.2 / CAP-2).
+         */
+        ProjectSummaryResponse: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Repopaths */
+            repoPaths: string[];
+            /**
+             * Activejobcount
+             * @default 0
+             */
+            activeJobCount: number;
+            /**
+             * Awaitinginputcount
+             * @default 0
+             */
+            awaitingInputCount: number;
+            /**
+             * Failedcount
+             * @default 0
+             */
+            failedCount: number;
+            /** Lastactivityat */
+            lastActivityAt?: string | null;
+        };
+        /** ProviderGuidanceResponse */
+        ProviderGuidanceResponse: {
+            /** Guidance */
+            guidance?: {
+                [key: string]: string;
+            };
+        };
         /** RegisterRepoRequest */
         RegisterRepoRequest: {
             /** Source */
@@ -5466,43 +5948,6 @@ export interface components {
             activeJobCount: number;
             /** Platform */
             platform?: string | null;
-        };
-        /**
-         * ProjectSummaryResponse
-         * @description Batch Overview summary for one Project (Story 2.2 / CAP-2).
-         */
-        ProjectSummaryResponse: {
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
-            /** Repopaths */
-            repoPaths: string[];
-            /**
-             * Activejobcount
-             * @default 0
-             */
-            activeJobCount: number;
-            /**
-             * Awaitinginputcount
-             * @default 0
-             */
-            awaitingInputCount: number;
-            /**
-             * Failedcount
-             * @default 0
-             */
-            failedCount: number;
-            /**
-             * Lastactivityat
-             * Format: date-time
-             */
-            lastActivityAt?: string | null;
-        };
-        /** ProjectListSummaryResponse */
-        ProjectListSummaryResponse: {
-            /** Items */
-            items: components["schemas"]["ProjectSummaryResponse"][];
         };
         /**
          * RepoHealthResponse
@@ -6603,6 +7048,45 @@ export interface components {
             /** Worktreename */
             worktreeName: string;
         };
+        /** TaskLinkListResponse */
+        TaskLinkListResponse: {
+            /** Items */
+            items: components["schemas"]["TaskLinkResponse"][];
+        };
+        /**
+         * TaskLinkResponse
+         * @description A TaskLink — a thin, Project-scoped correlation row (Story 4.2, AD-9).
+         */
+        TaskLinkResponse: {
+            /** Id */
+            id: string;
+            /** Projectid */
+            projectId: string;
+            /** Repopath */
+            repoPath: string;
+            /** Storynodeid */
+            storyNodeId: string | null;
+            /** Dependson */
+            dependsOn: string[];
+            /** Jobid */
+            jobId: string | null;
+            /** Trackerticketref */
+            trackerTicketRef: string | null;
+            /** Promptoverride */
+            promptOverride: string | null;
+            /** Epicid */
+            epicId: string | null;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /**
+             * Updatedat
+             * Format: date-time
+             */
+            updatedAt: string;
+        };
         /** TelemetryCostBucket */
         TelemetryCostBucket: {
             /**
@@ -7123,6 +7607,24 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** TrackerLinkListResponse */
+        TrackerLinkListResponse: {
+            /** Trackerlinks */
+            trackerLinks?: components["schemas"]["TrackerLinkResponse"][];
+        };
+        /** TrackerLinkResponse */
+        TrackerLinkResponse: {
+            /** Id */
+            id: string;
+            /** Projectid */
+            projectId: string;
+            /** Credentialid */
+            credentialId: string;
+            /** Externalref */
+            externalRef: string;
+            /** Createdat */
+            createdAt: string;
+        };
         /**
          * TrailBacktrack
          * @description A backtrack from the trail summary.
@@ -7518,6 +8020,13 @@ export interface components {
         UpdatePresetRequest: {
             /** Preset */
             preset: string;
+        };
+        /** UpdateProjectRequest */
+        UpdateProjectRequest: {
+            /** Name */
+            name?: string | null;
+            /** Repopaths */
+            repoPaths?: string[] | null;
         };
         /**
          * UpdateSettingsRequest
@@ -8411,6 +8920,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RestoreResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reenrich_job_api_jobs__job_id__reenrich_post: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -9594,26 +10138,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_projects_summary_api_settings_projects_summary_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectListSummaryResponse"];
                 };
             };
         };
@@ -10968,7 +11492,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__post: {
         parameters: {
             query?: never;
             header?: never;
@@ -10998,7 +11522,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__post: {
         parameters: {
             query?: never;
             header?: never;
@@ -11028,7 +11552,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__post: {
         parameters: {
             query?: never;
             header?: never;
@@ -11058,7 +11582,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__post: {
         parameters: {
             query?: never;
             header?: never;
@@ -11088,7 +11612,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__post: {
         parameters: {
             query?: never;
             header?: never;
@@ -11118,7 +11642,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__post: {
         parameters: {
             query?: never;
             header?: never;
@@ -11692,6 +12216,108 @@ export interface operations {
             };
         };
     };
+    list_credentials_api_settings_credentials_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialListResponse"];
+                };
+            };
+        };
+    };
+    create_credential_api_settings_credentials_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_provider_guidance_api_settings_credentials_guidance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderGuidanceResponse"];
+                };
+            };
+        };
+    };
+    delete_credential_api_settings_credentials__credential_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     chat_ask_api_metrics_chat_post: {
         parameters: {
             query?: never;
@@ -12097,6 +12723,427 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_chats_api_chats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatListResponse"];
+                };
+            };
+        };
+    };
+    create_chat_api_chats_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_chat_api_chats__chat_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_chat_message_api_chats__chat_id__messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddChatMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatMessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    launch_job_from_chat_api_chats__chat_id__launch_job_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LaunchJobFromChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateJobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_projects_api_settings_projects_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectListResponse"];
+                };
+            };
+        };
+    };
+    create_project_api_settings_projects_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_projects_summary_api_settings_projects_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectListSummaryResponse"];
+                };
+            };
+        };
+    };
+    get_project_api_settings_projects__project_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project_api_settings_projects__project_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_project_tasks_api_settings_projects__project_id__ingest_tasks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestTaskGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_project_task_links_api_settings_projects__project_id__task_links_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskLinkListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tracker_links_api_projects__project_id__tracker_links_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackerLinkListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_tracker_link_api_projects__project_id__tracker_links_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTrackerLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackerLinkResponse"];
                 };
             };
             /** @description Validation Error */

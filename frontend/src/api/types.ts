@@ -20,6 +20,10 @@ export type RepoListResponse = components["schemas"]["RepoListResponse"];
 export type RepoDetailResponse = components["schemas"]["RepoDetailResponse"];
 export type ProjectSummaryResponse = components["schemas"]["ProjectSummaryResponse"];
 export type ProjectListSummaryResponse = components["schemas"]["ProjectListSummaryResponse"];
+export type ProjectResponse = components["schemas"]["ProjectResponse"];
+export type ProjectListResponse = components["schemas"]["ProjectListResponse"];
+export type TaskLinkResponse = components["schemas"]["TaskLinkResponse"];
+export type TaskLinkListResponse = components["schemas"]["TaskLinkListResponse"];
 export type CompletionStrategy = "auto_merge" | "pr_only" | "manual";
 
 // Sidecar template types

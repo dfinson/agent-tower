@@ -78,7 +78,7 @@ development_status:
   4-1-widen-the-task-recipe-vocabulary: review
   4-2-ingest-a-task-graph-into-a-project: review
   4-3-manually-assign-a-task-to-an-existing-ticket: review
-  4-4-see-tasklink-cards-on-the-board: backlog
+  4-4-see-tasklink-cards-on-the-board: review
   4-5-auto-spawn-the-next-task-on-completion: backlog
   4-6-route-recipe-tracker-writes-to-the-paired-ticket: backlog
   epic-4-retrospective: optional
