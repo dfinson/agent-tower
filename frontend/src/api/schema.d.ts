@@ -1285,6 +1285,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/projects/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Projects Summary
+         * @description Batch Overview summary for every Project (Story 2.2 / CAP-2).
+         *
+         *     Single call for all Projects — the Overview screen never does N
+         *     sequential per-Project fetches. Projects with no jobs at all are still
+         *     included, with all-zero counts.
+         */
+        get: operations["get_projects_summary_api_settings_projects_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/cleanup-worktrees": {
         parameters: {
             query?: never;
@@ -5444,6 +5468,43 @@ export interface components {
             platform?: string | null;
         };
         /**
+         * ProjectSummaryResponse
+         * @description Batch Overview summary for one Project (Story 2.2 / CAP-2).
+         */
+        ProjectSummaryResponse: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Repopaths */
+            repoPaths: string[];
+            /**
+             * Activejobcount
+             * @default 0
+             */
+            activeJobCount: number;
+            /**
+             * Awaitinginputcount
+             * @default 0
+             */
+            awaitingInputCount: number;
+            /**
+             * Failedcount
+             * @default 0
+             */
+            failedCount: number;
+            /**
+             * Lastactivityat
+             * Format: date-time
+             */
+            lastActivityAt?: string | null;
+        };
+        /** ProjectListSummaryResponse */
+        ProjectListSummaryResponse: {
+            /** Items */
+            items: components["schemas"]["ProjectSummaryResponse"][];
+        };
+        /**
          * RepoHealthResponse
          * @description Structural health status for a repository (§6.2).
          */
@@ -9533,6 +9594,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_projects_summary_api_settings_projects_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectListSummaryResponse"];
                 };
             };
         };

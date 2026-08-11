@@ -470,6 +470,22 @@ class ProjectListResponse(CamelModel):
     items: list[ProjectResponse]
 
 
+class ProjectSummaryResponse(CamelModel):
+    """Batch Overview summary for one Project (Story 2.2 / CAP-2)."""
+
+    id: str
+    name: str
+    repo_paths: list[str]
+    active_job_count: int = 0
+    awaiting_input_count: int = 0
+    failed_count: int = 0
+    last_activity_at: datetime | None = None
+
+
+class ProjectListSummaryResponse(CamelModel):
+    items: list[ProjectSummaryResponse]
+
+
 class RepoSummaryResponse(CamelModel):
     """Aggregated overview for a single repo dashboard."""
 

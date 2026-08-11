@@ -8,12 +8,29 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
-from backend.models.db import ProjectRow
+from backend.models.db import JobRow, ProjectRow
 from backend.models.domain import Project
 from backend.persistence.repository import BaseRepository
 
 if TYPE_CHECKING:
     pass
+
+
+class RepoJobCounts:
+    """Job status bucket counts + last activity timestamp for one repo path.
+
+    Bucket boundaries mirror the frontend classifier
+    (``frontend/src/store/selectors.ts``): active = preparing/queued/running;
+    awaiting = waiting_for_approval/review/unresolved completed; failed = failed.
+    """
+
+    __slots__ = ("active", "awaiting", "failed", "last_activity")
+
+    def __init__(self) -> None:
+        self.active = 0
+        self.awaiting = 0
+        self.failed = 0
+        self.last_activity: datetime | None = None
 
 
 class ProjectRepository(BaseRepository):
@@ -93,3 +110,33 @@ class ProjectRepository(BaseRepository):
         row.updated_at = datetime.now(UTC)
         await self._session.flush()
         return self._to_domain(row)
+
+    async def job_counts_by_repo(self, repo_paths: list[str]) -> dict[str, RepoJobCounts]:
+        """Bucket job status counts + last-activity per repo path, in a single query.
+
+        Used by ``ProjectService.summary_all`` (Story 2.2 / CAP-2) to build the
+        batch Projects Overview summary without N sequential per-Project
+        queries. Repos with no jobs simply have no entry in the returned dict.
+        """
+        if not repo_paths:
+            return {}
+
+        stmt = select(JobRow.repo, JobRow.state, JobRow.resolution, JobRow.updated_at).where(
+            JobRow.repo.in_(repo_paths)
+        )
+        result = await self._session.execute(stmt)
+
+        counts: dict[str, RepoJobCounts] = {}
+        for repo, state, resolution, updated_at in result.all():
+            bucket = counts.setdefault(repo, RepoJobCounts())
+            if state in ("preparing", "queued", "running"):
+                bucket.active += 1
+            elif state in ("waiting_for_approval", "review") or (
+                state == "completed" and (not resolution or resolution == "unresolved")
+            ):
+                bucket.awaiting += 1
+            elif state == "failed":
+                bucket.failed += 1
+            if bucket.last_activity is None or updated_at > bucket.last_activity:
+                bucket.last_activity = updated_at
+        return counts

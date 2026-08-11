@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from backend.config import register_repo
-from backend.models.domain import Project, ProjectNotFoundError, RepoAlreadyAssignedError
+from backend.models.domain import Project, ProjectNotFoundError, ProjectSummary, RepoAlreadyAssignedError
 
 if TYPE_CHECKING:
     from backend.config import CPLConfig
@@ -86,3 +86,33 @@ class ProjectService:
         if updated is None:
             raise ProjectNotFoundError(f"Project '{project_id}' does not exist.")
         return updated
+
+    async def summary_all(self) -> list[ProjectSummary]:
+        """Batch Overview summary for every Project (Story 2.2 / CAP-2).
+
+        Computes active/awaitingInput/failed job counts and last-activity per
+        Project from a single cross-Project job query — never N sequential
+        per-Project fetches. Projects with no jobs at all still appear with
+        all-zero counts (never omitted).
+        """
+        projects = await self._project_repo.list()
+
+        all_repo_paths = sorted({path for project in projects for path in project.repo_paths})
+        counts_by_repo = await self._project_repo.job_counts_by_repo(all_repo_paths)
+
+        summaries: list[ProjectSummary] = []
+        for project in projects:
+            summary = ProjectSummary(id=project.id, name=project.name, repo_paths=project.repo_paths)
+            for repo_path in project.repo_paths:
+                bucket = counts_by_repo.get(repo_path)
+                if bucket is None:
+                    continue
+                summary.active_job_count += bucket.active
+                summary.awaiting_input_count += bucket.awaiting
+                summary.failed_count += bucket.failed
+                if summary.last_activity_at is None or (
+                    bucket.last_activity is not None and bucket.last_activity > summary.last_activity_at
+                ):
+                    summary.last_activity_at = bucket.last_activity
+            summaries.append(summary)
+        return summaries

@@ -60,7 +60,7 @@ development_status:
 
   epic-2: in-progress
   2-1-create-edit-a-project: review
-  2-2-view-projects-overview: backlog
+  2-2-view-projects-overview: review
   2-3-view-a-projects-board: backlog
   2-4-see-cross-project-attention-signal: backlog
   2-5-filter-projects-by-name: backlog

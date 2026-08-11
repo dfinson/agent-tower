@@ -690,6 +690,24 @@ class Project:
 
 
 @dataclass
+class ProjectSummary:
+    """Batch Overview summary for one Project (Story 2.2 / CAP-2).
+
+    Sourced from a single batch query across all Projects' jobs — never N
+    sequential per-Project fetches. Zero-job Projects still produce a summary
+    with all-zero counts and ``last_activity_at=None``.
+    """
+
+    id: str
+    name: str
+    repo_paths: list[str]
+    active_job_count: int = 0
+    awaiting_input_count: int = 0
+    failed_count: int = 0
+    last_activity_at: datetime | None = None
+
+
+@dataclass
 class MCPServerConfig:
     command: str
     args: list[str]
