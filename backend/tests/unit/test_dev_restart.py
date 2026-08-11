@@ -108,7 +108,7 @@ def test_build_frontend_preserves_failed_build_result() -> None:
 
 def test_build_frontend_installs_dependencies_when_node_modules_missing(tmp_path: Path) -> None:
     npm_path = r"C:\Program Files\nodejs\npm.cmd"
-    results = [
+    results: list[CompletedProcess[str]] = [
         CompletedProcess([npm_path, "ci"], returncode=0),
         CompletedProcess([npm_path, "run", "build"], returncode=0),
     ]
