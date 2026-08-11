@@ -17,7 +17,13 @@ if TYPE_CHECKING:
 
 def _make_project(project_id: str, repo_paths: list[str]) -> Project:
     now = datetime.now(UTC)
-    return Project(id=project_id, name="Test Project", repo_paths=repo_paths, created_at=now, updated_at=now)
+    return Project(
+        id=project_id,
+        name="Test Project",
+        repo_paths=repo_paths,
+        created_at=now,
+        updated_at=now,
+    )
 
 
 def _write_bmad_story(repo_root: Path, filename: str, body: str = "") -> None:
@@ -41,7 +47,10 @@ def mock_project_service() -> AsyncMock:
 class TestIngestProject:
     @pytest.mark.asyncio
     async def test_single_repo_same_repo_dependency(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         repo_a = tmp_path / "backend-repo"
         repo_a.mkdir()
@@ -64,7 +73,10 @@ class TestIngestProject:
 
     @pytest.mark.asyncio
     async def test_cross_repo_dependency_resolves_to_sibling_repo(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         backend_repo = tmp_path / "codeplane-backend"
         frontend_repo = tmp_path / "codeplane-frontend"
@@ -87,7 +99,10 @@ class TestIngestProject:
 
     @pytest.mark.asyncio
     async def test_unresolvable_cross_repo_dependency_preserved_raw(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         repo_a = tmp_path / "solo-repo"
         repo_a.mkdir()
@@ -106,7 +121,10 @@ class TestIngestProject:
 
     @pytest.mark.asyncio
     async def test_spec_kit_and_bmad_both_ingested(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         repo_a = tmp_path / "mixed-repo"
         repo_a.mkdir()
@@ -123,7 +141,10 @@ class TestIngestProject:
 
     @pytest.mark.asyncio
     async def test_repo_with_no_source_files_yields_no_entries_but_does_not_fail(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         empty_repo = tmp_path / "empty-repo"
         empty_repo.mkdir()
@@ -137,7 +158,10 @@ class TestIngestProject:
 
     @pytest.mark.asyncio
     async def test_never_writes_to_source_repo(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         repo_a = tmp_path / "repo-a"
         repo_a.mkdir()
@@ -155,7 +179,10 @@ class TestIngestProject:
 
     @pytest.mark.asyncio
     async def test_idempotent_rerun_calls_upsert_not_insert_only(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         repo_a = tmp_path / "repo-a"
         repo_a.mkdir()
@@ -191,7 +218,10 @@ class TestListTaskLinks:
 class TestCreateManualTaskLink:
     @pytest.mark.asyncio
     async def test_creates_manual_link_for_project_member_repo(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         repo_path = tmp_path / "member-repo"
         repo_path.mkdir()
@@ -229,7 +259,10 @@ class TestCreateManualTaskLink:
 
     @pytest.mark.asyncio
     async def test_rejects_repo_outside_project(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         member_repo = tmp_path / "member-repo"
         other_repo = tmp_path / "other-repo"

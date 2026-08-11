@@ -18,7 +18,11 @@ from typing import TYPE_CHECKING
 import structlog
 
 from backend.models.domain import JobSpec, RepoNotAllowedError, SDKModelMismatchError
-from backend.services.recipe.parsers import ParsedTask, parse_bmad_stories, parse_spec_kit_tasks
+from backend.services.recipe.parsers import (
+    ParsedTask,
+    parse_bmad_stories,
+    parse_spec_kit_tasks,
+)
 
 if TYPE_CHECKING:
     from backend.models.domain import Job, TaskLink
