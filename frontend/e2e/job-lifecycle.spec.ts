@@ -322,8 +322,8 @@ test.describe("Job Detail — Success & Resolution", () => {
 
     await page.goto("/jobs/job-1");
 
-    // Should show the review banner
-    await expect(page.getByText("Review required")).toBeVisible({ timeout: 5_000 });
+    // Should show the review state and resolution controls
+    await expect(page.locator("main")).toContainText("In Review", { timeout: 5_000 });
 
     // Should show resolution buttons: Merge, PR
     await expect(page.locator("button", { hasText: "Merge" })).toBeVisible();
@@ -392,7 +392,7 @@ test.describe("Job Detail — Success & Resolution", () => {
     });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("Review required")).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("main")).toContainText("In Review", { timeout: 10_000 });
 
     await page.locator("button", { hasText: "Merge" }).click();
 

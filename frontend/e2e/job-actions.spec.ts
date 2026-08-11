@@ -300,7 +300,7 @@ test.describe("Archive Completed Job", () => {
     await expect(page.locator("button", { hasText: "Archive" })).toBeHidden();
   });
 
-  test("Complete & Archive button visible for resolved completed jobs", async ({ page }) => {
+  test("Complete button visible for resolved completed jobs", async ({ page }) => {
     const resolvedJob = makeJob({
       state: "completed",
       resolution: "merged",
@@ -311,6 +311,6 @@ test.describe("Archive Completed Job", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    await expect(page.locator("button", { hasText: "Complete & Archive" })).toBeVisible();
+    await expect(page.locator("button", { hasText: "Complete" })).toBeVisible();
   });
 });

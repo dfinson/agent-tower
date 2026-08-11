@@ -1,7 +1,7 @@
 /**
  * E2E tests: Pause job action.
  *
- * Covers pause button visibility and API call for running jobs.
+ * Covers cancel button visibility and API call for running jobs.
  */
 
 import { test, expect } from "@playwright/test";
@@ -12,53 +12,55 @@ import { makeJob, setupJobDetailMocks } from "./helpers";
 // ---------------------------------------------------------------------------
 
 test.describe("Pause Running Job", () => {
-  test("pause button is visible for running jobs", async ({ page }) => {
+  test("cancel button is visible for running jobs", async ({ page }) => {
     await setupJobDetailMocks(page, makeJob({ state: "running" }));
 
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    // The pause button should be visible (titled "Pause agent")
-    await expect(page.getByRole("button", { name: "Pause agent" })).toBeVisible();
+    // The cancel button should be visible for running jobs
+    await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
   });
 
-  test("pause button is hidden for completed jobs", async ({ page }) => {
+  test("cancel button is hidden for completed jobs", async ({ page }) => {
     await setupJobDetailMocks(page, makeJob({ state: "completed" }));
 
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    // Pause button should not exist for completed jobs
-    await expect(page.getByRole("button", { name: "Pause agent" })).not.toBeVisible();
+    // Cancel button should not exist for completed jobs
+    await expect(page.getByRole("button", { name: "Cancel" })).not.toBeVisible();
   });
 
-  test("pause button is hidden for failed jobs", async ({ page }) => {
+  test("cancel button is hidden for failed jobs", async ({ page }) => {
     await setupJobDetailMocks(page, makeJob({ state: "failed", failureReason: "Test failure" }));
 
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    // Pause button should not exist for failed jobs
-    await expect(page.getByRole("button", { name: "Pause agent" })).not.toBeVisible();
+    // Cancel button should not exist for failed jobs
+    await expect(page.getByRole("button", { name: "Cancel" })).not.toBeVisible();
   });
 
-  test("clicking pause calls POST /api/jobs/job-1/pause", async ({ page }) => {
-    let pauseCalled = false;
+  test("clicking cancel calls POST /api/jobs/job-1/cancel", async ({ page }) => {
+    let cancelCalled = false;
     await setupJobDetailMocks(page, makeJob({ state: "running" }));
 
-    await page.route("**/api/jobs/job-1/pause", async (route) => {
+    await page.route("**/api/jobs/job-1/cancel", async (route) => {
       if (route.request().method() !== "POST") return route.fallback();
-      pauseCalled = true;
+      cancelCalled = true;
       await route.fulfill({ status: 204 });
     });
 
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    // Click pause
-    await page.getByRole("button", { name: "Pause agent" }).click();
+    // Open the confirmation dialog, then confirm the cancel action.
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("dialog", { name: "Cancel & Clean Up?" })).toBeVisible();
+    await page.getByRole("button", { name: "Cancel & Clean Up" }).click();
 
     // Verify API was called
-    expect(pauseCalled).toBe(true);
+    expect(cancelCalled).toBe(true);
   });
 });

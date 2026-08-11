@@ -63,11 +63,14 @@ test.describe("Job Creation — Form Rendering", () => {
     await expect(page.locator("button", { hasText: "Create Job" })).toBeVisible();
   });
 
-  test("shows permission mode radio buttons", async ({ page }) => {
+  test("shows preset buttons for permission mode", async ({ page }) => {
     await page.goto("/jobs/new");
 
     await expect(page.locator("textarea").first()).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText("Permission Mode")).toBeVisible();
+    await expect(page.getByText("Preset")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Autonomous" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Supervised" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Locked" })).toBeVisible();
   });
 
   test("shows repository selector with options", async ({ page }) => {

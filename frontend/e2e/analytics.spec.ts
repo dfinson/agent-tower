@@ -13,6 +13,7 @@ import { setupBaseMocks } from "./helpers";
 // ---------------------------------------------------------------------------
 
 const SCORECARD = {
+  period: 7,
   activity: {
     totalJobs: 42,
     running: 2,
@@ -42,6 +43,23 @@ const SCORECARD = {
     { date: "2026-04-09", cost: 2.2, jobs: 6 },
   ],
   dailySpendLimitUsd: 20.0,
+  avgCostPerMtok: 18.75,
+  modelCostMix: [
+    {
+      model: "claude-sonnet-4-5-20250514",
+      costPerMtok: 16.2,
+      totalTokens: 300_000,
+      totalCostUsd: 4.86,
+      pctOfTokens: 62.5,
+    },
+    {
+      model: "claude-opus-4-20250514",
+      costPerMtok: 23.1,
+      totalTokens: 180_000,
+      totalCostUsd: 4.158,
+      pctOfTokens: 37.5,
+    },
+  ],
 };
 
 const MODEL_COMPARISON = {
@@ -120,7 +138,29 @@ const REPOS = {
 };
 
 const OBSERVATIONS: unknown[] = [];
-const ANALYTICS_JOBS = { items: [], cursor: null, hasMore: false };
+const ANALYTICS_JOBS = {
+  period: 7,
+  jobs: [
+    {
+      job_id: "job-1",
+      sdk: "copilot",
+      model: "claude-sonnet-4-5-20250514",
+      repo: "/home/user/project-a",
+      branch: "main",
+      status: "merged",
+      created_at: "2026-04-09T12:00:00Z",
+      completed_at: "2026-04-09T12:30:00Z",
+      duration_ms: 1_800_000,
+      input_tokens: 120_000,
+      output_tokens: 40_000,
+      cache_read_tokens: 5_000,
+      total_cost_usd: 0.42,
+      tool_call_count: 12,
+      llm_call_count: 8,
+      premium_requests: 3,
+    },
+  ],
+};
 const COST_DRIVERS: unknown[] = [];
 
 // ---------------------------------------------------------------------------

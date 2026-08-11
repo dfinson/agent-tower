@@ -127,7 +127,7 @@ async function setupJobDetailMocks(
 // ---------------------------------------------------------------------------
 
 test.describe("Job Failure Display", () => {
-  test("failed job shows failure reason banner", async ({ page }) => {
+  test("failed job shows failure state and reason", async ({ page }) => {
     const failedJob = makeJob({
       state: "failed",
       failureReason: "Agent process exited with code 1: Out of memory",
@@ -137,12 +137,11 @@ test.describe("Job Failure Display", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    // Should display failure banner
-    await expect(page.getByText("Job failed")).toBeVisible();
-    await expect(page.getByText("Agent process exited with code 1: Out of memory")).toBeVisible();
+    await expect(page.locator("main")).toContainText("Failed");
+    await expect(page.locator("main")).toContainText("Agent process exited with code 1");
   });
 
-  test("failed job with no reason shows fallback message", async ({ page }) => {
+  test("failed job with no reason omits a failure reason", async ({ page }) => {
     const failedJob = makeJob({
       state: "failed",
       failureReason: null,
@@ -152,8 +151,8 @@ test.describe("Job Failure Display", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    await expect(page.getByText("Job failed")).toBeVisible();
-    await expect(page.getByText("No additional details available")).toBeVisible();
+    await expect(page.locator("main")).toContainText("Failed");
+    await expect(page.locator("main")).not.toContainText("No additional details available");
   });
 
   test("SSE job_failed event shows failure banner", async ({ page }) => {
@@ -172,11 +171,15 @@ test.describe("Job Failure Display", () => {
           { event: "session_heartbeat", data: {} },
           { event: "snapshot", data: { jobs: [runningJob], pendingApprovals: [] } },
           {
-            event: "job_failed",
+            event: "job.failed",
             data: {
-              jobId: "job-1",
-              reason: "Timeout: agent exceeded 30 minute limit",
+              id: "evt-1",
+              kind: "job.failed",
+              session_id: "job-1",
               timestamp: NOW,
+              payload: {
+                reason: "Timeout: agent exceeded 30 minute limit",
+              },
             },
           },
         ]),
@@ -213,24 +216,23 @@ test.describe("Job Failure Display", () => {
     await page.route("**/api/jobs/job-1/approvals*", async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
     });
-
+    await page.goto("/jobs/job-1");
     await page.goto("/jobs/job-1");
 
-    // The SSE job_failed event should update the UI
-    await expect(page.getByText("Job failed")).toBeVisible({ timeout: 8_000 });
-    await expect(page.getByText("Timeout: agent exceeded 30 minute limit")).toBeVisible();
+    await expect(page.locator("main")).toContainText("Failed", { timeout: 8_000 });
+    await expect(page.locator("main")).toContainText("Timeout: agent exceeded 30 minute limit");
   });
 });
 
 test.describe("Canceled Job Display", () => {
-  test("canceled job shows canceled banner", async ({ page }) => {
+  test("canceled job shows canceled state", async ({ page }) => {
     const canceledJob = makeJob({ state: "canceled" });
     await setupJobDetailMocks(page, canceledJob);
 
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    await expect(page.getByText("Job canceled")).toBeVisible();
+    await expect(page.locator("main")).toContainText("Canceled");
   });
 });
 
@@ -308,7 +310,7 @@ test.describe("SSE Connection Status", () => {
 });
 
 test.describe("Model Downgrade Banner", () => {
-  test("shows model downgrade warning when applicable", async ({ page }) => {
+  test("shows model downgrade state when applicable", async ({ page }) => {
     const downgradedJob = makeJob({
       state: "failed",
       failureReason: "Model downgraded: requested claude-opus-4-20250514 but received claude-sonnet-4-5-20250514",
@@ -321,15 +323,13 @@ test.describe("Model Downgrade Banner", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    await expect(page.getByText("Model downgraded", { exact: true })).toBeVisible();
-    // Model names appear in both the failure reason and the downgrade banner
-    await expect(page.locator("text=claude-opus-4-20250514").first()).toBeVisible();
-    await expect(page.locator("text=claude-sonnet-4-5-20250514").first()).toBeVisible();
+    await expect(page.locator("main")).toContainText("Downgraded");
+    await expect(page.locator("main")).toContainText("claude-sonnet-4-5-20250514");
   });
 });
 
 test.describe("Completed Job Display", () => {
-  test("completed + merged job shows success banner", async ({ page }) => {
+  test("completed + merged job shows completed state", async ({ page }) => {
     const mergedJob = makeJob({
       state: "completed",
       resolution: "merged",
@@ -340,11 +340,11 @@ test.describe("Completed Job Display", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    await expect(page.getByText("Job completed")).toBeVisible();
-    await expect(page.getByText("Changes merged into base branch")).toBeVisible();
+    await expect(page.locator("main")).toContainText("Completed");
+    await expect(page.getByRole("button", { name: "Complete" })).toBeVisible();
   });
 
-  test("review + conflict shows merge conflict banner", async ({ page }) => {
+  test("review + conflict shows conflict state", async ({ page }) => {
     const conflictJob = makeJob({
       state: "review",
       resolution: "conflict",
@@ -364,7 +364,7 @@ test.describe("Completed Job Display", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    await expect(page.getByText("Merge conflict", { exact: false }).first()).toBeVisible();
-    await expect(page.locator("button", { hasText: "Resolve with Agent" })).toBeVisible();
+    await expect(page.getByText("Conflict", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Done" })).toBeVisible();
   });
 });
