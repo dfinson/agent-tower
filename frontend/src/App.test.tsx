@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Outlet } from "react-router-dom";
 import { useStore } from "./store";
 import { App } from "./App";
 
@@ -23,6 +23,16 @@ vi.mock("./components/HistoryScreen", () => ({
 }));
 vi.mock("./components/TerminalDrawer", () => ({
   TerminalDrawer: () => <div data-testid="terminal-drawer" />,
+}));
+vi.mock("./components/RepoLayout", () => ({
+  RepoLayout: () => (
+    <div data-testid="repo-layout">
+      <Outlet />
+    </div>
+  ),
+}));
+vi.mock("./components/RepoBoard", () => ({
+  RepoBoard: () => <div data-testid="repo-board">RepoBoard</div>,
 }));
 
 async function renderApp(route = "/") {
@@ -95,6 +105,11 @@ describe("App", () => {
   it("routes /history to HistoryScreen", async () => {
     await renderApp("/history");
     await waitFor(() => expect(screen.getByTestId("history")).toBeInTheDocument());
+  });
+
+  it("routes /repos/:repoPath/board to RepoBoard", async () => {
+    await renderApp("/repos/%2Frepos%2Ftest/board");
+    await waitFor(() => expect(screen.getByTestId("repo-board")).toBeInTheDocument());
   });
 
   it("toggles terminal drawer on button click", async () => {

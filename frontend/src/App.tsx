@@ -36,6 +36,9 @@ const RepoOverview = lazyRetry(() =>
 const RepoJobs = lazyRetry(() =>
   import("./components/RepoJobs").then((module) => ({ default: module.RepoJobs })),
 );
+const RepoBoard = lazyRetry(() =>
+  import("./components/RepoBoard").then((module) => ({ default: module.RepoBoard })),
+);
 const RepoHealth = lazyRetry(() =>
   import("./components/RepoHealth").then((module) => ({ default: module.RepoHealth })),
 );
@@ -208,6 +211,7 @@ export function App() {
               <Route path="/analytics" element={<AnalyticsScreen />} />
               <Route path="/repos" element={<RepoLayout />}>
                 <Route path=":repoPath" element={<RepoOverview />} />
+                <Route path=":repoPath/board" element={<RepoBoard />} />
                 <Route path=":repoPath/jobs" element={<RepoJobs />} />
                 <Route path=":repoPath/health" element={<RepoHealth />} />
                 <Route path=":repoPath/cost" element={<RepoCost />} />

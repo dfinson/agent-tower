@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   GitBranch, Globe, Activity, DollarSign, Boxes,
-  AlertTriangle, Briefcase,
+  AlertTriangle, Briefcase, LayoutGrid,
 } from "lucide-react";
 import { toast } from "sonner";
 import { fetchRepoSummary } from "../api/client";
@@ -101,7 +101,16 @@ export function RepoOverview() {
     <div className="max-w-4xl mx-auto space-y-5">
       {/* Header */}
       <div className="space-y-1">
-        <h1 className="text-xl font-semibold text-foreground">{repoName}</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold text-foreground">{repoName}</h1>
+          <Link
+            to={`/repos/${encodeURIComponent(decoded)}/board`}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          >
+            <LayoutGrid size={12} />
+            Board
+          </Link>
+        </div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           {summary.originUrl && (
             <span className="flex items-center gap-1">

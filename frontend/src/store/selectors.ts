@@ -84,36 +84,52 @@ function sortByUpdatedDesc(jobs: JobSummary[]): JobSummary[] {
   );
 }
 
-export const selectActiveJobs = (state: AppState): JobSummary[] =>
-  sortByUpdatedDesc(
-    Object.values(state.jobs).filter(
-      (j) => !j.archivedAt && (j.state === "preparing" || j.state === "queued" || j.state === "running"),
-    ),
-  );
+// Classifier predicates (AD-1: one shared job-status classifier, reused by both the
+// flat cross-repo selectors below and the repo-scoped `*ForRepo` variants used by
+// RepoBoard — never re-implemented at a second call site).
+function isActiveJob(j: JobSummary): boolean {
+  return !j.archivedAt && (j.state === "preparing" || j.state === "queued" || j.state === "running");
+}
 
 /** Sign-off: everything that needs operator attention before archival.
  *  - waiting_for_approval
  *  - review (agent done, awaiting operator decision) — not archived
  *  - completed but still unresolved (operator hasn't decided yet)
  */
-export const selectSignoffJobs = (state: AppState): JobSummary[] =>
-  sortByUpdatedDesc(
-    Object.values(state.jobs).filter(
-      (j) =>
-        !j.archivedAt &&
-        (j.state === "waiting_for_approval" ||
-          j.state === "review" ||
-          (j.state === "completed" && (!j.resolution || j.resolution === "unresolved"))),
-    ),
+function isSignoffJob(j: JobSummary): boolean {
+  return (
+    !j.archivedAt &&
+    (j.state === "waiting_for_approval" ||
+      j.state === "review" ||
+      (j.state === "completed" && (!j.resolution || j.resolution === "unresolved")))
   );
+}
 
 /** Attention: failed jobs that haven't been archived. */
+function isAttentionJob(j: JobSummary): boolean {
+  return !j.archivedAt && j.state === "failed";
+}
+
+export const selectActiveJobs = (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter(isActiveJob));
+
+export const selectSignoffJobs = (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter(isSignoffJob));
+
 export const selectAttentionJobs = (state: AppState): JobSummary[] =>
-  sortByUpdatedDesc(
-    Object.values(state.jobs).filter(
-      (j) => !j.archivedAt && j.state === "failed",
-    ),
-  );
+  sortByUpdatedDesc(Object.values(state.jobs).filter(isAttentionJob));
+
+// Repo-scoped variants (CAP-1 / Story 2.3, RepoBoard.tsx). AD-2: repo scoping travels
+// via the URL route param — `repoPath` is passed in by the caller, not read from
+// store or client-only state. A single-repo Project reduces to `job.repo === repoPath`.
+export const selectActiveJobsForRepo = (repoPath: string) => (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => j.repo === repoPath && isActiveJob(j)));
+
+export const selectSignoffJobsForRepo = (repoPath: string) => (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => j.repo === repoPath && isSignoffJob(j)));
+
+export const selectAttentionJobsForRepo = (repoPath: string) => (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => j.repo === repoPath && isAttentionJob(j)));
 
 /** Archived jobs loaded into the store (for the history browser). */
 export const selectArchivedJobs = (state: AppState): JobSummary[] =>
