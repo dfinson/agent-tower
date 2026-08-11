@@ -44,7 +44,6 @@ export function JobHeaderCard({
   actionProps,
 }: JobHeaderCardProps) {
   const jobLabel = job.title || job.id;
-  const showJobId = !!job.title;
   const shouldAutoExpand = EXPAND_STATES.has(job.state);
   const [expanded, setExpanded] = useState(shouldAutoExpand);
   const [userOverride, setUserOverride] = useState(false);
@@ -173,13 +172,16 @@ export function JobHeaderCard({
       {/* Mobile (< md): compact accent rail — tap title to open sheet     */}
       {/* ────────────────────────────────────────────────────────────────── */}
       <div className={`md:hidden shrink-0 border-t-2 ${accent} border-b border-border/50 bg-card shadow-sm`}>
-        <div className="flex items-center gap-2.5 h-11 px-3">
+        <div className="flex items-center gap-2.5 min-h-11 px-3 py-1.5">
           <button onClick={onNavigateHome} className="shrink-0 hover:opacity-80 transition-opacity" aria-label="Back to dashboard">
             <img src="/mark.png" alt="" className="h-6 w-6 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
           </button>
 
           <button onClick={() => setSheetOpen(true)} className="flex items-center gap-1.5 min-w-0 text-left">
-            <h1 className="text-sm font-semibold text-foreground truncate max-w-full">{jobLabel}</h1>
+            <div className="min-w-0">
+              <h1 className="text-sm font-semibold text-foreground truncate max-w-full">{jobLabel}</h1>
+              <p className="text-[10px] font-mono text-muted-foreground truncate">{job.id}</p>
+            </div>
           </button>
 
           <span aria-live="polite"><StateBadge state={job.state} /></span>
@@ -200,7 +202,7 @@ export function JobHeaderCard({
         <div className="space-y-3">
           <div>
             <h2 className="text-base font-bold text-foreground break-words">{job.title || job.id}</h2>
-            {job.title && <p className="text-xs text-muted-foreground font-mono mt-0.5">{job.id}</p>}
+            <p className="text-xs text-muted-foreground font-mono mt-0.5">{job.id}</p>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
@@ -269,7 +271,7 @@ export function JobHeaderCard({
               : <ChevronRight size={16} className="text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />}
             <div className="min-w-0 text-left">
               <h1 className="text-base lg:text-lg font-semibold text-foreground truncate">{jobLabel}</h1>
-              {showJobId && <p className="text-[11px] font-mono text-muted-foreground truncate">{job.id}</p>}
+              <p className="text-[11px] font-mono text-muted-foreground truncate">{job.id}</p>
             </div>
           </button>
 

@@ -377,7 +377,7 @@ describe("JobDetailScreen", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole("button", { name: "Resolve" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Resolve with Agent" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Merge" })).not.toBeInTheDocument();
     expect(screen.getAllByText("Conflict")).toHaveLength(2);
   });

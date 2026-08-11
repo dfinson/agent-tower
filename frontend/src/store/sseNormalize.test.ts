@@ -123,6 +123,22 @@ describe("normalizeTFEvent", () => {
     const out = normalizeTFEvent(ev({ payload: null }));
     expect(out.jobId).toBe("job-1");
   });
+
+  it("treats legacy raw payload events as their own payload", () => {
+    const out = normalizeTFEvent({
+      kind: "approval_requested",
+      jobId: "job-1",
+      approvalId: "approval-1",
+      description: "Agent wants to execute: rm -rf /tmp/cache",
+      proposedAction: "rm -rf /tmp/cache",
+      timestamp: "2025-01-01T00:00:00Z",
+    } as unknown as TFSessionEvent);
+
+    expect(out.jobId).toBe("job-1");
+    expect(out.approvalId).toBe("approval-1");
+    expect(out.description).toBe("Agent wants to execute: rm -rf /tmp/cache");
+    expect(out.proposedAction).toBe("rm -rf /tmp/cache");
+  });
 });
 
 describe("deriveJobStateFrame", () => {
@@ -134,14 +150,19 @@ describe("deriveJobStateFrame", () => {
     expect(deriveJobStateFrame("job.review", p)).toMatchObject({ newState: "review" });
     expect(deriveJobStateFrame("job.completed", p)).toMatchObject({ newState: "completed" });
     expect(deriveJobStateFrame("job.failed", p)).toMatchObject({ newState: "failed" });
+    expect(deriveJobStateFrame("job_failed", p)).toMatchObject({ newState: "failed" });
   });
 
   it("maps permission.requested to waiting_for_approval", () => {
     expect(deriveJobStateFrame("permission.requested", p)).toMatchObject({ newState: "waiting_for_approval" });
+    expect(deriveJobStateFrame("approval_requested", p)).toMatchObject({ newState: "waiting_for_approval" });
   });
 
   it("derives permission.resolved state from the resolution", () => {
     expect(deriveJobStateFrame("permission.resolved", { ...p, resolution: "approved" })).toMatchObject({
+      newState: "running",
+    });
+    expect(deriveJobStateFrame("approval_resolved", { ...p, resolution: "approved" })).toMatchObject({
       newState: "running",
     });
     expect(deriveJobStateFrame("permission.resolved", { ...p, resolution: "denied" })).toMatchObject({

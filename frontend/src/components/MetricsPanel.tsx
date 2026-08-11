@@ -347,8 +347,8 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
               )}
               </SectionGroup>
 
-              {/* ─── Tokens & Context ─── */}
-              <SectionGroup title="Tokens & Context">
+              {/* ─── Token breakdown / context window ─── */}
+              <SectionGroup title="Token Breakdown">
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div>
                     <p className="text-sm font-bold tabular-nums">{formatTokens(data.inputTokens ?? 0)}</p>

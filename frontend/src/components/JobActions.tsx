@@ -80,14 +80,20 @@ export function JobActions({
           {hasMergeConflict && (
             <Tooltip content="Resolve the merge conflict with the agent">
               <Button size={btnSize} variant="outline" className={`${btnClass} gap-1`} loading={resolveLoading === "agent_merge"} disabled={resolveLoading !== null} onClick={() => onResolve("agent_merge")}>
-                <GitMerge size={iconSize} /> Resolve
+                <GitMerge size={iconSize} /> Resolve with Agent
               </Button>
             </Tooltip>
           )}
           <Button size={btnSize} variant="outline" className={`${btnClass} gap-1`} loading={resolveLoading === "create_pr"} disabled={resolveLoading !== null} onClick={() => onResolve("create_pr")}>
             <GitPullRequest size={iconSize} /> PR
           </Button>
-          <Button size={btnSize} variant="outline" className={`${btnClass} gap-1 text-destructive border-destructive/40 hover:bg-destructive/10`} onClick={onDiscardOpen}>
+          <Button
+            size={btnSize}
+            variant="outline"
+            className={`${btnClass} gap-1 text-destructive border-destructive/40 hover:bg-destructive/10`}
+            onClick={onDiscardOpen}
+            aria-label="Discard changes"
+          >
             <Trash2 size={iconSize} />
           </Button>
         </>
@@ -99,7 +105,7 @@ export function JobActions({
       )}
       {isResolved && !archivedAt && (
         <Button size={btnSize} variant="outline" className={`${btnClass} gap-1 text-green-600 border-green-500/40 hover:bg-green-500/10`} onClick={onCompleteOpen}>
-          <CheckCircle2 size={iconSize} /> Complete
+          <CheckCircle2 size={iconSize} /> Complete &amp; Archive
         </Button>
       )}
       {canArchive && (

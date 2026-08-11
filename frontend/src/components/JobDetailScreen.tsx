@@ -647,7 +647,6 @@ export function JobDetailScreen() {
                 sdk={job.sdk}
                 interactive
                 jobState={job.state}
-                pausable={isRunning}
                 prompt={job.prompt}
                 promptTimestamp={job.createdAt}
                 onViewStepChanges={handleViewStepChanges}
@@ -685,7 +684,6 @@ export function JobDetailScreen() {
           <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
             <ReviewDashboard
               jobId={jobId}
-              hasChanges={hasChanges}
               jobState={job.state}
               resolution={job.resolution}
               archivedAt={job.archivedAt}

@@ -15,7 +15,7 @@ const NOW = new Date().toISOString();
 
 const MOCK_JOB = {
   id: "job-1",
-  title: "Test Job",
+  title: "",
   prompt: "Fix the bug in auth module",
   state: "running",
   createdAt: NOW,
@@ -123,6 +123,27 @@ async function setupBaseMocks(page: import("@playwright/test").Page, jobs: unkno
       body: JSON.stringify([{ id: "claude-sonnet-4-5-20250514", name: "Claude Sonnet 4.5" }]),
     });
   });
+
+  await page.route("**/api/jobs/suggest-names*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        branchName: "fix-auth-bug",
+        title: "Fix Auth Bug",
+        description: "Fix the authentication bug",
+        worktreeName: "fix-auth-bug",
+      }),
+    });
+  });
+
+  await page.route("**/analytics/model-comparison*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ models: [] }),
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +165,7 @@ test.describe("Job Creation", () => {
       await route.fulfill({
         status: 201,
         contentType: "application/json",
-        body: JSON.stringify({ id: createdJob.id }),
+        body: JSON.stringify(createdJob),
       });
     });
 
@@ -169,6 +190,20 @@ test.describe("Job Creation", () => {
     await page.route("**/api/jobs/job-1/approvals*", async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
     });
+    await page.route("**/api/jobs/job-1/snapshot*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          job: createdJob,
+          logs: [],
+          transcript: [],
+          diff: [],
+          approvals: [],
+          timeline: [],
+        }),
+      });
+    });
 
     await page.goto("/jobs/new");
 
@@ -177,10 +212,11 @@ test.describe("Job Creation", () => {
     await expect(textarea).toBeVisible();
     await textarea.fill("Fix the bug in auth module");
 
-    // Submit
-    const createBtn = page.locator("button", { hasText: "Create Job" });
-    await expect(createBtn).toBeEnabled();
-    await createBtn.click();
+    // Submit with the documented shortcut to avoid a click-targeting race.
+    await expect(page.locator("button", { hasText: "Create Job" })).toBeEnabled();
+    const createRequest = page.waitForRequest((req) => req.url().endsWith("/api/jobs") && req.method() === "POST");
+    await textarea.press("Control+Enter");
+    await createRequest;
 
     // Should navigate to job detail
     await expect(page).toHaveURL(/\/jobs\/job-1/, { timeout: 10_000 });
@@ -207,7 +243,7 @@ test.describe("Dashboard SSE Integration", () => {
     // The job card should show "running" state initially — verified by its presence
     // in the In Progress kanban column
     const activeColumn = page.getByRole("region", { name: "In Progress" });
-    await expect(activeColumn.getByText(MOCK_JOB.id)).toBeVisible();
+    await expect(activeColumn.getByRole("button", { name: "Job: job-1 — running" })).toBeVisible();
   });
 });
 
@@ -243,19 +279,19 @@ test.describe("Job Detail — Live Events", () => {
     await page.goto("/jobs/job-1");
 
     // Should display job ID
-    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
     // Should display the prompt
     await expect(page.getByText("Fix the bug in auth module").first()).toBeVisible();
     // Should display branch info
-    await expect(page.getByText("cpl/job-1")).toBeVisible();
+    await expect(page.getByText("cpl/job-1 → main").last()).toBeVisible();
     // Should display repo name
-    await expect(page.getByText("test-repo")).toBeVisible();
+    await expect(page.getByText("test-repo").last()).toBeVisible();
   });
 
   test("shows cancel button for running job", async ({ page }) => {
     await page.goto("/jobs/job-1");
 
-    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
     const cancelBtn = page.locator("button", { hasText: "Cancel" });
     await expect(cancelBtn).toBeVisible();
   });
@@ -263,7 +299,7 @@ test.describe("Job Detail — Live Events", () => {
   test("shows tabs: Live, Files, Changes", async ({ page }) => {
     await page.goto("/jobs/job-1");
 
-    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
     await expect(page.getByRole("tab", { name: "Live" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Files" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Changes" })).toBeVisible();
@@ -312,10 +348,10 @@ test.describe("Job Detail — Success & Resolution", () => {
     // Should show the review banner
     await expect(page.getByText("Review required")).toBeVisible({ timeout: 5_000 });
 
-    // Should show resolution buttons: Merge, Create PR, Discard
+    // Should show resolution buttons: Merge, PR, Discard changes
     await expect(page.locator("button", { hasText: "Merge" })).toBeVisible();
-    await expect(page.locator("button", { hasText: "Create PR" })).toBeVisible();
-    await expect(page.locator("button", { hasText: "Discard" })).toBeVisible();
+    await expect(page.locator("button", { hasText: "PR" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Discard changes" })).toBeVisible();
   });
 
   test("clicking Merge calls resolve API", async ({ page }) => {

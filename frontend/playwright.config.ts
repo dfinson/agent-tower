@@ -7,6 +7,7 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:8080",
     headless: true,
+    viewport: { width: 1440, height: 900 },
   },
   projects: [
     {

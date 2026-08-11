@@ -91,7 +91,9 @@ export function handleBatchApprovalResolved(state: AppState, payload: Record<str
 
 export const approvalHandlers: Record<string, SSEHandler> = {
   "permission.requested": handleApprovalRequested,
+  "approval_requested": handleApprovalRequested,
   "permission.resolved": handleApprovalResolved,
+  "approval_resolved": handleApprovalResolved,
   "permission.batch.requested": handleBatchApprovalRequested,
   "permission.batch.resolved": handleBatchApprovalResolved,
 };

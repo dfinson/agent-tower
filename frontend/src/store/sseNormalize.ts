@@ -65,16 +65,34 @@ export function deepSnakeToCamel(value: unknown): unknown {
  * consume, injecting `jobId`/`timestamp`/`turnId` from the envelope.
  */
 export function normalizeTFEvent(ev: TFSessionEvent): Record<string, unknown> {
-  const payload = deepSnakeToCamel(ev.payload ?? {}) as Record<string, unknown>;
+  const raw = ev as unknown as Record<string, unknown>;
+  const hasStructuredPayload = ev.payload !== undefined && ev.payload !== null;
+  const payload = deepSnakeToCamel((hasStructuredPayload ? ev.payload : raw) ?? {}) as Record<string, unknown>;
 
-  // `jobId` is authoritative from the envelope session id.
-  payload.jobId = ev.session_id;
+  if (!hasStructuredPayload) {
+   delete payload.id;
+   delete payload.kind;
+   delete payload.payload;
+   delete payload.metadata;
+   delete payload.sessionId;
+   delete payload.session_id;
+  }
+
+  // `jobId` is authoritative from the envelope session id when present, but
+  // keep an existing payload jobId for legacy fixture/event shapes that do not
+  // include the full TraceForge envelope.
+  if (payload.jobId === undefined && ev.session_id !== undefined) {
+   payload.jobId = ev.session_id;
+  }
+  if (payload.jobId === undefined && typeof raw.jobId === "string") {
+   payload.jobId = raw.jobId;
+  }
   if (ev.id !== undefined) {
-    payload.eventId = ev.id;
+   payload.eventId = ev.id;
   }
 
   if (payload.timestamp === undefined && ev.timestamp !== undefined) {
-    payload.timestamp = ev.timestamp;
+   payload.timestamp = ev.timestamp;
   }
 
   // The event kind is the transcript discriminator in the TF shape; carry it
@@ -121,6 +139,7 @@ const JOB_STATE_BY_KIND: Record<string, string> = {
   "job.review": "review",
   "job.completed": "completed",
   "job.failed": "failed",
+  "job_failed": "failed",
 };
 
 /**
@@ -138,10 +157,10 @@ export function deriveJobStateFrame(
 ): Record<string, unknown> | null {
   const base = { jobId: payload.jobId, timestamp: payload.timestamp };
 
-  if (kind === "permission.requested") {
+  if (kind === "permission.requested" || kind === "approval_requested") {
     return { ...base, newState: "waiting_for_approval" };
   }
-  if (kind === "permission.resolved") {
+  if (kind === "permission.resolved" || kind === "approval_resolved") {
     return { ...base, newState: payload.resolution === "approved" ? "running" : "failed" };
   }
 

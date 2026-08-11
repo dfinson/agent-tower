@@ -16,7 +16,7 @@ const NOW = new Date().toISOString();
 
 const MOCK_JOB = {
   id: "job-1",
-  title: "Test Job",
+  title: "",
   prompt: "Add a feature",
   state: "completed",
   createdAt: NOW,
@@ -215,7 +215,7 @@ test.describe("Workspace Browser — Files Tab", () => {
 
   test("file tree renders when switching to Files tab", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // Click the Files tab
     await page.getByRole("tab", { name: "Files" }).click();
@@ -228,7 +228,7 @@ test.describe("Workspace Browser — Files Tab", () => {
 
   test("clicking a file loads its content", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     await page.getByRole("tab", { name: "Files" }).click();
     await expect(page.getByText("README.md")).toBeVisible({ timeout: 5_000 });
@@ -243,7 +243,7 @@ test.describe("Workspace Browser — Files Tab", () => {
 
   test("expanding a directory loads its children", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     await page.getByRole("tab", { name: "Files" }).click();
     await expect(page.getByText("src")).toBeVisible({ timeout: 5_000 });
@@ -258,7 +258,7 @@ test.describe("Workspace Browser — Files Tab", () => {
 
   test("shows 'Files' heading in tree panel", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     await page.getByRole("tab", { name: "Files" }).click();
 
@@ -283,7 +283,7 @@ test.describe("Artifact Viewer — Artifacts Tab", () => {
 
   test("artifacts tab shows artifact list", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // Click the Artifacts tab
     await page.getByRole("tab", { name: "Artifacts" }).click();
@@ -298,7 +298,7 @@ test.describe("Artifact Viewer — Artifacts Tab", () => {
 
   test("artifacts tab shows artifact types", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     await page.getByRole("tab", { name: "Artifacts" }).click();
 
@@ -318,9 +318,10 @@ test.describe("Artifact Viewer — Artifacts Tab", () => {
     });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // When there are no artifacts, the Artifacts tab should not appear at all
     await expect(page.getByRole("tab", { name: "Artifacts" })).toBeHidden({ timeout: 5_000 });
   });
 });
+

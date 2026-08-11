@@ -289,6 +289,7 @@ export const jobHandlers: Record<string, SSEHandler> = {
   "job.review": handleJobReview,
   "job.completed": handleJobCompleted,
   "job.failed": handleJobFailed,
+  "job_failed": handleJobFailed,
   "job.archived": handleJobArchived,
   "job.resolved": handleJobResolved,
   "job.title_updated": handleJobTitleUpdated,

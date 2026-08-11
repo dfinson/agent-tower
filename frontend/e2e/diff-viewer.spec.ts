@@ -93,7 +93,7 @@ test.describe("Diff Viewer — File List", () => {
 
   test("Changes tab shows file count", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // Click the Changes tab
     const changesTab = page.getByRole("tab", { name: /Changes/i });
@@ -108,7 +108,7 @@ test.describe("Diff Viewer — File List", () => {
 
   test("shows addition and deletion counts", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     const changesTab = page.getByRole("tab", { name: /Changes/i });
     await changesTab.click();
@@ -126,7 +126,7 @@ test.describe("Diff Viewer — Diff Content", () => {
     await setupJobDetailMocks(page, job, { diff: DIFF_FILES });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     const changesTab = page.getByRole("tab", { name: /Changes/i });
     await changesTab.click();
@@ -147,7 +147,7 @@ test.describe("Diff Viewer — Empty State", () => {
     await setupJobDetailMocks(page, job, { diff: [] });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     const changesTab = page.getByRole("tab", { name: /Changes/i });
     await changesTab.click();
@@ -158,3 +158,4 @@ test.describe("Diff Viewer — Empty State", () => {
     ).toBeVisible({ timeout: 5_000 });
   });
 });
+

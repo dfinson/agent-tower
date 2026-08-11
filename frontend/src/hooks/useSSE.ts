@@ -125,6 +125,8 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "permission.resolved",
         "permission.batch.requested",
         "permission.batch.resolved",
+        "approval_requested",
+        "approval_resolved",
         // Session
         "session.heartbeat",
         "session.resumed",
@@ -138,6 +140,8 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "step.entries_reassigned",
         // Action policy governance classification
         "action.classified",
+        // Legacy underscore-style event names from older fixtures
+        "job_failed",
         // Policy settings changed (triggers settings panel refresh)
         "policy.settings_changed",
         // Repository structural index progress

@@ -122,7 +122,7 @@ test.describe("Transcript — Message Rendering", () => {
 
   test("renders agent messages with content", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // Agent messages should be visible
     await expect(
@@ -135,7 +135,7 @@ test.describe("Transcript — Message Rendering", () => {
 
   test("renders operator messages", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     await expect(
       page.getByText("Can you also add a test").first(),
@@ -144,7 +144,7 @@ test.describe("Transcript — Message Rendering", () => {
 
   test("renders tool call displays", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // CuratedFeed: read_file → "Read 1 file" cluster; edit_file → "other" kind uses toolDisplay
     await expect(
@@ -172,7 +172,7 @@ test.describe("Transcript — Activity Timeline", () => {
     });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // ActivityTimeline sidebar shows activity labels (use getByRole to skip
     // hidden mobile-strip duplicates that share the active label text).
@@ -202,7 +202,7 @@ test.describe("Transcript — Activity Timeline", () => {
     });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // The last activity "Adding tests" should be active
     await expect(
@@ -219,9 +219,10 @@ test.describe("Transcript — Empty State", () => {
     });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // The Live tab should be visible and active by default
     await expect(page.getByRole("tab", { name: "Live" })).toBeVisible();
   });
 });
+

@@ -16,7 +16,7 @@ test.describe("Pause Running Job", () => {
     await setupJobDetailMocks(page, makeJob({ state: "running" }));
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // The pause button should be visible (titled "Pause agent")
     await expect(page.getByRole("button", { name: "Pause agent" })).toBeVisible();
@@ -26,7 +26,7 @@ test.describe("Pause Running Job", () => {
     await setupJobDetailMocks(page, makeJob({ state: "completed" }));
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // Pause button should not exist for completed jobs
     await expect(page.getByRole("button", { name: "Pause agent" })).not.toBeVisible();
@@ -36,7 +36,7 @@ test.describe("Pause Running Job", () => {
     await setupJobDetailMocks(page, makeJob({ state: "failed", failureReason: "Test failure" }));
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // Pause button should not exist for failed jobs
     await expect(page.getByRole("button", { name: "Pause agent" })).not.toBeVisible();
@@ -53,7 +53,7 @@ test.describe("Pause Running Job", () => {
     });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // Click pause
     await page.getByRole("button", { name: "Pause agent" }).click();
@@ -62,3 +62,4 @@ test.describe("Pause Running Job", () => {
     expect(pauseCalled).toBe(true);
   });
 });
+

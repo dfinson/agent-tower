@@ -20,7 +20,7 @@ export const NOW = new Date().toISOString();
 export function makeJob(overrides: Record<string, unknown> = {}) {
   return {
     id: "job-1",
-    title: "Test Job",
+    title: "",
     prompt: "Fix the bug in auth module",
     state: "running",
     createdAt: NOW,
@@ -127,6 +127,27 @@ export async function setupBaseMocks(page: Page, jobs: unknown[] = []) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify([{ id: "claude-sonnet-4-5-20250514", name: "Claude Sonnet 4.5" }]),
+    });
+  });
+
+  await page.route("**/api/jobs/suggest-names*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        branchName: "fix-auth-bug",
+        title: "Fix Auth Bug",
+        description: "Fix the authentication bug",
+        worktreeName: "fix-auth-bug",
+      }),
+    });
+  });
+
+  await page.route("**/analytics/model-comparison*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ models: [] }),
     });
   });
 }

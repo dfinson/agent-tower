@@ -18,7 +18,6 @@ const DiffViewer = lazyRetry(() => import("./DiffViewer"));
 
 interface ReviewDashboardProps {
   jobId: string;
-  hasChanges?: boolean;
   jobState?: string;
   resolution?: string | null;
   archivedAt?: string | null;
@@ -33,7 +32,6 @@ interface ReviewDashboardProps {
 
 export function ReviewDashboard({
   jobId,
-  hasChanges,
   jobState,
   resolution,
   archivedAt,
@@ -44,10 +42,9 @@ export function ReviewDashboard({
   requestedSubView,
   onSubViewHandled,
 }: ReviewDashboardProps) {
-  // Sub-view state — default to "changes" when diffs exist, else story
-  const [subView, setSubView] = useState<ReviewSubView>(
-    hasChanges ? "changes" : "story"
-  );
+  // Sub-view state — keep Changes available even when the diff is empty so the
+  // empty-state can render instead of falling back to Story.
+  const [subView, setSubView] = useState<ReviewSubView>("changes");
 
   // Respond to externally-requested sub-view (e.g. "View step changes" from activity feed)
   useEffect(() => {
@@ -63,12 +60,12 @@ export function ReviewDashboard({
       <ReviewSubTabs
         active={subView}
         onChange={setSubView}
-        showChanges={hasChanges}
+        showChanges={true}
       />
 
       {/* Sub-view content */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {subView === "changes" && hasChanges && (
+        {subView === "changes" && (
           <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
             <DiffViewer
               jobId={jobId}

@@ -397,4 +397,67 @@ describe("AppStore", () => {
       ).toEqual([]);
     });
   });
+
+  describe("hydrateJob", () => {
+    it("preserves a newer waiting_for_approval job and its approvals over a stale running snapshot", () => {
+      useStore.setState({
+        jobs: {
+          "job-1": makeJob({ state: "waiting_for_approval", updatedAt: "2025-01-02T00:00:00Z" }),
+        },
+        approvals: {
+          "a-1": {
+            id: "a-1",
+            jobId: "job-1",
+            description: "Approve the action",
+            proposedAction: "rm -rf /tmp/cache",
+            requestedAt: "2025-01-02T00:00:00Z",
+            resolvedAt: null,
+            resolution: null,
+            requiresExplicitApproval: false,
+            notes: null,
+          },
+        },
+      });
+
+      useStore.getState().hydrateJob({
+        job: makeJob({ state: "running", updatedAt: "2025-01-01T00:00:00Z" }),
+        logs: [],
+        transcript: [],
+        diff: [],
+        approvals: [],
+        timeline: [],
+      });
+
+      const job = selectJobs(useStore.getState())["job-1"]!;
+      expect(job.state).toBe("waiting_for_approval");
+      expect(job.updatedAt).toBe("2025-01-02T00:00:00Z");
+      expect(Object.keys(selectApprovals(useStore.getState()))).toContain("a-1");
+    });
+
+    it("preserves a newer failed job over a stale running snapshot", () => {
+      useStore.setState({
+        jobs: {
+          "job-1": makeJob({
+            state: "failed",
+            failureReason: "Timeout",
+            updatedAt: "2025-01-02T00:00:00Z",
+          }),
+        },
+      });
+
+      useStore.getState().hydrateJob({
+        job: makeJob({ state: "running", failureReason: null, updatedAt: "2025-01-01T00:00:00Z" }),
+        logs: [],
+        transcript: [],
+        diff: [],
+        approvals: [],
+        timeline: [],
+      });
+
+      const job = selectJobs(useStore.getState())["job-1"]!;
+      expect(job.state).toBe("failed");
+      expect(job.failureReason).toBe("Timeout");
+      expect(job.updatedAt).toBe("2025-01-02T00:00:00Z");
+    });
+  });
 });

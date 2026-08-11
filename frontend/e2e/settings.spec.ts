@@ -153,14 +153,15 @@ test.describe("Settings Screen — Update Settings", () => {
     await expect(page.getByText("Runtime")).toBeVisible({ timeout: 5_000 });
 
     // Save button should NOT be visible initially (no dirty state)
-    await expect(page.locator("button", { hasText: "Save" })).toBeHidden();
+    const saveButton = page.getByRole("button", { name: "Save", exact: true });
+    await expect(saveButton).toBeHidden();
 
     // Modify a setting — change max concurrent jobs
     const concurrencyInput = page.locator("input[inputmode='numeric']").first();
     await concurrencyInput.fill("4");
 
     // Save button should now be visible
-    await expect(page.locator("button", { hasText: "Save" })).toBeVisible();
+    await expect(saveButton).toBeVisible();
   });
 
   test("saves settings via PATCH/PUT API", async ({ page }) => {
@@ -195,7 +196,7 @@ test.describe("Settings Screen — Update Settings", () => {
     await concurrencyInput.fill("4");
 
     // Click Save
-    await page.locator("button", { hasText: "Save" }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
 
     await page.waitForTimeout(500);
     expect(saveApiCalled).toBe(true);
@@ -217,7 +218,7 @@ test.describe("Settings Screen — Update Settings", () => {
     // Value should be back to original
     await expect(concurrencyInput).toHaveValue("2");
     // Save button should be hidden again
-    await expect(page.locator("button", { hasText: "Save" })).toBeHidden();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeHidden();
   });
 });
 
@@ -238,11 +239,8 @@ test.describe("Settings Screen — Repository Management", () => {
     await page.goto("/settings");
     await expect(page.getByText("/home/user/project-a")).toBeVisible({ timeout: 5_000 });
 
-    // Hover over the first repo row to reveal the delete button, then click it
-    const repoText = page.getByText("/home/user/project-a");
-    await repoText.hover();
-    // The delete button is a sibling within the same group row
-    await repoText.locator("..").locator("button").click();
+    // Delete button is present in the row and becomes visible on hover in the UI.
+    await page.getByRole("button", { name: "Remove repository /home/user/project-a" }).click();
 
     // Confirm the removal in the dialog
     const dialog = page.getByRole("dialog");

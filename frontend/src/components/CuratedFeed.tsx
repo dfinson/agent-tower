@@ -523,7 +523,6 @@ export function CuratedFeed({
   jobId,
   sdk,
   interactive,
-  pausable,
   jobState,
   prompt,
   promptTimestamp,
@@ -538,7 +537,6 @@ export function CuratedFeed({
   jobId: string;
   sdk?: string;
   interactive?: boolean;
-  pausable?: boolean;
   jobState?: string;
   prompt?: string;
   promptTimestamp?: string;
@@ -1085,15 +1083,16 @@ export function CuratedFeed({
                 waveformContainerRef={waveformContainerRef}
                 onTranscript={(text: string) => setMsg((prev: string) => prev + text)}
               />
-              {pausable && isJobLive && jobState === "running" && (
+              {jobState === "running" && (
                 <Tooltip content="Pause the agent after the current step">
                   <button
                     onClick={handlePause}
                     disabled={pausing}
                     className="p-1.5 text-muted-foreground/40 hover:text-amber-400 transition-colors"
-                  >
-                    <PauseCircle size={15} />
-                  </button>
+                  aria-label="Pause agent"
+                >
+                  <PauseCircle size={15} />
+                </button>
                 </Tooltip>
               )}
               <Tooltip content={isReview ? "Resume job with follow-up" : isTerminal ? "Create follow-up job" : "Send message to the agent"}>

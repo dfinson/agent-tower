@@ -142,6 +142,20 @@ function normalizeContextHandoff(jobId: string, handoff: HydratedContextHandoff)
   };
 }
 
+const JOB_STATE_RANK: Record<string, number> = {
+  running: 0,
+  waiting_for_approval: 1,
+  review: 2,
+  completed: 3,
+  failed: 3,
+  canceled: 3,
+  archived: 4,
+};
+
+function jobStateRank(state: string): number {
+  return JOB_STATE_RANK[state] ?? 0;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -412,9 +426,21 @@ export const useStore = create<AppState>((set, get) => ({
     const jobId = snapshot.job.id;
     const evictIds = touchJob(jobId);
     set((s) => {
+      const currentJob = s.jobs[jobId];
+      const incomingJob = enrichJob(snapshot.job);
+      const preserveCurrentJob =
+        !!currentJob &&
+        jobStateRank(currentJob.state) > jobStateRank(incomingJob.state);
+
       // Remove stale approvals for this job before merging fresh ones
       const keptApprovals = Object.fromEntries(
         Object.entries(s.approvals).filter(([, a]) => a.jobId !== jobId),
+      );
+      const currentJobApprovals = Object.fromEntries(
+        Object.entries(s.approvals).filter(([, a]) => a.jobId === jobId),
+      );
+      const incomingJobApprovals = Object.fromEntries(
+        (snapshot.approvals ?? []).map((a) => [a.id, a]),
       );
       // Drop any in-flight streaming state for this job
       const streamingMessages = Object.fromEntries(
@@ -438,15 +464,21 @@ export const useStore = create<AppState>((set, get) => ({
         const key = e.turnId ? `${e.toolName}::${e.turnId}` : e.toolName;
         return !completedCallKeys.has(key);
       });
+      const hydratedJob = currentJob
+        ? (preserveCurrentJob
+          ? { ...incomingJob, ...currentJob, state: currentJob.state, updatedAt: currentJob.updatedAt }
+          : { ...currentJob, ...incomingJob })
+        : incomingJob;
       return {
         ...evictStaleJobs(s, evictIds),
-        jobs: { ...s.jobs, [jobId]: enrichJob(snapshot.job) },
+        jobs: { ...s.jobs, [jobId]: hydratedJob },
         logs: { ...s.logs, [jobId]: snapshot.logs },
         transcript: { ...s.transcript, [jobId]: deduped },
         diffs: { ...s.diffs, [jobId]: snapshot.diff },
         approvals: {
           ...keptApprovals,
-          ...Object.fromEntries(snapshot.approvals.map((a) => [a.id, a])),
+          ...(preserveCurrentJob ? incomingJobApprovals : currentJobApprovals),
+          ...(preserveCurrentJob ? currentJobApprovals : incomingJobApprovals),
         },
         streamingMessages,
         streamingToolOutput,
