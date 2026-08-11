@@ -9,13 +9,18 @@ Story 3.1 route.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import delete, select
 
 from backend.models.db import CredentialRow, TrackerLinkRow
 from backend.persistence.repository import BaseRepository
 from backend.services.credentials.encryption import decrypt_secret, encrypt_secret
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+decrypt_secret_typed: Callable[[str], str] = decrypt_secret
 
 
 class CredentialReferencedError(Exception):
@@ -69,7 +74,7 @@ class CredentialRepository(BaseRepository):
         encrypted_secret = result.scalar_one_or_none()
         if encrypted_secret is None:
             return None
-        return decrypt_secret(encrypted_secret)  # type: ignore[no-any-return]
+        return decrypt_secret_typed(encrypted_secret)
 
 
 def _row_to_dict(row: CredentialRow) -> dict[str, Any]:
