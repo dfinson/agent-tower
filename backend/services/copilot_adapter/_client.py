@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from copilot import CopilotClient
@@ -15,10 +15,7 @@ def copilot_github_token() -> str | None:
 
 
 def create_copilot_client() -> CopilotClient:
-    """Build a Copilot client, passing auth info only when available."""
+    """Build a Copilot client."""
     from copilot import CopilotClient
 
-    client_factory: Any = CopilotClient
-    token = copilot_github_token()
-    client = client_factory(github_token=token) if token else client_factory()
-    return cast("CopilotClient", client)
+    return cast("CopilotClient", CopilotClient())
