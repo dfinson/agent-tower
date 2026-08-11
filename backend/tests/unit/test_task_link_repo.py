@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.models.db import Base
+from backend.models.db import Base, JobRow
+from backend.models.domain import JobState
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.project_repo import ProjectRepository
 from backend.persistence.task_link_repo import TaskLinkRepository
@@ -34,6 +36,25 @@ async def _make_project(session: AsyncSession) -> str:
     project = await project_repo.create("proj-1", "Test Project", ["/repo/a", "/repo/b"])
     await session.commit()
     return project.id
+
+
+async def _make_job(session: AsyncSession, job_id: str) -> None:
+    now = datetime.now(UTC)
+    session.add(
+        JobRow(
+            id=job_id,
+            repo="/repo/a",
+            prompt="do the thing",
+            state=JobState.completed,
+            base_ref="main",
+            permission_mode="full_auto",
+            preset="autonomous",
+            sdk="copilot",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    await session.commit()
 
 
 class TestTaskLinkRepoUpsert:
@@ -170,3 +191,86 @@ class TestCreateManual:
         assert [task.tracker_ticket_ref for task in listed] == ["JIRA-123", "JIRA-123"]
         assert [task.prompt_override for task in listed] == ["Implement part one", "Implement part two"]
         assert all(task.story_node_id is None for task in listed)
+
+
+class TestSetJobIdAndGetByJobId:
+    """Story 4.5: guarded job_id assignment (AC #3) and completion lookup (AC #1)."""
+
+    @pytest.mark.asyncio
+    async def test_set_job_id_persists_and_returns_updated_task_link(self, session: AsyncSession) -> None:
+        project_id = await _make_project(session)
+        repo = TaskLinkRepository(session)
+
+        created = await repo.upsert_many(
+            project_id,
+            [{"repo_path": "/repo/a", "story_node_id": "1-1-task", "depends_on": [], "epic_id": None}],
+        )
+        await session.commit()
+        task_link_id = created[0].id
+        await _make_job(session, "job-123")
+
+        updated = await repo.set_job_id(task_link_id, "job-123")
+        await session.commit()
+
+        assert updated is not None
+        assert updated.job_id == "job-123"
+
+        listed = await repo.list_by_project(project_id)
+        assert listed[0].job_id == "job-123"
+
+    @pytest.mark.asyncio
+    async def test_set_job_id_is_a_no_op_once_already_set(self, session: AsyncSession) -> None:
+        project_id = await _make_project(session)
+        repo = TaskLinkRepository(session)
+
+        created = await repo.upsert_many(
+            project_id,
+            [{"repo_path": "/repo/a", "story_node_id": "1-1-task", "depends_on": [], "epic_id": None}],
+        )
+        await session.commit()
+        task_link_id = created[0].id
+        await _make_job(session, "job-123")
+        await _make_job(session, "job-456")
+
+        first = await repo.set_job_id(task_link_id, "job-123")
+        await session.commit()
+        assert first is not None and first.job_id == "job-123"
+
+        # Second attempt with a different job id must be rejected — a
+        # TaskLink is never spawned a second time (Story 4.5, AC #3).
+        second = await repo.set_job_id(task_link_id, "job-456")
+        await session.commit()
+        assert second is None
+
+        listed = await repo.list_by_project(project_id)
+        assert listed[0].job_id == "job-123"
+
+    @pytest.mark.asyncio
+    async def test_set_job_id_returns_none_for_missing_row(self, session: AsyncSession) -> None:
+        repo = TaskLinkRepository(session)
+        result = await repo.set_job_id("does-not-exist", "job-1")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_by_job_id_finds_matching_row(self, session: AsyncSession) -> None:
+        project_id = await _make_project(session)
+        repo = TaskLinkRepository(session)
+
+        created = await repo.upsert_many(
+            project_id,
+            [{"repo_path": "/repo/a", "story_node_id": "1-1-task", "depends_on": [], "epic_id": None}],
+        )
+        await session.commit()
+        await _make_job(session, "job-123")
+        await repo.set_job_id(created[0].id, "job-123")
+        await session.commit()
+
+        found = await repo.get_by_job_id("job-123")
+        assert found is not None
+        assert found.id == created[0].id
+
+    @pytest.mark.asyncio
+    async def test_get_by_job_id_returns_none_when_absent(self, session: AsyncSession) -> None:
+        repo = TaskLinkRepository(session)
+        assert await repo.get_by_job_id("does-not-exist") is None
+

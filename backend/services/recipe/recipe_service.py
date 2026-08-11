@@ -15,21 +15,47 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from backend.models.domain import RepoNotAllowedError
+import structlog
+
+from backend.models.domain import JobSpec, RepoNotAllowedError, SDKModelMismatchError
 from backend.services.recipe.parsers import ParsedTask, parse_bmad_stories, parse_spec_kit_tasks
 
 if TYPE_CHECKING:
-    from backend.models.domain import TaskLink
+    from backend.models.domain import Job, TaskLink
+    from backend.persistence.job_repo import JobRepository
     from backend.persistence.task_link_repo import TaskLinkRepository
+    from backend.services.job.job_service import JobService
     from backend.services.project.project_service import ProjectService
+
+log = structlog.get_logger()
+
+# Resolutions that count as a job "completing successfully" for the purpose of
+# satisfying a dependent TaskLink's dependency (Story 4.5, AC #1). A job that
+# reaches ``JobState.completed`` with resolution "discarded" still fires
+# ``EventKind.job_completed`` (see backend/services/runtime/service.py), but
+# discarding means the user threw the work away — that must never satisfy a
+# dependency or spawn the next task in the chain.
+_SUCCESSFUL_RESOLUTIONS = frozenset({"merged", "pr_created"})
 
 
 class RecipeService:
     """Orchestrates Project-scoped TaskLink creation and ingestion."""
 
-    def __init__(self, task_link_repo: TaskLinkRepository, project_service: ProjectService) -> None:
+    def __init__(
+        self,
+        task_link_repo: TaskLinkRepository,
+        project_service: ProjectService,
+        *,
+        job_service: JobService | None = None,
+        job_repo: JobRepository | None = None,
+    ) -> None:
         self._task_link_repo = task_link_repo
         self._project_service = project_service
+        # Both optional: request-scoped DI call sites (ingestion/listing, Story
+        # 4.2-4.4) never spawn jobs and don't need them. Only the job-completion
+        # subscriber wired in backend/lifespan.py supplies them (Story 4.5).
+        self._job_service = job_service
+        self._job_repo = job_repo
 
     @staticmethod
     def _resolve_dependency(raw: str, *, current_repo_path: str, repo_path_by_folder: dict[str, str]) -> str:
@@ -115,3 +141,114 @@ class RecipeService:
         # Ensure the Project exists (raises ProjectNotFoundError otherwise).
         await self._project_service.get(project_id)
         return await self._task_link_repo.list_by_project(project_id)
+
+    @staticmethod
+    def _composite_key(task_link: TaskLink) -> str | None:
+        """The ``"{repo_path}::{story_node_id}"`` key other TaskLinks' ``depends_on``
+        entries reference. ``None`` for a manually-assigned TaskLink (no
+        ``story_node_id``) — those are never valid dependency targets.
+        """
+        if task_link.story_node_id is None:
+            return None
+        return f"{task_link.repo_path}::{task_link.story_node_id}"
+
+    @staticmethod
+    def _derive_prompt(task_link: TaskLink) -> str:
+        """Prompt for a task link's spawned job.
+
+        Manually-assigned TaskLinks (Story 4.3) always carry a `prompt_override`
+        — used verbatim. Ingested TaskLinks (Story 4.2) have no persisted task
+        body (the parser only captures id/depends_on/epic_id — see
+        ``backend/services/recipe/parsers.py``), so a prompt is synthesized
+        that points the agent at the source story/task file by id, keeping the
+        source-of-truth read-only and in the repo rather than duplicating it.
+        """
+        if task_link.prompt_override:
+            return task_link.prompt_override
+        return (
+            f"Implement task '{task_link.story_node_id}' in this repo. Locate and follow "
+            "its full task/story definition (BMAD story file under "
+            "_bmad-output/implementation-artifacts/, or the matching spec-kit tasks.md "
+            "entry) for complete requirements — this prompt only identifies which task "
+            "to implement."
+        )
+
+    async def _is_satisfied(self, dep_key: str, links_by_key: dict[str, TaskLink]) -> bool:
+        """Whether the TaskLink identified by composite key ``dep_key`` has a
+        successfully-completed linked Job (Story 4.5, AC #1/#2)."""
+        target = links_by_key.get(dep_key)
+        if target is None or target.job_id is None or self._job_repo is None:
+            return False
+        job = await self._job_repo.get(target.job_id)
+        if job is None:
+            return False
+        return str(job.state) == "completed" and str(job.resolution or "") in _SUCCESSFUL_RESOLUTIONS
+
+    async def handle_job_completed(self, job_id: str, *, resolution: str | None) -> list[Job]:
+        """React to a Job reaching ``JobState.completed`` (Story 4.5, AC #1-#3).
+
+        Finds the TaskLink whose linked Job just completed, and for every other
+        TaskLink in the same Project that depends on it and has no `job_id` of
+        its own yet, checks whether *all* of its dependencies are now satisfied.
+        If so, spawns the dependent's job via the same `JobService.create_job`
+        path used by `codeplane_job create`, and persists the new `job_id`.
+
+        Returns the newly-created Jobs (so callers, e.g. the `lifespan.py`
+        event-bus subscriber, can start each one via `RuntimeService.setup_and_start`).
+
+        Never raises: a bad dependent (disallowed repo, mismatched SDK/model)
+        is logged and skipped so it never blocks other dependents or crashes
+        the caller (an event-bus subscriber).
+        """
+        if self._job_service is None or self._job_repo is None:
+            return []
+
+        if resolution not in _SUCCESSFUL_RESOLUTIONS:
+            return []
+
+        completed_link = await self._task_link_repo.get_by_job_id(job_id)
+        if completed_link is None:
+            return []
+
+        completed_key = self._composite_key(completed_link)
+        if completed_key is None:
+            return []
+
+        project_links = await self._task_link_repo.list_by_project(completed_link.project_id)
+        links_by_key = {
+            key: link for link in project_links if (key := self._composite_key(link)) is not None
+        }
+
+        spawned: list[Job] = []
+        for candidate in project_links:
+            if candidate.job_id is not None:
+                # Already spawned — never spawn a second time (AC #3).
+                continue
+            if completed_key not in candidate.depends_on:
+                continue
+
+            satisfied = all(
+                [await self._is_satisfied(dep_key, links_by_key) for dep_key in candidate.depends_on]
+            )
+            if not satisfied:
+                continue
+
+            prompt = self._derive_prompt(candidate)
+            try:
+                new_job = await self._job_service.create_job(
+                    JobSpec(repo=candidate.repo_path, prompt=prompt, parent_job_id=job_id)
+                )
+            except (RepoNotAllowedError, SDKModelMismatchError) as exc:
+                log.warning(
+                    "task_link_spawn_failed",
+                    task_link_id=candidate.id,
+                    repo_path=candidate.repo_path,
+                    error=str(exc),
+                )
+                continue
+
+            updated = await self._task_link_repo.set_job_id(candidate.id, new_job.id)
+            if updated is not None:
+                spawned.append(new_job)
+
+        return spawned
