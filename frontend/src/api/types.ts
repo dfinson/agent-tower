@@ -18,6 +18,8 @@ export type RegisterRepoRequest = components["schemas"]["RegisterRepoRequest"];
 export type RegisterRepoResponse = components["schemas"]["RegisterRepoResponse"];
 export type RepoListResponse = components["schemas"]["RepoListResponse"];
 export type RepoDetailResponse = components["schemas"]["RepoDetailResponse"];
+export type ProjectSummaryResponse = components["schemas"]["ProjectSummaryResponse"];
+export type ProjectListSummaryResponse = components["schemas"]["ProjectListSummaryResponse"];
 export type CompletionStrategy = "auto_merge" | "pr_only" | "manual";
 
 // Sidecar template types

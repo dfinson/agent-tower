@@ -14,10 +14,12 @@ from fastapi import APIRouter
 from backend.models.api_schemas import (
     CreateProjectRequest,
     ProjectListResponse,
+    ProjectListSummaryResponse,
     ProjectResponse,
+    ProjectSummaryResponse,
     UpdateProjectRequest,
 )
-from backend.models.domain import Project
+from backend.models.domain import Project, ProjectSummary
 from backend.services.project.project_service import ProjectService
 
 router = APIRouter(tags=["projects"], route_class=DishkaRoute)
@@ -30,6 +32,18 @@ def _to_response(project: Project) -> ProjectResponse:
         repo_paths=project.repo_paths,
         created_at=project.created_at,
         updated_at=project.updated_at,
+    )
+
+
+def _to_summary_response(summary: ProjectSummary) -> ProjectSummaryResponse:
+    return ProjectSummaryResponse(
+        id=summary.id,
+        name=summary.name,
+        repo_paths=summary.repo_paths,
+        active_job_count=summary.active_job_count,
+        awaiting_input_count=summary.awaiting_input_count,
+        failed_count=summary.failed_count,
+        last_activity_at=summary.last_activity_at,
     )
 
 
@@ -50,6 +64,22 @@ async def list_projects(
     """List all registered Projects."""
     projects = await project_service.list()
     return ProjectListResponse(items=[_to_response(p) for p in projects])
+
+
+# NOTE: Must be registered before `/settings/projects/{project_id}` so the
+# literal `summary` path segment isn't captured as a project_id.
+@router.get("/settings/projects/summary", response_model=ProjectListSummaryResponse)
+async def get_projects_summary(
+    project_service: FromDishka[ProjectService],
+) -> ProjectListSummaryResponse:
+    """Batch Overview summary for every Project (Story 2.2 / CAP-2).
+
+    Single call for all Projects — the Overview screen never does N
+    sequential per-Project fetches. Projects with no jobs at all are still
+    included, with all-zero counts.
+    """
+    summaries = await project_service.summary_all()
+    return ProjectListSummaryResponse(items=[_to_summary_response(s) for s in summaries])
 
 
 @router.get("/settings/projects/{project_id}", response_model=ProjectResponse)

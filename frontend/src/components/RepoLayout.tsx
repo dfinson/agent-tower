@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Outlet, useParams, useNavigate, useLocation, Link } from "react-router-dom";
+import { Outlet, useParams, useNavigate, Link } from "react-router-dom";
 import { FolderGit2, Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { fetchRepos } from "../api/client";
@@ -8,12 +8,12 @@ import { cn } from "../lib/utils";
 import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
 import { pathBasename } from "../lib/paths";
+import { ProjectsOverview } from "./ProjectsOverview";
 
 
 export function RepoLayout() {
   const { repoPath } = useParams<{ repoPath: string }>();
   const navigate = useNavigate();
-  const location = useLocation();
   const decoded = repoPath ? decodeURIComponent(repoPath) : "";
   const [repos, setRepos] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,14 +32,6 @@ export function RepoLayout() {
   }, []);
 
   useEffect(() => { loadRepos(); }, [loadRepos]);
-
-  // If we're at /repos with no repoPath and repos are loaded, redirect to the first repo
-  useEffect(() => {
-    const first = repos[0];
-    if (!repoPath && first && !loading) {
-      navigate(`/repos/${encodeURIComponent(first)}`, { replace: true });
-    }
-  }, [repoPath, repos, loading, navigate, location.pathname]);
 
   function repoBasename(path: string) {
     return pathBasename(path) || path;
@@ -130,28 +122,7 @@ export function RepoLayout() {
 
       {/* Main content area */}
       <div className="flex-1 min-w-0 overflow-y-auto p-4 md:p-6">
-        {!repoPath ? (
-          <div className="flex items-center justify-center h-64 text-muted-foreground">
-            {repos.length === 0 ? (
-              <div className="text-center">
-                <FolderGit2 size={32} className="mx-auto mb-3 opacity-50" />
-                <p className="text-sm">No repositories registered</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-3"
-                  onClick={() => navigate("/settings")}
-                >
-                  Add a repository
-                </Button>
-              </div>
-            ) : (
-              <Spinner size="lg" />
-            )}
-          </div>
-        ) : (
-          <Outlet />
-        )}
+        {!repoPath ? <ProjectsOverview /> : <Outlet />}
       </div>
     </div>
   );

@@ -1,0 +1,92 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+
+vi.mock("../../api/client", () => ({
+  fetchProjectsSummary: vi.fn(),
+}));
+
+import { fetchProjectsSummary } from "../../api/client";
+import { ProjectsOverview } from "../ProjectsOverview";
+
+function makeSummary(overrides: Partial<any> = {}) {
+  return {
+    id: "proj-1",
+    name: "My Project",
+    repoPaths: ["/repos/my-project"],
+    activeJobCount: 0,
+    awaitingInputCount: 0,
+    failedCount: 0,
+    lastActivityAt: null,
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  vi.mocked(fetchProjectsSummary).mockReset();
+});
+
+describe("ProjectsOverview", () => {
+  it("renders a card for a zero-job project with a 'No jobs yet' affordance", async () => {
+    vi.mocked(fetchProjectsSummary).mockResolvedValueOnce({
+      items: [makeSummary()],
+    } as any);
+
+    render(
+      <MemoryRouter>
+        <ProjectsOverview />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText("My Project")).toBeInTheDocument());
+    expect(screen.getByText("No jobs yet")).toBeInTheDocument();
+  });
+
+  it("renders a card per project with bucketed counts", async () => {
+    vi.mocked(fetchProjectsSummary).mockResolvedValueOnce({
+      items: [
+        makeSummary({ id: "proj-1", name: "Alpha", activeJobCount: 2, awaitingInputCount: 1, failedCount: 3 }),
+        makeSummary({ id: "proj-2", name: "Beta" }),
+      ],
+    } as any);
+
+    render(
+      <MemoryRouter>
+        <ProjectsOverview />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    expect(screen.getByText("Beta")).toBeInTheDocument();
+    expect(screen.getByText("2 active")).toBeInTheDocument();
+    expect(screen.getByText("1 awaiting")).toBeInTheDocument();
+    expect(screen.getByText("3 failed")).toBeInTheDocument();
+  });
+
+  it("fetches the summary exactly once on mount, not per project (batch call)", async () => {
+    vi.mocked(fetchProjectsSummary).mockResolvedValueOnce({
+      items: [makeSummary({ id: "proj-1" }), makeSummary({ id: "proj-2" }), makeSummary({ id: "proj-3" })],
+    } as any);
+
+    render(
+      <MemoryRouter>
+        <ProjectsOverview />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(fetchProjectsSummary).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows an empty state when there are no projects", async () => {
+    vi.mocked(fetchProjectsSummary).mockResolvedValueOnce({ items: [] } as any);
+
+    render(
+      <MemoryRouter>
+        <ProjectsOverview />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText("No Projects registered")).toBeInTheDocument());
+  });
+});

@@ -18,6 +18,7 @@ import type {
   JobListResponse,
   RepoDetailResponse,
   RepoListResponse,
+  ProjectListSummaryResponse,
   SDKListResponse,
   Settings,
   SidecarTemplate,
@@ -401,6 +402,10 @@ export function fetchJobTelemetry(jobId: string): Promise<{
 
 export function fetchRepos(): Promise<RepoListResponse> {
   return request("/settings/repos");
+}
+
+export function fetchProjectsSummary(): Promise<ProjectListSummaryResponse> {
+  return request("/settings/projects/summary");
 }
 
 export function fetchRepoDetail(repoPath: string): Promise<RepoDetailResponse> {
