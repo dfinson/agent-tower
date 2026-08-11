@@ -16,6 +16,8 @@ from typing import Any
 
 import structlog
 
+from backend.services.copilot_adapter._client import copilot_client_kwargs
+
 log = structlog.get_logger(__name__)
 
 
@@ -32,7 +34,7 @@ async def fetch_copilot_models_raw() -> list[dict[str, Any]]:
     from copilot import CopilotClient
     from copilot.client import ModelInfo
 
-    client = CopilotClient()
+    client = CopilotClient(**copilot_client_kwargs())
     await client.start()
     try:
         # pylint: disable=protected-access  # JsonRpcClient not exposed publicly

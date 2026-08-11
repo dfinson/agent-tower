@@ -20,6 +20,7 @@ from backend.services.adapters.base_adapter import (
     PermissionDecision,
 )
 from backend.services.auth.permission_policy import PermissionRequest as PolicyRequest
+from backend.services.copilot_adapter._client import copilot_client_kwargs
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -506,7 +507,7 @@ class CopilotAdapter(BaseAgentAdapter):
         from copilot import CopilotClient
         from copilot._jsonrpc import JsonRpcError, ProcessExitedError
 
-        client = CopilotClient()
+        client = CopilotClient(**copilot_client_kwargs())
 
         # Thin closure that delegates to the instance method, capturing only `config`.
         async def _on_permission(request: PermissionRequest, invocation: dict[str, str]) -> PermissionRequestResult:
