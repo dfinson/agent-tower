@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 from datetime import UTC, datetime
+from pathlib import PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -29,6 +30,11 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 _PERSIST_EVERY_EVENTS = 64
+
+
+def repo_basename(repo_path: str) -> str:
+    """Return the last path segment for POSIX or Windows-style path strings."""
+    return PureWindowsPath(repo_path.rstrip("/\\")).name
 
 
 class TraceForgeIngestBase:

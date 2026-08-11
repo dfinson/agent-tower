@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import glob
+import inspect
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -164,6 +165,14 @@ class JobService:
             raise RepoNotAllowedError(f"Repository '{repo}' is not in the allowlist.")
         return resolved
 
+    async def _list_worktree_names(self, resolved_repo: str) -> set[str]:
+        if self._git is None:
+            return set()
+        names = self._git.list_worktree_names(resolved_repo)
+        if inspect.isawaitable(names):
+            names = await names
+        return set(names)
+
     async def _resolve_job_name(
         self,
         spec: JobSpec,
@@ -214,7 +223,7 @@ class JobService:
             from backend.services.completers.naming_service import heuristic_slug
 
             existing_job_ids = await self._job_repo.list_ids()
-            existing_worktrees = self._git.list_worktree_names(resolved_repo) if self._git else set()
+            existing_worktrees = await self._list_worktree_names(resolved_repo)
             exclude_names = existing_job_ids | existing_worktrees
             base_slug = heuristic_slug(spec.prompt)
             candidate = base_slug
@@ -243,7 +252,7 @@ class JobService:
             return
         try:
             existing_branches = await self._git.list_branches(resolved_repo) if self._git else set()
-            existing_worktrees = self._git.list_worktree_names(resolved_repo) if self._git else set()
+            existing_worktrees = await self._list_worktree_names(resolved_repo)
             title, description, _branch, _worktree_name = await self._naming.generate(
                 spec.prompt,
                 existing_branches=existing_branches,

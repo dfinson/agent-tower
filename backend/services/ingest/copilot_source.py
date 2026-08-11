@@ -14,7 +14,7 @@ import structlog
 
 from backend.models.domain import Job, JobSource, JobState
 from backend.models.events import EventKind
-from backend.services.ingest._base import TraceForgeIngestBase
+from backend.services.ingest._base import TraceForgeIngestBase, repo_basename
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -274,7 +274,7 @@ class SessionStateWatcher(TraceForgeIngestBase):
         except Exception:
             base_ref = "HEAD"
 
-        job_id = f"{Path(repo_path).name}-{hashlib.sha256(session_id.encode()).hexdigest()[:12]}"
+        job_id = f"{repo_basename(repo_path)}-{hashlib.sha256(session_id.encode()).hexdigest()[:12]}"
         now = datetime.now(UTC)
         job = Job(
             id=job_id,

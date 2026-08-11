@@ -76,6 +76,7 @@ class TestJobCreationCompensation:
 
         git_service = AsyncMock()
         git_service.get_default_branch = AsyncMock(return_value="main")
+        git_service.list_worktree_names = MagicMock(return_value=set())
 
         config = _make_config()
 
@@ -99,6 +100,7 @@ class TestJobCreationCompensation:
         """Normal job creation returns job in preparing state without worktree."""
         job_repo = AsyncMock()
         job_repo.list_ids = AsyncMock(return_value=set())
+        job_repo.get = AsyncMock(return_value=None)
         job_repo.create = AsyncMock(return_value=None)
 
         git_service = AsyncMock()
