@@ -274,6 +274,12 @@ export function JobHeaderCard({
           <JobActions {...actionProps} layout="bar" />
         </div>
 
+        {!expanded && (job.state === "failed" || job.state === "review") && (
+          <div className="px-4 pb-2">
+            {statusBanner}
+          </div>
+        )}
+
         {/* ── Expanded body ── */}
         {expanded && (
           <div className="px-4 pb-3 space-y-2.5">

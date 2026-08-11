@@ -141,7 +141,7 @@ test.describe("Job Failure Display", () => {
     await expect(page.locator("main")).toContainText("Agent process exited with code 1");
   });
 
-  test("failed job with no reason omits a failure reason", async ({ page }) => {
+  test("failed job with no reason shows the fallback reason", async ({ page }) => {
     const failedJob = makeJob({
       state: "failed",
       failureReason: null,
@@ -152,7 +152,7 @@ test.describe("Job Failure Display", () => {
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     await expect(page.locator("main")).toContainText("Failed");
-    await expect(page.getByText("No additional details available")).toHaveCount(0);
+    await expect(page.getByText("No additional details available")).toBeVisible();
   });
 
   test("SSE job_failed event shows failure banner", async ({ page }) => {
@@ -364,7 +364,7 @@ test.describe("Completed Job Display", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    await expect(page.getByText("Conflict", { exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Done" })).toBeVisible();
+    await expect(page.getByText("Merge conflict", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Resolve" })).toBeVisible();
   });
 });
