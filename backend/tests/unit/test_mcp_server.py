@@ -92,11 +92,23 @@ def mock_approval():
 
 
 @pytest.fixture
-def mcp_server(mock_session_factory, mock_runtime, mock_approval):
+def mock_merge_service():
+    from backend.services.merge_service import MergeResult, MergeStatus
+
+    merge = AsyncMock()
+    merge.request_pr_for_job = AsyncMock(
+        return_value=MergeResult(status=MergeStatus.pr_created, strategy="pr", pr_url="https://example.com/pr/1")
+    )
+    return merge
+
+
+@pytest.fixture
+def mcp_server(mock_session_factory, mock_runtime, mock_approval, mock_merge_service):
     return create_mcp_server(
         session_factory=mock_session_factory,
         runtime_service=mock_runtime,
         approval_service=mock_approval,
+        merge_service=mock_merge_service,
     )
 
 
@@ -114,6 +126,7 @@ class TestMCPServerCreation:
         tools = mcp_server._tool_manager._tools
         expected = {
             "codeplane_job",
+            "codeplane_pr",
             "codeplane_approval",
             "codeplane_workspace",
             "codeplane_artifact",
@@ -247,6 +260,67 @@ class TestJobTool:
         mock_runtime.send_message = AsyncMock(return_value=False)
         result = await _tool(mcp_server, "codeplane_job")(action="message", job_id="job-1", content="hi")
         assert "error" in result
+
+
+# ── PR tool (CAP-14) ─────────────────────────────────────────────────
+
+
+class TestPrTool:
+    @pytest.mark.asyncio
+    async def test_missing_job_id(self, mcp_server) -> None:
+        result = await _tool(mcp_server, "codeplane_pr")(job_id=None)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_job_not_found(self, mcp_server) -> None:
+        from backend.models.domain import JobNotFoundError
+
+        with (
+            patch("backend.mcp.server.JobService") as mock_svc_cls,
+            patch("backend.mcp.server.GitService"),
+        ):
+            svc = AsyncMock()
+            svc.get_job = AsyncMock(side_effect=JobNotFoundError("nope"))
+            mock_svc_cls.return_value = svc
+
+            result = await _tool(mcp_server, "codeplane_pr")(job_id="missing")
+            assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_success(self, mcp_server, mock_merge_service) -> None:
+        job = make_job(id="job-123", repo="/test/repo", branch="feature/x")
+        with (
+            patch("backend.mcp.server.JobService") as mock_svc_cls,
+            patch("backend.mcp.server.GitService"),
+        ):
+            svc = AsyncMock()
+            svc.get_job = AsyncMock(return_value=job)
+            mock_svc_cls.return_value = svc
+
+            result = await _tool(mcp_server, "codeplane_pr")(job_id="job-123")
+
+            assert result["pr_url"] == "https://example.com/pr/1"
+            assert result["status"] == "pr_created"
+            mock_merge_service.request_pr_for_job.assert_awaited_once_with(job)
+
+    @pytest.mark.asyncio
+    async def test_service_error_propagated(self, mcp_server, mock_merge_service) -> None:
+        from backend.services.merge_service import MergeResult, MergeStatus
+
+        job = make_job(id="job-123", repo="/test/repo", branch=None)
+        mock_merge_service.request_pr_for_job = AsyncMock(
+            return_value=MergeResult(status=MergeStatus.error, error="No branch to create a PR for")
+        )
+        with (
+            patch("backend.mcp.server.JobService") as mock_svc_cls,
+            patch("backend.mcp.server.GitService"),
+        ):
+            svc = AsyncMock()
+            svc.get_job = AsyncMock(return_value=job)
+            mock_svc_cls.return_value = svc
+
+            result = await _tool(mcp_server, "codeplane_pr")(job_id="job-123")
+            assert "error" in result
 
 
 # ── Approval tool ────────────────────────────────────────────────────

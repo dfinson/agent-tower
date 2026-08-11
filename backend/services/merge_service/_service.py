@@ -349,6 +349,19 @@ class MergeService:
             await self._git.merge_abort(cwd=repo_path)
             return files
 
+    async def _get_existing_pr_url(self, job_id: str) -> str | None:
+        """Return the job's already-recorded PR url, if any.
+
+        Reads the current persisted state directly (not a cached ``Job``
+        the caller may be holding) so a race between two nearly-simultaneous
+        PR requests for the same job still converges on one PR.
+        """
+        from backend.persistence.job_repo import JobRepository
+
+        async with self._session_factory() as session:
+            job = await JobRepository(session).get(job_id)
+        return job.pr_url if job is not None else None
+
     async def _create_pr(
         self,
         job_id: str,
@@ -358,7 +371,18 @@ class MergeService:
         base_ref: str,
         prompt: str,
     ) -> MergeResult:
-        """Push branch and create a PR via platform adapter."""
+        """Push branch and create a PR via platform adapter.
+
+        Idempotent per Job: if a PR already exists for this job (recorded via
+        an earlier call — either the completion-time auto-PR path or the
+        agent-initiated ``codeplane_pr`` MCP tool), returns that PR instead of
+        pushing again or calling the platform adapter a second time (AD-14).
+        """
+        existing_pr_url = await self._get_existing_pr_url(job_id)
+        if existing_pr_url:
+            log.info("pr_already_exists", job_id=job_id, pr_url=existing_pr_url)
+            return MergeResult(status=MergeStatus.pr_created, strategy="pr", pr_url=existing_pr_url)
+
         cwd = worktree_path or repo_path
 
         # Push branch to origin first
@@ -566,6 +590,40 @@ class MergeService:
             return await self._operator_smart_merge(job_id, repo_path, worktree_path, branch, base_ref)
 
         return MergeResult(status=MergeStatus.error, error=f"Unknown action: {action}")
+
+    # ------------------------------------------------------------------
+    # Agent-initiated PR request (CAP-14) — codeplane_pr MCP tool
+    # ------------------------------------------------------------------
+
+    async def request_pr_for_job(self, job: Job) -> MergeResult:
+        """Create (or reuse) a PR for a still-running Job, on agent request.
+
+        Unlike :meth:`resolve_job`'s ``create_pr`` action — which runs only
+        once a Job has reached ``review`` and cleans up the worktree
+        afterward — this path is called *mid-job*, while the agent may still
+        be working in the worktree.  It therefore never removes the worktree
+        or branch.  Invokes the exact same :meth:`_create_pr` implementation
+        the completion-time auto-PR path uses (AD-14), which is idempotent
+        per Job, so a subsequent automatic PR at job completion (or another
+        mid-job call) reuses the same PR rather than creating a duplicate.
+        """
+        if job.source != "managed":
+            return MergeResult(status=MergeStatus.error, error="PR requests are only supported for managed jobs")
+
+        if not job.branch:
+            return MergeResult(status=MergeStatus.error, error="No branch to create a PR for")
+
+        if not _REF_PATTERN.match(job.branch) or not _REF_PATTERN.match(job.base_ref):
+            return MergeResult(status=MergeStatus.error, error="Invalid branch or base_ref")
+
+        return await self._create_pr(
+            job.id,
+            job.repo,
+            job.worktree_path,
+            job.branch,
+            job.base_ref,
+            job.prompt,
+        )
 
     async def _preserve_diff_snapshot(
         self,

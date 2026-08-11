@@ -330,6 +330,129 @@ class TestPrOnlyStrategy:
 
 
 # ---------------------------------------------------------------------------
+# codeplane_pr — agent-initiated PR request (CAP-14 / AD-14)
+# ---------------------------------------------------------------------------
+
+
+class TestRequestPrForJob:
+    async def test_creates_pr_via_platform_registry(
+        self,
+        tmp_path: Path,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+    ) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from backend.services.adapters.platform_adapter import PRResult
+        from backend.services.merge_service import MergeStatus
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_repo(repo)
+        _branch_with_change(repo, "cpl/job-1", "file.py", "x = 1\n")
+
+        adapter = MagicMock()
+        adapter.name = "github"
+        adapter.create_pr = AsyncMock(return_value=PRResult(url="https://example.com/pr/1"))
+        registry = MagicMock()
+        registry.get_adapter = AsyncMock(return_value=adapter)
+
+        service = _make_service(event_bus, session_factory, strategy="pr_only")
+        service._platform_registry = registry  # noqa: SLF001
+
+        job = _make_job(str(repo))
+        await _insert_job(session_factory, job)
+
+        result = await service.request_pr_for_job(job)
+
+        assert result.status == MergeStatus.pr_created
+        assert result.pr_url == "https://example.com/pr/1"
+        adapter.create_pr.assert_awaited_once()
+
+    async def test_second_call_reuses_existing_pr(
+        self,
+        tmp_path: Path,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+    ) -> None:
+        """AD-14: _create_pr is idempotent per Job — no duplicate PR/adapter call."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from backend.services.adapters.platform_adapter import PRResult
+        from backend.services.merge_service import MergeStatus
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_repo(repo)
+        _branch_with_change(repo, "cpl/job-1", "file.py", "x = 1\n")
+
+        adapter = MagicMock()
+        adapter.name = "github"
+        adapter.create_pr = AsyncMock(return_value=PRResult(url="https://example.com/pr/1"))
+        registry = MagicMock()
+        registry.get_adapter = AsyncMock(return_value=adapter)
+
+        service = _make_service(event_bus, session_factory, strategy="pr_only")
+        service._platform_registry = registry  # noqa: SLF001
+
+        job = _make_job(str(repo))
+        await _insert_job(session_factory, job)
+
+        first = await service.request_pr_for_job(job)
+        second = await service.request_pr_for_job(job)
+
+        assert first.pr_url == second.pr_url == "https://example.com/pr/1"
+        assert second.status == MergeStatus.pr_created
+        adapter.create_pr.assert_awaited_once()  # not called again on the second request
+
+    async def test_no_branch_returns_error(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+    ) -> None:
+        from backend.services.merge_service import MergeStatus
+
+        service = _make_service(event_bus, session_factory, strategy="pr_only")
+        job = _make_job("/tmp/repo", branch=None)  # type: ignore[arg-type]
+
+        result = await service.request_pr_for_job(job)
+
+        assert result.status == MergeStatus.error
+        assert result.error is not None
+
+    async def test_invalid_branch_returns_error(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+    ) -> None:
+        from backend.services.merge_service import MergeStatus
+
+        service = _make_service(event_bus, session_factory, strategy="pr_only")
+        job = _make_job("/tmp/repo", branch="feature; rm -rf /")
+
+        result = await service.request_pr_for_job(job)
+
+        assert result.status == MergeStatus.error
+        assert result.error is not None
+
+    async def test_imported_job_rejected(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+    ) -> None:
+        from backend.services.merge_service import MergeStatus
+
+        service = _make_service(event_bus, session_factory, strategy="pr_only")
+        job = _make_job("/tmp/repo")
+        job.source = "imported"
+
+        result = await service.request_pr_for_job(job)
+
+        assert result.status == MergeStatus.error
+        assert result.error is not None
+
+
+# ---------------------------------------------------------------------------
 # False-positive conflict detection (regression tests)
 # ---------------------------------------------------------------------------
 
