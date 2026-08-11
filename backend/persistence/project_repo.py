@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
 from backend.models.db import JobRow, ProjectRow
 from backend.models.domain import Project
 from backend.persistence.repository import BaseRepository
+
+if TYPE_CHECKING:
+    import builtins
 
 
 class RepoJobCounts:
@@ -91,7 +95,7 @@ class ProjectRepository(BaseRepository):
         self,
         project_id: str,
         name: str | None = None,
-        repo_paths: list[str] | None = None,
+        repo_paths: builtins.list[str] | None = None,
     ) -> Project | None:
         """Update a Project's name and/or repo membership. Returns None if not found."""
         stmt = select(ProjectRow).where(ProjectRow.id == project_id)

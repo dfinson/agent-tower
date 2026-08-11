@@ -9,7 +9,7 @@ Story 3.1 route.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import delete, select
 
@@ -56,16 +56,20 @@ class CredentialRepository(BaseRepository):
             raise CredentialReferencedError(
                 f"Credential {credential_id} is still referenced by one or more TrackerLinks"
             )
-        result = await self._session.execute(delete(CredentialRow).where(CredentialRow.id == credential_id))
-        return result.rowcount > 0
+        result = await self._session.execute(
+            delete(CredentialRow).where(CredentialRow.id == credential_id).returning(CredentialRow.id)
+        )
+        return result.scalar_one_or_none() is not None
 
     async def resolve_secret(self, credential_id: str) -> str | None:
         """Decrypt and return the PAT for server-side use only (never for API responses)."""
-        result = await self._session.execute(select(CredentialRow).where(CredentialRow.id == credential_id))
-        row = result.scalar_one_or_none()
-        if row is None:
+        result = await self._session.execute(
+            select(CredentialRow.encrypted_secret).where(CredentialRow.id == credential_id)
+        )
+        encrypted_secret = cast("str | None", result.scalar_one_or_none())
+        if encrypted_secret is None:
             return None
-        return decrypt_secret(row.encrypted_secret)
+        return cast("str", decrypt_secret(encrypted_secret))
 
 
 def _row_to_dict(row: CredentialRow) -> dict[str, Any]:

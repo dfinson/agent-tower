@@ -17,6 +17,8 @@ from backend.config import register_repo
 from backend.models.domain import Project, ProjectNotFoundError, ProjectSummary, RepoAlreadyAssignedError
 
 if TYPE_CHECKING:
+    import builtins
+
     from backend.config import CPLConfig
     from backend.persistence.project_repo import ProjectRepository
 
@@ -57,14 +59,14 @@ class ProjectService:
             raise ProjectNotFoundError(f"Project '{project_id}' does not exist.")
         return project
 
-    async def list(self) -> list[Project]:
+    async def list(self) -> builtins.list[Project]:
         return await self._project_repo.list()
 
     async def update(
         self,
         project_id: str,
         name: str | None = None,
-        repo_paths: list[str] | None = None,
+        repo_paths: builtins.list[str] | None = None,
     ) -> Project:
         """Rename a Project and/or replace its repo membership.
 
