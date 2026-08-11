@@ -16,6 +16,9 @@ def copilot_github_token() -> str | None:
 
 def create_copilot_client() -> CopilotClient:
     """Build a Copilot client."""
-    from copilot import CopilotClient
+    from copilot import CopilotClient, SubprocessConfig
 
+    token = copilot_github_token()
+    if token:
+        return CopilotClient(SubprocessConfig(github_token=token))
     return CopilotClient()

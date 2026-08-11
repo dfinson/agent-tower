@@ -93,8 +93,9 @@ class _FakeCopilotSession:
 class _FakeCopilotClient:
     """Mimics ``copilot.CopilotClient``."""
 
-    def __init__(self) -> None:
+    def __init__(self, config: Any = None) -> None:
         self._sessions: list[_FakeCopilotSession] = []
+        self._config = config
 
     async def create_session(self, **kwargs: Any) -> _FakeCopilotSession:
         session = _FakeCopilotSession()
@@ -110,6 +111,12 @@ class _FakeCopilotClient:
 def _build_fake_copilot_module() -> ModuleType:
     mod = ModuleType("copilot")
     mod.CopilotClient = _FakeCopilotClient
+
+    class _FakeSubprocessConfig:
+        def __init__(self, *, github_token: str | None = None) -> None:
+            self.github_token = github_token
+
+    mod.SubprocessConfig = _FakeSubprocessConfig
     mod.PermissionRequest = _FakePermissionRequest
     mod.PermissionRequestResult = _FakePermissionRequestResult
     return mod

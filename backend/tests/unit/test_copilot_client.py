@@ -26,14 +26,23 @@ def test_copilot_github_token_empty_without_token(monkeypatch) -> None:
 
 
 def test_create_copilot_client_does_not_pass_unsupported_kwargs(monkeypatch) -> None:
+    class _FakeSubprocessConfig:
+        def __init__(self, *, github_token: str | None = None) -> None:
+            self.github_token = github_token
+
     class _FakeCopilotClient:
-        def __init__(self) -> None:
+        def __init__(self, config: object | None = None) -> None:
             self.created = True
+            self.config = config
 
     fake_module = ModuleType("copilot")
     fake_module.CopilotClient = _FakeCopilotClient  # type: ignore[attr-defined]
+    fake_module.SubprocessConfig = _FakeSubprocessConfig  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "copilot", fake_module)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
 
     client = create_copilot_client()
 
     assert isinstance(client, _FakeCopilotClient)
+    assert isinstance(client.config, _FakeSubprocessConfig)
+    assert client.config.github_token == "gh-token"
