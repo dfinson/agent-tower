@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import signal
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -293,8 +294,8 @@ class TestStopServer:
         assert result is True
         output = capsys.readouterr().out
         assert "SIGKILL" in output
-        # Signalled twice: once with SIGTERM, once with the escalated signal.
-        assert [c.args[0] for c in mock_kill_group.call_args_list] == [100, 100]
+        assert [c.args for c in _mock_os_kill.call_args_list] == [(100, signal.SIGTERM)]
+        assert [c.args for c in mock_kill_group.call_args_list] == [(100, signal.SIGKILL)]
 
 
 # ---------------------------------------------------------------------------

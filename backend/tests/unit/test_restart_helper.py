@@ -152,7 +152,8 @@ class TestSpawnDetachedHelper:
 
         assert pid == 555
         _, kwargs = mock_popen.call_args
-        assert kwargs["creationflags"] == subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        expected_flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        assert kwargs["creationflags"] == expected_flags
         assert "start_new_session" not in kwargs
 
 
