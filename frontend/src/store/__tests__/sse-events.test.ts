@@ -54,6 +54,62 @@ beforeEach(() => {
   });
 });
 
+describe("hydrateJob freshness guard", () => {
+  it("keeps a newer terminal job when an older reconnect snapshot arrives", () => {
+    useStore.setState({
+      jobs: {
+        "job-1": makeJob({
+          state: "review",
+          updatedAt: "2025-01-01T00:00:20Z",
+        }),
+      },
+    });
+
+    useStore.getState().hydrateJob({
+      job: makeJob({
+        state: "running",
+        updatedAt: "2025-01-01T00:00:10Z",
+      }),
+      logs: [],
+      transcript: [],
+      diff: [],
+      approvals: [],
+      timeline: [],
+    });
+
+    const job = selectJobs(useStore.getState())["job-1"]!;
+    expect(job.state).toBe("review");
+    expect(job.updatedAt).toBe("2025-01-01T00:00:20Z");
+  });
+
+  it("accepts a newer resume snapshot that returns a terminal job to running", () => {
+    useStore.setState({
+      jobs: {
+        "job-1": makeJob({
+          state: "completed",
+          updatedAt: "2025-01-01T00:00:10Z",
+        }),
+      },
+    });
+
+    useStore.getState().hydrateJob({
+      job: makeJob({
+        state: "running",
+        updatedAt: "2025-01-01T00:00:20Z",
+      }),
+      logs: [],
+      transcript: [],
+      diff: [],
+      approvals: [],
+      timeline: [],
+    });
+
+    const job = selectJobs(useStore.getState())["job-1"]!;
+    expect(job.state).toBe("running");
+    expect(job.updatedAt).toBe("2025-01-01T00:00:20Z");
+  });
+});
+
 // ---- Additional SSE event types -------------------------------------------
 
 describe("dispatchSSEEvent — additional events", () => {

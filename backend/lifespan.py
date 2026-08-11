@@ -1356,11 +1356,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from backend.services.events.ingest_service import IngestService
 
     steer_client = None
-    copilot_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if copilot_token:
-        from backend.services.completers.copilot_steer import CopilotSteerClient
-
-        steer_client = CopilotSteerClient(copilot_token)
 
     # --- ModelPricingService (runtime-fetched LLM pricing) ---
     model_pricing_service = ModelPricingService(

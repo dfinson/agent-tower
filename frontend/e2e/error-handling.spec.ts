@@ -137,6 +137,7 @@ test.describe("Job Failure Display", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
+    await expect(page.locator("main")).toContainText("Job failed");
     await expect(page.locator("main")).toContainText("Failed");
     await expect(page.locator("main")).toContainText("Agent process exited with code 1");
   });
@@ -151,6 +152,7 @@ test.describe("Job Failure Display", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
+    await expect(page.locator("main")).toContainText("Job failed");
     await expect(page.locator("main")).toContainText("Failed");
     await expect(page.getByText("No additional details available")).toBeVisible();
   });
@@ -219,6 +221,7 @@ test.describe("Job Failure Display", () => {
     await page.goto("/jobs/job-1");
     await page.goto("/jobs/job-1");
 
+    await expect(page.locator("main")).toContainText("Job failed", { timeout: 8_000 });
     await expect(page.locator("main")).toContainText("Failed", { timeout: 8_000 });
     await expect(page.locator("main")).toContainText("Timeout: agent exceeded 30 minute limit");
   });
@@ -232,6 +235,7 @@ test.describe("Canceled Job Display", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
+    await expect(page.locator("main")).toContainText("Job canceled");
     await expect(page.locator("main")).toContainText("Canceled");
   });
 });
@@ -340,6 +344,7 @@ test.describe("Completed Job Display", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
+    await expect(page.locator("main")).toContainText("Job completed");
     await expect(page.locator("main")).toContainText("Completed");
     await expect(page.getByRole("button", { name: "Complete" })).toBeVisible();
   });
@@ -364,7 +369,7 @@ test.describe("Completed Job Display", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    await expect(page.getByText("Merge conflict", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("main")).toContainText("Merge conflict");
     await expect(page.getByRole("button", { name: "Resolve" })).toBeVisible();
   });
 });

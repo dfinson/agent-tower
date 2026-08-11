@@ -43,6 +43,8 @@ if sys.platform == "win32":
             "pywinpty is required for terminal support on Windows. Install it with: pip install pywinpty"
         ) from _e
     _SIGWINCH: int | None = None
+    pty: Any = None
+    fcntl: Any = None
 else:
     import fcntl
     import pty

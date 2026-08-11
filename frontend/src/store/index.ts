@@ -145,6 +145,34 @@ function normalizeContextHandoff(jobId: string, handoff: HydratedContextHandoff)
   };
 }
 
+type JobSnapshotWithVersion = AppState["jobs"][string] & { version?: number };
+
+function jobVersion(job: AppState["jobs"][string]): number | null {
+  const version = (job as JobSnapshotWithVersion).version;
+  return typeof version === "number" && Number.isFinite(version) ? version : null;
+}
+
+function jobUpdatedAtMs(job: AppState["jobs"][string]): number | null {
+  const updatedAt = Date.parse(job.updatedAt);
+  return Number.isNaN(updatedAt) ? null : updatedAt;
+}
+
+function isIncomingJobSnapshotStale(currentJob: AppState["jobs"][string], incomingJob: AppState["jobs"][string]): boolean {
+  const currentVersion = jobVersion(currentJob);
+  const incomingVersion = jobVersion(incomingJob);
+  if (currentVersion !== null && incomingVersion !== null && currentVersion !== incomingVersion) {
+    return incomingVersion < currentVersion;
+  }
+
+  const currentUpdatedAt = jobUpdatedAtMs(currentJob);
+  const incomingUpdatedAt = jobUpdatedAtMs(incomingJob);
+  if (currentUpdatedAt !== null && incomingUpdatedAt !== null && currentUpdatedAt !== incomingUpdatedAt) {
+    return incomingUpdatedAt < currentUpdatedAt;
+  }
+
+  return jobStateRank(currentJob.state) > jobStateRank(incomingJob.state);
+}
+
 const JOB_STATE_RANK: Record<string, number> = {
   running: 0,
   waiting_for_approval: 1,
@@ -431,9 +459,7 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => {
       const currentJob = s.jobs[jobId];
       const incomingJob = enrichJob(snapshot.job);
-      const preserveCurrentJob =
-        !!currentJob &&
-        jobStateRank(currentJob.state) > jobStateRank(incomingJob.state);
+      const preserveCurrentJob = !!currentJob && isIncomingJobSnapshotStale(currentJob, incomingJob);
 
       // Remove stale approvals for this job before merging fresh ones
       const keptApprovals = Object.fromEntries(
