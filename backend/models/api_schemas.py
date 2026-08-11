@@ -1610,6 +1610,7 @@ class ChatResponse(CamelModel):
     created_at: datetime
     last_message_at: datetime
     status: str
+    task_link_id: str | None = None
 
 
 class ChatListResponse(CamelModel):
@@ -1639,6 +1640,22 @@ class LaunchJobFromChatRequest(CamelModel):
     branch: str | None = None
     model: str | None = None
     sdk: str | None = None
+
+
+class AttachChatToChainRequest(CamelModel):
+    """Attach a Chat to a Task Recipe chain via its entry TaskLink (Story 5.3)."""
+
+    task_link_id: str = Field(min_length=1)
+
+
+class ChatChainStatusResponse(CamelModel):
+    """Read-only narration snapshot of a Chat's attached chain (Story 5.3)."""
+
+    task_link_id: str
+    story_node_id: str | None
+    repo_path: str
+    job_id: str | None
+    job_state: str | None
 
 
 

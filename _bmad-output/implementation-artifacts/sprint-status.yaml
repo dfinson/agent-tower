@@ -86,7 +86,7 @@ development_status:
   epic-5: in-progress
   5-1-start-a-chat: review
   5-2-launch-a-job-from-a-chat: review
-  5-3-attach-a-chat-to-a-task-recipe-chain: backlog
+  5-3-attach-a-chat-to-a-task-recipe-chain: review
   5-4-gate-a-chains-auto-spawn-behind-approval: backlog
   epic-5-retrospective: optional
 

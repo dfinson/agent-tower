@@ -64,6 +64,7 @@ from backend.models.domain import (
     RepoNotAllowedError,
     SDKModelMismatchError,
     StateConflictError,
+    TaskLinkNotFoundError,
 )
 from backend.services.sharing.share_service import InvalidShareTokenError
 
@@ -250,6 +251,10 @@ def _register_domain_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(ProjectNotFoundError)
     async def _project_not_found(request: Request, exc: ProjectNotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(TaskLinkNotFoundError)
+    async def _task_link_not_found(request: Request, exc: TaskLinkNotFoundError) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
 
     @app.exception_handler(RepoAlreadyAssignedError)

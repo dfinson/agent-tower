@@ -6,19 +6,26 @@ Exercises:
   GET  /api/chats/{id}
   POST /api/chats/{id}/messages
   POST /api/chats/{id}/launch-job
+  POST /api/chats/{id}/attach-chain
+  POST /api/chats/{id}/detach-chain
+  GET  /api/chats/{id}/chain-status
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+
+from backend.models.db import ProjectRow, TaskLinkRow
 
 if TYPE_CHECKING:
     from unittest.mock import AsyncMock
 
     from fastapi import FastAPI
     from httpx import AsyncClient
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
 class TestCreateChat:
@@ -217,3 +224,172 @@ class TestLaunchJobFromChat:
 
         resp = await client.post(f"/api/chats/{chat_id}/launch-job", json={})
         assert resp.status_code == 422
+
+
+async def _seed_project_and_task_link(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    project_id: str = "proj-1",
+    task_link_id: str = "tl-1",
+    story_node_id: str | None = "1-1",
+    repo_path: str = "/test/repo",
+) -> None:
+    now = datetime.now(UTC)
+    async with session_factory() as session:
+        session.add(
+            ProjectRow(
+                id=project_id,
+                name="Chain Project",
+                repo_paths="[]",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            TaskLinkRow(
+                id=task_link_id,
+                project_id=project_id,
+                repo_path=repo_path,
+                story_node_id=story_node_id,
+                depends_on="[]",
+                job_id=None,
+                tracker_ticket_ref=None,
+                prompt_override=None,
+                epic_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await session.commit()
+
+
+class TestAttachChatToChain:
+    """POST /api/chats/{id}/attach-chain"""
+
+    @pytest.mark.asyncio
+    async def test_attach_links_chat_to_task_link(
+        self, client: AsyncClient, app: FastAPI, session_factory: async_sessionmaker[AsyncSession]
+    ) -> None:
+        await _seed_project_and_task_link(session_factory)
+        create_resp = await client.post("/api/chats", json={"title": "Supervising a chain"})
+        chat_id = create_resp.json()["id"]
+
+        resp = await client.post(f"/api/chats/{chat_id}/attach-chain", json={"taskLinkId": "tl-1"})
+        assert resp.status_code == 200
+        assert resp.json()["taskLinkId"] == "tl-1"
+
+    @pytest.mark.asyncio
+    async def test_attach_settles_null_project_id_from_chain(
+        self, client: AsyncClient, app: FastAPI, session_factory: async_sessionmaker[AsyncSession]
+    ) -> None:
+        await _seed_project_and_task_link(session_factory, project_id="proj-2", task_link_id="tl-2")
+        create_resp = await client.post("/api/chats", json={"title": "Unscoped chat"})
+        chat_id = create_resp.json()["id"]
+        assert create_resp.json()["projectId"] is None
+
+        resp = await client.post(f"/api/chats/{chat_id}/attach-chain", json={"taskLinkId": "tl-2"})
+        assert resp.status_code == 200
+        assert resp.json()["projectId"] == "proj-2"
+
+    @pytest.mark.asyncio
+    async def test_attach_to_missing_task_link_returns_404(self, client: AsyncClient, app: FastAPI) -> None:
+        create_resp = await client.post("/api/chats", json={"title": "Chat"})
+        chat_id = create_resp.json()["id"]
+
+        resp = await client.post(f"/api/chats/{chat_id}/attach-chain", json={"taskLinkId": "does-not-exist"})
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_attach_to_missing_chat_returns_404(
+        self, client: AsyncClient, app: FastAPI, session_factory: async_sessionmaker[AsyncSession]
+    ) -> None:
+        await _seed_project_and_task_link(session_factory, project_id="proj-3", task_link_id="tl-3")
+
+        resp = await client.post("/api/chats/does-not-exist/attach-chain", json={"taskLinkId": "tl-3"})
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_attach_requires_task_link_id(self, client: AsyncClient, app: FastAPI) -> None:
+        create_resp = await client.post("/api/chats", json={"title": "Chat"})
+        chat_id = create_resp.json()["id"]
+
+        resp = await client.post(f"/api/chats/{chat_id}/attach-chain", json={})
+        assert resp.status_code == 422
+
+
+class TestDetachChatFromChain:
+    """POST /api/chats/{id}/detach-chain"""
+
+    @pytest.mark.asyncio
+    async def test_detach_clears_attachment_and_leaves_chat_open(
+        self, client: AsyncClient, app: FastAPI, session_factory: async_sessionmaker[AsyncSession]
+    ) -> None:
+        await _seed_project_and_task_link(session_factory, project_id="proj-4", task_link_id="tl-4")
+        create_resp = await client.post("/api/chats", json={"title": "Watching a chain"})
+        chat_id = create_resp.json()["id"]
+        await client.post(f"/api/chats/{chat_id}/attach-chain", json={"taskLinkId": "tl-4"})
+
+        resp = await client.post(f"/api/chats/{chat_id}/detach-chain")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["taskLinkId"] is None
+        assert data["status"] == "open"
+
+    @pytest.mark.asyncio
+    async def test_detach_leaves_chain_running_as_before(
+        self, client: AsyncClient, app: FastAPI, session_factory: async_sessionmaker[AsyncSession]
+    ) -> None:
+        """AC 3: the chain continues to exist and run exactly as before."""
+        await _seed_project_and_task_link(session_factory, project_id="proj-5", task_link_id="tl-5")
+        create_resp = await client.post("/api/chats", json={"title": "Watching"})
+        chat_id = create_resp.json()["id"]
+        await client.post(f"/api/chats/{chat_id}/attach-chain", json={"taskLinkId": "tl-5"})
+
+        await client.post(f"/api/chats/{chat_id}/detach-chain")
+
+        task_links_resp = await client.get("/api/settings/projects/proj-5/task-links")
+        assert task_links_resp.status_code == 200
+        items = task_links_resp.json()["items"]
+        assert any(t["id"] == "tl-5" for t in items)
+
+    @pytest.mark.asyncio
+    async def test_detach_missing_chat_returns_404(self, client: AsyncClient, app: FastAPI) -> None:
+        resp = await client.post("/api/chats/does-not-exist/detach-chain")
+        assert resp.status_code == 404
+
+
+class TestChatChainStatus:
+    """GET /api/chats/{id}/chain-status"""
+
+    @pytest.mark.asyncio
+    async def test_status_reflects_attached_task_link(
+        self, client: AsyncClient, app: FastAPI, session_factory: async_sessionmaker[AsyncSession]
+    ) -> None:
+        await _seed_project_and_task_link(
+            session_factory, project_id="proj-6", task_link_id="tl-6", story_node_id="2-1", repo_path="/test/repo-6"
+        )
+        create_resp = await client.post("/api/chats", json={"title": "Narrating"})
+        chat_id = create_resp.json()["id"]
+        await client.post(f"/api/chats/{chat_id}/attach-chain", json={"taskLinkId": "tl-6"})
+
+        resp = await client.get(f"/api/chats/{chat_id}/chain-status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["taskLinkId"] == "tl-6"
+        assert data["storyNodeId"] == "2-1"
+        assert data["repoPath"] == "/test/repo-6"
+        assert data["jobId"] is None
+        assert data["jobState"] is None
+
+    @pytest.mark.asyncio
+    async def test_status_404_when_nothing_attached(self, client: AsyncClient, app: FastAPI) -> None:
+        create_resp = await client.post("/api/chats", json={"title": "No chain yet"})
+        chat_id = create_resp.json()["id"]
+
+        resp = await client.get(f"/api/chats/{chat_id}/chain-status")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_status_404_for_missing_chat(self, client: AsyncClient, app: FastAPI) -> None:
+        resp = await client.get("/api/chats/does-not-exist/chain-status")
+        assert resp.status_code == 404

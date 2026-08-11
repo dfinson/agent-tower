@@ -163,6 +163,10 @@ class RepoAlreadyAssignedError(CodePlaneError):
     """Raised when a repo path already belongs to a different Project (NFR5)."""
 
 
+class TaskLinkNotFoundError(CodePlaneError):
+    """Raised when a TaskLink ID does not exist (Story 5.3)."""
+
+
 class AgentSDK(StrEnum):
     """Supported agent SDK backends."""
 
@@ -285,6 +289,7 @@ class Chat:
     created_at: datetime
     last_message_at: datetime
     status: str = "open"
+    task_link_id: str | None = None
 
 
 @dataclass
@@ -745,6 +750,23 @@ class TaskLink:
     epic_id: str | None
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass
+class ChatChainStatus:
+    """Read-only narration snapshot for a Chat attached to a Task Recipe chain (Story 5.3).
+
+    Produced entirely by polling existing ``TaskLinkRepository``/``JobRepository``
+    reads — never by calling ``GitService`` or any job-creation function.
+    ``job_id``/``job_state`` are ``None`` when the attached TaskLink has not
+    yet spawned a Job.
+    """
+
+    task_link_id: str
+    story_node_id: str | None
+    repo_path: str
+    job_id: str | None
+    job_state: str | None
 
 
 @dataclass

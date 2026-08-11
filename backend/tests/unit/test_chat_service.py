@@ -334,6 +334,316 @@ class TestChatServiceLaunchJob:
         assert chat.title == "Original title"
 
 
+class TestChatServiceAttachToChain:
+    @pytest.mark.asyncio
+    async def test_attach_returns_none_for_missing_chat(self):
+        repo = _mock_repo()
+        repo.get.return_value = None
+        task_link_repo = AsyncMock()
+        service = ChatService(repo, task_link_repo=task_link_repo)
+
+        result = await service.attach_to_chain("missing", "tl-1")
+
+        assert result is None
+        task_link_repo.get.assert_not_awaited()
+        repo.attach_to_chain.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_attach_raises_for_missing_task_link(self):
+        from backend.models.domain import TaskLinkNotFoundError
+
+        repo = _mock_repo()
+        repo.get.return_value = Chat(
+            id="c1",
+            project_id=None,
+            title="Hi",
+            created_at=None,  # type: ignore[arg-type]
+            last_message_at=None,  # type: ignore[arg-type]
+            status="open",
+        )
+        task_link_repo = AsyncMock()
+        task_link_repo.get.return_value = None
+        service = ChatService(repo, task_link_repo=task_link_repo)
+
+        with pytest.raises(TaskLinkNotFoundError):
+            await service.attach_to_chain("c1", "missing-tl")
+
+        repo.attach_to_chain.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_attach_links_chat_to_task_link(self):
+        from backend.models.domain import TaskLink
+
+        repo = _mock_repo()
+        chat = Chat(
+            id="c1",
+            project_id="proj-a",
+            title="Hi",
+            created_at=None,  # type: ignore[arg-type]
+            last_message_at=None,  # type: ignore[arg-type]
+            status="open",
+        )
+        repo.get.return_value = chat
+        task_link = TaskLink(
+            id="tl-1",
+            project_id="proj-a",
+            repo_path="/repos/test",
+            story_node_id="1-1",
+            depends_on=[],
+            job_id=None,
+            tracker_ticket_ref=None,
+            prompt_override=None,
+            epic_id=None,
+            created_at=None,  # type: ignore[arg-type]
+            updated_at=None,  # type: ignore[arg-type]
+        )
+        task_link_repo = AsyncMock()
+        task_link_repo.get.return_value = task_link
+        attached_chat = Chat(
+            id="c1",
+            project_id="proj-a",
+            title="Hi",
+            created_at=None,  # type: ignore[arg-type]
+            last_message_at=None,  # type: ignore[arg-type]
+            status="open",
+            task_link_id="tl-1",
+        )
+        repo.attach_to_chain.return_value = attached_chat
+        service = ChatService(repo, task_link_repo=task_link_repo)
+
+        result = await service.attach_to_chain("c1", "tl-1")
+
+        assert result is attached_chat
+        repo.attach_to_chain.assert_awaited_once_with("c1", "tl-1")
+        repo.set_project_id.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_attach_settles_null_project_id_from_task_link(self):
+        from backend.models.domain import TaskLink
+
+        repo = _mock_repo()
+        chat = Chat(
+            id="c1",
+            project_id=None,
+            title="Hi",
+            created_at=None,  # type: ignore[arg-type]
+            last_message_at=None,  # type: ignore[arg-type]
+            status="open",
+        )
+        repo.get.return_value = chat
+        task_link = TaskLink(
+            id="tl-1",
+            project_id="proj-b",
+            repo_path="/repos/test",
+            story_node_id="1-1",
+            depends_on=[],
+            job_id=None,
+            tracker_ticket_ref=None,
+            prompt_override=None,
+            epic_id=None,
+            created_at=None,  # type: ignore[arg-type]
+            updated_at=None,  # type: ignore[arg-type]
+        )
+        task_link_repo = AsyncMock()
+        task_link_repo.get.return_value = task_link
+        repo.attach_to_chain.return_value = chat
+        service = ChatService(repo, task_link_repo=task_link_repo)
+
+        await service.attach_to_chain("c1", "tl-1")
+
+        repo.set_project_id.assert_awaited_once_with("c1", "proj-b")
+
+
+class TestChatServiceDetachFromChain:
+    @pytest.mark.asyncio
+    async def test_detach_returns_none_for_missing_chat(self):
+        repo = _mock_repo()
+        repo.detach_from_chain.return_value = None
+        service = ChatService(repo)
+
+        result = await service.detach_from_chain("missing")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_detach_clears_task_link_id(self):
+        repo = _mock_repo()
+        detached_chat = Chat(
+            id="c1",
+            project_id="proj-a",
+            title="Hi",
+            created_at=None,  # type: ignore[arg-type]
+            last_message_at=None,  # type: ignore[arg-type]
+            status="open",
+            task_link_id=None,
+        )
+        repo.detach_from_chain.return_value = detached_chat
+        service = ChatService(repo)
+
+        result = await service.detach_from_chain("c1")
+
+        assert result is detached_chat
+        assert result.task_link_id is None
+        repo.detach_from_chain.assert_awaited_once_with("c1")
+
+
+class TestChatServiceGetChainStatus:
+    @pytest.mark.asyncio
+    async def test_returns_none_for_missing_chat(self):
+        repo = _mock_repo()
+        repo.get.return_value = None
+        task_link_repo = AsyncMock()
+        service = ChatService(repo, task_link_repo=task_link_repo)
+
+        result = await service.get_chain_status("missing")
+
+        assert result is None
+        task_link_repo.get.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_nothing_attached(self):
+        repo = _mock_repo()
+        repo.get.return_value = Chat(
+            id="c1",
+            project_id="proj-a",
+            title="Hi",
+            created_at=None,  # type: ignore[arg-type]
+            last_message_at=None,  # type: ignore[arg-type]
+            status="open",
+            task_link_id=None,
+        )
+        task_link_repo = AsyncMock()
+        service = ChatService(repo, task_link_repo=task_link_repo)
+
+        result = await service.get_chain_status("c1")
+
+        assert result is None
+        task_link_repo.get.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_reflects_task_link_with_no_job_yet(self):
+        from backend.models.domain import TaskLink
+
+        repo = _mock_repo()
+        repo.get.return_value = Chat(
+            id="c1",
+            project_id="proj-a",
+            title="Hi",
+            created_at=None,  # type: ignore[arg-type]
+            last_message_at=None,  # type: ignore[arg-type]
+            status="open",
+            task_link_id="tl-1",
+        )
+        task_link = TaskLink(
+            id="tl-1",
+            project_id="proj-a",
+            repo_path="/repos/test",
+            story_node_id="1-1",
+            depends_on=[],
+            job_id=None,
+            tracker_ticket_ref=None,
+            prompt_override=None,
+            epic_id=None,
+            created_at=None,  # type: ignore[arg-type]
+            updated_at=None,  # type: ignore[arg-type]
+        )
+        task_link_repo = AsyncMock()
+        task_link_repo.get.return_value = task_link
+        job_repo = AsyncMock()
+        service = ChatService(repo, task_link_repo=task_link_repo, job_repo=job_repo)
+
+        status = await service.get_chain_status("c1")
+
+        assert status is not None
+        assert status.task_link_id == "tl-1"
+        assert status.story_node_id == "1-1"
+        assert status.repo_path == "/repos/test"
+        assert status.job_id is None
+        assert status.job_state is None
+        job_repo.get.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_reflects_job_state_when_spawned(self):
+        from backend.models.domain import JobState, TaskLink
+
+        repo = _mock_repo()
+        repo.get.return_value = Chat(
+            id="c1",
+            project_id="proj-a",
+            title="Hi",
+            created_at=None,  # type: ignore[arg-type]
+            last_message_at=None,  # type: ignore[arg-type]
+            status="open",
+            task_link_id="tl-1",
+        )
+        task_link = TaskLink(
+            id="tl-1",
+            project_id="proj-a",
+            repo_path="/repos/test",
+            story_node_id="1-1",
+            depends_on=[],
+            job_id="job-1",
+            tracker_ticket_ref=None,
+            prompt_override=None,
+            epic_id=None,
+            created_at=None,  # type: ignore[arg-type]
+            updated_at=None,  # type: ignore[arg-type]
+        )
+        task_link_repo = AsyncMock()
+        task_link_repo.get.return_value = task_link
+        job_repo = AsyncMock()
+        fake_job = type("FakeJob", (), {"state": JobState.running})()
+        job_repo.get.return_value = fake_job
+        service = ChatService(repo, task_link_repo=task_link_repo, job_repo=job_repo)
+
+        status = await service.get_chain_status("c1")
+
+        assert status is not None
+        assert status.job_id == "job-1"
+        assert status.job_state == JobState.running
+        job_repo.get.assert_awaited_once_with("job-1")
+
+    @pytest.mark.asyncio
+    async def test_never_calls_job_creation_or_git(self):
+        """AC 2: narration reflects state via read-only polling — it never
+        calls GitService or the job-creation function itself."""
+        from backend.models.domain import TaskLink
+
+        repo = _mock_repo()
+        repo.get.return_value = Chat(
+            id="c1",
+            project_id="proj-a",
+            title="Hi",
+            created_at=None,  # type: ignore[arg-type]
+            last_message_at=None,  # type: ignore[arg-type]
+            status="open",
+            task_link_id="tl-1",
+        )
+        task_link = TaskLink(
+            id="tl-1",
+            project_id="proj-a",
+            repo_path="/repos/test",
+            story_node_id="1-1",
+            depends_on=[],
+            job_id=None,
+            tracker_ticket_ref=None,
+            prompt_override=None,
+            epic_id=None,
+            created_at=None,  # type: ignore[arg-type]
+            updated_at=None,  # type: ignore[arg-type]
+        )
+        task_link_repo = AsyncMock()
+        task_link_repo.get.return_value = task_link
+        job_repo = AsyncMock()
+        service = ChatService(repo, task_link_repo=task_link_repo, job_repo=job_repo)
+
+        await service.get_chain_status("c1")
+
+        # Only reads happened: no job/worktree creation call of any kind.
+        job_repo.create.assert_not_called()
+        assert not hasattr(service, "_job_service")
+
+
 class TestChatIsGitFree:
     """Structural guard for AD-12/NFR8: chat_service.py must have zero
     GitService dependency — not merely unused, but structurally absent.
