@@ -70,10 +70,7 @@ def _frames(conn: SSEConnection) -> list[str]:
 
 
 def _stored(events: list[SessionEvent]) -> list[StoredEvent]:
-    return [
-        StoredEvent(storage_cursor=index, event=event)
-        for index, event in enumerate(events, start=1)
-    ]
+    return [StoredEvent(storage_cursor=index, event=event) for index, event in enumerate(events, start=1)]
 
 
 # --- Unit tests for helper functions ---

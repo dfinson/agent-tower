@@ -26,9 +26,7 @@ def _write_bmad_story(repo_root: Path, filename: str, body: str = "# S\n") -> No
 
 class TestIngestTasks:
     @pytest.mark.asyncio
-    async def test_ingest_creates_task_links_for_member_repos(
-        self, client: AsyncClient, tmp_path: Path
-    ) -> None:
+    async def test_ingest_creates_task_links_for_member_repos(self, client: AsyncClient, tmp_path: Path) -> None:
         repo_a = tmp_path / "repo-a"
         repo_a.mkdir()
         _write_bmad_story(repo_a, "1-1-first.md")

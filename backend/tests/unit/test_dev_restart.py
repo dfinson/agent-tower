@@ -149,9 +149,7 @@ class TestEnsureSecretResolvable:
 
         dev_restart.ensure_secret_resolvable(source, tmp_path, label="password source")
 
-    def test_environment_source_raises_when_unresolvable(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_environment_source_raises_when_unresolvable(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("CPL_PASSWORD", raising=False)
         source = SecretSource.resolvable("environment", "CPL_PASSWORD")
 
@@ -179,9 +177,7 @@ class TestEnsureSecretResolvable:
         with pytest.raises(dev_restart.DevRestartError, match="unrecognized provider"):
             dev_restart.ensure_secret_resolvable(source, tmp_path, label="tunnel credential source")
 
-    def test_secret_value_never_appears_in_raised_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_secret_value_never_appears_in_raised_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("CPL_PASSWORD", raising=False)
         source = SecretSource.resolvable("environment", "CPL_PASSWORD")
 

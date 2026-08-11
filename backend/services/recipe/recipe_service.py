@@ -126,9 +126,7 @@ class RecipeService:
         project = await self._project_service.get(project_id)
         resolved_repo_path = str(Path(repo_path).expanduser().resolve())
         if resolved_repo_path not in project.repo_paths:
-            raise RepoNotAllowedError(
-                f"Repo path '{resolved_repo_path}' does not belong to Project '{project_id}'."
-            )
+            raise RepoNotAllowedError(f"Repo path '{resolved_repo_path}' does not belong to Project '{project_id}'.")
         return await self._task_link_repo.create_manual(
             project_id=project_id,
             repo_path=resolved_repo_path,

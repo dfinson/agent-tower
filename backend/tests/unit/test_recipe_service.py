@@ -76,9 +76,7 @@ class TestIngestProject:
             "3-1-frontend-task.md",
             "# S\n\n## Dependencies\n\n- codeplane-backend/2-1-backend-task\n",
         )
-        mock_project_service.get.return_value = _make_project(
-            "proj-1", [str(backend_repo), str(frontend_repo)]
-        )
+        mock_project_service.get.return_value = _make_project("proj-1", [str(backend_repo), str(frontend_repo)])
 
         service = RecipeService(mock_task_link_repo, mock_project_service)
         await service.ingest_project("proj-1")

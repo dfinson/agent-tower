@@ -571,9 +571,7 @@ def _find_existing_codeplane_tunnel() -> tuple[str, str] | None:
     return None
 
 
-def _start_devtunnel(
-    port: int, *, tunnel_name: str | None = None
-) -> tuple[str, subprocess.Popen[str], str, bool]:
+def _start_devtunnel(port: int, *, tunnel_name: str | None = None) -> tuple[str, subprocess.Popen[str], str, bool]:
     # Reusable means the identity is either explicitly configured by the
     # caller or an already-registered codeplane tunnel — restart tooling can
     # rely on the exact same origin next time. A freshly generated random

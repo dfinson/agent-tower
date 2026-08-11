@@ -119,11 +119,7 @@ class TaskLinkRepository(BaseRepository):
 
     async def list_by_project(self, project_id: str) -> list[TaskLink]:
         """List every TaskLink for a Project, ordered by creation time."""
-        stmt = (
-            select(TaskLinkRow)
-            .where(TaskLinkRow.project_id == project_id)
-            .order_by(TaskLinkRow.created_at)
-        )
+        stmt = select(TaskLinkRow).where(TaskLinkRow.project_id == project_id).order_by(TaskLinkRow.created_at)
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]
 

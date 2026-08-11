@@ -57,9 +57,7 @@ def _init_job(service: TrailService, job_id: str = "job-1") -> None:
 def _step_events(event_bus: AsyncMock) -> list[SessionEvent]:
     """Extract all plan_step_updated events from mock publish calls."""
     return [
-        call.args[0]
-        for call in event_bus.publish.call_args_list
-        if call.args[0].kind == EventKind.plan_step_updated
+        call.args[0] for call in event_bus.publish.call_args_list if call.args[0].kind == EventKind.plan_step_updated
     ]
 
 

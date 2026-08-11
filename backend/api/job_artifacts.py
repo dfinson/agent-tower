@@ -357,9 +357,7 @@ async def get_job_transcript(
 
     # Build a turn_id → summary map from stored tool_group_summary events so
     # that restored transcripts include AI-generated group labels.
-    summary_events = await svc.list_events_by_job(
-        job_id, [EventKind.tool_group_summary], limit=_EVENT_QUERY_CEILING
-    )
+    summary_events = await svc.list_events_by_job(job_id, [EventKind.tool_group_summary], limit=_EVENT_QUERY_CEILING)
     group_summary_by_turn: dict[str, str] = {
         str(ev.payload.get("turn_id")): str(ev.payload.get("summary"))
         for ev in summary_events
@@ -386,9 +384,7 @@ async def get_job_transcript(
             tool_title=p.get("tool_title"),
             tool_display=p.get("tool_display") or event.metadata.tool_display,
             tool_display_full=p.get("tool_display_full") or p.get("tool_display") or event.metadata.tool_display,
-            tool_duration_ms=(
-                int(event.metadata.duration_ms) if event.metadata.duration_ms is not None else None
-            ),
+            tool_duration_ms=(int(event.metadata.duration_ms) if event.metadata.duration_ms is not None else None),
             tool_group_summary=group_summary_by_turn.get(p.get("turn_id") or ""),
         )
         for event in events

@@ -219,4 +219,3 @@ async def get_chat_chain_status(
         job_id=status.job_id,
         job_state=status.job_state,
     )
-

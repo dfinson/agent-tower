@@ -70,9 +70,7 @@ class TestStepPersistence:
     @pytest.mark.asyncio
     async def test_unrelated_event_is_noop(self, subscriber: StepPersistenceSubscriber, step_repo: AsyncMock) -> None:
         now = datetime.now(UTC)
-        event = new_event(
-            event_id="evt-3", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={}
-        )
+        event = new_event(event_id="evt-3", session_id="job-1", timestamp=now, kind=EventKind.job_created, payload={})
         await subscriber(event)
         step_repo.create.assert_not_called()
         step_repo.complete.assert_not_called()

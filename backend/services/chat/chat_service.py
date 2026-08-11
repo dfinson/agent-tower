@@ -204,4 +204,3 @@ class ChatService:
             job_id=task_link.job_id,
             job_state=job_state,
         )
-

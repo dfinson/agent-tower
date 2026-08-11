@@ -165,9 +165,7 @@ class PolicyRouter:
             classification=classification,
         )
 
-    async def _savepoint(
-        self, action: Action, classification: Classification, cwd: str | None
-    ) -> str | None:
+    async def _savepoint(self, action: Action, classification: Classification, cwd: str | None) -> str | None:
         """Create a git savepoint before a non-trivial action (best effort)."""
         if not cwd:
             return None

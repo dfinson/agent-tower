@@ -72,9 +72,7 @@ class TestProjectServiceUpdate:
         mock_repo.update.assert_awaited_once_with("proj-1", name="New", repo_paths=None)
 
     @pytest.mark.asyncio
-    async def test_update_adds_new_repo_path_and_registers_it(
-        self, mock_repo: AsyncMock, config: CPLConfig
-    ) -> None:
+    async def test_update_adds_new_repo_path_and_registers_it(self, mock_repo: AsyncMock, config: CPLConfig) -> None:
         import backend.services.project.project_service as mod
 
         existing_path = mod.ProjectService._resolve("/repo/a")

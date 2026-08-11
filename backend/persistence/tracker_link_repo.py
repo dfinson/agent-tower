@@ -29,9 +29,7 @@ class TrackerLinkProjectNotFoundError(Exception):
 class TrackerLinkRepository(BaseRepository):
     """Database access for TrackerLinks."""
 
-    async def create(
-        self, *, link_id: str, project_id: str, credential_id: str, external_ref: str
-    ) -> dict[str, Any]:
+    async def create(self, *, link_id: str, project_id: str, credential_id: str, external_ref: str) -> dict[str, Any]:
         """Attach a Credential to a Project via a new TrackerLink (AC1).
 
         Validates both the Project and the Credential exist before inserting,
@@ -61,9 +59,7 @@ class TrackerLinkRepository(BaseRepository):
     async def list_for_project(self, project_id: str) -> list[dict[str, Any]]:
         """List all TrackerLinks attached to a Project (AC2 — a Project may have several)."""
         result = await self._session.execute(
-            select(TrackerLinkRow)
-            .where(TrackerLinkRow.project_id == project_id)
-            .order_by(TrackerLinkRow.created_at)
+            select(TrackerLinkRow).where(TrackerLinkRow.project_id == project_id).order_by(TrackerLinkRow.created_at)
         )
         return [_row_to_dict(r) for r in result.scalars()]
 
