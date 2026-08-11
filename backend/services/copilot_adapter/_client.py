@@ -5,9 +5,6 @@ from __future__ import annotations
 import os
 
 
-def copilot_client_kwargs() -> dict[str, str]:
-    """Return auth kwargs for CopilotClient from the current environment."""
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if token:
-        return {"github_token": token}
-    return {}
+def copilot_github_token() -> str | None:
+    """Return the GitHub token CopilotClient should use, if one is present."""
+    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
