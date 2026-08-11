@@ -12,10 +12,10 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import platform
 import secrets
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -28,11 +28,13 @@ from backend.models.domain import CodePlaneError
 
 log = structlog.get_logger()
 
-IS_WINDOWS = platform.system() == "Windows"
-
 
 # ---------------------------------------------------------------------------
 # Connector process lifecycle (portable across Windows and POSIX)
+#
+# Platform branches below test ``sys.platform`` rather than
+# ``platform.system()`` so type checkers narrow the Win32-only and POSIX-only
+# calls on either host.
 # ---------------------------------------------------------------------------
 
 
@@ -123,7 +125,7 @@ def _assign_to_kill_on_close_job(proc: subprocess.Popen[str]) -> None:
     failure path degrades to an unmanaged connector rather than failing the
     tunnel.
     """
-    if not IS_WINDOWS:
+    if sys.platform != "win32":
         return
     pid = getattr(proc, "pid", None)
     if not isinstance(pid, int):
@@ -148,7 +150,7 @@ def _assign_to_kill_on_close_job(proc: subprocess.Popen[str]) -> None:
 
 def _spawn_kwargs() -> dict[str, Any]:
     """Popen keyword arguments that keep a connector reapable on this platform."""
-    if IS_WINDOWS:
+    if sys.platform == "win32":
         # A new process group prevents a console Ctrl+C aimed at CodePlane from
         # racing our own explicit terminate/kill sequence for the connector.
         return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
@@ -202,7 +204,7 @@ def _terminate_and_reap(proc: subprocess.Popen[str], *, label: str = "tunnel", t
 def _signal_process_tree(proc: subprocess.Popen[str]) -> None:
     """Send a terminate signal to *proc*, including any children it spawned."""
     pid = getattr(proc, "pid", None)
-    if not IS_WINDOWS and isinstance(pid, int):
+    if sys.platform != "win32" and isinstance(pid, int):
         import signal
 
         try:

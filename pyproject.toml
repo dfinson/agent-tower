@@ -138,7 +138,7 @@ warn_unused_configs = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["faster_whisper.*", "copilot.*", "mcp.*", "qrcode.*", "questionary.*", "winpty.*", "coderecon.*"]
+module = ["faster_whisper.*", "copilot.*", "mcp.*", "qrcode.*", "questionary.*", "winpty.*", "coderecon.*", "psutil"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
