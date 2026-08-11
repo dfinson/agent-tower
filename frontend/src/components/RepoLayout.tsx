@@ -8,6 +8,7 @@ import { cn } from "../lib/utils";
 import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
 import { pathBasename } from "../lib/paths";
+import { matchesNameFilter } from "../lib/nameFilter";
 import { ProjectsOverview } from "./ProjectsOverview";
 
 
@@ -18,6 +19,7 @@ export function RepoLayout() {
   const [repos, setRepos] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
+  const [filterQuery, setFilterQuery] = useState("");
   const repoIndexState = useStore((s) => s.repoIndexState);
 
   const loadRepos = useCallback(async () => {
@@ -40,6 +42,8 @@ export function RepoLayout() {
   function isActive(path: string) {
     return decoded === path;
   }
+
+  const filteredRepos = repos.filter((r) => matchesNameFilter(repoBasename(r), filterQuery));
 
   return (
     <div className="flex h-full min-h-0">
@@ -66,6 +70,18 @@ export function RepoLayout() {
         </div>
 
         <nav className="flex-1 overflow-y-auto py-1" aria-label="Repository list">
+          {!collapsed && !loading && repos.length > 0 && (
+            <div className="px-2 pb-2">
+              <input
+                type="text"
+                value={filterQuery}
+                onChange={(e) => setFilterQuery(e.target.value)}
+                placeholder="Filter..."
+                aria-label="Filter repositories by name"
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          )}
           {loading ? (
             <div className="flex justify-center py-4">
               <Spinner className="w-4 h-4" />
@@ -74,8 +90,12 @@ export function RepoLayout() {
             <p className="text-xs text-muted-foreground text-center py-4 px-2">
               No repositories
             </p>
+          ) : filteredRepos.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-4 px-2">
+              No matches
+            </p>
           ) : (
-            repos.map((r) => {
+            filteredRepos.map((r) => {
               const name = repoBasename(r);
               const indexing = repoIndexState[r];
               return (

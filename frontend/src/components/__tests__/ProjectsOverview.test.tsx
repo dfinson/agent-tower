@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 vi.mock("../../api/client", () => ({
@@ -88,5 +88,47 @@ describe("ProjectsOverview", () => {
     );
 
     await waitFor(() => expect(screen.getByText("No Projects registered")).toBeInTheDocument());
+  });
+
+  it("filters cards by a partial, case-insensitive name match", async () => {
+    vi.mocked(fetchProjectsSummary).mockResolvedValueOnce({
+      items: [
+        makeSummary({ id: "proj-1", name: "Alpha" }),
+        makeSummary({ id: "proj-2", name: "Beta" }),
+      ],
+    } as any);
+
+    render(
+      <MemoryRouter>
+        <ProjectsOverview />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    expect(screen.getByText("Beta")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Filter Projects by name"), { target: { value: "alp" } });
+
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+  });
+
+  it("shows a no-matches empty state when the filter matches nothing", async () => {
+    vi.mocked(fetchProjectsSummary).mockResolvedValueOnce({
+      items: [makeSummary({ id: "proj-1", name: "Alpha" })],
+    } as any);
+
+    render(
+      <MemoryRouter>
+        <ProjectsOverview />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Filter Projects by name"), { target: { value: "zzz" } });
+
+    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+    expect(screen.getByText('No Projects match "zzz"')).toBeInTheDocument();
   });
 });

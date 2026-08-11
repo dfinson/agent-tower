@@ -6,6 +6,7 @@ import { fetchProjectsSummary } from "../api/client";
 import type { ProjectSummaryResponse } from "../api/types";
 import { Spinner } from "./ui/spinner";
 import { pathBasename } from "../lib/paths";
+import { matchesNameFilter } from "../lib/nameFilter";
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -18,9 +19,13 @@ function timeAgo(dateStr: string): string {
   return `${days}d ago`;
 }
 
+function projectDisplayName(project: ProjectSummaryResponse): string {
+  return project.name || pathBasename(project.repoPaths[0] ?? "") || project.id;
+}
+
 function ProjectCard({ project, onOpen }: { project: ProjectSummaryResponse; onOpen: () => void }) {
   const hasJobs = project.activeJobCount > 0 || project.awaitingInputCount > 0 || project.failedCount > 0;
-  const displayName = project.name || pathBasename(project.repoPaths[0] ?? "") || project.id;
+  const displayName = projectDisplayName(project);
 
   return (
     <button
@@ -63,6 +68,7 @@ export function ProjectsOverview() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<ProjectSummaryResponse[]>([]);
+  const [filterQuery, setFilterQuery] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,14 +109,32 @@ export function ProjectsOverview() {
     );
   }
 
+  const filteredProjects = projects.filter((project) =>
+    matchesNameFilter(projectDisplayName(project), filterQuery),
+  );
+
   return (
     <div className="max-w-5xl mx-auto space-y-4">
       <h1 className="text-xl font-semibold text-foreground">Projects</h1>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {projects.map((project) => (
-          <ProjectCard key={project.id} project={project} onOpen={() => openProject(project)} />
-        ))}
-      </div>
+      <input
+        type="text"
+        value={filterQuery}
+        onChange={(e) => setFilterQuery(e.target.value)}
+        placeholder="Filter Projects by name..."
+        aria-label="Filter Projects by name"
+        className="w-full max-w-sm rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+      {filteredProjects.length === 0 ? (
+        <div className="flex items-center justify-center h-32 text-muted-foreground">
+          <p className="text-sm">No Projects match &quot;{filterQuery.trim()}&quot;</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredProjects.map((project) => (
+            <ProjectCard key={project.id} project={project} onOpen={() => openProject(project)} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
