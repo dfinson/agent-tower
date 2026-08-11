@@ -12,6 +12,7 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter
 
 from backend.models.api_schemas import (
+    CreateManualTaskLinkRequest,
     CreateProjectRequest,
     IngestTaskGraphResponse,
     ProjectListResponse,
@@ -149,3 +150,23 @@ async def list_project_task_links(
     """List a Project's currently persisted TaskLinks."""
     task_links = await recipe_service.list_task_links(project_id)
     return TaskLinkListResponse(items=[_task_link_to_response(t) for t in task_links])
+
+
+@router.post(
+    "/settings/projects/{project_id}/task-links",
+    response_model=TaskLinkResponse,
+    status_code=201,
+)
+async def create_manual_task_link(
+    project_id: str,
+    body: CreateManualTaskLinkRequest,
+    recipe_service: FromDishka[RecipeService],
+) -> TaskLinkResponse:
+    """Create a fresh TaskLink directly against an existing tracker ticket."""
+    task_link = await recipe_service.create_manual_task_link(
+        project_id=project_id,
+        repo_path=body.repo_path,
+        tracker_ticket_ref=body.tracker_ticket_ref,
+        prompt_override=body.prompt_override,
+    )
+    return _task_link_to_response(task_link)

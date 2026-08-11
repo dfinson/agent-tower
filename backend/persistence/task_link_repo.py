@@ -39,6 +39,33 @@ class TaskLinkRepository(BaseRepository):
             updated_at=row.updated_at,
         )
 
+    async def create_manual(
+        self,
+        *,
+        project_id: str,
+        repo_path: str,
+        tracker_ticket_ref: str,
+        prompt_override: str,
+    ) -> TaskLink:
+        """Insert a fresh manually-assigned TaskLink without story backing."""
+        now = datetime.now(UTC)
+        row = TaskLinkRow(
+            id=str(uuid.uuid4()),
+            project_id=project_id,
+            repo_path=repo_path,
+            story_node_id=None,
+            depends_on="[]",
+            job_id=None,
+            tracker_ticket_ref=tracker_ticket_ref,
+            prompt_override=prompt_override,
+            epic_id=None,
+            created_at=now,
+            updated_at=now,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return self._to_domain(row)
+
     async def upsert_many(
         self,
         project_id: str,
@@ -55,9 +82,11 @@ class TaskLinkRepository(BaseRepository):
         results: list[TaskLink] = []
         for entry in entries:
             repo_path = str(entry["repo_path"])
-            story_node_id = entry.get("story_node_id")
+            raw_story_node_id = entry.get("story_node_id")
+            story_node_id = str(raw_story_node_id) if raw_story_node_id is not None else None
             depends_on = entry.get("depends_on", [])
-            epic_id = entry.get("epic_id")
+            raw_epic_id = entry.get("epic_id")
+            epic_id = str(raw_epic_id) if raw_epic_id is not None else None
 
             stmt = select(TaskLinkRow).where(
                 TaskLinkRow.project_id == project_id,
@@ -81,7 +110,7 @@ class TaskLinkRepository(BaseRepository):
                 self._session.add(row)
             else:
                 row.depends_on = json.dumps(depends_on)
-                row.epic_id = epic_id  # type: ignore[assignment]
+                row.epic_id = epic_id
                 row.updated_at = now
 
             await self._session.flush()

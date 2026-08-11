@@ -182,6 +182,22 @@ class UpdateProjectRequest(CamelModel):
     repo_paths: list[str] | None = Field(None, min_length=1)
 
 
+class CreateManualTaskLinkRequest(CamelModel):
+    """Create a TaskLink directly from an existing tracker ticket (Story 4.3)."""
+
+    repo_path: str = Field(min_length=1)
+    tracker_ticket_ref: str = Field(min_length=1)
+    prompt_override: str = Field(min_length=1)
+
+    @field_validator("repo_path", "tracker_ticket_ref", "prompt_override")
+    @classmethod
+    def _strip_required_text(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Value must not be blank")
+        return stripped
+
+
 class SuggestNamesRequest(CamelModel):
     prompt: str = Field(min_length=1, max_length=50_000)
     repo: str | None = None

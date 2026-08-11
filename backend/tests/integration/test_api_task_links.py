@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from httpx import AsyncClient
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
 def _write_bmad_story(repo_root: Path, filename: str, body: str = "# S\n") -> None:
@@ -124,3 +125,152 @@ class TestListTaskLinks:
     async def test_list_missing_project_returns_404(self, client: AsyncClient) -> None:
         resp = await client.get("/api/settings/projects/does-not-exist/task-links")
         assert resp.status_code == 404
+
+
+class TestCreateManualTaskLink:
+    @pytest.mark.asyncio
+    async def test_create_and_later_list_manual_task_link(
+        self, client: AsyncClient, tmp_path: Path, session_factory: async_sessionmaker[AsyncSession]
+    ) -> None:
+        from sqlalchemy import select
+
+        from backend.models.db import JobRow
+
+        repo_path = tmp_path / "manual-repo"
+        repo_path.mkdir()
+        created_project = await client.post(
+            "/api/settings/projects",
+            json={"name": "Manual Tasks", "repoPaths": [str(repo_path)]},
+        )
+        project_id = created_project.json()["id"]
+
+        created = await client.post(
+            f"/api/settings/projects/{project_id}/task-links",
+            json={
+                "repoPath": str(repo_path),
+                "trackerTicketRef": "JIRA-123",
+                "promptOverride": "Implement the ticket",
+            },
+        )
+
+        assert created.status_code == 201
+        body = created.json()
+        assert body["trackerTicketRef"] == "JIRA-123"
+        assert body["promptOverride"] == "Implement the ticket"
+        assert body["storyNodeId"] is None
+        assert body["dependsOn"] == []
+        assert body["jobId"] is None
+        assert body["epicId"] is None
+
+        listed = await client.get(f"/api/settings/projects/{project_id}/task-links")
+        assert listed.status_code == 200
+        assert listed.json()["items"] == [body]
+        async with session_factory() as session:
+            jobs = (await session.execute(select(JobRow.id))).scalars().all()
+        assert jobs == []
+
+    @pytest.mark.asyncio
+    async def test_same_ticket_allows_multiple_independent_task_links(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        repo_path = tmp_path / "multi-task-repo"
+        repo_path.mkdir()
+        created_project = await client.post(
+            "/api/settings/projects",
+            json={"name": "Multiple Tasks", "repoPaths": [str(repo_path)]},
+        )
+        project_id = created_project.json()["id"]
+        endpoint = f"/api/settings/projects/{project_id}/task-links"
+
+        first = await client.post(
+            endpoint,
+            json={
+                "repoPath": str(repo_path),
+                "trackerTicketRef": "JIRA-123",
+                "promptOverride": "Implement part one",
+            },
+        )
+        second = await client.post(
+            endpoint,
+            json={
+                "repoPath": str(repo_path),
+                "trackerTicketRef": "JIRA-123",
+                "promptOverride": "Implement part two",
+            },
+        )
+
+        assert first.status_code == second.status_code == 201
+        assert first.json()["id"] != second.json()["id"]
+        listed = (await client.get(endpoint)).json()["items"]
+        assert [item["trackerTicketRef"] for item in listed] == ["JIRA-123", "JIRA-123"]
+        assert [item["promptOverride"] for item in listed] == ["Implement part one", "Implement part two"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("trackerTicketRef", ""),
+            ("trackerTicketRef", "   "),
+            ("promptOverride", ""),
+            ("promptOverride", "   "),
+        ],
+    )
+    async def test_rejects_blank_required_text(
+        self, client: AsyncClient, tmp_path: Path, field: str, value: str
+    ) -> None:
+        repo_path = tmp_path / f"blank-{field}-{len(value)}"
+        repo_path.mkdir()
+        created_project = await client.post(
+            "/api/settings/projects",
+            json={"name": "Validation", "repoPaths": [str(repo_path)]},
+        )
+        project_id = created_project.json()["id"]
+        payload = {
+            "repoPath": str(repo_path),
+            "trackerTicketRef": "JIRA-123",
+            "promptOverride": "Implement this",
+        }
+        payload[field] = value
+
+        response = await client.post(
+            f"/api/settings/projects/{project_id}/task-links",
+            json=payload,
+        )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_rejects_repo_outside_project(self, client: AsyncClient, tmp_path: Path) -> None:
+        member_repo = tmp_path / "member-repo"
+        other_repo = tmp_path / "other-repo"
+        member_repo.mkdir()
+        other_repo.mkdir()
+        created_project = await client.post(
+            "/api/settings/projects",
+            json={"name": "Scoped Tasks", "repoPaths": [str(member_repo)]},
+        )
+        project_id = created_project.json()["id"]
+
+        response = await client.post(
+            f"/api/settings/projects/{project_id}/task-links",
+            json={
+                "repoPath": str(other_repo),
+                "trackerTicketRef": "JIRA-123",
+                "promptOverride": "Implement this",
+            },
+        )
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_missing_project_returns_404(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/api/settings/projects/does-not-exist/task-links",
+            json={
+                "repoPath": "/repo/a",
+                "trackerTicketRef": "JIRA-123",
+                "promptOverride": "Implement this",
+            },
+        )
+
+        assert response.status_code == 404
