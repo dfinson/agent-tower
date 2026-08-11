@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import uuid
 from datetime import UTC, datetime
@@ -187,6 +188,8 @@ class E2EFakeCopilotAdapter(BaseAgentAdapter):
 
     @staticmethod
     def _complete_text(prompt: str) -> str:
+        if E2EFakeCopilotAdapter._looks_like_naming_prompt(prompt):
+            return E2EFakeCopilotAdapter._make_naming_json(prompt)
         summary = E2EFakeCopilotAdapter._summarize_prompt(prompt)
         if summary:
             return summary
@@ -203,10 +206,56 @@ class E2EFakeCopilotAdapter(BaseAgentAdapter):
         return f"Plan: {summary}" if summary else "Plan: proceed with the requested changes."
 
     @staticmethod
-    def _summarize_prompt(prompt: str) -> str:
+    def _looks_like_naming_prompt(prompt: str) -> bool:
+        return (
+            "You are a naming assistant for a coding task manager." in prompt
+            and '"branch_name"' in prompt
+            and '"worktree_name"' in prompt
+        )
+
+    @staticmethod
+    def _make_naming_json(prompt: str) -> str:
+        task = prompt.rsplit("Task description:", 1)[-1].strip()
+        summary = E2EFakeCopilotAdapter._summarize_prompt(task, max_words=5) or "CI fake task"
+        title = summary if len(summary.split()) >= 3 else f"{summary} task".strip()
+        slug = E2EFakeCopilotAdapter._slugify(summary or task)
+        prefix = E2EFakeCopilotAdapter._naming_prefix(task)
+        return json.dumps(
+            {
+                "title": title,
+                "description": f"Complete the requested change: {task[:200].strip().rstrip('.')}.",
+                "branch_name": f"{prefix}/{slug}",
+                "worktree_name": slug,
+            }
+        )
+
+    @staticmethod
+    def _naming_prefix(prompt: str) -> str:
+        lowered = prompt.lower()
+        if any(word in lowered for word in ("fix", "bug", "repair", "error", "fail")):
+            return "fix"
+        if any(word in lowered for word in ("doc", "docs", "document")):
+            return "docs"
+        if any(word in lowered for word in ("test", "qa", "spec")):
+            return "test"
+        if any(word in lowered for word in ("refactor", "cleanup", "chore")):
+            return "chore"
+        return "feat"
+
+    @staticmethod
+    def _slugify(text: str) -> str:
+        words = re.findall(r"[A-Za-z0-9]+", text.lower())
+        slug = "-".join(word for word in words if word)
+        slug = re.sub(r"-{2,}", "-", slug).strip("-")
+        if not slug:
+            return "ci-fake-task"
+        return slug[:30].strip("-") or "ci-fake-task"
+
+    @staticmethod
+    def _summarize_prompt(prompt: str, *, max_words: int = 6) -> str:
         text = prompt.split("Task:", 1)[-1] if "Task:" in prompt else prompt
         words = re.findall(r"[A-Za-z0-9']+", text)
         filtered = [word for word in words if word.lower() not in {"the", "a", "an", "and", "or", "to", "of", "for"}]
         if not filtered:
             return ""
-        return " ".join(word.capitalize() for word in filtered[:6])
+        return " ".join(word.capitalize() for word in filtered[:max_words])

@@ -6,6 +6,9 @@ import pytest
 
 from backend.models.domain import AgentSDK
 from backend.services.adapters.adapter_registry import AdapterRegistry
+from backend.services.adapters.fake_adapter import E2EFakeCopilotAdapter
+from backend.services.completers.naming_service import NamingService
+from backend.services.sidecar.session import SidecarSessionManager
 
 
 def test_registry_uses_fake_adapter_in_e2e_mode(monkeypatch) -> None:
@@ -32,3 +35,15 @@ async def test_fake_model_cache_returns_static_models(monkeypatch) -> None:
             "billing": {"multiplier": 1.0},
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_fake_adapter_returns_naming_json() -> None:
+    svc = NamingService(SidecarSessionManager(E2EFakeCopilotAdapter()))
+
+    title, description, branch, worktree = await svc.generate("Fix the bug in auth module")
+
+    assert title
+    assert description
+    assert branch.startswith("fix/")
+    assert worktree
