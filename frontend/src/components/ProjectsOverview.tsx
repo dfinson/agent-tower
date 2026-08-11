@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { FolderGit2, PlayCircle, Clock, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
@@ -70,6 +70,14 @@ export function ProjectsOverview() {
   const [projects, setProjects] = useState<ProjectSummaryResponse[]>([]);
   const [filterQuery, setFilterQuery] = useState("");
 
+  // Combined cross-Project attention signal (Story 2.4): summed awaiting+failed
+  // across all Projects, derived from the same batch summary fetch as Story 2.2
+  // (no second endpoint, no extra fetch).
+  const attentionCount = useMemo(
+    () => projects.reduce((sum, p) => sum + p.awaitingInputCount + p.failedCount, 0),
+    [projects],
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -115,7 +123,21 @@ export function ProjectsOverview() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-4">
-      <h1 className="text-xl font-semibold text-foreground">Projects</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-xl font-semibold text-foreground">Projects</h1>
+        <span
+          data-testid="attention-badge"
+          title="Combined awaiting-input + failed jobs across all Projects"
+          className={
+            attentionCount > 0
+              ? "alarming flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400"
+              : "neutral flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+          }
+        >
+          {attentionCount > 0 ? <AlertTriangle size={12} /> : null}
+          {attentionCount}
+        </span>
+      </div>
       <input
         type="text"
         value={filterQuery}
