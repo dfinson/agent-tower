@@ -45,7 +45,7 @@ def _encode_cwd(path: str) -> str:
 def _is_pid_alive(pid: int) -> bool:
     """Cross-platform check that a PID still belongs to a Claude process."""
     try:
-        import psutil  # type: ignore[import-untyped]
+        import psutil
 
         proc = psutil.Process(pid)
         if not proc.is_running():
