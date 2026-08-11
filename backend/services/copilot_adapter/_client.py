@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from copilot import CopilotClient
@@ -18,4 +18,4 @@ def create_copilot_client() -> CopilotClient:
     """Build a Copilot client."""
     from copilot import CopilotClient
 
-    return cast("CopilotClient", CopilotClient())
+    return CopilotClient()
