@@ -77,9 +77,7 @@ def resolve_target_source_root(source: str | None) -> Path:
     root = Path(source).expanduser().resolve() if source else REPO_ROOT
     missing = [marker for marker in _CHECKOUT_MARKERS if not (root / marker).is_file()]
     if missing:
-        raise DevRestartError(
-            f"{root} does not look like a CodePlane checkout (missing: {', '.join(missing)})"
-        )
+        raise DevRestartError(f"{root} does not look like a CodePlane checkout (missing: {', '.join(missing)})")
     return root
 
 
@@ -245,9 +243,7 @@ def _resolve_timeouts(args: argparse.Namespace) -> RestartTimeouts:
     return RestartTimeouts(
         adoption_seconds=args.adoption_seconds if args.adoption_seconds is not None else defaults.adoption_seconds,
         response_grace_seconds=(
-            args.response_grace_seconds
-            if args.response_grace_seconds is not None
-            else defaults.response_grace_seconds
+            args.response_grace_seconds if args.response_grace_seconds is not None else defaults.response_grace_seconds
         ),
         pause_wait_seconds=(
             args.pause_wait_seconds if args.pause_wait_seconds is not None else defaults.pause_wait_seconds
