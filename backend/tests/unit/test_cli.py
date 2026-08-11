@@ -6,6 +6,7 @@ import signal
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 from backend.cli import (
@@ -16,6 +17,19 @@ from backend.cli import (
     _stop_server,
 )
 from backend.main import cli
+
+
+@pytest.fixture(autouse=True)
+def _isolate_repo_dotenv(tmp_path):
+    """Keep the developer's real ``.env`` out of every CLI test.
+
+    ``cpl up`` loads the repository ``.env`` and exports it into
+    ``os.environ``. Without this redirect, running the suite in a configured
+    checkout changes provider auto-detection and credential classification,
+    and the exported values persist for the rest of the pytest session.
+    """
+    with patch("backend.cli.DOTENV_PATH", tmp_path / "absent.env"):
+        yield
 
 
 def test_version_command() -> None:

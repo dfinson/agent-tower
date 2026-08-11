@@ -124,6 +124,13 @@ def _build_frontend() -> bool:
         return False
 
 
+#: Location of the repository ``.env``. Module-level so tests can redirect it
+#: to a scratch path instead of silently picking up the developer's real
+#: credentials — which changes provider auto-detection and, since the values
+#: are exported, leaks into ``os.environ`` for the rest of the session.
+DOTENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+
+
 def _load_and_export_dotenv(dotenv_path: Path) -> dict[str, str]:
     """Parse ``.env`` and export its entries into ``os.environ``.
 
@@ -266,7 +273,7 @@ def up(
     # Read credentials from .env (takes precedence) then OS environment
     import os
 
-    dotenv_vars = _load_and_export_dotenv(Path(__file__).resolve().parent.parent / ".env")
+    dotenv_vars = _load_and_export_dotenv(DOTENV_PATH)
 
     def _env(key: str) -> str | None:
         return dotenv_vars.get(key) or os.environ.get(key) or None
