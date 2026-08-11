@@ -152,7 +152,7 @@ test.describe("Job Failure Display", () => {
     await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     await expect(page.locator("main")).toContainText("Failed");
-    await expect(page.locator("main")).not.toContainText("No additional details available");
+    await expect(page.getByText("No additional details available")).toHaveCount(0);
   });
 
   test("SSE job_failed event shows failure banner", async ({ page }) => {
