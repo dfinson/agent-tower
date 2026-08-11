@@ -124,6 +124,41 @@ def _build_frontend() -> bool:
         return False
 
 
+def _load_and_export_dotenv(dotenv_path: Path) -> dict[str, str]:
+    """Parse ``.env`` and export its entries into ``os.environ``.
+
+    Returns the parsed mapping so callers can keep ``.env``-over-environment
+    precedence for their own lookups.
+
+    The export matters because several consumers read ``os.environ``
+    directly and cannot see a local mapping: ``backend.lifespan``'s
+    Cloudflare Access check derives the account ID from
+    ``CPL_CLOUDFLARE_TUNNEL_TOKEN`` in ``os.environ``, so a ``.env``-only
+    setup silently lost the Zero Trust API verification strategy, and the
+    restart helper replays ``cpl up`` with ``env=dict(os.environ)``, which
+    dropped the tunnel credentials entirely when the replacement process ran
+    outside the repository directory. ``setdefault`` preserves any value the
+    surrounding environment already set.
+    """
+    import os
+
+    dotenv_vars: dict[str, str] = {}
+    if not dotenv_path.is_file():
+        return dotenv_vars
+
+    for raw_line in dotenv_path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        dotenv_vars[key.strip()] = value.strip()
+
+    for key, value in dotenv_vars.items():
+        os.environ.setdefault(key, value)
+
+    return dotenv_vars
+
+
 # ---------------------------------------------------------------------------
 # ``cpl up`` — start the server
 # ---------------------------------------------------------------------------
@@ -231,14 +266,7 @@ def up(
     # Read credentials from .env (takes precedence) then OS environment
     import os
 
-    dotenv_path = Path(__file__).resolve().parent.parent / ".env"
-    dotenv_vars: dict[str, str] = {}
-    if dotenv_path.is_file():
-        for line in dotenv_path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, _, v = line.partition("=")
-                dotenv_vars[k.strip()] = v.strip()
+    dotenv_vars = _load_and_export_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
     def _env(key: str) -> str | None:
         return dotenv_vars.get(key) or os.environ.get(key) or None

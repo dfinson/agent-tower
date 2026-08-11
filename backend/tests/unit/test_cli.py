@@ -671,3 +671,55 @@ class TestUpLaunchProfilePublication:
             result, written = _invoke_up(["--no-password"], owning_pids=[999999])
         assert result.exit_code != 0
         assert written is None
+
+
+class TestDotenvExport:
+    """`.env` values must reach `os.environ`.
+
+    `backend.lifespan` reads CPL_CLOUDFLARE_TUNNEL_TOKEN from `os.environ` to
+    derive the Cloudflare account ID, and the restart helper replays `cpl up`
+    with `env=dict(os.environ)`. When the loader kept the parsed values in a
+    local mapping only, a `.env`-only setup silently lost both.
+    """
+
+    def test_values_are_exported_to_environ(self, tmp_path) -> None:
+        import os
+
+        from backend.cli import _load_and_export_dotenv
+
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "# comment line\n"
+            "\n"
+            "CPL_CLOUDFLARE_TUNNEL_TOKEN=token-do-not-leak\n"
+            "CPL_CLOUDFLARE_HOSTNAME=cpl.example.com\n"
+            "MALFORMED_LINE\n"
+        )
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("CPL_CLOUDFLARE_TUNNEL_TOKEN", None)
+            os.environ.pop("CPL_CLOUDFLARE_HOSTNAME", None)
+            parsed = _load_and_export_dotenv(env_file)
+
+            assert parsed["CPL_CLOUDFLARE_HOSTNAME"] == "cpl.example.com"
+            assert os.environ["CPL_CLOUDFLARE_TUNNEL_TOKEN"] == "token-do-not-leak"
+            assert os.environ["CPL_CLOUDFLARE_HOSTNAME"] == "cpl.example.com"
+            assert "MALFORMED_LINE" not in parsed
+
+    def test_existing_environment_wins_over_dotenv(self, tmp_path) -> None:
+        import os
+
+        from backend.cli import _load_and_export_dotenv
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("CPL_CLOUDFLARE_HOSTNAME=from-dotenv.example.com\n")
+        with patch.dict("os.environ", {"CPL_CLOUDFLARE_HOSTNAME": "from-shell.example.com"}):
+            parsed = _load_and_export_dotenv(env_file)
+            # .env keeps precedence for the CLI's own lookups...
+            assert parsed["CPL_CLOUDFLARE_HOSTNAME"] == "from-dotenv.example.com"
+            # ...but an explicitly exported shell value is never overwritten.
+            assert os.environ["CPL_CLOUDFLARE_HOSTNAME"] == "from-shell.example.com"
+
+    def test_missing_file_is_not_an_error(self, tmp_path) -> None:
+        from backend.cli import _load_and_export_dotenv
+
+        assert _load_and_export_dotenv(tmp_path / "absent.env") == {}

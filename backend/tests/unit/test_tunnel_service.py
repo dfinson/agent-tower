@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess as real_subprocess
 import threading
 from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock, patch
@@ -13,11 +14,17 @@ from backend.services.sharing.tunnel_service import (
     TunnelOwnership,
     TunnelStartError,
     TunnelWatchdog,
+    _cloudflared_already_running,
     _external_tunnel_origin,
     _find_existing_codeplane_tunnel,
+    _list_devtunnels,
     _lookup_devtunnel,
+    _run_capture,
+    _start_devtunnel,
     _start_output_drain,
+    _terminate_and_reap,
     _wait_for_startup,
+    devtunnel_logged_in,
     start_remote_access,
     validate_remote_provider,
 )
@@ -31,11 +38,17 @@ def _as_popen(proc: _FakeProc) -> subprocess.Popen[str]:
 
 
 class _FakeProc:
+    _next_pid = 900000
+
     def __init__(self, *, poll_result: int | None = None, output: str = "") -> None:
         self._poll_result = poll_result
         self.stdout: _FakeStdout | None = _FakeStdout(output)
         self.terminated = False
         self.killed = False
+        # Real Popen objects always expose a pid; connector lifecycle helpers
+        # (orphan prevention, process-group signalling) read it.
+        _FakeProc._next_pid += 1
+        self.pid = _FakeProc._next_pid
 
     def poll(self) -> int | None:
         return self._poll_result
@@ -751,3 +764,261 @@ class TestOriginReusability:
             handle = start_remote_access(RemoteProvider.devtunnel, port=8080)
 
         assert handle.origin_is_reusable is True
+
+
+# ---------------------------------------------------------------------------
+# Cross-platform connector lifecycle regressions
+# ---------------------------------------------------------------------------
+
+
+class _StubbornProc:
+    """A connector that ignores terminate and only dies on kill."""
+
+    def __init__(self, *, kill_also_times_out: bool = False) -> None:
+        self.pid = 4242
+        self.stdout = None
+        self.terminated = False
+        self.killed = False
+        self._kill_also_times_out = kill_also_times_out
+
+    def poll(self) -> int | None:
+        return None
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def kill(self) -> None:
+        self.killed = True
+
+    def wait(self, timeout: float | None = None) -> int:
+        if not self.killed or self._kill_also_times_out:
+            raise real_subprocess.TimeoutExpired(cmd="connector", timeout=timeout or 0)
+        return 0
+
+
+class TestTerminateAndReap:
+    """``subprocess.TimeoutExpired`` is a SubprocessError, not an OSError.
+
+    The previous teardown caught only ``OSError``, so a connector that ignored
+    terminate propagated the timeout out of ``TunnelHandle.close()`` and
+    abandoned every remaining cleanup step.
+    """
+
+    def test_terminate_timeout_escalates_to_kill(self) -> None:
+        proc = _StubbornProc()
+        _terminate_and_reap(_as_popen(cast("_FakeProc", proc)), label="cloudflare", timeout=0.01)
+        assert proc.terminated is True
+        assert proc.killed is True
+
+    def test_never_raises_even_when_kill_also_times_out(self) -> None:
+        proc = _StubbornProc(kill_also_times_out=True)
+        _terminate_and_reap(_as_popen(cast("_FakeProc", proc)), label="devtunnel", timeout=0.01)
+        assert proc.killed is True
+
+    def test_already_exited_process_is_not_signalled(self) -> None:
+        proc = _FakeProc(poll_result=0)
+        _terminate_and_reap(_as_popen(proc), timeout=0.01)
+        assert proc.terminated is False
+        assert proc.killed is False
+
+    def test_close_reaps_watchdog_proc_when_handle_proc_hangs(self) -> None:
+        """A hanging primary process must not strand the watchdog's process."""
+        hanging = _StubbornProc()
+        watchdog_proc = _StubbornProc()
+        watchdog = TunnelWatchdog(
+            tunnel_url="https://example.invalid",
+            restart_command=["cloudflared"],
+            proc=_as_popen(cast("_FakeProc", watchdog_proc)),
+            label="cloudflare",
+        )
+        handle = TunnelHandle(
+            provider=RemoteProvider.cloudflare,
+            origin="https://example.invalid",
+            proc=_as_popen(cast("_FakeProc", hanging)),
+            watchdog=watchdog,
+        )
+        handle.close()
+        assert hanging.killed is True
+        assert watchdog_proc.killed is True
+
+
+class TestRunCaptureNeverRaises:
+    """A hung or missing provider CLI must not escape as a raw traceback."""
+
+    def test_timeout_returns_nonzero_result(self) -> None:
+        with patch(
+            "backend.services.sharing.tunnel_service.subprocess.run",
+            side_effect=real_subprocess.TimeoutExpired(cmd="devtunnel", timeout=30),
+        ):
+            result = _run_capture(["devtunnel", "list", "--json"])
+        assert result.returncode != 0
+        assert "timed out" in result.stderr
+
+    def test_missing_binary_returns_nonzero_result(self) -> None:
+        with patch(
+            "backend.services.sharing.tunnel_service.subprocess.run",
+            side_effect=FileNotFoundError("devtunnel"),
+        ):
+            result = _run_capture(["devtunnel", "list", "--json"])
+        assert result.returncode != 0
+        assert "not found" in result.stderr
+
+    def test_list_devtunnels_tolerates_timeout(self) -> None:
+        with patch(
+            "backend.services.sharing.tunnel_service.subprocess.run",
+            side_effect=real_subprocess.TimeoutExpired(cmd="devtunnel", timeout=30),
+        ):
+            assert _list_devtunnels() == []
+
+
+class TestDevtunnelLoginDetection:
+    """The Dev Tunnels CLI reports "logged out" with several distinct phrasings."""
+
+    def test_validate_reports_logged_out_before_create_fails(self) -> None:
+        with (
+            patch("backend.services.sharing.tunnel_service.shutil.which", return_value="/usr/bin/devtunnel"),
+            patch("backend.services.sharing.tunnel_service.devtunnel_logged_in", return_value=False),
+        ):
+            error = validate_remote_provider(RemoteProvider.devtunnel)
+        assert error is not None
+        assert "devtunnel user login" in error
+
+    def test_validate_passes_when_logged_in(self) -> None:
+        with (
+            patch("backend.services.sharing.tunnel_service.shutil.which", return_value="/usr/bin/devtunnel"),
+            patch("backend.services.sharing.tunnel_service.devtunnel_logged_in", return_value=True),
+        ):
+            assert validate_remote_provider(RemoteProvider.devtunnel) is None
+
+    def test_logged_in_is_false_for_login_required_output(self) -> None:
+        with patch(
+            "backend.services.sharing.tunnel_service._run_capture",
+            return_value=real_subprocess.CompletedProcess([], returncode=3, stdout="Login required.", stderr=""),
+        ):
+            assert devtunnel_logged_in() is False
+
+    def test_logged_in_is_true_for_normal_output(self) -> None:
+        with patch(
+            "backend.services.sharing.tunnel_service._run_capture",
+            return_value=real_subprocess.CompletedProcess(
+                [], returncode=0, stdout="Logged in as dfinson using GitHub.", stderr=""
+            ),
+        ):
+            assert devtunnel_logged_in() is True
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Login required.",
+            "Unauthorized tunnel creation access: Anonymous does not have 'create' access scope",
+            "You are not logged in",
+        ],
+    )
+    def test_create_failure_appends_login_hint(self, message: str) -> None:
+        """The anonymous-access-scope wording is what a logged-out user actually hits."""
+        with (
+            patch("backend.services.sharing.tunnel_service._list_devtunnels", return_value=[]),
+            patch(
+                "backend.services.sharing.tunnel_service._run_capture",
+                return_value=real_subprocess.CompletedProcess([], returncode=3, stdout="", stderr=message),
+            ),
+            pytest.raises(TunnelStartError) as exc_info,
+        ):
+            _start_devtunnel(8080, tunnel_name="cpl-test")
+        assert "devtunnel user login" in str(exc_info.value)
+
+
+class TestDevtunnelPortRegistration:
+    def test_port_create_failure_is_fatal(self) -> None:
+        """A tunnel that cannot forward the port must not be reported as started."""
+
+        def _fake_capture(args: list[str]) -> real_subprocess.CompletedProcess[str]:
+            if args[1] == "port":
+                return real_subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="quota exceeded")
+            return real_subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+
+        with (
+            patch("backend.services.sharing.tunnel_service._lookup_devtunnel", return_value=(True, "usw2")),
+            patch("backend.services.sharing.tunnel_service._run_capture", side_effect=_fake_capture),
+            pytest.raises(TunnelStartError) as exc_info,
+        ):
+            _start_devtunnel(8080, tunnel_name="cpl-test")
+        assert "quota exceeded" in str(exc_info.value)
+
+    def test_already_registered_port_is_tolerated(self) -> None:
+        proc = _FakeProc(poll_result=None)
+
+        def _fake_capture(args: list[str]) -> real_subprocess.CompletedProcess[str]:
+            if args[1] == "port":
+                return real_subprocess.CompletedProcess(
+                    args, returncode=1, stdout="", stderr="Port 8080 already exists on tunnel"
+                )
+            return real_subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+
+        with (
+            patch("backend.services.sharing.tunnel_service._lookup_devtunnel", return_value=(True, "usw2")),
+            patch("backend.services.sharing.tunnel_service._run_capture", side_effect=_fake_capture),
+            patch("backend.services.sharing.tunnel_service.subprocess.Popen", return_value=_as_popen(proc)),
+            patch("backend.services.sharing.tunnel_service._wait_for_startup"),
+            patch("backend.services.sharing.tunnel_service._start_output_drain"),
+        ):
+            origin, _, name, _ = _start_devtunnel(8080, tunnel_name="cpl-test")
+        assert origin == "https://cpl-test-8080.usw2.devtunnels.ms"
+        assert name == "cpl-test"
+
+
+class TestCloudflaredDetectionIsPortable:
+    """Reuse detection previously shelled out to ``pgrep``, which Windows lacks.
+
+    That made every Windows run believe no connector was present and start a
+    duplicate one for the same tunnel.
+    """
+
+    @staticmethod
+    def _proc(pid: int, name: str) -> object:
+        stub = MagicMock()
+        stub.info = {"pid": pid, "name": name}
+        return stub
+
+    def test_detects_windows_executable_name(self) -> None:
+        import psutil
+
+        with (
+            patch.object(psutil, "process_iter", return_value=[self._proc(999, "cloudflared.exe")]),
+            patch.object(psutil, "Process", side_effect=psutil.NoSuchProcess(1)),
+        ):
+            assert _cloudflared_already_running() is True
+
+    def test_detects_posix_executable_name(self) -> None:
+        import psutil
+
+        with (
+            patch.object(psutil, "process_iter", return_value=[self._proc(999, "cloudflared")]),
+            patch.object(psutil, "Process", side_effect=psutil.NoSuchProcess(1)),
+        ):
+            assert _cloudflared_already_running() is True
+
+    def test_ignores_unrelated_processes(self) -> None:
+        import psutil
+
+        with (
+            patch.object(psutil, "process_iter", return_value=[self._proc(999, "chrome.exe")]),
+            patch.object(psutil, "Process", side_effect=psutil.NoSuchProcess(1)),
+        ):
+            assert _cloudflared_already_running() is False
+
+    def test_ignores_our_own_child_connector(self) -> None:
+        import os
+
+        import psutil
+
+        child = MagicMock()
+        child.pid = 555
+        parent = MagicMock()
+        parent.children.return_value = [child]
+        with (
+            patch.object(psutil, "process_iter", return_value=[self._proc(555, "cloudflared")]),
+            patch.object(psutil, "Process", return_value=parent),
+            patch.object(os, "getpid", return_value=111),
+        ):
+            assert _cloudflared_already_running() is False

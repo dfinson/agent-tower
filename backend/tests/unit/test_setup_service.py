@@ -676,3 +676,38 @@ class TestPortIsListening:
 
         mock_socket.side_effect = [_FakeSocket(connect_result=errno.ECONNREFUSED)]
         assert _port_is_listening(8080) is False
+
+
+class TestRemoteAccessDependencies:
+    """`validate_remote_provider` tells users to run `cpl setup` when a
+    connector CLI is missing, so the setup registry has to actually know
+    about both connectors on every supported platform."""
+
+    def test_cloudflared_is_registered(self) -> None:
+        from backend.services.setup.dependencies import DEPENDENCIES
+
+        dep = next((d for d in DEPENDENCIES if d.command == "cloudflared"), None)
+        assert dep is not None, "cpl setup cannot install a dependency it does not know about"
+        assert dep.required is False
+        for host in ("linux", "darwin", "windows"):
+            assert dep.install_instructions.get(host)
+
+    def test_connectors_have_windows_auto_install(self) -> None:
+        from backend.services.setup.dependencies import DEPENDENCIES
+
+        for command in ("cloudflared", "devtunnel"):
+            dep = next(d for d in DEPENDENCIES if d.command == command)
+            windows_cmd = dep.auto_install_cmd.get("windows")
+            assert windows_cmd, f"{command} has no Windows auto-install"
+            assert windows_cmd[0] == "winget"
+            assert "--accept-package-agreements" in windows_cmd
+
+    def test_devtunnel_instructions_are_actionable_per_platform(self) -> None:
+        from backend.services.setup.dependencies import DEPENDENCIES
+
+        dep = next(d for d in DEPENDENCIES if d.command == "devtunnel")
+        # A bare "Install from <url>" repeated for every OS gives the user
+        # nothing to run; each platform needs a real command.
+        assert dep.install_instructions["windows"].startswith("winget")
+        assert "brew" in dep.install_instructions["darwin"]
+        assert dep.install_instructions["linux"] != dep.install_instructions["windows"]
