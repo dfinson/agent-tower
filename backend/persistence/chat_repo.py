@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from backend.models.db import ChatRow
-from backend.models.domain import Chat
+from backend.models.db import ChatMessageRow, ChatRow
+from backend.models.domain import Chat, ChatMessage
 from backend.persistence.repository import BaseRepository
 
 
@@ -54,3 +54,52 @@ class ChatRepository(BaseRepository):
         stmt = select(ChatRow).order_by(ChatRow.last_message_at.desc())
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def set_project_id(self, chat_id: str, project_id: str) -> None:
+        """Settle a Chat's ``project_id`` (e.g. on first Job launch/chain attach)."""
+        stmt = select(ChatRow).where(ChatRow.id == chat_id)
+        result = await self._session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if row is not None:
+            row.project_id = project_id
+            await self._session.flush()
+
+    @staticmethod
+    def _message_to_domain(row: ChatMessageRow) -> ChatMessage:
+        return ChatMessage(
+            id=row.id,
+            chat_id=row.chat_id,
+            role=row.role,
+            content=row.content,
+            created_at=row.created_at,
+        )
+
+    async def add_message(self, message: ChatMessage) -> ChatMessage:
+        """Append a message to a Chat's transcript and bump ``last_message_at``."""
+        row = ChatMessageRow(
+            id=message.id,
+            chat_id=message.chat_id,
+            role=message.role,
+            content=message.content,
+            created_at=message.created_at,
+        )
+        self._session.add(row)
+
+        chat_stmt = select(ChatRow).where(ChatRow.id == message.chat_id)
+        chat_result = await self._session.execute(chat_stmt)
+        chat_row = chat_result.scalar_one_or_none()
+        if chat_row is not None:
+            chat_row.last_message_at = message.created_at
+
+        await self._session.flush()
+        return message
+
+    async def list_messages(self, chat_id: str) -> list[ChatMessage]:
+        """List a Chat's messages in transcript order (oldest first)."""
+        stmt = (
+            select(ChatMessageRow)
+            .where(ChatMessageRow.chat_id == chat_id)
+            .order_by(ChatMessageRow.created_at.asc())
+        )
+        result = await self._session.execute(stmt)
+        return [self._message_to_domain(row) for row in result.scalars().all()]

@@ -662,6 +662,20 @@ class ChatRow(Base):
     __table_args__ = (Index("ix_chats_project_id", "project_id"),)
 
 
+class ChatMessageRow(Base):
+    """A single append-only message in a Chat's transcript (Story 5.2)."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    chat_id: Mapped[str] = mapped_column(String(36), ForeignKey("chats.id"), nullable=False)
+    role: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+    __table_args__ = (Index("ix_chat_messages_chat_id", "chat_id"),)
+
+
 class SecondarySessionEntryRow(Base):
     __tablename__ = "secondary_session_entries"
 

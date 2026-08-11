@@ -288,6 +288,22 @@ class Chat:
 
 
 @dataclass
+class ChatMessage:
+    """A single message in a Chat's transcript.
+
+    Append-only: messages are never edited or deleted. Ordered by
+    ``created_at`` to reconstruct the transcript used to seed a Job
+    launched from the Chat (Story 5.2, AD-12).
+    """
+
+    id: str
+    chat_id: str
+    role: str
+    content: str
+    created_at: datetime
+
+
+@dataclass
 class SidecarTemplate:
     """A saved sidecar definition in the user's library."""
 
