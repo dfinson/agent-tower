@@ -23,7 +23,7 @@ So that I can commit to doing the work only once it's worth it, without losing t
 - [x] Task 1: Add minimal chat message/transcript persistence (AC: 1)
   - [x] Add `ChatMessageRow` (`id`, `chat_id` FK to `chats.id`, `role`, `content`, `created_at`) to `backend/models/db.py`, indexed on `chat_id`.
   - [x] Add a matching `ChatMessage` domain dataclass to `backend/models/domain.py`.
-  - [x] Add alembic migration `0061_add_chat_messages.py` creating the `chat_messages` table and index, following on from head revision `0060` (verify the true head right before merge — parallel stories may add migrations after this one is authored).
+  - [x] Add alembic migration `0063_add_chat_messages.py` creating the `chat_messages` table and index, following on from head revision `0062` (verify the true head right before merge — parallel stories may add migrations after this one is authored).
   - [x] Extend `backend/persistence/chat_repo.py` (`ChatRepository`) with `add_message(chat, role, content)` (inserts message, bumps `ChatRow.last_message_at`) and `list_messages(chat_id)` (ordered by `created_at`).
 - [x] Task 2: Implement `ChatService.launch_job` (AC: 1, 2, 3)
   - [x] Add `ChatService.add_message(chat_id, role, content) -> ChatMessage`.
@@ -62,7 +62,7 @@ This story creates only chat message persistence, `ChatService.launch_job`, and 
 
 - Mirror `backend/api/jobs.py`'s `POST /jobs` handler for how to build a `JobSpec` and call `JobService.create_job`, then commit the session.
 - Mirror Story 5.1's `ChatRepository`/`ChatService`/`backend/api/chats.py` pattern for the new message persistence and launch-job route (repository-owns-DB-access, thin routes, `CamelModel` schemas).
-- Alembic: `alembic/versions/0058_add_chats.py` is the immediate reference for the new `0061_add_chat_messages.py` migration.
+- Alembic: `alembic/versions/0058_add_chats.py` is the immediate reference for the new `0063_add_chat_messages.py` migration.
 
 ### Project Structure Notes
 
@@ -89,13 +89,13 @@ Claude Sonnet 5 (GitHub Copilot CLI)
 - `pytest backend/tests/unit/test_chat_service.py backend/tests/integration/test_api_chats.py -q` → 37 passed.
 - `pytest backend/tests -q --ignore=backend/tests/unit/test_saga_compensation.py --timeout=180` → 3367 passed, 19 failed, 36 skipped. All 19 failures are pre-existing/unrelated to this story: `test_git_service.py`, `test_api_settings.py`, `test_api_workspace.py`, `test_integration.py`, `test_artifact_service.py`, `test_config_registration.py`, `test_job_service.py`, `test_terminal_service.py` (Windows/symlink/detached-HEAD/path-separator issues — same set 5.1 documented) plus `test_plan_mode_flow.py` (3 tests, order-dependent flakiness only reproducible in the full-suite run, not touched by this story's files). Verified `test_create_job_succeeds` fails identically on the pre-story baseline commit with no chat changes applied (Windows path-separator assertion, `C:\repos\test` vs `/repos/test` — nothing to do with this story). No test in any of these files was modified by this story.
 - `ruff check backend/models/db.py backend/models/domain.py backend/models/api_schemas.py backend/persistence/chat_repo.py backend/services/chat/chat_service.py backend/api/chats.py backend/tests/unit/test_chat_service.py backend/tests/integration/test_api_chats.py` → all checks passed.
-- Rebased onto latest `origin/main` (which had since merged Story 3.1 `#55`/Story 2.1 `#54`) and renumbered the new alembic migration from a colliding `0059` to `0061` (true next-free revision after `0060_add_projects.py`) before opening the PR.
+- Rebased onto latest `origin/main` (which had since merged Story 3.1 `#55`/Story 2.1 `#54`/Story 4.2 `#60`) and renumbered the new alembic migration twice due to sibling-branch collisions: `0059` → `0061` → `0063` (true next-free revision after `0062_add_task_links.py`) before opening/updating the PR.
 
 ### Completion Notes List
 
 - **Gap addressed (in-scope, not a separate story):** no chat message/transcript persistence existed prior to this story — Story 5.1 only added `title`/`status`/timestamps to `ChatRow`. AC 1 requires seeding a Job from "the Chat's transcript," which has nothing to seed from without message persistence, so a minimal append-only `ChatMessageRow`/`ChatMessage` + `POST /chats/{id}/messages` was added here. No editing/deletion — append-only, matching the narrow need.
 - Added `ChatMessageRow` (`backend/models/db.py`, indexed on `chat_id`, FK to `chats.id`) and matching `ChatMessage` domain dataclass (`backend/models/domain.py`).
-- Added `alembic/versions/0061_add_chat_messages.py` creating the `chat_messages` table + index. Originally authored as `0059` on top of 5.1's `0058` head; after Story 3.1 (`#55`, `0059_add_credentials.py`) and Story 2.1 (`#54`, `0060_add_projects.py`) merged to `main` first, rebased and renumbered to `0061` (down_revision `0060`) to avoid a revision collision — confirmed a single `alembic heads` result after the rename.
+- Added `alembic/versions/0063_add_chat_messages.py` creating the `chat_messages` table + index. Originally authored as `0059` on top of 5.1's `0058` head; after Story 3.1 (`#55`, `0059_add_credentials.py`) and Story 2.1 (`#54`, `0060_add_projects.py`) merged to `main` first, renumbered to `0061` (down_revision `0060`). A sibling branch (PR #60, Story 4.2) independently claimed `0061` as well; after that PR merged as `0062_add_task_links.py`, rebased again and renumbered to the final `0063` (down_revision `0062`) — confirmed a single `alembic heads` result after each rename.
 - Extended `ChatRepository` (`backend/persistence/chat_repo.py`) with `add_message`/`list_messages`/`set_project_id`.
 - Extended `ChatService` (`backend/services/chat/chat_service.py`) with `add_message`, `build_transcript` (role-prefixed concatenation, e.g. `"user: fix the bug"`, empty string for a fresh chat), and `launch_job(chat_id, job_service, *, repo, ...)`. `launch_job` builds the transcript as the seed prompt and calls `job_service.create_job(JobSpec(...))` — the same job-creation function AD-10 uses for `spawn_task` — so `chat_service.py` still imports nothing git-related; the existing AST-based `TestChatIsGitFree` guard from 5.1 continues to pass unmodified. If `chat.project_id` is still `None`, it's settled from the launch's `repo` argument (no `ProjectRow`/Project registry exists anywhere in this codebase yet, so this stays a plain string write, matching 5.1's documented approach); an already-settled `project_id` is left untouched on subsequent launches. The Chat row's `status`/`title` are never touched by `launch_job` — it remains `"open"` and repeatable (AC 2, AC 3).
 - Added `AddChatMessageRequest`, `ChatMessageResponse`, `LaunchJobFromChatRequest` (`CamelModel`) to `backend/models/api_schemas.py`; reused the existing `CreateJobResponse` for the launch-job result rather than introducing a duplicate shape.
@@ -113,7 +113,7 @@ Claude Sonnet 5 (GitHub Copilot CLI)
 - `backend/services/chat/chat_service.py` (modified — added `add_message`, `build_transcript`, `launch_job`)
 - `backend/models/api_schemas.py` (modified — added `AddChatMessageRequest`, `ChatMessageResponse`, `LaunchJobFromChatRequest`)
 - `backend/api/chats.py` (modified — added `POST /chats/{id}/messages`, `POST /chats/{id}/launch-job`)
-- `alembic/versions/0061_add_chat_messages.py` (new)
+- `alembic/versions/0063_add_chat_messages.py` (new)
 - `backend/tests/unit/test_chat_service.py` (modified — added `TestChatServiceMessages`, `TestChatServiceLaunchJob`)
 - `backend/tests/integration/test_api_chats.py` (modified — added `TestAddChatMessage`, `TestLaunchJobFromChat`)
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified — `5-2-launch-a-job-from-a-chat` → review)
@@ -122,4 +122,4 @@ Claude Sonnet 5 (GitHub Copilot CLI)
 ## Change Log
 
 - 2026-08-10: Story created, marked ready-for-dev.
-- 2026-08-10: Implementation complete — chat message/transcript persistence, `ChatService.launch_job` (zero `GitService` dependency retained), `POST /chats/{id}/messages` + `POST /chats/{id}/launch-job` API, migration, and full test coverage added. All ACs satisfied. Rebased onto latest `main` and renumbered the migration (`0059` → `0061`) to resolve a revision collision with concurrently-merged Story 3.1/2.1 migrations. Status set to review.
+- 2026-08-10: Implementation complete — chat message/transcript persistence, `ChatService.launch_job` (zero `GitService` dependency retained), `POST /chats/{id}/messages` + `POST /chats/{id}/launch-job` API, migration, and full test coverage added. All ACs satisfied. Rebased onto latest `main` twice and renumbered the migration (`0059` → `0061` → `0063`) to resolve revision collisions with concurrently-merged Story 3.1/2.1/4.2 migrations. Status set to review.
