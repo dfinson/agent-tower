@@ -293,4 +293,3 @@ class TestSetJobIdAndGetByJobId:
     async def test_get_by_job_id_returns_none_when_absent(self, session: AsyncSession) -> None:
         repo = TaskLinkRepository(session)
         assert await repo.get_by_job_id("does-not-exist") is None
-

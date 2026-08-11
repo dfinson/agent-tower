@@ -388,14 +388,10 @@ class TestHandleJobCompleted:
         mock_job_service: AsyncMock,
     ) -> None:
         completed_link = _make_task_link(id="link-a", story_node_id="1-1-a", job_id="job-1")
-        dependent = _make_task_link(
-            id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"]
-        )
+        dependent = _make_task_link(id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"])
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
-        mock_job_repo.get.return_value = _make_job(
-            id="job-1", state=JobState.completed, resolution="merged"
-        )
+        mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
         new_job = _make_job(id="job-2", state=JobState.preparing)
         mock_job_service.create_job.return_value = new_job
         mock_task_link_repo.set_job_id.return_value = _make_task_link(
@@ -431,9 +427,7 @@ class TestHandleJobCompleted:
         )
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link, other_dep, dependent]
-        mock_job_repo.get.return_value = _make_job(
-            id="job-1", state=JobState.completed, resolution="merged"
-        )
+        mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
 
         service = RecipeService(
             mock_task_link_repo, mock_project_service, job_service=mock_job_service, job_repo=mock_job_repo
@@ -479,9 +473,7 @@ class TestHandleJobCompleted:
         mock_job_service: AsyncMock,
     ) -> None:
         completed_link = _make_task_link(id="link-a", story_node_id="1-1-a", job_id="job-1")
-        dependent = _make_task_link(
-            id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"]
-        )
+        dependent = _make_task_link(id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"])
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
         # The dependency target's own job is only in `review`, not `completed`.
@@ -513,9 +505,7 @@ class TestHandleJobCompleted:
         )
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
-        mock_job_repo.get.return_value = _make_job(
-            id="job-1", state=JobState.completed, resolution="merged"
-        )
+        mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
         new_job = _make_job(id="job-2", state=JobState.preparing)
         mock_job_service.create_job.return_value = new_job
         mock_task_link_repo.set_job_id.return_value = dependent
@@ -537,14 +527,10 @@ class TestHandleJobCompleted:
         mock_job_service: AsyncMock,
     ) -> None:
         completed_link = _make_task_link(id="link-a", story_node_id="1-1-a", job_id="job-1")
-        dependent = _make_task_link(
-            id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"]
-        )
+        dependent = _make_task_link(id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"])
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
-        mock_job_repo.get.return_value = _make_job(
-            id="job-1", state=JobState.completed, resolution="merged"
-        )
+        mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
         mock_job_service.create_job.side_effect = RepoNotAllowedError("nope")
 
         service = RecipeService(

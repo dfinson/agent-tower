@@ -217,9 +217,7 @@ class RecipeService:
             return []
 
         project_links = await self._task_link_repo.list_by_project(completed_link.project_id)
-        links_by_key = {
-            key: link for link in project_links if (key := self._composite_key(link)) is not None
-        }
+        links_by_key = {key: link for link in project_links if (key := self._composite_key(link)) is not None}
 
         spawned: list[Job] = []
         for candidate in project_links:
@@ -229,9 +227,7 @@ class RecipeService:
             if completed_key not in candidate.depends_on:
                 continue
 
-            satisfied = all(
-                [await self._is_satisfied(dep_key, links_by_key) for dep_key in candidate.depends_on]
-            )
+            satisfied = all([await self._is_satisfied(dep_key, links_by_key) for dep_key in candidate.depends_on])
             if not satisfied:
                 continue
 
