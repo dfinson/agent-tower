@@ -131,4 +131,46 @@ describe("ProjectsOverview", () => {
     expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
     expect(screen.getByText('No Projects match "zzz"')).toBeInTheDocument();
   });
+
+  it("shows a combined attention count summed across all projects' awaiting+failed", async () => {
+    vi.mocked(fetchProjectsSummary).mockResolvedValueOnce({
+      items: [
+        makeSummary({ id: "proj-1", name: "Alpha", awaitingInputCount: 2, failedCount: 1 }),
+        makeSummary({ id: "proj-2", name: "Beta", awaitingInputCount: 0, failedCount: 3 }),
+      ],
+    } as any);
+
+    render(
+      <MemoryRouter>
+        <ProjectsOverview />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    // 2 + 1 + 0 + 3 = 6
+    const badge = await screen.findByTestId("attention-badge");
+    expect(badge).toHaveTextContent("6");
+    expect(badge.className).toMatch(/alarming/);
+  });
+
+  it("renders the attention badge non-alarmingly when no project needs attention", async () => {
+    vi.mocked(fetchProjectsSummary).mockResolvedValueOnce({
+      items: [
+        makeSummary({ id: "proj-1", name: "Alpha" }),
+        makeSummary({ id: "proj-2", name: "Beta" }),
+      ],
+    } as any);
+
+    render(
+      <MemoryRouter>
+        <ProjectsOverview />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    const badge = await screen.findByTestId("attention-badge");
+    expect(badge).toHaveTextContent("0");
+    expect(badge.className).toMatch(/neutral/);
+    expect(badge.className).not.toMatch(/alarming/);
+  });
 });
