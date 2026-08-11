@@ -817,17 +817,20 @@ def _register_project_tool(mcp: FastMCP) -> None:
         annotations=ToolAnnotations(title="Manage Projects", destructiveHint=True, openWorldHint=True),
         description=(
             "Manage Projects — the sole entity that owns repo-path membership. Actions: "
-            "list, get, create, update."
+            "list, get, create, update, ingest_tasks, list_task_links."
             "\n\n"
             "- list: no extra params"
             "\n- get: project_id (required)"
             "\n- create: name (required), repo_paths (required, list of one or more repo paths)"
             "\n- update: project_id (required); name and/or repo_paths (optional, repo_paths replaces "
             "the full membership list)"
+            "\n- ingest_tasks: project_id (required) — parses BMAD stories/spec-kit tasks.md across "
+            "every member repo (read-only, stateless) and upserts the Project's TaskLink set"
+            "\n- list_task_links: project_id (required) — lists the Project's currently persisted TaskLinks"
         ),
     )
     async def codeplane_project(
-        action: Literal["list", "get", "create", "update"],
+        action: Literal["list", "get", "create", "update", "ingest_tasks", "list_task_links"],
         project_id: str | None = None,
         name: str | None = None,
         repo_paths: list[str] | None = None,
@@ -881,6 +884,28 @@ def _register_project_tool(mcp: FastMCP) -> None:
                 if resp.status_code >= 400:
                     detail = resp.json().get("detail", resp.text)
                     return {"error": str(detail)}
+                result = resp.json()
+                return result
+
+            if action == "ingest_tasks":
+                if not project_id:
+                    return {"error": "project_id is required for ingest_tasks"}
+                resp = await client.post(f"{base_url}/settings/projects/{project_id}/ingest-tasks")
+                if resp.status_code == 404:
+                    return {"error": f"Project '{project_id}' does not exist."}
+                if resp.status_code >= 400:
+                    detail = resp.json().get("detail", resp.text)
+                    return {"error": str(detail)}
+                result = resp.json()
+                return result
+
+            if action == "list_task_links":
+                if not project_id:
+                    return {"error": "project_id is required for list_task_links"}
+                resp = await client.get(f"{base_url}/settings/projects/{project_id}/task-links")
+                if resp.status_code == 404:
+                    return {"error": f"Project '{project_id}' does not exist."}
+                resp.raise_for_status()
                 result = resp.json()
                 return result
 

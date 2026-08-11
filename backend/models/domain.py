@@ -708,6 +708,30 @@ class ProjectSummary:
 
 
 @dataclass
+class TaskLink:
+    """Domain representation of a TaskLink (Story 4.2, AD-9).
+
+    A thin, Project-scoped correlation row — never a parallel execution
+    model competing with ``Job``. Exactly one of ``story_node_id`` /
+    ``tracker_ticket_ref`` is guaranteed non-null at creation. ``depends_on``
+    holds composite ``"{repo_path}::{story_node_id}"`` strings since
+    ``story_node_id`` is only unique within one repo.
+    """
+
+    id: str
+    project_id: str
+    repo_path: str
+    story_node_id: str | None
+    depends_on: list[str]
+    job_id: str | None
+    tracker_ticket_ref: str | None
+    prompt_override: str | None
+    epic_id: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass
 class MCPServerConfig:
     command: str
     args: list[str]

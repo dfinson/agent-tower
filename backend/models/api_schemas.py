@@ -486,6 +486,32 @@ class ProjectListSummaryResponse(CamelModel):
     items: list[ProjectSummaryResponse]
 
 
+class TaskLinkResponse(CamelModel):
+    """A TaskLink — a thin, Project-scoped correlation row (Story 4.2, AD-9)."""
+
+    id: str
+    project_id: str
+    repo_path: str
+    story_node_id: str | None
+    depends_on: list[str]
+    job_id: str | None
+    tracker_ticket_ref: str | None
+    prompt_override: str | None
+    epic_id: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TaskLinkListResponse(CamelModel):
+    items: list[TaskLinkResponse]
+
+
+class IngestTaskGraphResponse(CamelModel):
+    """Result of an ingestion run — the full upserted TaskLink set for the Project."""
+
+    items: list[TaskLinkResponse]
+
+
 class RepoSummaryResponse(CamelModel):
     """Aggregated overview for a single repo dashboard."""
 

@@ -13,14 +13,18 @@ from fastapi import APIRouter
 
 from backend.models.api_schemas import (
     CreateProjectRequest,
+    IngestTaskGraphResponse,
     ProjectListResponse,
     ProjectListSummaryResponse,
     ProjectResponse,
     ProjectSummaryResponse,
+    TaskLinkListResponse,
+    TaskLinkResponse,
     UpdateProjectRequest,
 )
-from backend.models.domain import Project, ProjectSummary
+from backend.models.domain import Project, ProjectSummary, TaskLink
 from backend.services.project.project_service import ProjectService
+from backend.services.recipe.recipe_service import RecipeService
 
 router = APIRouter(tags=["projects"], route_class=DishkaRoute)
 
@@ -44,6 +48,22 @@ def _to_summary_response(summary: ProjectSummary) -> ProjectSummaryResponse:
         awaiting_input_count=summary.awaiting_input_count,
         failed_count=summary.failed_count,
         last_activity_at=summary.last_activity_at,
+    )
+
+
+def _task_link_to_response(task_link: TaskLink) -> TaskLinkResponse:
+    return TaskLinkResponse(
+        id=task_link.id,
+        project_id=task_link.project_id,
+        repo_path=task_link.repo_path,
+        story_node_id=task_link.story_node_id,
+        depends_on=task_link.depends_on,
+        job_id=task_link.job_id,
+        tracker_ticket_ref=task_link.tracker_ticket_ref,
+        prompt_override=task_link.prompt_override,
+        epic_id=task_link.epic_id,
+        created_at=task_link.created_at,
+        updated_at=task_link.updated_at,
     )
 
 
@@ -101,3 +121,31 @@ async def update_project(
     """Rename a Project and/or replace its repo membership."""
     project = await project_service.update(project_id, name=body.name, repo_paths=body.repo_paths)
     return _to_response(project)
+
+
+@router.post(
+    "/settings/projects/{project_id}/ingest-tasks",
+    response_model=IngestTaskGraphResponse,
+    status_code=201,
+)
+async def ingest_project_tasks(
+    project_id: str,
+    recipe_service: FromDishka[RecipeService],
+) -> IngestTaskGraphResponse:
+    """Ingest BMAD stories / spec-kit tasks for every member repo of a Project (CAP-9).
+
+    Stateless, on-demand, read-only against every source repo; re-running
+    upserts existing TaskLinks rather than duplicating them.
+    """
+    task_links = await recipe_service.ingest_project(project_id)
+    return IngestTaskGraphResponse(items=[_task_link_to_response(t) for t in task_links])
+
+
+@router.get("/settings/projects/{project_id}/task-links", response_model=TaskLinkListResponse)
+async def list_project_task_links(
+    project_id: str,
+    recipe_service: FromDishka[RecipeService],
+) -> TaskLinkListResponse:
+    """List a Project's currently persisted TaskLinks."""
+    task_links = await recipe_service.list_task_links(project_id)
+    return TaskLinkListResponse(items=[_task_link_to_response(t) for t in task_links])
