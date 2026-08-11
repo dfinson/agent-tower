@@ -7,7 +7,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy.exc import OperationalError
 
-from backend.lifespan import _RESTART_REQUEST_ID_ENV, _persist_event_with_retry, _publish_restart_readiness
+from backend.lifespan import (
+    _RESTART_REQUEST_ID_ENV,
+    _build_copilot_steer_client,
+    _persist_event_with_retry,
+    _publish_restart_readiness,
+)
 from backend.models.events import EventKind, SessionEvent, new_event
 
 if TYPE_CHECKING:
@@ -43,6 +48,35 @@ def _make_event() -> SessionEvent:
         kind=EventKind.job_state_changed,
         payload={"state": "running"},
     )
+
+
+@pytest.mark.parametrize("env_var", ["GITHUB_TOKEN", "GH_TOKEN"])
+def test_build_copilot_steer_client_uses_github_token(monkeypatch: pytest.MonkeyPatch, env_var: str) -> None:
+    class _FakeCopilotSteerClient:
+        def __init__(self, github_token: str) -> None:
+            self.github_token = github_token
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setenv(env_var, "steer-token")
+    monkeypatch.setattr("backend.services.completers.copilot_steer.CopilotSteerClient", _FakeCopilotSteerClient)
+
+    client = _build_copilot_steer_client()
+
+    assert isinstance(client, _FakeCopilotSteerClient)
+    assert client.github_token == "steer-token"
+
+
+def test_build_copilot_steer_client_returns_none_without_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _UnexpectedCopilotSteerClient:
+        def __init__(self, github_token: str) -> None:
+            raise AssertionError("CopilotSteerClient should not be constructed without a token")
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setattr("backend.services.completers.copilot_steer.CopilotSteerClient", _UnexpectedCopilotSteerClient)
+
+    assert _build_copilot_steer_client() is None
 
 
 @pytest.mark.asyncio

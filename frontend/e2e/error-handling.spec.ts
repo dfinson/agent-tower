@@ -219,7 +219,6 @@ test.describe("Job Failure Display", () => {
       await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
     });
     await page.goto("/jobs/job-1");
-    await page.goto("/jobs/job-1");
 
     await expect(page.locator("main")).toContainText("Job failed", { timeout: 8_000 });
     await expect(page.locator("main")).toContainText("Failed", { timeout: 8_000 });

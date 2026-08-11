@@ -170,21 +170,7 @@ function isIncomingJobSnapshotStale(currentJob: AppState["jobs"][string], incomi
     return incomingUpdatedAt < currentUpdatedAt;
   }
 
-  return jobStateRank(currentJob.state) > jobStateRank(incomingJob.state);
-}
-
-const JOB_STATE_RANK: Record<string, number> = {
-  running: 0,
-  waiting_for_approval: 1,
-  review: 2,
-  completed: 3,
-  failed: 3,
-  canceled: 3,
-  archived: 4,
-};
-
-function jobStateRank(state: string): number {
-  return JOB_STATE_RANK[state] ?? 0;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -460,6 +446,15 @@ export const useStore = create<AppState>((set, get) => ({
       const currentJob = s.jobs[jobId];
       const incomingJob = enrichJob(snapshot.job);
       const preserveCurrentJob = !!currentJob && isIncomingJobSnapshotStale(currentJob, incomingJob);
+      const evictedState = evictStaleJobs(s, evictIds);
+
+      if (currentJob && preserveCurrentJob) {
+        return {
+          ...evictedState,
+          jobs: s.jobs,
+          approvals: s.approvals,
+        };
+      }
 
       // Remove stale approvals for this job before merging fresh ones
       const keptApprovals = Object.fromEntries(
@@ -493,21 +488,17 @@ export const useStore = create<AppState>((set, get) => ({
         const key = e.turnId ? `${e.toolName}::${e.turnId}` : e.toolName;
         return !completedCallKeys.has(key);
       });
-      const hydratedJob = currentJob
-        ? (preserveCurrentJob
-          ? { ...incomingJob, ...currentJob, state: currentJob.state, updatedAt: currentJob.updatedAt }
-          : { ...currentJob, ...incomingJob })
-        : incomingJob;
+      const hydratedJob = currentJob ? { ...currentJob, ...incomingJob } : incomingJob;
       return {
-        ...evictStaleJobs(s, evictIds),
+        ...evictedState,
         jobs: { ...s.jobs, [jobId]: hydratedJob },
         logs: { ...s.logs, [jobId]: snapshot.logs },
         transcript: { ...s.transcript, [jobId]: deduped },
         diffs: { ...s.diffs, [jobId]: snapshot.diff },
         approvals: {
           ...keptApprovals,
-          ...(preserveCurrentJob ? incomingJobApprovals : currentJobApprovals),
-          ...(preserveCurrentJob ? currentJobApprovals : incomingJobApprovals),
+          ...currentJobApprovals,
+          ...incomingJobApprovals,
         },
         streamingMessages,
         streamingToolOutput,
