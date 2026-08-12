@@ -1025,35 +1025,57 @@ class TestDevtunnelLoginDetection:
 
 
 class TestDevtunnelPortRegistration:
-    def test_port_create_failure_is_fatal(self) -> None:
-        """A tunnel that cannot forward the port must not be reported as started."""
+    """Reuse hinges on what the service reports, not on error wording.
 
+    The real CLI rejects a re-registration with "Tunnel service error:
+    Conflict with existing entity", which matches neither "already" nor
+    "exists" — the strings this once keyed on. Every start against an existing
+    tunnel therefore aborted, which is exactly how the Windows devtunnel run
+    failed.
+    """
+
+    _CONFLICT = (
+        "Tunnel service error: Conflict with existing entity. "
+        "Tunnel port number conflicts with an existing port in the tunnel."
+    )
+    _PORT_LIST = (
+        "Found 1 tunnel port.\n\nPort Number   Protocol      Current Connections\n8080          http          0\n"
+    )
+
+    @staticmethod
+    def _capture(*, create_error: str, port_list: str) -> object:
         def _fake_capture(args: list[str]) -> real_subprocess.CompletedProcess[str]:
-            if args[1] == "port":
-                return real_subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="quota exceeded")
+            if args[1:3] == ["port", "create"]:
+                return real_subprocess.CompletedProcess(args, returncode=1, stdout="", stderr=create_error)
+            if args[1:3] == ["port", "list"]:
+                return real_subprocess.CompletedProcess(args, returncode=0, stdout=port_list, stderr="")
             return real_subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
 
+        return _fake_capture
+
+    def test_port_create_failure_is_fatal(self) -> None:
+        """A tunnel that cannot forward the port must not be reported as started."""
         with (
             patch("backend.services.sharing.tunnel_service._lookup_devtunnel", return_value=(True, "usw2")),
-            patch("backend.services.sharing.tunnel_service._run_capture", side_effect=_fake_capture),
+            patch(
+                "backend.services.sharing.tunnel_service._run_capture",
+                side_effect=self._capture(create_error="quota exceeded", port_list="Found 0 tunnel ports.\n"),
+            ),
             pytest.raises(TunnelStartError) as exc_info,
         ):
             _start_devtunnel(8080, tunnel_name="cpl-test")
         assert "quota exceeded" in str(exc_info.value)
 
-    def test_already_registered_port_is_tolerated(self) -> None:
+    @pytest.mark.parametrize("create_error", [_CONFLICT, "Port 8080 already exists on tunnel"])
+    def test_already_registered_port_is_tolerated(self, create_error: str) -> None:
         proc = _FakeProc(poll_result=None)
-
-        def _fake_capture(args: list[str]) -> real_subprocess.CompletedProcess[str]:
-            if args[1] == "port":
-                return real_subprocess.CompletedProcess(
-                    args, returncode=1, stdout="", stderr="Port 8080 already exists on tunnel"
-                )
-            return real_subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
 
         with (
             patch("backend.services.sharing.tunnel_service._lookup_devtunnel", return_value=(True, "usw2")),
-            patch("backend.services.sharing.tunnel_service._run_capture", side_effect=_fake_capture),
+            patch(
+                "backend.services.sharing.tunnel_service._run_capture",
+                side_effect=self._capture(create_error=create_error, port_list=self._PORT_LIST),
+            ),
             patch("backend.services.sharing.tunnel_service.subprocess.Popen", return_value=_as_popen(proc)),
             patch("backend.services.sharing.tunnel_service._wait_for_startup"),
             patch("backend.services.sharing.tunnel_service._start_output_drain"),
@@ -1061,6 +1083,19 @@ class TestDevtunnelPortRegistration:
             origin, _, name, _ = _start_devtunnel(8080, tunnel_name="cpl-test")
         assert origin == "https://cpl-test-8080.usw2.devtunnels.ms"
         assert name == "cpl-test"
+
+    def test_a_different_registered_port_does_not_count(self) -> None:
+        """Only the requested port proves the tunnel can forward this server."""
+        other_port = "Found 1 tunnel port.\n\nPort Number   Protocol      Current Connections\n9000  http  0\n"
+        with (
+            patch("backend.services.sharing.tunnel_service._lookup_devtunnel", return_value=(True, "usw2")),
+            patch(
+                "backend.services.sharing.tunnel_service._run_capture",
+                side_effect=self._capture(create_error=self._CONFLICT, port_list=other_port),
+            ),
+            pytest.raises(TunnelStartError),
+        ):
+            _start_devtunnel(8080, tunnel_name="cpl-test")
 
 
 class TestCloudflaredDetectionIsPortable:

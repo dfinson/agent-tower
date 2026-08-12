@@ -853,6 +853,22 @@ def _find_existing_codeplane_tunnel() -> tuple[str, str] | None:
     return None
 
 
+def _devtunnel_port_registered(tunnel_name: str, port: int) -> bool:
+    """Ask the service whether *port* is already registered on *tunnel_name*.
+
+    ``devtunnel port list`` prints a table whose rows start with the port
+    number, e.g. ``8080          http          0``.
+    """
+    result = _run_capture(["devtunnel", "port", "list", tunnel_name])
+    if result.returncode != 0:
+        return False
+    for line in result.stdout.splitlines():
+        head = line.strip().split()
+        if head and head[0] == str(port):
+            return True
+    return False
+
+
 def _start_devtunnel(port: int, *, tunnel_name: str | None = None) -> tuple[str, subprocess.Popen[str], str, bool]:
     # Reusable means the identity is either explicitly configured by the
     # caller or an already-registered codeplane tunnel — restart tooling can
@@ -884,16 +900,19 @@ def _start_devtunnel(port: int, *, tunnel_name: str | None = None) -> tuple[str,
             raise TunnelStartError(msg)
 
     port_result = _run_capture(["devtunnel", "port", "create", tunnel_name, "-p", str(port), "--protocol", "http"])
-    if port_result.returncode != 0:
-        # An already-registered port is the normal case when reusing a tunnel;
-        # anything else means the tunnel cannot forward and must not be treated
-        # as usable just because the process starts.
-        detail = (port_result.stderr.strip() or port_result.stdout.strip()).lower()
-        if "already" not in detail and "exists" not in detail:
-            raise TunnelStartError(
-                f"Could not register port {port} on Dev Tunnel {tunnel_name!r}: "
-                f"{port_result.stderr.strip() or port_result.stdout.strip() or 'unknown error'}"
-            )
+    if port_result.returncode != 0 and not _devtunnel_port_registered(tunnel_name, port):
+        # A port that is already registered is the normal case when reusing a
+        # tunnel, and the real CLI reports it as "Tunnel service error:
+        # Conflict with existing entity" — not the "already"/"exists" wording
+        # this once matched on, so every reuse of an existing tunnel aborted
+        # the run. Asking the service which ports exist is authoritative and
+        # survives rewordings and localized output; a genuine failure still
+        # raises, because a tunnel that cannot forward must not be treated as
+        # usable just because the host process starts.
+        raise TunnelStartError(
+            f"Could not register port {port} on Dev Tunnel {tunnel_name!r}: "
+            f"{port_result.stderr.strip() or port_result.stdout.strip() or 'unknown error'}"
+        )
 
     _, region = _lookup_devtunnel(tunnel_name)
     if not region:
