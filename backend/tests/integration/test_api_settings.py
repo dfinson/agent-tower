@@ -142,6 +142,7 @@ class TestUpdateSettings:
         resp = await client.put("/api/settings", json={"trackerPollIntervalSeconds": 5})
         assert resp.status_code == 422
 
+
 # ---------------------------------------------------------------------------
 # Repo Endpoints
 # ---------------------------------------------------------------------------
