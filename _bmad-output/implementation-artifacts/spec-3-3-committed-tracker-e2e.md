@@ -38,6 +38,7 @@ baseline_commit: '8fb32f54'
 
 - `frontend/tracker-e2e/tracker-sync.spec.ts` -- isolated live-service orchestration and Story 3.3 browser assertions.
 - `frontend/playwright.tracker.config.ts` -- dedicated base URL and timeout without the shared development server.
+- `frontend/vite.config.ts` -- keep the dedicated Playwright spec outside Vitest discovery.
 - `frontend/package.json` -- repeatable production-build plus tracker E2E command.
 - `backend/services/tracker_sync_service.py` -- fixed 60-second scheduled poll cadence and shutdown wakeup.
 - `backend/config.py` -- remove tracker interval persistence and defaults.

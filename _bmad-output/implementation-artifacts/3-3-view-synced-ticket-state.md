@@ -158,6 +158,7 @@ GPT-5.6 Sol (GitHub Copilot CLI).
 - `frontend/tracker-e2e/tracker-sync.spec.ts`
 - `frontend/package.json`
 - `frontend/playwright.tracker.config.ts`
+- `frontend/vite.config.ts`
 
 ## Change Log
 
