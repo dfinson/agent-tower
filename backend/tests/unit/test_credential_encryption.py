@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 @pytest.fixture(autouse=True)
 def _isolated_codeplane_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Point the key file at a throwaway directory instead of the real home dir."""
-    monkeypatch.setattr(encryption, "get_codeplane_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.config.get_codeplane_dir", lambda: tmp_path)
 
 
 class TestEncryptDecryptRoundTrip:
