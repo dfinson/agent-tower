@@ -5,11 +5,37 @@ Covers: invalid arguments, edge cases for cpl up/init/version.
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 from click.testing import CliRunner
 
 from backend.main import cli
+
+
+def _invoke_up(*args: str) -> tuple[int, dict[str, Any]]:
+    """Run ``cpl up`` far enough to capture the uvicorn config it builds.
+
+    ``cpl up`` does not call ``uvicorn.Server(...)`` directly — it defines a
+    ``uvicorn.Server`` *subclass* (``_LaunchProfileServer``) and instantiates
+    that, so the bind settings can only be observed on ``uvicorn.Config``.
+    ``uvicorn.Server`` is still patched so ``server.run()`` never binds a real
+    socket, and ``--skip-preflight`` keeps the invocation independent of the
+    host machine's toolchain and of whether port 8080 happens to be free.
+
+    Returns the exit code and the keyword arguments passed to ``uvicorn.Config``.
+    """
+    runner = CliRunner()
+    with (
+        patch("backend.cli._build_frontend"),
+        patch("backend.persistence.database.run_migrations"),
+        patch("uvicorn.Server"),
+        patch("uvicorn.Config") as mock_config,
+    ):
+        result = runner.invoke(cli, ["up", "--skip-preflight", *args])
+        if result.exit_code == 0:
+            assert mock_config.called, "cpl up exited 0 without building a uvicorn config"
+        return result.exit_code, dict(mock_config.call_args.kwargs) if mock_config.called else {}
 
 
 class TestVersionCommand:
@@ -85,54 +111,25 @@ class TestUpCommand:
 
     def test_up_accepts_negative_port(self) -> None:
         """Click accepts negative int; uvicorn would fail at bind time."""
-        runner = CliRunner()
-        with (
-            patch("backend.cli._build_frontend"),
-            patch("backend.persistence.database.run_migrations"),
-            patch("uvicorn.Server") as mock_server,
-        ):
-            result = runner.invoke(cli, ["up", "--port", "-1"])
-            # Should reach uvicorn.Server (click doesn't validate port range)
-            if result.exit_code == 0:
-                assert mock_server.called
-                config = mock_server.call_args[0][0]
-                assert config.port == -1
+        exit_code, uv_config = _invoke_up("--port", "-1")
+        assert exit_code == 0
+        assert uv_config["port"] == -1
 
     def test_up_with_zero_port(self) -> None:
-        runner = CliRunner()
-        with (
-            patch("backend.cli._build_frontend"),
-            patch("backend.persistence.database.run_migrations"),
-            patch("uvicorn.Server") as mock_server,
-        ):
-            result = runner.invoke(cli, ["up", "--port", "0"])
-            if result.exit_code == 0:
-                assert mock_server.called
+        exit_code, uv_config = _invoke_up("--port", "0")
+        assert exit_code == 0
+        assert uv_config["port"] == 0
 
     def test_up_with_custom_host(self) -> None:
-        runner = CliRunner()
-        with (
-            patch("backend.cli._build_frontend"),
-            patch("backend.persistence.database.run_migrations"),
-            patch("uvicorn.Server") as mock_server,
-        ):
-            result = runner.invoke(cli, ["up", "--host", "0.0.0.0"])
-            if result.exit_code == 0:
-                config = mock_server.call_args[0][0]
-                assert config.host == "0.0.0.0"
+        exit_code, uv_config = _invoke_up("--host", "0.0.0.0")
+        assert exit_code == 0
+        assert uv_config["host"] == "0.0.0.0"
 
     def test_up_uses_config_defaults(self) -> None:
-        runner = CliRunner()
-        with (
-            patch("backend.cli._build_frontend"),
-            patch("backend.persistence.database.run_migrations"),
-            patch("uvicorn.Server") as mock_server,
-        ):
-            result = runner.invoke(cli, ["up"])
-            if result.exit_code == 0:
-                config = mock_server.call_args[0][0]
-                assert config.host == "127.0.0.1"
-                assert config.port == 8080
+        exit_code, uv_config = _invoke_up()
+        assert exit_code == 0
+        assert uv_config["host"] == "127.0.0.1"
+        assert uv_config["port"] == 8080
 
     # -----------------------------------------------------------------------
     # #2 — Block unauthenticated 0.0.0.0 binding

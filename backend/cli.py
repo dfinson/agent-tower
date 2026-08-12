@@ -165,8 +165,10 @@ def up(
         remote = True
 
     config = load_config()
-    host = host or config.server.host
-    port = port or config.server.port
+    host = host if host is not None else config.server.host
+    # ``port or config.server.port`` would silently discard an explicit
+    # ``--port 0``, which is a valid request for an OS-assigned ephemeral port.
+    port = port if port is not None else config.server.port
 
     # Run preflight checks before starting
     if not skip_preflight:

@@ -281,13 +281,23 @@ class TestStopServer:
     @patch("time.sleep", return_value=None)
     @patch("backend.cli._kill_process_group")
     @patch("os.kill")
+    @patch("os.getpgid", create=True, side_effect=lambda pid: pid)
     @patch("backend.cli._find_pids_on_port")
     def test_escalates_to_sigkill_after_timeout(
-        self, mock_find_pids, _mock_os_kill, mock_kill_group, _mock_sleep, _mock_monotonic, capsys
+        self, mock_find_pids, _mock_getpgid, _mock_os_kill, mock_kill_group, _mock_sleep, _mock_monotonic, capsys
     ) -> None:
         """Preserve existing graceful-then-force behavior for the target
-        PID(s): still bound to the port after the timeout -> escalate."""
+        PID(s): still bound to the port after the timeout -> escalate.
+
+        ``os.getpgid`` is stubbed (it does not exist on Windows, and on POSIX
+        it would raise ``ProcessLookupError`` for the synthetic PID 100 and
+        silently skip the process-group path) so both platforms exercise the
+        same escalation branch. The force signal mirrors production's
+        ``getattr(signal, "SIGKILL", signal.SIGTERM)`` fallback: Windows has
+        no ``SIGKILL``.
+        """
         mock_find_pids.side_effect = [[100], [100], [100], []]
+        force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
 
         result = _stop_server(8080, timeout_seconds=1)
 
@@ -295,7 +305,10 @@ class TestStopServer:
         output = capsys.readouterr().out
         assert "SIGKILL" in output
         assert [c.args for c in _mock_os_kill.call_args_list] == [(100, signal.SIGTERM)]
-        assert [c.args for c in mock_kill_group.call_args_list] == [(100, signal.SIGKILL)]
+        assert [c.args for c in mock_kill_group.call_args_list] == [
+            (100, signal.SIGTERM),
+            (100, force_signal),
+        ]
 
 
 # ---------------------------------------------------------------------------
