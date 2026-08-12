@@ -7,6 +7,7 @@ graceful shutdown.  Extracted from main.py to keep concerns separated.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from contextlib import asynccontextmanager
@@ -306,8 +307,37 @@ async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> Non
         msg="No Cloudflare Access gate detected. Shutting down to prevent unprotected exposure.",
     )
     tunnel_handle.close()
-    # Signal the server to shut down
+    _request_graceful_shutdown()
+
+
+def _request_graceful_shutdown() -> None:
+    """Ask this process to shut down, portably.
+
+    ``os.kill(os.getpid(), signal.SIGTERM)`` is a hard ``TerminateProcess``
+    call on Windows: the process dies immediately, so uvicorn never runs its
+    graceful shutdown and the lifespan shutdown handlers (worktree cleanup,
+    lease release, DB flush) never run at all. Raising the installed SIGTERM
+    handler in-process keeps the same shutdown path on every platform, and
+    ``os.kill`` remains the fallback when no handler is installed.
+    """
     import signal
+
+    handler = signal.getsignal(signal.SIGTERM)
+    if getattr(handler, "codeplane_absorbs_signal", False):
+        # ``cli._neutralize_fatal_termination_signals`` installs a handler that
+        # swallows the signal so cleanup can run; calling it would return
+        # without shutting anything down. Restore the default first so the
+        # ``os.kill`` below is guaranteed to stop this process — this path is
+        # the emergency stop for an unprotected public exposure, where staying
+        # up is the worse outcome.
+        with contextlib.suppress(ValueError, OSError, RuntimeError):
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    elif callable(handler):
+        try:
+            handler(signal.SIGTERM, None)
+            return
+        except Exception:  # noqa: BLE001 - fall through to the hard stop below
+            log.warning("graceful_shutdown_handler_failed", exc_info=True)
 
     os.kill(os.getpid(), signal.SIGTERM)
 

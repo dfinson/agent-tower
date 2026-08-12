@@ -319,3 +319,88 @@ def test_restart_request_id_env_name_is_stable() -> None:
     # ``backend/services/dev_restart/restart_helper.py``:
     # ``env["CODEPLANE_RESTART_REQUEST_ID"] = request_id``).
     assert _RESTART_REQUEST_ID_ENV == "CODEPLANE_RESTART_REQUEST_ID"
+
+
+class TestPortableGracefulShutdown:
+    """`os.kill(pid, SIGTERM)` is a hard TerminateProcess on Windows.
+
+    That skipped uvicorn's graceful shutdown and every lifespan shutdown
+    handler, so the Cloudflare Access safety stop left worktrees, leases and
+    pending DB writes mid-flight instead of unwinding them.
+    """
+
+    def test_prefers_the_installed_sigterm_handler(self) -> None:
+        import signal
+
+        from backend.lifespan import _request_graceful_shutdown
+
+        calls: list[int] = []
+
+        def _handler(signum: int, _frame: object) -> None:
+            calls.append(signum)
+
+        with (
+            patch("signal.getsignal", return_value=_handler),
+            patch("os.kill") as mock_kill,
+        ):
+            _request_graceful_shutdown()
+
+        assert calls == [signal.SIGTERM]
+        mock_kill.assert_not_called()
+
+    def test_falls_back_to_os_kill_without_a_handler(self) -> None:
+        import signal
+
+        from backend.lifespan import _request_graceful_shutdown
+
+        with (
+            patch("signal.getsignal", return_value=signal.SIG_DFL),
+            patch("os.kill") as mock_kill,
+        ):
+            _request_graceful_shutdown()
+
+        mock_kill.assert_called_once()
+        assert mock_kill.call_args[0][1] == signal.SIGTERM
+
+    def test_falls_back_when_the_handler_raises(self) -> None:
+        from backend.lifespan import _request_graceful_shutdown
+
+        def _broken_handler(_signum: int, _frame: object) -> None:
+            raise RuntimeError("handler exploded")
+
+        with (
+            patch("signal.getsignal", return_value=_broken_handler),
+            patch("os.kill") as mock_kill,
+        ):
+            _request_graceful_shutdown()
+
+        mock_kill.assert_called_once()
+
+    def test_a_signal_absorbing_handler_is_not_mistaken_for_a_graceful_one(self) -> None:
+        """`cpl up` installs a handler whose whole job is to swallow SIGTERM.
+
+        It is callable, so the handler-first path would call it and return
+        with nothing shut down — leaving an unprotected public origin serving
+        after the Cloudflare Access check decided to take the server down.
+        """
+        import signal
+
+        from backend.cli import _neutralize_fatal_termination_signals
+        from backend.lifespan import _request_graceful_shutdown
+
+        previous = signal.getsignal(signal.SIGTERM)
+        try:
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            _neutralize_fatal_termination_signals()
+            inert = signal.getsignal(signal.SIGTERM)
+            assert callable(inert)
+
+            with patch("os.kill") as mock_kill:
+                _request_graceful_shutdown()
+
+            mock_kill.assert_called_once()
+            assert mock_kill.call_args[0][1] == signal.SIGTERM
+            # The default was restored first, so that kill is guaranteed fatal.
+            assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+        finally:
+            signal.signal(signal.SIGTERM, previous)

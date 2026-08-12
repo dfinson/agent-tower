@@ -172,8 +172,25 @@ class TestValidateRemoteProvider:
         assert validate_remote_provider(RemoteProvider.local) is None
 
     def test_devtunnel_available(self):
-        with patch.object(shutil, "which", return_value="/usr/bin/devtunnel"):
+        # The login probe shells out to the real ``devtunnel`` CLI, so it must
+        # be stubbed too: otherwise this test asserts the state of whoever's
+        # machine it runs on (green when logged in, red on CI where the CLI
+        # is absent) rather than the behavior of validate_remote_provider.
+        with (
+            patch.object(shutil, "which", return_value="/usr/bin/devtunnel"),
+            patch("backend.services.sharing.tunnel_service.devtunnel_logged_in", return_value=True),
+        ):
             assert validate_remote_provider(RemoteProvider.devtunnel) is None
+
+    def test_devtunnel_present_but_logged_out(self):
+        with (
+            patch.object(shutil, "which", return_value="/usr/bin/devtunnel"),
+            patch("backend.services.sharing.tunnel_service.devtunnel_logged_in", return_value=False),
+        ):
+            result = validate_remote_provider(RemoteProvider.devtunnel)
+        assert result is not None
+        assert "not logged in" in result
+        assert "devtunnel user login" in result
 
     def test_devtunnel_missing(self):
         with patch.object(shutil, "which", return_value=None):
