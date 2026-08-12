@@ -90,7 +90,7 @@ development_status:
   5-4-gate-a-chains-auto-spawn-behind-approval: review
   epic-5-retrospective: optional
 
-  epic-6: backlog
-  6-1-agent-comments-transitions-a-tracker-ticket-mid-job: backlog
+  epic-6: in-progress
+  6-1-agent-comments-transitions-a-tracker-ticket-mid-job: review
   6-2-agent-requests-a-pr-mid-job: backlog
   epic-6-retrospective: optional

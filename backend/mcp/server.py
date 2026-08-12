@@ -49,6 +49,8 @@ from backend.models.domain import (
 from backend.services.artifacts.artifact_service import ArtifactService
 from backend.services.git.git_service import GitError, GitService
 from backend.services.job.job_service import JobService
+from backend.services.tracker_resolution import TrackerResolutionError, resolve_tracker_for_job
+from backend.services.tracker_write_service import TrackerWriteAction, TrackerWriteRequest, TrackerWriteService
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -164,6 +166,7 @@ def create_mcp_server(
 
     _register_job_tool(mcp, state)
     _register_pr_tool(mcp, state)
+    _register_tracker_tool(mcp, state)
     _register_approval_tool(mcp, state)
     _register_workspace_tool(mcp, state)
     _register_artifact_tool(mcp, state)
@@ -398,6 +401,86 @@ def _register_pr_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
             return {"error": result.error}
 
         return {"pr_url": result.pr_url, "status": str(result.status)}
+
+
+# ---------------------------------------------------------------------------
+# Agent-initiated tracker comment/transition (Story 6.1, CAP-13)
+# ---------------------------------------------------------------------------
+
+
+def _register_tracker_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
+    @mcp.tool(
+        name="codeplane_tracker",
+        title="Comment or Transition Tracker Ticket",
+        annotations=ToolAnnotations(
+            title="Comment or Transition Tracker Ticket", destructiveHint=True, openWorldHint=True
+        ),
+        description=(
+            "Comment on or transition the external tracker ticket paired with the calling "
+            "Job's Project, while the Job is still running — instead of waiting for a "
+            "recipe's completion-time tracker_write output route."
+            "\n\n"
+            "- comment: job_id (required), value (required, the comment text)"
+            "\n- transition: job_id (required), value (required, the target status)"
+            "\n\n"
+            "CodePlane resolves the Job's Project and TrackerLink server-side and creates a "
+            "codeplane_approval entry via the exact same gate CAP-11's recipe-driven "
+            "tracker_write route already uses — nothing is written to the external tracker "
+            "until that approval is granted. The agent never receives or handles the "
+            "Credential's decrypted PAT at any point; CodePlane resolves and uses it "
+            "server-side on the agent's behalf."
+        ),
+    )
+    async def codeplane_tracker(
+        action: Literal["comment", "transition"],
+        job_id: str | None = None,
+        value: str | None = None,
+    ) -> McpToolResult:
+        if not job_id:
+            return {"error": "job_id is required"}
+        if not value:
+            return {"error": "value is required"}
+
+        sf = mcp_state.session_factory
+        async with sf() as session:
+            try:
+                resolved = await resolve_tracker_for_job(session, job_id)
+            except TrackerResolutionError as exc:
+                return {"error": str(exc)}
+
+        tracker_action = TrackerWriteAction.comment if action == "comment" else TrackerWriteAction.transition
+        request = TrackerWriteRequest(
+            tracker_link_id=resolved.tracker_link_id,
+            ticket_ref=resolved.ticket_ref,
+            action=tracker_action,
+            value=value,
+        )
+
+        async def _dispatch(dispatch_request: TrackerWriteRequest) -> None:
+            # Resolve the Credential's PAT server-side only, on the approved
+            # write's behalf — the agent never sees it, at any point, before
+            # or after approval. Per-provider tracker API calls themselves
+            # are tracked separately (outside this story's scope); this
+            # proves the PAT never crosses the MCP tool boundary.
+            from backend.persistence.credential_repo import CredentialRepository
+
+            async with sf() as dispatch_session:
+                secret = await CredentialRepository(dispatch_session).resolve_secret(resolved.credential_id)
+            if secret is None:
+                log.warning(
+                    "tracker_write.missing_credential_secret",
+                    tracker_link_id=dispatch_request.tracker_link_id,
+                    job_id=job_id,
+                )
+
+        service = TrackerWriteService(mcp_state.approval_service)
+        dispatched = await service.execute(job_id, request, _dispatch)
+
+        return {
+            "dispatched": dispatched,
+            "ticketRef": resolved.ticket_ref,
+            "action": tracker_action.value,
+        }
 
 
 # ---------------------------------------------------------------------------
