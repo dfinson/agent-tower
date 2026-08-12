@@ -123,6 +123,21 @@ At startup CodePlane fetches Cloudflare's JWKS signing keys (validating the Acce
 
 You can find the AUD tag in the Cloudflare Zero Trust dashboard under **Access → Applications → your app → Overview → Application Audience (AUD) Tag**.
 
+### Tunnel Lifecycle
+
+Both providers are supported on Linux, macOS, native Windows, and WSL.
+
+**The connector is tied to the server.** CodePlane starts the connector process (`devtunnel host` or `cloudflared`) as a child of the server and stops it again when the server stops — via `cpl down`, `cpl restart`, or Ctrl-C. After a normal shutdown no connector is left behind and the public origin reports no host connections.
+
+**Reusing an existing connector.** If a connector is already serving the configured origin — a systemd/Docker-managed `cloudflared`, or one orphaned by a previous run — CodePlane detects it at startup, reuses it instead of starting a second one, and leaves it running at shutdown. Externally managed connectors are never terminated by CodePlane.
+
+**Named Dev Tunnels are reusable.** `--tunnel-name` reuses the same tunnel and port registration across restarts, so the URL stays stable. Re-running against a tunnel whose port is already registered is expected and handled.
+
+**Connector supervision.** A watchdog restarts the connector if the connector process exits, or if the public relay stops forwarding while the local server is healthy. It deliberately does *not* restart the connector when the local server itself is unreachable (for example during a slow startup) — restarting a connector cannot fix a down origin.
+
+!!! note "Hard kills can orphan the connector"
+    If the server is killed abruptly (`kill -9`, Task Manager, a crash), it gets no chance to stop the connector and the process may survive. The next `cpl up` detects the surviving connector and reuses it. To remove it manually, stop the `devtunnel host` / `cloudflared` process for your origin.
+
 ### All Remote Options
 
 | CLI Flag | Env Var | Description |

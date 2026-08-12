@@ -53,7 +53,7 @@ cpl down [options]
 | `--port PORT` | Server port | from config or `8080` |
 | `--force` | Skip session pausing; stop immediately | disabled |
 
-Active sessions are paused for recovery on next start.
+Active sessions are paused for recovery on next start. A tunnel connector started by `cpl up` is stopped along with the server; a connector that was already running before startup (externally managed) is left alone.
 
 ### `cpl restart`
 
