@@ -386,9 +386,6 @@ class TestValidatePreflight:
             hint="Unable to verify authentication",
             category="agent",
         )
-        config_path = tmp_path / "config.yaml"
-        config_path.write_text("runtime:\n  default_sdk: copilot\n", encoding="utf-8")
-
         with (
             patch("backend.services.setup.service.load_config", return_value=CPLConfig()),
             patch("backend.services.setup.service.verify_requirements", return_value=[warning]),
