@@ -409,9 +409,7 @@ class TestTrackerTool:
         ):
             mock_cred_cls.return_value.resolve_secret = AsyncMock(return_value="secret-pat")
 
-            result = await _tool(mcp_server, "codeplane_tracker")(
-                action="transition", job_id="job-123", value="Done"
-            )
+            result = await _tool(mcp_server, "codeplane_tracker")(action="transition", job_id="job-123", value="Done")
 
         assert result["dispatched"] is False
         mock_cred_cls.return_value.resolve_secret.assert_not_called()

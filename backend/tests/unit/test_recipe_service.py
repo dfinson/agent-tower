@@ -609,9 +609,7 @@ class TestHandleJobCompletedTrackerWrite:
         # No story_node_id (manually-assigned, Story 4.3) — must not be skipped
         # by the dependency-graph early return, since a manually-assigned
         # TaskLink is exactly the kind most likely paired with a ticket.
-        completed_link = _make_task_link(
-            id="link-a", story_node_id=None, job_id="job-1", tracker_ticket_ref="JIRA-7"
-        )
+        completed_link = _make_task_link(id="link-a", story_node_id=None, job_id="job-1", tracker_ticket_ref="JIRA-7")
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_tracker_link_repo.list_for_project.return_value = [
             {"id": "trk-1", "project_id": "proj-1", "credential_id": "cred-1", "external_ref": "PROJ"}
@@ -821,9 +819,7 @@ class TestHandleJobCompletedGating:
         mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
         mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
         mock_chat_repo.get_attached_open_chat_for_project.return_value = object()
-        mock_approval_service.list_pending.return_value = [
-            _make_approval(proposed_action="spawn_task:link-b")
-        ]
+        mock_approval_service.list_pending.return_value = [_make_approval(proposed_action="spawn_task:link-b")]
 
         service = RecipeService(
             mock_task_link_repo,
