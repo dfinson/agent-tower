@@ -166,6 +166,22 @@ def _load_and_export_dotenv(dotenv_path: Path) -> dict[str, str]:
     return dotenv_vars
 
 
+def _provider_explicit() -> bool:
+    """Whether ``--provider`` was actually supplied on the command line.
+
+    ``up``'s ``--provider`` has a default of ``devtunnel``, so the parameter
+    value cannot distinguish "the user asked for devtunnel" from "nobody said
+    anything". Click records where each value came from, which is the only
+    reliable signal.
+    """
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return False
+    from click.core import ParameterSource
+
+    return ctx.get_parameter_source("provider") is ParameterSource.COMMANDLINE
+
+
 # ---------------------------------------------------------------------------
 # ``cpl up`` — start the server
 # ---------------------------------------------------------------------------
@@ -262,7 +278,7 @@ def up(
             raise SystemExit(1) from exc
         port = ephemeral_socket.getsockname()[1]
 
-    if not remote and provider != "devtunnel":
+    if not remote and _provider_explicit():
         click.secho(
             f"ERROR: --provider requires --remote (got --provider {provider} without --remote).",
             fg="red",
@@ -285,8 +301,15 @@ def up(
     cf_access_team = _env("CPL_CF_ACCESS_TEAM")
     cf_access_aud = _env("CPL_CF_ACCESS_AUD")
 
-    # Auto-detect Cloudflare when --provider wasn't explicitly set but credentials exist
-    if remote and provider == "devtunnel" and cloudflare_token and cloudflare_hostname:
+    # Auto-detect Cloudflare when --provider wasn't explicitly set but credentials exist.
+    # ``provider`` defaults to "devtunnel", so its value alone cannot tell an
+    # explicit ``--provider devtunnel`` apart from the default; click's
+    # parameter source can. Without this distinction the auto-detect silently
+    # overrode a deliberate devtunnel request on any machine that happens to
+    # have Cloudflare credentials, and the restart helper — which always
+    # replays ``--provider`` explicitly — could not reproduce a recorded
+    # devtunnel session.
+    if remote and provider == "devtunnel" and cloudflare_token and cloudflare_hostname and not _provider_explicit():
         provider = "cloudflare"
 
     remote_provider = RemoteProvider(provider) if remote else RemoteProvider.local

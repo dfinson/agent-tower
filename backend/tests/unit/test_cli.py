@@ -687,6 +687,63 @@ class TestUpLaunchProfilePublication:
         assert written is None
 
 
+class TestProviderSelection:
+    """``--provider`` must win over Cloudflare credential auto-detection.
+
+    ``--provider`` defaults to ``devtunnel``, so the auto-detect used to fire
+    on an explicit ``--provider devtunnel`` too: any machine with Cloudflare
+    credentials in ``.env`` silently started a Cloudflare tunnel instead. The
+    restart helper always replays ``--provider`` explicitly, so a recorded
+    devtunnel session could not be reproduced either.
+    """
+
+    _CF_ENV = {
+        "CPL_CLOUDFLARE_TUNNEL_TOKEN": "cf-token-do-not-leak",
+        "CPL_CLOUDFLARE_HOSTNAME": "cpl.example.com",
+    }
+
+    def _run(self, args: list[str], tmp_path: object) -> dict[str, object] | None:
+        from backend.services.sharing.tunnel_service import RemoteProvider, TunnelHandle
+
+        captured: dict[str, object] = {}
+
+        def _fake_start(provider, **kwargs):  # type: ignore[no-untyped-def]
+            captured["provider"] = provider
+            return TunnelHandle(
+                provider=provider,
+                origin="https://example.test",
+                externally_managed=False,
+                name="example",
+            )
+
+        with (
+            patch("backend.config.get_codeplane_dir", return_value=tmp_path),
+            patch("backend.services.sharing.tunnel_service.start_remote_access", side_effect=_fake_start),
+            patch.dict("os.environ", self._CF_ENV),
+        ):
+            result, written = _invoke_up(args)
+        assert result.exit_code == 0, result.output
+        assert captured["provider"] is not RemoteProvider.local
+        return written
+
+    def test_explicit_devtunnel_is_not_overridden_by_cloudflare_credentials(self, tmp_path: object) -> None:
+        written = self._run(["--remote", "--provider", "devtunnel"], tmp_path)
+        assert written is not None
+        assert written["provider"] == "devtunnel"
+
+    def test_omitted_provider_still_auto_detects_cloudflare(self, tmp_path: object) -> None:
+        written = self._run(["--remote"], tmp_path)
+        assert written is not None
+        assert written["provider"] == "cloudflare"
+
+    def test_explicit_provider_without_remote_is_rejected(self) -> None:
+        runner = CliRunner()
+        with patch("backend.services.setup.service.validate_preflight", return_value=True):
+            result = runner.invoke(cli, ["up", "--provider", "devtunnel", "--skip-preflight"])
+        assert result.exit_code == 1
+        assert "--provider requires --remote" in result.output
+
+
 class TestDotenvExport:
     """`.env` values must reach `os.environ`.
 
