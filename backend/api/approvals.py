@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
 
+from backend.lifespan import _fire_and_forget
 from backend.models.api_schemas import (
     ApprovalListResponse,
     ApprovalResponse,
@@ -86,7 +86,7 @@ async def resolve_approval(
                 except Exception:
                     log.warning("gated_task_link_spawn_setup_failed", job_id=job.id, exc_info=True)
 
-            asyncio.create_task(_setup_and_start(), name=f"gated-task-link-spawn-{job.id[:8]}")
+            _fire_and_forget(_setup_and_start(), name=f"gated-task-link-spawn-{job.id[:8]}")
 
     return _to_response(approval)
 
