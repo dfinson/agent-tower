@@ -8,12 +8,15 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
-from backend.config import CPLConfig
 from backend.models.db import Base, CredentialRow, ProjectRow, TrackerLinkRow
 from backend.persistence.credential_repo import CredentialRepository
 from backend.persistence.tracker_summary_repo import TrackerSummaryRepository
 from backend.services.tracker_adapter import TrackerAdapterError, TrackerTicket
-from backend.services.tracker_sync_service import TrackerLinkNotFoundError, TrackerSyncService
+from backend.services.tracker_sync_service import (
+    TRACKER_POLL_INTERVAL_SECONDS,
+    TrackerLinkNotFoundError,
+    TrackerSyncService,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -113,7 +116,6 @@ async def test_refresh_link_is_project_scoped(
     adapter = AsyncMock()
     service = TrackerSyncService(
         session_factory=session_factory,
-        config=CPLConfig(),
         adapters={"github": adapter},
     )
 
@@ -141,7 +143,6 @@ async def test_refresh_all_isolates_link_failures(
     adapter.fetch_tickets.side_effect = fetch_tickets
     service = TrackerSyncService(
         session_factory=session_factory,
-        config=CPLConfig(),
         adapters={"github": adapter},
     )
 
@@ -156,25 +157,43 @@ async def test_refresh_all_isolates_link_failures(
 
 
 @pytest.mark.asyncio
-async def test_interval_change_wakes_running_poller(
+async def test_poller_uses_fixed_sixty_second_cadence(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = CPLConfig()
-    config.tracker.poll_interval_seconds = 3600
     service = TrackerSyncService(
         session_factory=session_factory,
-        config=config,
+        adapters={},
+    )
+    observed_timeout: float | None = None
+
+    async def capture_timeout(awaitable: object, *, timeout: float) -> None:
+        nonlocal observed_timeout
+        observed_timeout = timeout
+        service._stopping = True
+        service._wake.set()
+        await awaitable  # type: ignore[misc]
+
+    monkeypatch.setattr(asyncio, "wait_for", capture_timeout)
+
+    await service._poll_loop()
+
+    assert TRACKER_POLL_INTERVAL_SECONDS == 60.0
+    assert observed_timeout == 60.0
+
+
+@pytest.mark.asyncio
+async def test_stop_wakes_fixed_cadence_wait_promptly(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    service = TrackerSyncService(
+        session_factory=session_factory,
         adapters={},
     )
     service.refresh_all = AsyncMock()
     service.start()
+    await asyncio.sleep(0)
 
-    config.tracker.poll_interval_seconds = 0.01
-    service.notify_interval_changed()
-    for _ in range(50):
-        if service.refresh_all.await_count:
-            break
-        await asyncio.sleep(0.01)
-    await service.stop()
+    await asyncio.wait_for(service.stop(), timeout=2.0)
 
-    service.refresh_all.assert_awaited()
+    service.refresh_all.assert_not_awaited()

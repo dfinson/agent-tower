@@ -146,6 +146,9 @@ jobs:
           CI: true
           CODEPLANE_E2E_FAKE_AGENT: "1"
 
+      - name: Run tracker synchronization E2E test
+        run: cd frontend && npm run lint:e2e:tracker && npm run test:e2e:tracker
+
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4

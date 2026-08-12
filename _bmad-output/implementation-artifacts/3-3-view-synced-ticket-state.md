@@ -17,30 +17,34 @@ so that I don't have to leave CodePlane to check status.
 1. **Given** a Project with an attached TrackerLink, **when** the poll interval elapses or I trigger a manual refresh, **then** ticket/board state is fetched and rendered, with no inbound webhook endpoint involved at any point (NFR2).
 2. **Given** the configured poll interval, **when** I change it in settings, **then** subsequent polls honor the new interval.
 
+### Approved Scope Change (2026-08-12)
+
+The approved follow-up spec supersedes AC2's configurable interval: tracker synchronization now uses one non-configurable 60-second production cadence. The settings API, persisted configuration, generated OpenAPI contract, frontend type, and Settings UI no longer expose an interval. AC1 remains satisfied by scheduled polling plus manual refresh, and the repository live-service Playwright scenario proves both paths.
+
 ## Tasks / Subtasks
 
-- [x] Task 1: Add the tracker sync read model and configuration (AC: 1, 2)
+- [x] Task 1: Add the tracker sync read model (AC: 1)
   - [x] Add `TrackerSummaryRow`, keyed by `tracker_link_id`, with normalized ticket-state JSON, last-sync timestamp, and last error; keep it separate from `JobRow`.
-  - [x] Add the Alembic migration on the current `origin/main` head and update `backend/config.py`, settings schemas/API, and frontend `Settings` type with a bounded `tracker_poll_interval_seconds` value.
-  - [x] Ensure settings updates mutate the app-scoped config used by the running poller and persist to `config.yaml`.
+  - [x] Add the Alembic migration on the current `origin/main` head.
+  - [x] Keep tracker cadence out of `CPLConfig`, `config.yaml`, settings schemas/API, generated OpenAPI, and the frontend `Settings` type.
 - [x] Task 2: Implement provider-isolated ticket fetching (AC: 1)
   - [x] Add `TrackerAdapterInterface` and normalized ticket models in `backend/services/tracker_adapter.py`.
   - [x] Implement GitHub Projects, Jira, and Azure DevOps read adapters using the existing `httpx` dependency and server-side decrypted credentials; never return or log a PAT.
   - [x] Keep all provider SDK/REST response shapes behind the adapter boundary and surface explicit provider/transport/response errors.
-- [x] Task 3: Implement scheduled and manual tracker sync (AC: 1, 2)
+- [x] Task 3: Implement scheduled and manual tracker sync (AC: 1)
   - [x] Add `TrackerSummaryRepository` and `TrackerSyncService`; iterate every TrackerLink, fetch through the matching adapter, and upsert the separate read model.
   - [x] Start and stop the poller with FastAPI lifespan; isolate per-link failures so one provider/link cannot stop later links or future poll cycles.
-  - [x] Make interval changes wake/reconfigure the running poll loop so the next wait uses the new value.
+  - [x] Use an exact fixed 60-second scheduled cadence and wake the running wait promptly during shutdown.
   - [x] Add a thin manual-refresh endpoint and include summary state in the project-scoped TrackerLink read response; add no webhook route.
-- [x] Task 4: Render synced ticket state and manual refresh in CodePlane (AC: 1, 2)
+- [x] Task 4: Render synced ticket state and manual refresh in CodePlane (AC: 1)
   - [x] Add typed API client functions for Projects, TrackerLinks, summaries, and manual refresh.
   - [x] Add a reusable project-grouped tracker-state panel to Settings, showing provider/link identity, ticket title/status, last-sync/error/never-synced states, and a per-link Refresh action.
-  - [x] Add the poll-interval field to Settings and preserve existing credential registration behavior.
-- [x] Task 5: Author comprehensive tests (AC: 1, 2)
-  - [x] Unit-test adapter normalization/error handling, summary persistence, per-link failure isolation, manual refresh, and live interval changes.
-  - [x] Integration-test project-scoped summary reads/manual refresh, settings persistence, secret-free responses, and absence of any inbound tracker webhook surface.
-  - [x] Component-test rendered ticket/error/empty states, manual refresh, and poll-interval editing.
-  - [x] Execute the critical browser flow against a running CodePlane instance: view persisted synced state, trigger manual refresh, and change the interval.
+  - [x] Preserve existing credential registration behavior without adding tracker cadence controls.
+- [x] Task 5: Author comprehensive tests (AC: 1)
+  - [x] Unit-test adapter normalization/error handling, summary persistence, per-link failure isolation, manual refresh, fixed 60-second cadence, and prompt shutdown.
+  - [x] Integration-test project-scoped summary reads/manual refresh, secret-free settings responses, and absence of any inbound tracker webhook surface.
+  - [x] Component-test rendered ticket/error/empty states and manual refresh.
+  - [x] Add and execute the critical repository browser flow against an isolated migrated CodePlane backend and local fake Jira: wait for scheduled persistence/rendering, change Jira state, trigger manual refresh, and assert zero browser console errors.
 
 ## Dev Notes
 
@@ -56,7 +60,7 @@ so that I don't have to leave CodePlane to check status.
 - Follow AD-7: a background poller calls providers only through `TrackerAdapterInterface`, once per `TrackerLinkRow`, and writes a separate `TrackerSummaryRow`; never write tracker data into `JobRow` or the job-status store.
 - Keep FastAPI routes thin. Database access belongs in repositories under `backend/persistence/`; orchestration belongs in `TrackerSyncService`.
 - The decrypted PAT remains server-side inside the adapter call boundary. API responses, structured logs, errors, frontend state, and job prompts must remain secret-free.
-- Use the existing app-scoped `CPLConfig` singleton and settings mutation path. A changed interval must affect the running poller without restart.
+- Tracker synchronization has one code-owned 60-second cadence; do not add it to `CPLConfig`, persisted settings, API contracts, or UI state.
 - Start/stop the poller through `backend/lifespan.py` and close its `httpx.AsyncClient` during shutdown. Do not leave orphan tasks.
 - Use `CamelModel` for wire models and camelCase on the frontend.
 - Provider HTTP behavior should follow the current official APIs: GitHub GraphQL ProjectsV2 items, Jira REST v3 issue search, and Azure DevOps Work Item Tracking WIQL 7.1. Normalize all provider output to one internal ticket shape.
@@ -76,7 +80,7 @@ so that I don't have to leave CodePlane to check status.
 - Use fake adapters and in-memory SQLite for deterministic unit/integration tests; automated tests must never call real tracker services.
 - Prove a failed link does not prevent another link from syncing and does not terminate the poll loop.
 - Prove the manual endpoint refreshes only the requested link and rejects a link outside the requested Project.
-- Prove changing the interval wakes/reconfigures the existing service rather than requiring process restart.
+- Prove the fixed cadence is exactly 60 seconds and service shutdown wakes the active wait promptly.
 - Assert API payloads and logs contain no plaintext or encrypted credential material.
 - Because AC1 explicitly requires rendered state and manual refresh, run the real browser flow; component tests alone do not satisfy completion.
 
@@ -108,22 +112,25 @@ GPT-5.6 Sol (GitHub Copilot CLI).
 - `uv run --no-sync mypy backend/services/tracker_adapter.py backend/services/tracker_sync_service.py backend/persistence/tracker_summary_repo.py backend/api/tracker_links.py`
 - `npx vitest run`
 - `npm run typecheck && npm run build`
-- Live Playwright acceptance against isolated CodePlane and fake Jira services; screenshot: `story-3-3-e2e.png` in the session artifacts directory.
+- `npm --prefix frontend run test:e2e:tracker` (production build plus committed Chromium scenario): 1 passed; isolated migrated `CODEPLANE_HOME`, local fake Jira, real 60-second scheduled sync, manual refresh, zero browser console errors, and verified teardown.
+- `npm --prefix frontend run typecheck`
+- `npm --prefix frontend run lint:e2e:tracker`
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created.
 - Added an AD-7-compliant tracker summary read model and migration, resequenced to the current mainline migration head (`0065 -> 0064`).
 - Added normalized GitHub Projects, Jira, and Azure DevOps adapters behind `TrackerAdapterInterface`, with server-side credential resolution and sanitized errors.
-- Added scheduled and manual synchronization with project scoping, per-link locking, failure isolation, lifecycle shutdown, and live interval wakeups.
-- Added secret-free summary responses, a project-grouped Settings panel, per-link refresh, and persisted interval editing.
-- Verified the required production browser flow: scheduled polling rendered a persisted Jira ticket, manual refresh completed, and a changed interval survived reload with no browser console errors.
+- Added scheduled and manual synchronization with project scoping, per-link locking, failure isolation, a fixed 60-second cadence, and prompt lifecycle shutdown.
+- Added secret-free summary responses, a project-grouped Settings panel, and per-link refresh; removed the retired interval from configuration, API, generated types, and UI.
+- Added a deterministic Playwright scenario and dedicated config. The passing command built production assets, migrated isolated state, rendered a Jira ticket after the actual scheduled wait, refreshed changed status through the real backend/provider path, observed zero console errors, and left no listener or temporary state.
 - Post-rebase frontend regression result: 29 files passed, 290 tests passed, 1 skipped. Post-rebase Story 3.3 backend result: 40 tests passed; the backend-wide Windows run terminated at 63% on the existing async timeout after unrelated platform-path failures.
 
 ### File List
 
 - `_bmad-output/implementation-artifacts/3-3-view-synced-ticket-state.md`
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `.gitignore`
 - `alembic/versions/0065_add_tracker_summaries.py`
 - `backend/api/settings.py`
 - `backend/api/tracker_links.py`
@@ -148,8 +155,12 @@ GPT-5.6 Sol (GitHub Copilot CLI).
 - `frontend/src/components/TrackerSyncPanel.tsx`
 - `frontend/src/components/__tests__/SettingsScreen.test.tsx`
 - `frontend/src/components/__tests__/TrackerSyncPanel.test.tsx`
+- `frontend/tracker-e2e/tracker-sync.spec.ts`
+- `frontend/package.json`
+- `frontend/playwright.tracker.config.ts`
 
 ## Change Log
 
 - 2026-08-10: Created comprehensive Story 3.3 implementation context; status set to ready-for-dev.
-- 2026-08-12: Implemented persisted tracker synchronization, manual refresh, live interval updates, and rendered ticket state; status set to review.
+- 2026-08-12: Initial implementation included persisted tracker synchronization, manual refresh, live interval updates, and rendered ticket state; the interval portion was later superseded.
+- 2026-08-12: Approved scope change removed interval configuration, fixed scheduled sync at 60 seconds, and added reproducible live-service Playwright coverage.

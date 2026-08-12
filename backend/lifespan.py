@@ -1478,7 +1478,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     tracker_sync_service = TrackerSyncService(
         session_factory=session_factory,
-        config=config,
     )
     tracker_sync_service.start()
 

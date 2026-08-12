@@ -121,3 +121,4 @@ scorecard.png
 *.tsbuildinfo
 site/
 .playwright-mcp/
+.tracker-e2e-*/

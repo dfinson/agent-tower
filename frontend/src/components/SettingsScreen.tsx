@@ -291,19 +291,6 @@ export function SettingsScreen() {
 
       <TrackerSyncPanel />
 
-      <div className="rounded-lg border border-border bg-card p-5">
-        <p className="text-sm font-semibold mb-4">Tracker synchronization</p>
-        <NumberField
-          label="Tracker poll interval (seconds)"
-          value={settings.trackerPollIntervalSeconds}
-          onChange={(value) => patch({ trackerPollIntervalSeconds: value })}
-          min={5}
-          max={86400}
-          placeholder="300"
-          description="How often CodePlane fetches ticket state for attached tracker links."
-        />
-      </div>
-
       {/* Retention */}
       <div className="rounded-lg border border-border bg-card p-5">
         <p className="text-sm font-semibold mb-4">Retention</p>

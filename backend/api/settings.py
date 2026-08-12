@@ -47,7 +47,6 @@ from backend.models.db import JobRow
 from backend.services.adapters.platform_adapter import PlatformRegistry, detect_platform
 from backend.services.coderecon.coderecon_service import CodeReconService
 from backend.services.git.git_service import GitError, GitService
-from backend.services.tracker_sync_service import TrackerSyncService
 
 router = APIRouter(tags=["settings"], route_class=DishkaRoute)
 
@@ -69,7 +68,6 @@ def _config_to_response(config: CPLConfig) -> SettingsResponse:
         cli_sidecars=config.runtime.cli_sidecars,
         coderecon_splade=config.coderecon.splade,
         coderecon_cross_encoder=config.coderecon.cross_encoder,
-        tracker_poll_interval_seconds=config.tracker.poll_interval_seconds,
     )
 
 
@@ -85,7 +83,6 @@ def get_settings(
 async def update_settings(
     body: UpdateSettingsRequest,
     config: FromDishka[CPLConfig],
-    tracker_sync_service: FromDishka[TrackerSyncService],
 ) -> SettingsResponse:
     """Update settings. Only provided fields are changed.
 
@@ -113,7 +110,6 @@ async def update_settings(
         "cli_sidecars": ("runtime", "cli_sidecars"),
         "coderecon_splade": ("coderecon", "splade"),
         "coderecon_cross_encoder": ("coderecon", "cross_encoder"),
-        "tracker_poll_interval_seconds": ("tracker", "poll_interval_seconds"),
     }
 
     for field, (section, attr) in _FIELD_MAP.items():
@@ -121,8 +117,6 @@ async def update_settings(
             setattr(getattr(config, section), attr, updates[field])
 
     save_config(config)
-    if "tracker_poll_interval_seconds" in updates:
-        tracker_sync_service.notify_interval_changed()
 
     # Keep env vars in sync so new coderecon ReviewKit instances use fresh values.
     if "coderecon_splade" in updates or "coderecon_cross_encoder" in updates:

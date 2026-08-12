@@ -16,7 +16,6 @@ def test_load_config_returns_defaults_when_missing(tmp_path: Path) -> None:
     assert config.server.host == "127.0.0.1"
     assert config.server.port == 8080
     assert config.runtime.max_concurrent_jobs == 2
-    assert config.tracker.poll_interval_seconds == 300
     assert config.repos == []
 
 
@@ -31,9 +30,6 @@ server:
 runtime:
   max_concurrent_jobs: 4
 
-tracker:
-  poll_interval_seconds: 45
-
 repos:
   - /repos/a
   - /repos/b
@@ -43,7 +39,6 @@ repos:
     assert config.server.host == "0.0.0.0"
     assert config.server.port == 9090
     assert config.runtime.max_concurrent_jobs == 4
-    assert config.tracker.poll_interval_seconds == 45
     assert config.repos == ["/repos/a", "/repos/b"]
 
 
@@ -81,19 +76,17 @@ def test_init_config_roundtrips(tmp_path: Path) -> None:
     assert config.server.port == 8080
     assert config.runtime.worktrees_dirname == ".codeplane-worktrees"
     assert config.retention.artifact_retention_days == 30
-    assert config.tracker.poll_interval_seconds == 300
-
-
-def test_tracker_interval_roundtrip(tmp_path: Path) -> None:
+def test_load_config_removes_retired_tracker_interval(tmp_path: Path) -> None:
     cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text("tracker:\n  poll_interval_seconds: 90\n")
+    cfg_path.write_text(
+        "telemetry:\n"
+        "  instance_id: existing-instance\n"
+        "tracker:\n"
+        "  poll_interval_seconds: 90\n"
+    )
     config = load_config(cfg_path)
-    assert config.tracker.poll_interval_seconds == 90
-
-    config.tracker.poll_interval_seconds = 120
-    save_config(config, cfg_path)
-
-    assert load_config(cfg_path).tracker.poll_interval_seconds == 120
+    assert not hasattr(config, "tracker")
+    assert "tracker" not in cfg_path.read_text()
 
 
 # ---------------------------------------------------------------------------

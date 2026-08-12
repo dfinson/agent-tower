@@ -6787,8 +6787,6 @@ export interface components {
             codereconSplade: boolean;
             /** Codereconcrossencoder */
             codereconCrossEncoder: boolean;
-            /** Trackerpollintervalseconds */
-            trackerPollIntervalSeconds: number;
         };
         /** ShareTokenResponse */
         ShareTokenResponse: {
@@ -8229,8 +8227,6 @@ export interface components {
             codereconSplade?: boolean | null;
             /** Codereconcrossencoder */
             codereconCrossEncoder?: boolean | null;
-            /** Trackerpollintervalseconds */
-            trackerPollIntervalSeconds?: number | null;
         };
         /** UpdateSidecarTemplateRequest */
         UpdateSidecarTemplateRequest: {

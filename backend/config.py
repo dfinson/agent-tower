@@ -89,9 +89,6 @@ runtime:
     default_sdk: copilot
     suppressed_preflight_agent_prompts: []
 
-tracker:
-  poll_interval_seconds: 300
-
 retention:
   artifact_retention_days: 30
   max_artifact_size_mb: 100
@@ -248,13 +245,6 @@ class PricingConfig:
 
 
 @dataclass
-class TrackerConfig:
-    """External tracker synchronization configuration."""
-
-    poll_interval_seconds: int = 300
-
-
-@dataclass
 class TrailConfig:
     """Agent audit trail enrichment tuning."""
 
@@ -284,7 +274,6 @@ class CPLConfig:
     verification: VerificationConfig = field(default_factory=VerificationConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
     pricing: PricingConfig = field(default_factory=PricingConfig)
-    tracker: TrackerConfig = field(default_factory=TrackerConfig)
     trail: TrailConfig = field(default_factory=TrailConfig)
     coderecon: CodeReconConfig = field(default_factory=CodeReconConfig)
     platforms: dict[str, PlatformConfig] = field(default_factory=dict)
@@ -334,7 +323,6 @@ def load_config(path: Path | None = None) -> CPLConfig:
         verification=_parse_section(raw, VerificationConfig, "verification"),
         telemetry=_parse_section(raw, TelemetryConfig, "telemetry"),
         pricing=_parse_section(raw, PricingConfig, "pricing"),
-        tracker=_parse_section(raw, TrackerConfig, "tracker"),
         trail=_parse_section(raw, TrailConfig, "trail"),
         coderecon=_parse_section(raw, CodeReconConfig, "coderecon"),
         platforms=platforms,
@@ -351,6 +339,11 @@ def load_config(path: Path | None = None) -> CPLConfig:
             save_config(cfg, path)
         except (OSError, yaml.YAMLError):
             log.warning("instance_id_persist_failed", exc_info=True)
+    elif "tracker" in raw:
+        try:
+            save_config(cfg, path)
+        except (OSError, yaml.YAMLError):
+            log.warning("retired_tracker_config_removal_failed", exc_info=True)
 
     return cfg
 
@@ -402,7 +395,9 @@ def save_config(config: CPLConfig, path: Path | None = None) -> None:
     # repos is intentionally omitted — managed by register_repo / unregister_repo
     existing["verification"] = _to_dict(config.verification)
     existing["telemetry"] = _to_dict(config.telemetry)
-    existing["tracker"] = _to_dict(config.tracker)
+    # Tracker synchronization uses a fixed production cadence. Remove the
+    # retired persisted section when any settings save occurs.
+    existing.pop("tracker", None)
     existing["coderecon"] = _to_dict(config.coderecon)
     if config.platforms:
         existing["platforms"] = {name: _to_dict(pc) for name, pc in config.platforms.items()}

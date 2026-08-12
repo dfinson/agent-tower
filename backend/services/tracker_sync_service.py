@@ -19,9 +19,8 @@ from backend.services.tracker_adapter import (
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from backend.config import CPLConfig
-
 log = structlog.get_logger()
+TRACKER_POLL_INTERVAL_SECONDS = 60.0
 
 
 class TrackerLinkNotFoundError(Exception):
@@ -37,11 +36,9 @@ class TrackerSyncService:
         self,
         *,
         session_factory: async_sessionmaker[AsyncSession],
-        config: CPLConfig,
         adapters: dict[str, TrackerAdapterInterface] | None = None,
     ) -> None:
         self._session_factory = session_factory
-        self._config = config
         self._client: httpx.AsyncClient | None = None
         if adapters is None:
             self._client = httpx.AsyncClient(
@@ -68,9 +65,6 @@ class TrackerSyncService:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
-
-    def notify_interval_changed(self) -> None:
-        self._wake.set()
 
     async def refresh_all(self) -> None:
         async with self._session_factory() as session:
@@ -153,10 +147,14 @@ class TrackerSyncService:
 
     async def _poll_loop(self) -> None:
         while not self._stopping:
-            interval = max(float(self._config.tracker.poll_interval_seconds), 0.001)
             try:
-                await asyncio.wait_for(self._wake.wait(), timeout=interval)
+                await asyncio.wait_for(
+                    self._wake.wait(),
+                    timeout=TRACKER_POLL_INTERVAL_SECONDS,
+                )
             except TimeoutError:
+                if self._stopping:
+                    break
                 await self.refresh_all()
             else:
                 self._wake.clear()

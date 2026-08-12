@@ -119,6 +119,8 @@ class ResolveBatchResponse(CamelModel):
 class UpdateSettingsRequest(CamelModel):
     """Structured settings update — only include fields to change."""
 
+    model_config = ConfigDict(extra="forbid")
+
     max_concurrent_jobs: int | None = Field(None, ge=1, le=10)
     auto_push: bool | None = None
     cleanup_worktree: bool | None = None
@@ -137,7 +139,6 @@ class UpdateSettingsRequest(CamelModel):
     )
     coderecon_splade: bool | None = None
     coderecon_cross_encoder: bool | None = None
-    tracker_poll_interval_seconds: int | None = Field(None, ge=5, le=86_400)
 
 
 class SettingsResponse(CamelModel):
@@ -156,7 +157,6 @@ class SettingsResponse(CamelModel):
     cli_sidecars: list[str] | None
     coderecon_splade: bool
     coderecon_cross_encoder: bool
-    tracker_poll_interval_seconds: int
 
 
 class RegisterRepoRequest(CamelModel):
