@@ -80,6 +80,24 @@ class ChatRepository(BaseRepository):
         await self._session.flush()
         return self._to_domain(row)
 
+    async def get_attached_open_chat_for_project(self, project_id: str) -> Chat | None:
+        """Find an open Chat attached to a chain in this Project (Story 5.4).
+
+        Attaching an open Chat to any TaskLink in a Project is what puts
+        that Project's chains into "gated" mode (AC #2) — a detached or
+        archived/closed Chat never gates. Returns the first match; a
+        Project having more than one simultaneously-attached open Chat is
+        not a case this schema needs to disambiguate for gating purposes.
+        """
+        stmt = select(ChatRow).where(
+            ChatRow.project_id == project_id,
+            ChatRow.task_link_id.is_not(None),
+            ChatRow.status == "open",
+        )
+        result = await self._session.execute(stmt)
+        row = result.scalars().first()
+        return self._to_domain(row) if row is not None else None
+
     async def detach_from_chain(self, chat_id: str) -> Chat | None:
         """Clear a Chat's chain attachment (Story 5.3). The chain itself is untouched.
 
