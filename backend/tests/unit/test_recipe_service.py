@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
@@ -10,6 +11,7 @@ import pytest
 
 from backend.models.domain import Approval, Job, JobState, Project, RepoNotAllowedError, TaskLink
 from backend.services.recipe.recipe_service import RecipeService
+from backend.services.tracker_write_service import TrackerWriteAction, TrackerWriteRequest
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -540,6 +542,170 @@ class TestHandleJobCompleted:
 
         assert result == []
         mock_task_link_repo.set_job_id.assert_not_awaited()
+
+
+@pytest.fixture
+def mock_tracker_link_repo() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
+def mock_tracker_write_service() -> AsyncMock:
+    return AsyncMock()
+
+
+class TestHandleJobCompletedTrackerWrite:
+    """Story 4.6: route a completed TaskLink's tracker write to its paired ticket."""
+
+    @pytest.mark.asyncio
+    async def test_routes_tracker_write_to_the_taskllinks_own_ticket(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+        mock_tracker_link_repo: AsyncMock,
+        mock_tracker_write_service: AsyncMock,
+    ) -> None:
+        completed_link = _make_task_link(
+            id="link-a", story_node_id="1-1-a", job_id="job-1", tracker_ticket_ref="JIRA-42"
+        )
+        mock_task_link_repo.get_by_job_id.return_value = completed_link
+        mock_task_link_repo.list_by_project.return_value = [completed_link]
+        mock_tracker_link_repo.list_for_project.return_value = [
+            {"id": "trk-1", "project_id": "proj-1", "credential_id": "cred-1", "external_ref": "PROJ"}
+        ]
+
+        service = RecipeService(
+            mock_task_link_repo,
+            mock_project_service,
+            job_service=mock_job_service,
+            job_repo=mock_job_repo,
+            tracker_link_repo=mock_tracker_link_repo,
+            tracker_write_service=mock_tracker_write_service,
+        )
+        await service.handle_job_completed("job-1", resolution="merged")
+        await asyncio.gather(*service.pending_tracker_writes)
+
+        mock_tracker_link_repo.list_for_project.assert_awaited_once_with("proj-1")
+        mock_tracker_write_service.execute.assert_awaited_once()
+        call_args = mock_tracker_write_service.execute.call_args
+        assert call_args.args[0] == "job-1"
+        request: TrackerWriteRequest = call_args.args[1]
+        assert request.tracker_link_id == "trk-1"
+        assert request.ticket_ref == "JIRA-42"
+        assert request.action == TrackerWriteAction.comment
+
+    @pytest.mark.asyncio
+    async def test_manually_assigned_task_link_still_routes_tracker_write(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+        mock_tracker_link_repo: AsyncMock,
+        mock_tracker_write_service: AsyncMock,
+    ) -> None:
+        # No story_node_id (manually-assigned, Story 4.3) — must not be skipped
+        # by the dependency-graph early return, since a manually-assigned
+        # TaskLink is exactly the kind most likely paired with a ticket.
+        completed_link = _make_task_link(
+            id="link-a", story_node_id=None, job_id="job-1", tracker_ticket_ref="JIRA-7"
+        )
+        mock_task_link_repo.get_by_job_id.return_value = completed_link
+        mock_tracker_link_repo.list_for_project.return_value = [
+            {"id": "trk-1", "project_id": "proj-1", "credential_id": "cred-1", "external_ref": "PROJ"}
+        ]
+
+        service = RecipeService(
+            mock_task_link_repo,
+            mock_project_service,
+            job_service=mock_job_service,
+            job_repo=mock_job_repo,
+            tracker_link_repo=mock_tracker_link_repo,
+            tracker_write_service=mock_tracker_write_service,
+        )
+        result = await service.handle_job_completed("job-1", resolution="merged")
+        await asyncio.gather(*service.pending_tracker_writes)
+
+        assert result == []  # no story_node_id: never a dependency-graph participant
+        mock_tracker_write_service.execute.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_no_write_when_task_link_has_no_ticket_ref(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+        mock_tracker_link_repo: AsyncMock,
+        mock_tracker_write_service: AsyncMock,
+    ) -> None:
+        completed_link = _make_task_link(id="link-a", story_node_id="1-1-a", job_id="job-1", tracker_ticket_ref=None)
+        mock_task_link_repo.get_by_job_id.return_value = completed_link
+        mock_task_link_repo.list_by_project.return_value = [completed_link]
+
+        service = RecipeService(
+            mock_task_link_repo,
+            mock_project_service,
+            job_service=mock_job_service,
+            job_repo=mock_job_repo,
+            tracker_link_repo=mock_tracker_link_repo,
+            tracker_write_service=mock_tracker_write_service,
+        )
+        await service.handle_job_completed("job-1", resolution="merged")
+
+        mock_tracker_link_repo.list_for_project.assert_not_awaited()
+        mock_tracker_write_service.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_write_when_project_has_no_tracker_link(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+        mock_tracker_link_repo: AsyncMock,
+        mock_tracker_write_service: AsyncMock,
+    ) -> None:
+        completed_link = _make_task_link(
+            id="link-a", story_node_id="1-1-a", job_id="job-1", tracker_ticket_ref="JIRA-42"
+        )
+        mock_task_link_repo.get_by_job_id.return_value = completed_link
+        mock_task_link_repo.list_by_project.return_value = [completed_link]
+        mock_tracker_link_repo.list_for_project.return_value = []
+
+        service = RecipeService(
+            mock_task_link_repo,
+            mock_project_service,
+            job_service=mock_job_service,
+            job_repo=mock_job_repo,
+            tracker_link_repo=mock_tracker_link_repo,
+            tracker_write_service=mock_tracker_write_service,
+        )
+        await service.handle_job_completed("job-1", resolution="merged")
+
+        mock_tracker_write_service.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_write_when_tracker_write_service_not_configured(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+    ) -> None:
+        completed_link = _make_task_link(
+            id="link-a", story_node_id="1-1-a", job_id="job-1", tracker_ticket_ref="JIRA-42"
+        )
+        mock_task_link_repo.get_by_job_id.return_value = completed_link
+        mock_task_link_repo.list_by_project.return_value = [completed_link]
+
+        service = RecipeService(
+            mock_task_link_repo, mock_project_service, job_service=mock_job_service, job_repo=mock_job_repo
+        )
+        # Never raises even with tracker services entirely unconfigured.
+        await service.handle_job_completed("job-1", resolution="merged")
 
 
 @pytest.fixture
