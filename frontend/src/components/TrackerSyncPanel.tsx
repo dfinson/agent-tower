@@ -7,18 +7,18 @@ import {
   fetchTrackerLinks,
   refreshTrackerLink,
 } from "../api/client";
+import type { Credential } from "../api/client";
 import type {
-  Credential,
-  Project,
-  TrackerLink,
-  TrackerSummary,
-} from "../api/client";
+  ProjectResponse,
+  TrackerLinkResponse,
+  TrackerSummaryResponse,
+} from "../api/types";
 import { Button } from "./ui/button";
 import { Spinner } from "./ui/spinner";
 
 interface ProjectLinks {
-  project: Project;
-  links: TrackerLink[];
+  project: ProjectResponse;
+  links: TrackerLinkResponse[];
 }
 
 export function TrackerSyncPanel() {
@@ -37,7 +37,7 @@ export function TrackerSyncPanel() {
       const links = await Promise.all(
         projectsResponse.items.map(async (project) => ({
           project,
-          links: (await fetchTrackerLinks(project.id)).trackerLinks,
+          links: (await fetchTrackerLinks(project.id)).trackerLinks ?? [],
         })),
       );
       setGroups(links);
@@ -61,7 +61,7 @@ export function TrackerSyncPanel() {
   const updateSummary = (
     projectId: string,
     linkId: string,
-    summary: TrackerSummary,
+    summary: TrackerSummaryResponse,
   ) => {
     setGroups((current) =>
       current.map((group) =>
@@ -77,7 +77,7 @@ export function TrackerSyncPanel() {
     );
   };
 
-  const handleRefresh = async (projectId: string, link: TrackerLink) => {
+  const handleRefresh = async (projectId: string, link: TrackerLinkResponse) => {
     setRefreshing(link.id);
     try {
       const summary = await refreshTrackerLink(projectId, link.id);
@@ -148,7 +148,7 @@ export function TrackerSyncPanel() {
                       <p role="alert" className="text-xs text-red-400">{summary.lastError}</p>
                     )}
 
-                    {!summary || summary.tickets.length === 0 ? (
+                    {!summary || !summary.tickets?.length ? (
                       <p className="text-xs text-muted-foreground">No tickets fetched.</p>
                     ) : (
                       <div className="space-y-1">

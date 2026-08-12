@@ -118,7 +118,7 @@ GPT-5.6 Sol (GitHub Copilot CLI).
 - Added scheduled and manual synchronization with project scoping, per-link locking, failure isolation, lifecycle shutdown, and live interval wakeups.
 - Added secret-free summary responses, a project-grouped Settings panel, per-link refresh, and persisted interval editing.
 - Verified the required production browser flow: scheduled polling rendered a persisted Jira ticket, manual refresh completed, and a changed interval survived reload with no browser console errors.
-- Frontend regression result: 24 files passed, 247 tests passed, 1 skipped. Story-specific backend result: 69 tests passed; the backend-wide Windows run terminated at 63% on the existing async timeout after unrelated platform-path failures.
+- Post-rebase frontend regression result: 29 files passed, 290 tests passed, 1 skipped. Post-rebase Story 3.3 backend result: 40 tests passed; the backend-wide Windows run terminated at 63% on the existing async timeout after unrelated platform-path failures.
 
 ### File List
 
@@ -142,6 +142,7 @@ GPT-5.6 Sol (GitHub Copilot CLI).
 - `backend/tests/unit/test_tracker_adapter.py`
 - `backend/tests/unit/test_tracker_sync_service.py`
 - `frontend/src/api/client.ts`
+- `frontend/src/api/schema.d.ts`
 - `frontend/src/api/types.ts`
 - `frontend/src/components/SettingsScreen.tsx`
 - `frontend/src/components/TrackerSyncPanel.tsx`

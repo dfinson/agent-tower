@@ -969,6 +969,13 @@ export interface paths {
         /**
          * Resolve Approval
          * @description Approve or reject a pending approval request.
+         *
+         *     Story 5.4 (AC #1): when an approval created for a gated chain's dependent
+         *     spawn (``proposed_action`` of the form ``"spawn_task:{task_link_id}"``) is
+         *     approved, the deferred spawn is performed here and the new job is started.
+         *     Rejection (AC #3) needs no extra handling — the TaskLink simply keeps
+         *     ``job_id = None``, and a later dependency-satisfying event creates a fresh,
+         *     independent approval on its own.
          */
         post: operations["resolve_approval_api_approvals__approval_id__resolve_post"];
         delete?: never;
@@ -2165,33 +2172,33 @@ export interface paths {
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        get: operations["preview_proxy_api_preview__port___path__post"];
+        get: operations["preview_proxy_api_preview__port___path__patch"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        put: operations["preview_proxy_api_preview__port___path__post"];
+        put: operations["preview_proxy_api_preview__port___path__patch"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        post: operations["preview_proxy_api_preview__port___path__post"];
+        post: operations["preview_proxy_api_preview__port___path__patch"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        delete: operations["preview_proxy_api_preview__port___path__post"];
+        delete: operations["preview_proxy_api_preview__port___path__patch"];
         options?: never;
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        head: operations["preview_proxy_api_preview__port___path__post"];
+        head: operations["preview_proxy_api_preview__port___path__patch"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        patch: operations["preview_proxy_api_preview__port___path__post"];
+        patch: operations["preview_proxy_api_preview__port___path__patch"];
         trace?: never;
     };
     "/api/jobs/{job_id}/share": {
@@ -2816,6 +2823,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chats/{chat_id}/attach-chain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach Chat To Chain
+         * @description Attach a Chat to a Task Recipe chain via its entry TaskLink (Story 5.3).
+         *
+         *     Settles ``project_id`` from the TaskLink's Project if it was still
+         *     null. A pure linking operation — never touches ``GitService`` or
+         *     creates a Job. Raises 404 (via ``TaskLinkNotFoundError``'s global
+         *     handler) if the TaskLink does not exist.
+         */
+        post: operations["attach_chat_to_chain_api_chats__chat_id__attach_chain_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chats/{chat_id}/detach-chain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Detach Chat From Chain
+         * @description Detach a Chat from its Task Recipe chain (Story 5.3).
+         *
+         *     The chain continues to run exactly as before; only the Chat's link to
+         *     it is cleared, and the Chat remains open.
+         */
+        post: operations["detach_chat_from_chain_api_chats__chat_id__detach_chain_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chats/{chat_id}/chain-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Chat Chain Status
+         * @description Read-only narration snapshot of a Chat's attached chain (Story 5.3, AC 2).
+         *
+         *     Purely reflects existing TaskLink/Job state via read-only polling —
+         *     never calls ``GitService`` or any job-creation function. 404s if the
+         *     chat does not exist or has nothing attached.
+         */
+        get: operations["get_chat_chain_status_api_chats__chat_id__chain_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/projects": {
         parameters: {
             query?: never;
@@ -2924,7 +3003,11 @@ export interface paths {
          */
         get: operations["list_project_task_links_api_settings_projects__project_id__task_links_get"];
         put?: never;
-        post?: never;
+        /**
+         * Create Manual Task Link
+         * @description Create a fresh TaskLink directly against an existing tracker ticket.
+         */
+        post: operations["create_manual_task_link_api_settings_projects__project_id__task_links_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2943,6 +3026,23 @@ export interface paths {
         put?: never;
         /** Create Tracker Link */
         post: operations["create_tracker_link_api_projects__project_id__tracker_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/tracker-links/{link_id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Tracker Link */
+        post: operations["refresh_tracker_link_api_projects__project_id__tracker_links__link_id__refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3284,6 +3384,14 @@ export interface components {
          */
         ArtifactType: "diff_snapshot" | "agent_summary" | "session_snapshot" | "session_log" | "agent_plan" | "telemetry_report" | "approval_history" | "agent_log" | "document" | "custom";
         /**
+         * AttachChatToChainRequest
+         * @description Attach a Chat to a Task Recipe chain via its entry TaskLink (Story 5.3).
+         */
+        AttachChatToChainRequest: {
+            /** Tasklinkid */
+            taskLinkId: string;
+        };
+        /**
          * BlastRadiusCandidate
          * @description A test candidate from blast radius analysis.
          */
@@ -3398,6 +3506,22 @@ export interface components {
              */
             jobCount: number;
         };
+        /**
+         * ChatChainStatusResponse
+         * @description Read-only narration snapshot of a Chat's attached chain (Story 5.3).
+         */
+        ChatChainStatusResponse: {
+            /** Tasklinkid */
+            taskLinkId: string;
+            /** Storynodeid */
+            storyNodeId: string | null;
+            /** Repopath */
+            repoPath: string;
+            /** Jobid */
+            jobId: string | null;
+            /** Jobstate */
+            jobState: string | null;
+        };
         /** ChatListResponse */
         ChatListResponse: {
             /** Items */
@@ -3439,6 +3563,8 @@ export interface components {
             lastMessageAt: string;
             /** Status */
             status: string;
+            /** Tasklinkid */
+            taskLinkId?: string | null;
         };
         /** CleanupWorktreesResponse */
         CleanupWorktreesResponse: {
@@ -3741,6 +3867,18 @@ export interface components {
              * Format: date-time
              */
             createdAt: string;
+        };
+        /**
+         * CreateManualTaskLinkRequest
+         * @description Create a TaskLink directly from an existing tracker ticket (Story 4.3).
+         */
+        CreateManualTaskLinkRequest: {
+            /** Repopath */
+            repoPath: string;
+            /** Trackerticketref */
+            trackerTicketRef: string;
+            /** Promptoverride */
+            promptOverride: string;
         };
         /** CreateProjectRequest */
         CreateProjectRequest: {
@@ -6649,6 +6787,8 @@ export interface components {
             codereconSplade: boolean;
             /** Codereconcrossencoder */
             codereconCrossEncoder: boolean;
+            /** Trackerpollintervalseconds */
+            trackerPollIntervalSeconds: number;
         };
         /** ShareTokenResponse */
         ShareTokenResponse: {
@@ -7624,6 +7764,29 @@ export interface components {
             externalRef: string;
             /** Createdat */
             createdAt: string;
+            summary?: components["schemas"]["TrackerSummaryResponse"] | null;
+        };
+        /** TrackerSummaryResponse */
+        TrackerSummaryResponse: {
+            /** Trackerlinkid */
+            trackerLinkId: string;
+            /** Tickets */
+            tickets?: components["schemas"]["TrackerTicketResponse"][];
+            /** Lastsyncedat */
+            lastSyncedAt?: string | null;
+            /** Lasterror */
+            lastError?: string | null;
+        };
+        /** TrackerTicketResponse */
+        TrackerTicketResponse: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Status */
+            status: string;
+            /** Url */
+            url?: string | null;
         };
         /**
          * TrailBacktrack
@@ -8066,6 +8229,8 @@ export interface components {
             codereconSplade?: boolean | null;
             /** Codereconcrossencoder */
             codereconCrossEncoder?: boolean | null;
+            /** Trackerpollintervalseconds */
+            trackerPollIntervalSeconds?: number | null;
         };
         /** UpdateSidecarTemplateRequest */
         UpdateSidecarTemplateRequest: {
@@ -11492,7 +11657,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__post: {
+    preview_proxy_api_preview__port___path__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -11522,7 +11687,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__post: {
+    preview_proxy_api_preview__port___path__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -11552,7 +11717,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__post: {
+    preview_proxy_api_preview__port___path__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -11582,7 +11747,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__post: {
+    preview_proxy_api_preview__port___path__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -11612,7 +11777,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__post: {
+    preview_proxy_api_preview__port___path__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -11642,7 +11807,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__post: {
+    preview_proxy_api_preview__port___path__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -12890,6 +13055,103 @@ export interface operations {
             };
         };
     };
+    attach_chat_to_chain_api_chats__chat_id__attach_chain_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttachChatToChainRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detach_chat_from_chain_api_chats__chat_id__detach_chain_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_chat_chain_status_api_chats__chat_id__chain_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatChainStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_projects_api_settings_projects_get: {
         parameters: {
             query?: never;
@@ -13091,6 +13353,41 @@ export interface operations {
             };
         };
     };
+    create_manual_task_link_api_settings_projects__project_id__task_links_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateManualTaskLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskLinkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_tracker_links_api_projects__project_id__tracker_links_get: {
         parameters: {
             query?: never;
@@ -13144,6 +13441,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrackerLinkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_tracker_link_api_projects__project_id__tracker_links__link_id__refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackerSummaryResponse"];
                 };
             };
             /** @description Validation Error */
