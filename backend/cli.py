@@ -6,6 +6,7 @@ doctor, down, restart) along with tunnel management and startup helpers.
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import multiprocessing
 import signal
@@ -131,11 +132,27 @@ def _build_frontend() -> bool:
 DOTENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 
-def _load_and_export_dotenv(dotenv_path: Path) -> dict[str, str]:
-    """Parse ``.env`` and export its entries into ``os.environ``.
+#: ``.env`` keys that are exported into ``os.environ``. Deliberately an
+#: allowlist: consumers outside this module build subprocess environments from
+#: ``os.environ`` (pty terminals in ``terminal_service``, the restart helper,
+#: every agent CLI), so exporting the whole file would push unrelated developer
+#: credentials into every child process CodePlane spawns.
+_EXPORTED_DOTENV_KEYS = frozenset(
+    {
+        "CPL_CLOUDFLARE_TUNNEL_TOKEN",
+        "CPL_CLOUDFLARE_HOSTNAME",
+        "CPL_CF_ACCESS_TEAM",
+        "CPL_CF_ACCESS_AUD",
+        "CPL_DEVTUNNEL_NAME",
+        "CPL_PASSWORD",
+    }
+)
 
-    Returns the parsed mapping so callers can keep ``.env``-over-environment
-    precedence for their own lookups.
+
+def _load_and_export_dotenv(dotenv_path: Path) -> dict[str, str]:
+    """Parse ``.env`` and export its remote-access entries into ``os.environ``.
+
+    Returns the parsed mapping so callers can resolve values themselves.
 
     The export matters because several consumers read ``os.environ``
     directly and cannot see a local mapping: ``backend.lifespan``'s
@@ -144,8 +161,12 @@ def _load_and_export_dotenv(dotenv_path: Path) -> dict[str, str]:
     setup silently lost the Zero Trust API verification strategy, and the
     restart helper replays ``cpl up`` with ``env=dict(os.environ)``, which
     dropped the tunnel credentials entirely when the replacement process ran
-    outside the repository directory. ``setdefault`` preserves any value the
-    surrounding environment already set.
+    outside the repository directory.
+
+    Only :data:`_EXPORTED_DOTENV_KEYS` are exported, and ``setdefault`` keeps
+    an explicit shell export authoritative — which is also the precedence
+    ``_env`` applies, so the CLI, the lifespan hooks and the restart helper all
+    resolve the same value when the two sources disagree.
     """
     import os
 
@@ -161,7 +182,8 @@ def _load_and_export_dotenv(dotenv_path: Path) -> dict[str, str]:
         dotenv_vars[key.strip()] = value.strip()
 
     for key, value in dotenv_vars.items():
-        os.environ.setdefault(key, value)
+        if key in _EXPORTED_DOTENV_KEYS:
+            os.environ.setdefault(key, value)
 
     return dotenv_vars
 
@@ -194,16 +216,29 @@ def _neutralize_fatal_termination_signals() -> None:
     Python's default handler merely raises ``KeyboardInterrupt``, which is why
     Ctrl-C tore down correctly while ``cpl down`` (``SIGTERM``) did not.
 
-    Installing an inert handler *before* ``server.run()`` means uvicorn restores
-    that one instead, and the re-raise becomes a no-op.
+    Installing a handler *before* ``server.run()`` means uvicorn restores that
+    one instead, and the re-raise becomes survivable. The handler restores the
+    default as it fires, so the signal is absorbed exactly once: a second
+    ``cpl down`` (or a shutdown-time ``SIGTERM``) still terminates the process
+    rather than being ignored forever.
     """
+
+    def _absorb_once(signum: int, _frame: Any) -> None:
+        with contextlib.suppress(ValueError, OSError, RuntimeError):
+            signal.signal(signum, signal.SIG_DFL)
+
+    # ``backend.lifespan._request_graceful_shutdown`` treats a callable SIGTERM
+    # handler as proof that someone will act on the signal. This one does the
+    # opposite, so it advertises itself and lets that caller take a hard stop.
+    _absorb_once.codeplane_absorbs_signal = True  # type: ignore[attr-defined]
+
     for name in ("SIGTERM", "SIGBREAK"):
         sig = getattr(signal, name, None)
         if sig is None:
             continue
         with contextlib.suppress(ValueError, OSError, RuntimeError):
             if signal.getsignal(sig) in (signal.SIG_DFL, None):
-                signal.signal(sig, lambda _sig, _frame: None)
+                signal.signal(sig, _absorb_once)
 
 
 # ---------------------------------------------------------------------------
@@ -310,13 +345,16 @@ def up(
         )
         raise SystemExit(1)
 
-    # Read credentials from .env (takes precedence) then OS environment
+    # Credentials come from the OS environment first, then ``.env``. The order
+    # must match ``_load_and_export_dotenv``'s ``setdefault`` export, otherwise
+    # this process and the consumers that read ``os.environ`` (lifespan, the
+    # restart helper) would resolve different values when the two disagree.
     import os
 
     dotenv_vars = _load_and_export_dotenv(DOTENV_PATH)
 
     def _env(key: str) -> str | None:
-        return dotenv_vars.get(key) or os.environ.get(key) or None
+        return os.environ.get(key) or dotenv_vars.get(key) or None
 
     cloudflare_token = _env("CPL_CLOUDFLARE_TUNNEL_TOKEN")
     cloudflare_hostname = _env("CPL_CLOUDFLARE_HOSTNAME")
@@ -447,6 +485,12 @@ def up(
         except TunnelStartError as exc:
             click.secho(f"ERROR: {exc}", fg="red", err=True)
             raise SystemExit(1) from exc
+        # Ownership of the connector begins here, but the ``finally`` that
+        # releases it only starts once ``server.run()`` is reached. Anything
+        # that aborts in between (a failed migration, a bad DI wiring) would
+        # otherwise leave a public tunnel pointing at a server that never came
+        # up. ``close()`` is idempotent, so the later explicit calls still win.
+        atexit.register(tunnel_handle.close)
         tunnel_origin = tunnel_handle.origin
 
         if tunnel_handle.externally_managed:
@@ -928,8 +972,14 @@ def _kill_process_group(pid: int, sig: int) -> None:
     is a child of the server, so signalling just the server left it running
     and still registered with the relay: ``cpl down`` reported "Server
     stopped" while the public hostname kept a live host connection. Children
-    are therefore enumerated and terminated explicitly on Windows, matching
-    the process-group semantics this function provides on POSIX.
+    are therefore enumerated and terminated explicitly on Windows.
+
+    The Windows path is *not* equivalent to the POSIX one: ``os.kill`` maps to
+    ``TerminateProcess`` for anything but the two console-control events, so
+    the server never runs a signal handler, uvicorn's graceful shutdown and
+    the lifespan shutdown hooks are skipped, and every descendant is hard
+    killed. See ``docs/configuration.md`` ("Tunnel Lifecycle") for what that
+    costs and why it is accepted for now.
     """
     import os
 
@@ -949,8 +999,20 @@ def _kill_process_group(pid: int, sig: int) -> None:
         os.kill(pid, sig)
 
 
+#: Connector executables that must die before anything else in the tree: they
+#: hold a public relay registration, so leaving one alive keeps the machine
+#: reachable from the internet after ``cpl down`` claims it stopped.
+_CONNECTOR_PROCESS_NAMES = frozenset({"cloudflared", "cloudflared.exe", "devtunnel", "devtunnel.exe"})
+
+
 def _kill_windows_process_tree(pid: int) -> None:
-    """Terminate the descendants of *pid* (best effort); the caller kills *pid* itself."""
+    """Hard kill the descendants of *pid* (best effort); the caller kills *pid* itself.
+
+    ``psutil.Process.terminate`` is an alias for ``kill`` on Windows, so this
+    is unconditionally ungraceful for every descendant — agent CLIs and their
+    subprocesses included. Connectors are killed first so that a slow or stuck
+    descendant cannot delay closing the public entrypoint.
+    """
     try:
         import psutil
     except ImportError:
@@ -959,7 +1021,14 @@ def _kill_windows_process_tree(pid: int) -> None:
         children = psutil.Process(pid).children(recursive=True)
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         return
-    for child in children:
+
+    def _is_connector(proc: object) -> bool:
+        with contextlib.suppress(Exception):
+            return (proc.name() or "").lower() in _CONNECTOR_PROCESS_NAMES  # type: ignore[attr-defined]
+        return False
+
+    ordered = sorted(children, key=lambda child: not _is_connector(child))
+    for child in ordered:
         with contextlib.suppress(Exception):
             child.terminate()
     with contextlib.suppress(Exception):
@@ -1191,7 +1260,14 @@ def restart(
     if dev:
         args.append("--dev")
     if remote:
-        args.extend(["--remote", "--provider", provider])
+        args.append("--remote")
+        # Replaying ``--provider`` unconditionally would make the child ``up``
+        # see click's ParameterSource.COMMANDLINE for a value that is merely
+        # ``restart``'s default, suppressing Cloudflare auto-detection — so
+        # ``cpl restart --remote`` would start a Dev Tunnel where ``cpl up
+        # --remote`` starts Cloudflare. Forward it only when the user asked.
+        if _provider_explicit():
+            args.extend(["--provider", provider])
     if password:
         args.extend(["--password", password])
     if no_password:

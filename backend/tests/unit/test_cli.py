@@ -239,33 +239,66 @@ class TestTerminationSignalIsSurvivable:
 
     SCRIPT = textwrap.dedent(
         """
-        import signal, sys
+        import signal
+        import uvicorn
         from backend import cli
+
+        async def _app(scope, receive, send):
+            pass
 
         cli._neutralize_fatal_termination_signals()
 
-        # --- uvicorn.Server.capture_signals() ---
-        captured = signal.getsignal(signal.SIGTERM)
-        signal.signal(signal.SIGTERM, lambda *_: None)
-        signal.raise_signal(signal.SIGTERM)   # the signal cpl down sends
-        signal.signal(signal.SIGTERM, captured)
-        signal.raise_signal(signal.SIGTERM)   # uvicorn re-raises it
-        # --- back in cpl up's finally: ---
+        # Drive the *real* uvicorn signal machinery rather than a replica of
+        # it, so this test fails if uvicorn's capture/restore/re-raise
+        # behavior changes underneath us.
+        server = uvicorn.Server(uvicorn.Config(app=_app))
+        with server.capture_signals():
+            signal.raise_signal(signal.SIGTERM)   # the signal cpl down sends
+        # Leaving the context manager restores the previous handler and
+        # re-raises; reaching the next line is what cpl up's finally needs.
         print("CLEANUP", flush=True)
         """
     )
 
-    def test_cleanup_runs_after_uvicorn_reraises_sigterm(self) -> None:
+    SECOND_SIGNAL_SCRIPT = textwrap.dedent(
+        """
+        import signal
+        from backend import cli
+
+        cli._neutralize_fatal_termination_signals()
+        signal.raise_signal(signal.SIGTERM)   # absorbed once, so cleanup can run
+        print("ABSORBED", flush=True)
+        signal.raise_signal(signal.SIGTERM)   # a second one must still kill us
+        print("STILL_ALIVE", flush=True)
+        """
+    )
+
+    def _run(self, script: str) -> subprocess.CompletedProcess[str]:
         env = {**os.environ, "PYTHONPATH": str(Path(cli_module.__file__).parents[2])}
-        result = subprocess.run(
-            [sys.executable, "-c", self.SCRIPT],
+        return subprocess.run(
+            [sys.executable, "-c", script],
             capture_output=True,
             text=True,
             timeout=60,
             env=env,
         )
+
+    def test_cleanup_runs_after_uvicorn_reraises_sigterm(self) -> None:
+        result = self._run(self.SCRIPT)
         assert "CLEANUP" in result.stdout, f"cleanup was skipped; rc={result.returncode} stderr={result.stderr}"
         assert result.returncode == 0
+
+    def test_a_second_sigterm_still_terminates_the_process(self) -> None:
+        """Surviving the re-raise must not make the server unkillable.
+
+        The handler absorbs one signal so teardown can run; leaving it
+        installed would mean a second ``cpl down``, or a ``SIGTERM`` arriving
+        during a slow teardown, is silently ignored forever.
+        """
+        result = self._run(self.SECOND_SIGNAL_SCRIPT)
+        assert "ABSORBED" in result.stdout, f"the first signal was not survived; stderr={result.stderr}"
+        assert "STILL_ALIVE" not in result.stdout, "a second SIGTERM was ignored; the process is unkillable"
+        assert result.returncode != 0
 
 
 class TestKillProcessGroupOnWindows:
@@ -308,6 +341,39 @@ class TestKillProcessGroupOnWindows:
 
         mock_killpg.assert_called_once_with(100, 15)
         fake_psutil.Process.assert_not_called()
+
+    def test_connectors_are_killed_before_the_rest_of_the_tree(self) -> None:
+        """The connector holds the public relay registration.
+
+        Every descendant is hard killed here (psutil's `terminate` is an alias
+        for `kill` on Windows), and an agent CLI that is slow to die must not
+        delay closing the internet-facing entrypoint.
+        """
+        order: list[str] = []
+
+        def _make(name: str) -> MagicMock:
+            proc = MagicMock()
+            proc.name.return_value = name
+            proc.is_running.return_value = False
+            proc.terminate.side_effect = lambda: order.append(name)
+            return proc
+
+        agent = _make("copilot.exe")
+        connector = _make("cloudflared.exe")
+        fake_psutil = MagicMock()
+        fake_psutil.NoSuchProcess = RuntimeError
+        fake_psutil.AccessDenied = PermissionError
+        fake_psutil.Process.return_value.children.return_value = [agent, connector]
+
+        with (
+            patch.dict(sys.modules, {"psutil": fake_psutil}),
+            patch("os.getpgid", None, create=True),
+            patch("os.killpg", None, create=True),
+            patch("os.kill"),
+        ):
+            cli_module._kill_process_group(100, 15)
+
+        assert order == ["cloudflared.exe", "copilot.exe"]
 
 
 class TestStopServer:
@@ -502,6 +568,33 @@ class TestRestart:
             result = runner.invoke(cli, ["restart", "--remote"])  # noqa: F841
         args = mock_exec.call_args[0][1]
         assert "--remote" in args
+
+    def test_default_provider_is_not_replayed(self) -> None:
+        """Replaying the default would defeat Cloudflare auto-detection.
+
+        `up` distinguishes "the user asked for devtunnel" from "nobody said
+        anything" via click's parameter source. `restart` has its own
+        `--provider` default, so forwarding it unconditionally made the child
+        see COMMANDLINE and skip auto-detection: `cpl up --remote` started
+        Cloudflare while `cpl restart --remote` started a Dev Tunnel.
+        """
+        runner = CliRunner()
+        with (
+            patch("backend.cli._is_server_running", return_value=(False, [])),
+            patch("os.execv") as mock_exec,
+        ):
+            runner.invoke(cli, ["restart", "--remote"])
+        assert "--provider" not in mock_exec.call_args[0][1]
+
+    def test_explicit_provider_is_forwarded(self) -> None:
+        runner = CliRunner()
+        with (
+            patch("backend.cli._is_server_running", return_value=(False, [])),
+            patch("os.execv") as mock_exec,
+        ):
+            runner.invoke(cli, ["restart", "--remote", "--provider", "cloudflare"])
+        args = mock_exec.call_args[0][1]
+        assert args[args.index("--provider") + 1] == "cloudflare"
 
 
 # ---------------------------------------------------------------------------
@@ -877,10 +970,35 @@ class TestDotenvExport:
         env_file.write_text("CPL_CLOUDFLARE_HOSTNAME=from-dotenv.example.com\n")
         with patch.dict("os.environ", {"CPL_CLOUDFLARE_HOSTNAME": "from-shell.example.com"}):
             parsed = _load_and_export_dotenv(env_file)
-            # .env keeps precedence for the CLI's own lookups...
+            # The raw file contents are still returned...
             assert parsed["CPL_CLOUDFLARE_HOSTNAME"] == "from-dotenv.example.com"
-            # ...but an explicitly exported shell value is never overwritten.
+            # ...but an explicitly exported shell value is never overwritten,
+            # and `_env` resolves in the same order, so this process and the
+            # consumers reading `os.environ` agree on one value.
             assert os.environ["CPL_CLOUDFLARE_HOSTNAME"] == "from-shell.example.com"
+
+    def test_unrelated_keys_are_not_exported(self, tmp_path) -> None:
+        """`.env` entries leak into every subprocess CodePlane spawns.
+
+        `terminal_service` builds its pty environment from `os.environ` and
+        agent CLIs inherit it by default, so exporting the whole file would
+        hand an unrelated developer credential to every interactive terminal
+        opened through the web UI.
+        """
+        import os
+
+        from backend.cli import _load_and_export_dotenv
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("CPL_CLOUDFLARE_HOSTNAME=cpl.example.com\nOPENAI_API_KEY=unrelated-secret-do-not-leak\n")
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("CPL_CLOUDFLARE_HOSTNAME", None)
+            os.environ.pop("OPENAI_API_KEY", None)
+            parsed = _load_and_export_dotenv(env_file)
+
+            assert parsed["OPENAI_API_KEY"] == "unrelated-secret-do-not-leak"
+            assert os.environ["CPL_CLOUDFLARE_HOSTNAME"] == "cpl.example.com"
+            assert "OPENAI_API_KEY" not in os.environ
 
     def test_missing_file_is_not_an_error(self, tmp_path) -> None:
         from backend.cli import _load_and_export_dotenv

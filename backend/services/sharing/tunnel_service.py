@@ -9,6 +9,7 @@ Supports three runtime modes:
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import json
 import os
@@ -18,7 +19,7 @@ import subprocess
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
@@ -241,7 +242,14 @@ def _terminate_and_reap(proc: subprocess.Popen[str], *, label: str = "tunnel", t
 
 
 def _signal_process_tree(proc: subprocess.Popen[str]) -> None:
-    """Send a terminate signal to *proc*, including any children it spawned."""
+    """Send a terminate signal to *proc*, including any children it spawned.
+
+    POSIX signals the whole process group. Windows has no group to signal and
+    ``Popen.terminate`` reaches only the named process, so descendants are
+    enumerated and terminated explicitly — ``devtunnel host`` in particular
+    runs its transport in a child, which survived a bare ``terminate()`` and
+    kept the tunnel serving after CodePlane thought it had torn it down.
+    """
     pid = getattr(proc, "pid", None)
     if sys.platform != "win32" and isinstance(pid, int):
         import signal
@@ -251,7 +259,24 @@ def _signal_process_tree(proc: subprocess.Popen[str]) -> None:
             return
         except OSError:
             pass  # No process group (or already gone) — fall back to a direct signal.
+    elif isinstance(pid, int):
+        _terminate_windows_descendants(pid)
     proc.terminate()
+
+
+def _terminate_windows_descendants(pid: int) -> None:
+    """Terminate the descendants of *pid* (best effort); the caller handles *pid*."""
+    try:
+        import psutil
+    except ImportError:  # pragma: no cover - psutil is a declared dependency
+        return
+    try:
+        children = psutil.Process(pid).children(recursive=True)
+    except (psutil.Error, OSError):
+        return
+    for child in children:
+        with contextlib.suppress(Exception):
+            child.terminate()
 
 
 class RemoteProvider(StrEnum):
@@ -297,22 +322,35 @@ class TunnelHandle:
     # origin can be reused as-is or must be republished after restart
     # (ARCHITECTURE-SPINE AD-8: "reusable" vs "non-reusable" origin).
     origin_is_reusable: bool = False
+    _close_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _closed: bool = field(default=False, repr=False)
 
     def close(self) -> None:
-        if self.watchdog is not None:
-            self.watchdog.stop()
-            with self.watchdog._lock:
-                watchdog_proc = self.watchdog.proc
-        else:
-            watchdog_proc = None
-        # Terminate all unique process references to avoid orphans from mid-restart races
-        procs_to_kill: set[subprocess.Popen[str]] = set()
-        if self.proc is not None:
-            procs_to_kill.add(self.proc)
-        if watchdog_proc is not None:
-            procs_to_kill.add(watchdog_proc)
-        for p in procs_to_kill:
-            _terminate_and_reap(p, label=self.provider.value)
+        """Stop the connector. Safe to call repeatedly and from any thread.
+
+        Three paths race to call this during shutdown -- the second-signal
+        handler, the force-exit timer thread, and the normal ``finally`` -- so
+        without serialization each could run its own terminate/wait/kill
+        sequence against the same pids.
+        """
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+            if self.watchdog is not None:
+                self.watchdog.stop()
+                with self.watchdog._lock:
+                    watchdog_proc = self.watchdog.proc
+            else:
+                watchdog_proc = None
+            # Terminate all unique process references to avoid orphans from mid-restart races
+            procs_to_kill: set[subprocess.Popen[str]] = set()
+            if self.proc is not None:
+                procs_to_kill.add(self.proc)
+            if watchdog_proc is not None:
+                procs_to_kill.add(watchdog_proc)
+            for p in procs_to_kill:
+                _terminate_and_reap(p, label=self.provider.value)
 
 
 class TunnelWatchdog:
@@ -360,6 +398,18 @@ class TunnelWatchdog:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=5)
+
+    def _origin_ok(self) -> bool:
+        """Whether the *local* origin is serving.
+
+        Returns ``True`` when no local port is known: the caller uses this to
+        suppress restarts while the origin is down, and an unknown origin must
+        not be reported as down — that would make every relay failure look
+        like an origin outage and disable restarts entirely.
+        """
+        if not self._local_port:
+            return True
+        return self._health_ok()
 
     def _health_ok(self, *, use_tunnel_url: bool = False) -> bool:
         import urllib.error
@@ -434,6 +484,12 @@ class TunnelWatchdog:
                 )
                 continue
             with self._lock:
+                if self._stop_event.is_set():
+                    # ``close()`` has already taken its snapshot of ``self.proc``;
+                    # a connector published after that point would never be
+                    # reaped, so retire it here instead of adopting it.
+                    _terminate_and_reap(proc, label=self.label)
+                    return True
                 self.proc = proc
 
             if self._stop_event.wait(timeout=self._RESTART_GRACE_PERIOD):
@@ -495,16 +551,24 @@ class TunnelWatchdog:
                     if self._stop_event.wait(timeout=self._GIVEUP_COOLDOWN):
                         return
                 consecutive_failures = 0
-            elif not self._health_ok():
+            elif not self._origin_ok():
                 # The local origin is down or has not finished starting. The
                 # connector is alive and restarting it cannot make the origin
                 # answer, so this must not count toward the restart threshold:
                 # observed on Windows, where startup takes longer than
                 # _INITIAL_DELAY and two failed origin checks tore down and
-                # respawned a perfectly healthy connector during boot.
+                # respawned a perfectly healthy connector during boot. The
+                # relay tally is left untouched rather than reset -- this cycle
+                # says nothing about the relay either way.
                 log.debug("tunnel_watchdog_origin_unavailable", provider=self.label)
-                consecutive_failures = 0
-            elif not use_relay or self._health_ok(use_tunnel_url=True):
+            elif not use_relay:
+                # Origin healthy, but the relay was not probed this cycle, so
+                # there is no new evidence about it. Clearing the tally here
+                # made the threshold unreachable whenever the relay is checked
+                # less often than every cycle (the production default), which
+                # silently disabled connector restarts entirely.
+                pass
+            elif self._health_ok(use_tunnel_url=True):
                 consecutive_failures = 0
             else:
                 # Origin healthy but the public relay does not reach it — the
@@ -856,17 +920,22 @@ def _find_existing_codeplane_tunnel() -> tuple[str, str] | None:
 def _devtunnel_port_registered(tunnel_name: str, port: int) -> bool:
     """Ask the service whether *port* is already registered on *tunnel_name*.
 
-    ``devtunnel port list`` prints a table whose rows start with the port
-    number, e.g. ``8080          http          0``.
+    Uses the CLI's structured output rather than its human table: the original
+    defect here was code keyed on prose the CLI never printed, and parsing a
+    localizable table would be the same bet in a new place.
     """
-    result = _run_capture(["devtunnel", "port", "list", tunnel_name])
+    result = _run_capture(["devtunnel", "port", "list", tunnel_name, "--json"])
     if result.returncode != 0:
         return False
-    for line in result.stdout.splitlines():
-        head = line.strip().split()
-        if head and head[0] == str(port):
-            return True
-    return False
+    try:
+        payload = json.loads(result.stdout)
+    except (json.JSONDecodeError, TypeError):
+        log.debug("devtunnel_port_list_unparsable", tunnel=tunnel_name)
+        return False
+    ports = payload.get("ports") if isinstance(payload, dict) else None
+    if not isinstance(ports, list):
+        return False
+    return any(isinstance(entry, dict) and entry.get("portNumber") == port for entry in ports)
 
 
 def _start_devtunnel(port: int, *, tunnel_name: str | None = None) -> tuple[str, subprocess.Popen[str], str, bool]:
@@ -927,8 +996,21 @@ def _start_devtunnel(port: int, *, tunnel_name: str | None = None) -> tuple[str,
     return tunnel_url, proc, tunnel_name, origin_is_reusable
 
 
-def _cloudflared_already_running() -> bool:
-    """Check whether a cloudflared connector is already active on this machine.
+def _cloudflare_tunnel_id(token: str) -> str | None:
+    """Extract the tunnel UUID from a Cloudflare tunnel token.
+
+    The token is base64-encoded JSON: ``{"a": account, "t": tunnel_id, "s": secret}``.
+    """
+    try:
+        decoded = base64.b64decode(token + "==")
+        tunnel_id = json.loads(decoded).get("t")
+    except Exception:
+        return None
+    return tunnel_id if isinstance(tunnel_id, str) and tunnel_id else None
+
+
+def _cloudflared_already_running(token: str) -> bool:
+    """Check whether a connector for *our* tunnel is already running here.
 
     Previously this shelled out to ``pgrep -x cloudflared``, which does not
     exist on Windows: the lookup always failed there and reported "not
@@ -938,6 +1020,15 @@ def _cloudflared_already_running() -> bool:
     Cloudflare edge balance traffic between them, so requests intermittently
     reach the stale connector. ``psutil`` gives the same answer on every
     platform.
+
+    Matching on the process *name* alone is not enough, though: a machine that
+    runs cloudflared for some unrelated tunnel would make us skip our own
+    connector and print a public URL that routes nowhere. So a process only
+    counts when its command line carries our tunnel token or the tunnel UUID
+    derived from it. A connector we cannot attribute (unreadable command line,
+    config-file mode) is treated as somebody else's, because starting a
+    redundant connector for our tunnel degrades routing while reusing a
+    stranger's connector breaks the URL outright.
     """
     try:
         import psutil
@@ -945,13 +1036,18 @@ def _cloudflared_already_running() -> bool:
         log.debug("cloudflared_detect_unavailable")
         return False
 
+    markers = {token}
+    tunnel_id = _cloudflare_tunnel_id(token)
+    if tunnel_id:
+        markers.add(tunnel_id)
+
     our_pid = os.getpid()
     try:
         our_descendants = {child.pid for child in psutil.Process(our_pid).children(recursive=True)}
     except (psutil.Error, OSError):
         our_descendants = set()
 
-    for proc in psutil.process_iter(["pid", "name"]):
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
         try:
             name = (proc.info.get("name") or "").lower()
             # Windows reports "cloudflared.exe"; POSIX reports "cloudflared".
@@ -959,6 +1055,10 @@ def _cloudflared_already_running() -> bool:
                 continue
             pid = proc.info["pid"]
             if pid == our_pid or pid in our_descendants:
+                continue
+            cmdline = " ".join(proc.info.get("cmdline") or ())
+            if not any(marker in cmdline for marker in markers):
+                log.debug("cloudflared_foreign_connector_ignored", pid=pid)
                 continue
             return True
         except (psutil.Error, OSError):
@@ -979,7 +1079,7 @@ def _start_cloudflare(
     tunnel_url = f"https://{hostname}"
 
     # If cloudflared is already running (e.g. via systemd), reuse it
-    if _cloudflared_already_running():
+    if _cloudflared_already_running(cloudflare_token):
         log.debug("cloudflared_already_running", url=tunnel_url, port=port)
         return tunnel_url, None
 

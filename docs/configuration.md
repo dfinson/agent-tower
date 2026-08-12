@@ -129,13 +129,17 @@ Both providers are supported on Linux, macOS, native Windows, and WSL.
 
 **The connector is tied to the server.** CodePlane starts the connector process (`devtunnel host` or `cloudflared`) as a child of the server and stops it again when the server stops — via `cpl down`, `cpl restart`, or Ctrl-C. After a normal shutdown no connector is left behind and the public origin reports no host connections.
 
-**Reusing an existing connector.** If a connector is already serving the configured origin — a systemd/Docker-managed `cloudflared`, or one orphaned by a previous run — CodePlane detects it at startup, reuses it instead of starting a second one, and leaves it running at shutdown. Externally managed connectors are never terminated by CodePlane.
+**Reusing an existing connector.** If a `cloudflared` process is already serving the *configured tunnel* — a systemd/Docker-managed connector, or one orphaned by a previous run — CodePlane detects it at startup, reuses it instead of starting a second one, and leaves it running at shutdown. Detection matches the tunnel token (or the tunnel ID derived from it) on the running process's command line, so a `cloudflared` serving some *other* tunnel on the same machine is ignored and CodePlane starts its own connector. Externally managed connectors are never terminated by CodePlane.
 
 **Named Dev Tunnels are reusable.** `--tunnel-name` reuses the same tunnel and port registration across restarts, so the URL stays stable. Re-running against a tunnel whose port is already registered is expected and handled.
 
 **Connector supervision.** A watchdog restarts the connector if the connector process exits, or if the public relay stops forwarding while the local server is healthy. It deliberately does *not* restart the connector when the local server itself is unreachable (for example during a slow startup) — restarting a connector cannot fix a down origin.
 
+!!! warning "`cpl down` is not graceful on Windows"
+    Windows has no process signals: `cpl down` terminates the server and every process below it outright. The connector is stopped first, so the public origin closes promptly and no connector is orphaned — but the server's own shutdown handlers do not run, so worktree cleanup and lease release are skipped. Running sessions are paused over the API before the stop, which is what preserves session state. On Linux, macOS, and WSL, `cpl down` sends `SIGTERM` and the full graceful shutdown runs.
+
 !!! note "Hard kills can orphan the connector"
+    If the server is killed abruptly (`kill -9`, Task Manager, a crash), it gets no chance to stop the connector and the process may survive. The next `cpl up` detects the surviving connector and reuses it. To remove it manually, stop the `devtunnel host` / `cloudflared` process for your origin.
     If the server is killed abruptly (`kill -9`, Task Manager, a crash), it gets no chance to stop the connector and the process may survive. The next `cpl up` detects the surviving connector and reuses it. To remove it manually, stop the `devtunnel host` / `cloudflared` process for your origin.
 
 ### All Remote Options

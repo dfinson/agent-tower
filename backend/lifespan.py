@@ -7,6 +7,7 @@ graceful shutdown.  Extracted from main.py to keep concerns separated.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from contextlib import asynccontextmanager
@@ -322,7 +323,16 @@ def _request_graceful_shutdown() -> None:
     import signal
 
     handler = signal.getsignal(signal.SIGTERM)
-    if callable(handler):
+    if getattr(handler, "codeplane_absorbs_signal", False):
+        # ``cli._neutralize_fatal_termination_signals`` installs a handler that
+        # swallows the signal so cleanup can run; calling it would return
+        # without shutting anything down. Restore the default first so the
+        # ``os.kill`` below is guaranteed to stop this process — this path is
+        # the emergency stop for an unprotected public exposure, where staying
+        # up is the worse outcome.
+        with contextlib.suppress(ValueError, OSError, RuntimeError):
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    elif callable(handler):
         try:
             handler(signal.SIGTERM, None)
             return
