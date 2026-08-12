@@ -734,12 +734,17 @@ _CODEPLANE_TUNNEL_PREFIX = "cpl-"
 # ``devtunnel create`` reports "Unauthorized tunnel creation access: Anonymous
 # does not have 'create' access scope", so matching only on "login required"
 # silently drops the actionable hint on exactly the path a first-time user hits.
+# An expired login is reported as "Login token expired." — and, unlike the
+# other wordings, ``devtunnel user show`` still exits 0 while printing it, so
+# the text is the only signal that the CLI cannot actually reach the service.
 _DEVTUNNEL_LOGGED_OUT_MARKERS = (
     "login required",
     "not logged in",
     "anonymous does not have",
     "unauthorized tunnel",
     "please log in",
+    "token expired",
+    "login expired",
 )
 
 _DEVTUNNEL_LOGIN_HINT = "Dev Tunnels require a Microsoft or GitHub account. Run:\n  devtunnel user login"

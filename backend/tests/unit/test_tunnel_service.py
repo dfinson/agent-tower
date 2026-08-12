@@ -897,6 +897,19 @@ class TestDevtunnelLoginDetection:
         ):
             assert devtunnel_logged_in() is False
 
+    def test_logged_in_is_false_for_expired_token_despite_exit_zero(self) -> None:
+        """An expired login is the wording a returning user hits, and it is the
+        one case where ``devtunnel user show`` still exits 0 — observed on
+        Windows: exit 0 with "Login token expired." on stdout, while every
+        other subcommand then fails with exit 3. Trusting the exit code alone
+        let validation pass and the failure resurface later as a bare
+        "Login token expired." with no instruction to fix it."""
+        with patch(
+            "backend.services.sharing.tunnel_service._run_capture",
+            return_value=real_subprocess.CompletedProcess([], returncode=0, stdout="Login token expired.", stderr=""),
+        ):
+            assert devtunnel_logged_in() is False
+
     def test_logged_in_is_true_for_normal_output(self) -> None:
         with patch(
             "backend.services.sharing.tunnel_service._run_capture",
@@ -912,6 +925,7 @@ class TestDevtunnelLoginDetection:
             "Login required.",
             "Unauthorized tunnel creation access: Anonymous does not have 'create' access scope",
             "You are not logged in",
+            "Login token expired.",
         ],
     )
     def test_create_failure_appends_login_hint(self, message: str) -> None:
