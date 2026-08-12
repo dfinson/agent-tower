@@ -895,7 +895,16 @@ def _pause_active_sessions(base_url: str) -> None:
 
 
 def _kill_process_group(pid: int, sig: int) -> None:
-    """Send *sig* to the process group led by *pid*, falling back to the process itself."""
+    """Send *sig* to the process group led by *pid*, falling back to the process itself.
+
+    Windows has no process groups to signal, and ``os.kill`` there terminates
+    only the named process. A connector (``cloudflared``/``devtunnel host``)
+    is a child of the server, so signalling just the server left it running
+    and still registered with the relay: ``cpl down`` reported "Server
+    stopped" while the public hostname kept a live host connection. Children
+    are therefore enumerated and terminated explicitly on Windows, matching
+    the process-group semantics this function provides on POSIX.
+    """
     import os
 
     getpgid = getattr(os, "getpgid", None)
@@ -907,9 +916,32 @@ def _kill_process_group(pid: int, sig: int) -> None:
             return
         except (ProcessLookupError, PermissionError):
             pass
+    else:
+        _kill_windows_process_tree(pid)
     # Process gone or we don't own the group — try the PID directly.
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.kill(pid, sig)
+
+
+def _kill_windows_process_tree(pid: int) -> None:
+    """Terminate the descendants of *pid* (best effort); the caller kills *pid* itself."""
+    try:
+        import psutil
+    except ImportError:
+        return
+    try:
+        children = psutil.Process(pid).children(recursive=True)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return
+    for child in children:
+        with contextlib.suppress(Exception):
+            child.terminate()
+    with contextlib.suppress(Exception):
+        psutil.wait_procs(children, timeout=5)
+    for child in children:
+        with contextlib.suppress(Exception):
+            if child.is_running():
+                child.kill()
 
 
 def _stop_server(port: int, timeout_seconds: int = 10) -> bool:

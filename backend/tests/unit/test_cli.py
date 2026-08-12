@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import signal
+import sys
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
+from backend import cli as cli_module
 from backend.cli import (
     _find_pids_on_port,
     _find_pids_on_port_posix,
@@ -216,6 +218,48 @@ class TestIsServerRunning:
 # ---------------------------------------------------------------------------
 # _stop_server
 # ---------------------------------------------------------------------------
+
+
+class TestKillProcessGroupOnWindows:
+    """Stopping the server must take its connector children with it.
+
+    Windows has no process group to signal and ``os.kill`` there terminates
+    only the named process, so a ``cloudflared``/``devtunnel host`` child
+    survived ``cpl down``: the command printed "Server stopped" while the
+    public hostname still had a live host connection to a machine whose
+    server was gone.
+    """
+
+    def test_children_are_terminated_when_no_process_groups_exist(self) -> None:
+        child = MagicMock()
+        child.is_running.return_value = False
+        fake_psutil = MagicMock()
+        fake_psutil.NoSuchProcess = RuntimeError
+        fake_psutil.AccessDenied = PermissionError
+        fake_psutil.Process.return_value.children.return_value = [child]
+
+        with (
+            patch.dict(sys.modules, {"psutil": fake_psutil}),
+            patch("os.getpgid", None, create=True),
+            patch("os.killpg", None, create=True),
+            patch("os.kill"),
+        ):
+            cli_module._kill_process_group(100, 15)
+
+        fake_psutil.Process.return_value.children.assert_called_once_with(recursive=True)
+        child.terminate.assert_called_once()
+
+    def test_process_groups_are_preferred_where_they_exist(self) -> None:
+        fake_psutil = MagicMock()
+        with (
+            patch.dict(sys.modules, {"psutil": fake_psutil}),
+            patch("os.getpgid", return_value=100, create=True),
+            patch("os.killpg", create=True) as mock_killpg,
+        ):
+            cli_module._kill_process_group(100, 15)
+
+        mock_killpg.assert_called_once_with(100, 15)
+        fake_psutil.Process.assert_not_called()
 
 
 class TestStopServer:
