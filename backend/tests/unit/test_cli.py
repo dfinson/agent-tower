@@ -410,12 +410,18 @@ async def _fake_startup(self: object, sockets: list[object] | None = None) -> No
     self.started = True  # type: ignore[attr-defined]
 
 
-def _fake_server_run(self: object) -> None:
+def _fake_server_run(self: object, sockets: list[object] | None = None) -> None:
     """Stand-in for ``uvicorn.Server.run`` that drives startup synchronously
-    instead of entering the real (blocking) serve loop."""
+    instead of entering the real (blocking) serve loop.
+
+    Mirrors the real ``uvicorn.Server.run(self, sockets=None)`` signature and
+    forwards ``sockets`` on to ``startup`` exactly as uvicorn does, so that
+    callers passing pre-bound sockets (``cpl up --port 0``) are exercised
+    rather than rejected with a ``TypeError``.
+    """
     import asyncio
 
-    asyncio.run(self.startup())  # type: ignore[attr-defined]
+    asyncio.run(self.startup(sockets=sockets))  # type: ignore[attr-defined]
 
 
 def _invoke_up(args: list[str], *, owning_pids: list[int] | None = None) -> tuple[object, dict[str, object] | None]:
