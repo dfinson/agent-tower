@@ -713,3 +713,15 @@ class SecondarySessionEntryRow(Base):
     tool_visibility: Mapped[str | None] = mapped_column(String, nullable=True)
 
     __table_args__ = (Index("ix_ss_entries_session", "session_id"),)
+
+
+class PushSubscriptionRow(Base):
+    """Persisted Web Push subscription endpoint."""
+
+    __tablename__ = "push_subscriptions"
+
+    endpoint: Mapped[str] = mapped_column(String, primary_key=True)
+    p256dh: Mapped[str] = mapped_column(String, nullable=False)
+    auth_key: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)

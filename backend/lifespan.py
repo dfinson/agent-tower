@@ -861,7 +861,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     push_service = PushService(
         vapid_private_key=vapid_keys["private_key"],
         vapid_public_key=vapid_keys["public_key"],
+        session_factory=session_factory,
     )
+    await push_service.load_from_db()
 
     async def _push_subscriber(event: SessionEvent) -> None:
         """Send push notifications for approval requests and terminal job states."""
@@ -871,6 +873,39 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 title="Approval needed",
                 body=str(desc),
                 tag=f"approval-{event.payload.get('approval_id', event.session_id)}",
+                url=f"/jobs/{event.session_id}",
+            )
+        elif event.kind == EventKind.batch_approval_requested:
+            desc = event.payload.get("description", "Batch action requires your approval")
+            await push_service.notify(
+                title="Batch approval needed",
+                body=str(desc),
+                tag=f"batch-approval-{event.session_id}",
+                url=f"/jobs/{event.session_id}",
+            )
+        elif event.kind == EventKind.merge_conflict:
+            files = event.payload.get("conflict_files", [])
+            body = f"{len(files)} conflicting file(s)" if files else "Merge conflict detected"
+            await push_service.notify(
+                title="Merge conflict",
+                body=body,
+                tag=f"conflict-{event.session_id}",
+                url=f"/jobs/{event.session_id}",
+            )
+        elif event.kind == EventKind.job_review:
+            pr_url = event.payload.get("pr_url", "")
+            body = f"PR ready: {pr_url}" if pr_url else "Job ready for review"
+            await push_service.notify(
+                title="Job ready for review",
+                body=body,
+                tag=f"review-{event.session_id}",
+                url=f"/jobs/{event.session_id}",
+            )
+        elif event.kind == EventKind.stall_detected:
+            await push_service.notify(
+                title="Job stalled",
+                body="Agent may be stuck",
+                tag=f"stall-{event.session_id}",
                 url=f"/jobs/{event.session_id}",
             )
         elif event.kind == EventKind.job_completed:

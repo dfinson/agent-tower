@@ -102,12 +102,20 @@ export function SettingsScreen() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Check whether a push subscription already exists
+  // Check whether a push subscription already exists and re-register with
+  // the server (subscriptions survive in the browser but the server may have
+  // restarted and lost its in-memory registry). The endpoint URL is the
+  // idempotency key on the server side, so duplicate POSTs are harmless.
   useEffect(() => {
     if (!pushSupported) return;
     navigator.serviceWorker.ready
       .then((reg) => reg.pushManager.getSubscription())
-      .then((sub) => setPushEnabled(sub !== null))
+      .then((sub) => {
+        setPushEnabled(sub !== null);
+        if (sub) {
+          subscribePush(sub.toJSON() as PushSubscriptionJSON).catch(() => {});
+        }
+      })
       .catch(() => {});
   }, [pushSupported]);
 
