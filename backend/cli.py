@@ -182,6 +182,30 @@ def _provider_explicit() -> bool:
     return ctx.get_parameter_source("provider") is ParameterSource.COMMANDLINE
 
 
+def _neutralize_fatal_termination_signals() -> None:
+    """Make a re-raised termination signal survivable so cleanup can run.
+
+    ``uvicorn.Server.run`` captures the termination signals for the duration of
+    ``serve()``, then restores whatever handler was installed beforehand and
+    re-raises the signal it caught. When that pre-existing handler is the
+    default one, the re-raise kills the process *instantly*: ``server.run()``
+    never returns, so the ``finally`` block that stops the tunnel connector is
+    skipped and the connector is orphaned. ``SIGINT`` is harmless because
+    Python's default handler merely raises ``KeyboardInterrupt``, which is why
+    Ctrl-C tore down correctly while ``cpl down`` (``SIGTERM``) did not.
+
+    Installing an inert handler *before* ``server.run()`` means uvicorn restores
+    that one instead, and the re-raise becomes a no-op.
+    """
+    for name in ("SIGTERM", "SIGBREAK"):
+        sig = getattr(signal, name, None)
+        if sig is None:
+            continue
+        with contextlib.suppress(ValueError, OSError, RuntimeError):
+            if signal.getsignal(sig) in (signal.SIG_DFL, None):
+                signal.signal(sig, lambda _sig, _frame: None)
+
+
 # ---------------------------------------------------------------------------
 # ``cpl up`` — start the server
 # ---------------------------------------------------------------------------
@@ -577,6 +601,8 @@ def up(
                 _publish_active_launch_profile()
 
     server = _LaunchProfileServer(uv_config)
+
+    _neutralize_fatal_termination_signals()
 
     _exit_signal_count = 0
 

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import signal
+import subprocess
 import sys
+import textwrap
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -218,6 +222,50 @@ class TestIsServerRunning:
 # ---------------------------------------------------------------------------
 # _stop_server
 # ---------------------------------------------------------------------------
+
+
+class TestTerminationSignalIsSurvivable:
+    """``cpl up`` must still run its cleanup after a ``SIGTERM``.
+
+    ``uvicorn.Server.run`` restores the pre-existing termination handler once
+    ``serve()`` returns and then re-raises the signal it caught. With the
+    default handler in place that re-raise kills the process outright, so the
+    ``finally`` block that closes the tunnel handle never executes and the
+    connector is orphaned -- ``cpl down`` reported success while the public
+    origin still had a live host connection. This replays uvicorn's exact
+    capture/restore/re-raise dance in a subprocess (a live ``SIGTERM`` would
+    otherwise take the test runner with it).
+    """
+
+    SCRIPT = textwrap.dedent(
+        """
+        import signal, sys
+        from backend import cli
+
+        cli._neutralize_fatal_termination_signals()
+
+        # --- uvicorn.Server.capture_signals() ---
+        captured = signal.getsignal(signal.SIGTERM)
+        signal.signal(signal.SIGTERM, lambda *_: None)
+        signal.raise_signal(signal.SIGTERM)   # the signal cpl down sends
+        signal.signal(signal.SIGTERM, captured)
+        signal.raise_signal(signal.SIGTERM)   # uvicorn re-raises it
+        # --- back in cpl up's finally: ---
+        print("CLEANUP", flush=True)
+        """
+    )
+
+    def test_cleanup_runs_after_uvicorn_reraises_sigterm(self) -> None:
+        env = {**os.environ, "PYTHONPATH": str(Path(cli_module.__file__).parents[2])}
+        result = subprocess.run(
+            [sys.executable, "-c", self.SCRIPT],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+        )
+        assert "CLEANUP" in result.stdout, f"cleanup was skipped; rc={result.returncode} stderr={result.stderr}"
+        assert result.returncode == 0
 
 
 class TestKillProcessGroupOnWindows:
