@@ -40,6 +40,7 @@ log = structlog.get_logger()
 
 _job_lock = threading.Lock()
 _job_handle: Any = None
+_job_assign_warned = False
 
 
 def _windows_kill_on_close_job() -> Any:
@@ -64,6 +65,16 @@ def _windows_kill_on_close_job() -> Any:
             from ctypes import wintypes
 
             kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+            kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+            kernel32.SetInformationJobObject.restype = wintypes.BOOL
+            kernel32.SetInformationJobObject.argtypes = [
+                wintypes.HANDLE,
+                ctypes.c_int,
+                ctypes.c_void_p,
+                wintypes.DWORD,
+            ]
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 
             class _IO_COUNTERS(ctypes.Structure):  # noqa: N801 - mirrors the Win32 struct name
                 _fields_ = [
@@ -118,34 +129,62 @@ def _windows_kill_on_close_job() -> Any:
             return None
 
 
-def _assign_to_kill_on_close_job(proc: subprocess.Popen[str]) -> None:
+def _assign_to_kill_on_close_job(proc: subprocess.Popen[str]) -> bool:
     """Best-effort: bind *proc* to the kill-on-close job so it cannot outlive us.
 
-    Orphan prevention is hardening, never a startup precondition: every
-    failure path degrades to an unmanaged connector rather than failing the
-    tunnel.
+    Returns whether the connector is actually covered. Orphan prevention is
+    hardening, never a startup precondition: every failure path degrades to an
+    unmanaged connector rather than failing the tunnel.
+
+    The assignment genuinely fails on some Windows hosts. Modern Windows places
+    most processes in an ambient job (so the connector inherits one at spawn),
+    and ``AssignProcessToJobObject`` then returns ``ERROR_ACCESS_DENIED``
+    rather than nesting it. The result must therefore be checked and reported:
+    discarding it left the code claiming an orphan guarantee it did not have,
+    with no way to tell the difference from a log. When this fails, an abrupt
+    kill (as opposed to a graceful shutdown, which terminates the connector
+    explicitly) leaves the connector running; the next ``cpl up`` adopts it via
+    origin-reuse detection instead of starting a second one for the same tunnel.
     """
+    global _job_assign_warned
     if sys.platform != "win32":
-        return
+        return False
     pid = getattr(proc, "pid", None)
     if not isinstance(pid, int):
-        return
+        return False
     job = _windows_kill_on_close_job()
     if job is None:
-        return
+        return False
     try:
         import ctypes
+        from ctypes import wintypes
 
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
         handle = kernel32.OpenProcess(0x0200 | 0x1000 | 0x0001, False, pid)  # SET_QUOTA|SET_INFO|TERMINATE
         if not handle:
-            return
+            return False
         try:
-            kernel32.AssignProcessToJobObject(job, handle)
+            assigned = bool(kernel32.AssignProcessToJobObject(job, handle))
+            if not assigned and not _job_assign_warned:
+                _job_assign_warned = True
+                log.info(
+                    "tunnel_job_assign_unavailable",
+                    pid=pid,
+                    error=ctypes.get_last_error(),
+                    detail="connector may outlive an abrupt kill; a later start will reuse it",
+                )
+            return assigned
         finally:
             kernel32.CloseHandle(handle)
     except (OSError, AttributeError, ValueError):
         log.debug("tunnel_job_assign_failed", pid=pid, exc_info=True)
+        return False
 
 
 def _spawn_kwargs() -> dict[str, Any]:

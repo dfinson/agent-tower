@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import subprocess as real_subprocess
+import sys
 import threading
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from backend.services.sharing import tunnel_service
 from backend.services.sharing.tunnel_service import (
     _CODEPLANE_TUNNEL_PREFIX,
     RemoteProvider,
@@ -1115,3 +1118,40 @@ class TestCloudflaredDetectionIsPortable:
             patch.object(os, "getpid", return_value=111),
         ):
             assert _cloudflared_already_running() is False
+
+
+class TestJobAssignmentIsReported:
+    """A failed Job Object assignment must be observable, not silently swallowed.
+
+    ``AssignProcessToJobObject`` fails with ``ERROR_ACCESS_DENIED`` on Windows
+    hosts that place the connector in an ambient job at spawn. Discarding the
+    result left the caller believing the connector could not outlive an abrupt
+    kill when in fact it could, with nothing in the log to say so.
+    """
+
+    def _fake_kernel32(self, *, assign_ok: bool) -> MagicMock:
+        kernel32 = MagicMock()
+        kernel32.OpenProcess.return_value = 4321
+        kernel32.AssignProcessToJobObject.return_value = 1 if assign_ok else 0
+        return kernel32
+
+    def _assign(self, *, assign_ok: bool) -> bool:
+        proc = cast("subprocess.Popen[str]", SimpleNamespace(pid=999))
+        kernel32 = self._fake_kernel32(assign_ok=assign_ok)
+        fake_ctypes = MagicMock()
+        fake_ctypes.WinDLL.return_value = kernel32
+        fake_ctypes.get_last_error.return_value = 5
+        with (
+            patch.object(tunnel_service.sys, "platform", "win32"),
+            patch.object(tunnel_service, "_windows_kill_on_close_job", return_value=77),
+            patch.dict(sys.modules, {"ctypes": fake_ctypes, "ctypes.wintypes": MagicMock()}),
+        ):
+            return tunnel_service._assign_to_kill_on_close_job(proc)
+
+    def test_failed_assignment_reports_no_coverage(self) -> None:
+        tunnel_service._job_assign_warned = False
+        assert self._assign(assign_ok=False) is False
+
+    def test_successful_assignment_reports_coverage(self) -> None:
+        tunnel_service._job_assign_warned = False
+        assert self._assign(assign_ok=True) is True
