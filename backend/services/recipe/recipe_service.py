@@ -12,7 +12,6 @@ across re-runs.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,6 +26,8 @@ from backend.services.recipe.parsers import (
 from backend.services.tracker_write_service import TrackerWriteAction, TrackerWriteRequest
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
     from backend.models.domain import Job, TaskLink
     from backend.persistence.chat_repo import ChatRepository
     from backend.persistence.job_repo import JobRepository
@@ -100,10 +101,18 @@ class RecipeService:
         self._approval_service = approval_service
         self._tracker_link_repo = tracker_link_repo
         self._tracker_write_service = tracker_write_service
-        # Tracks fire-and-forget tracker-write tasks so they aren't garbage
-        # collected mid-flight (Story 4.6) — the approval wait can take an
-        # arbitrarily long time and must never block dependent-spawn logic.
-        self._tracker_write_tasks: set[asyncio.Task[bool]] = set()
+        # Coroutines built by `_maybe_route_tracker_write` (Story 4.6), not yet
+        # scheduled as tasks. `TrackerWriteService.execute`'s approval wait can
+        # block indefinitely, so it must never be scheduled via a task tracked
+        # only on this instance — `RecipeService` is a short-lived local built
+        # fresh per `job_completed` event (see `backend/lifespan.py`) with no
+        # outer reference keeping it alive, so any `asyncio.Task` stored only
+        # on `self` risks garbage collection before the approval resolves.
+        # Callers (the `lifespan.py` event subscriber) must drain this list via
+        # `pending_tracker_writes` and schedule each coroutine through the
+        # module-level `_fire_and_forget` helper, whose `_ephemeral_tasks` set
+        # has app-lifetime scope — the same fix used for Story 5.4/PR #70.
+        self.pending_tracker_writes: list[Coroutine[None, None, bool]] = []
 
     @staticmethod
     def _resolve_dependency(raw: str, *, current_repo_path: str, repo_path_by_folder: dict[str, str]) -> str:
@@ -364,11 +373,14 @@ class RecipeService:
         might be linked to (AC #1) — the Project-level TrackerLink only
         supplies routing/credential context, never the ticket identity.
 
-        Creating the approval and dispatching are fired-and-forgotten: the
-        approval wait (Story 3.4's `TrackerWriteService.execute`) can block
-        for an arbitrarily long time on operator action and must never delay
-        this method's caller, `handle_job_completed`, from running its own
-        dependent-spawn logic (Story 4.5 AC #1-#3).
+        Builds the `TrackerWriteService.execute(...)` call as an unscheduled
+        coroutine appended to `pending_tracker_writes` rather than an
+        `asyncio.Task` created here: the approval wait can block for an
+        arbitrarily long time on operator action, and this `RecipeService`
+        instance does not outlive `handle_job_completed`'s caller (see
+        `pending_tracker_writes`'s docstring) — the caller must schedule each
+        coroutine through `backend/lifespan.py`'s module-level
+        `_fire_and_forget` helper instead.
         """
         if self._tracker_write_service is None or self._tracker_link_repo is None:
             return
@@ -392,12 +404,9 @@ class RecipeService:
             value=f"Task '{task_link.story_node_id or task_link.id}' completed.",
         )
 
-        task = asyncio.create_task(
-            self._tracker_write_service.execute(job_id, request, _log_only_tracker_write_dispatch),
-            name=f"tracker-write-{task_link.id[:8]}",
+        self.pending_tracker_writes.append(
+            self._tracker_write_service.execute(job_id, request, _log_only_tracker_write_dispatch)
         )
-        self._tracker_write_tasks.add(task)
-        task.add_done_callback(self._tracker_write_tasks.discard)
 
     async def spawn_approved_task_link(self, task_link_id: str, *, parent_job_id: str | None) -> Job | None:
         """Spawn a TaskLink's job once its gated approval has been granted (Story 5.4, AC #1).

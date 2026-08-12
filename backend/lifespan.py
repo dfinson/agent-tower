@@ -1361,6 +1361,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         tracker_write_service=tracker_write_service,
                     )
                     spawned_jobs = await recipe_service.handle_job_completed(job_id, resolution=resolution)
+                    # Story 4.6: schedule any tracker-write coroutines built during
+                    # handle_job_completed through the module-level _fire_and_forget
+                    # helper (whose _ephemeral_tasks set has app-lifetime scope),
+                    # rather than as a task tracked only on `recipe_service` — that
+                    # local instance has no outer reference and would otherwise let
+                    # the task (and TrackerWriteService.execute's approval wait) be
+                    # garbage-collected once this function returns (same bug class
+                    # as Story 5.4/PR #70).
+                    pending_tracker_writes = list(recipe_service.pending_tracker_writes)
+
+                for index, tracker_write_coro in enumerate(pending_tracker_writes):
+                    _fire_and_forget(tracker_write_coro, name=f"tracker-write-{job_id[:8]}-{index}")
 
                 for spawned_job in spawned_jobs:
 

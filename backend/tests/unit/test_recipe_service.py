@@ -585,7 +585,7 @@ class TestHandleJobCompletedTrackerWrite:
             tracker_write_service=mock_tracker_write_service,
         )
         await service.handle_job_completed("job-1", resolution="merged")
-        await asyncio.gather(*service._tracker_write_tasks)  # noqa: SLF001
+        await asyncio.gather(*service.pending_tracker_writes)
 
         mock_tracker_link_repo.list_for_project.assert_awaited_once_with("proj-1")
         mock_tracker_write_service.execute.assert_awaited_once()
@@ -626,7 +626,7 @@ class TestHandleJobCompletedTrackerWrite:
             tracker_write_service=mock_tracker_write_service,
         )
         result = await service.handle_job_completed("job-1", resolution="merged")
-        await asyncio.gather(*service._tracker_write_tasks)  # noqa: SLF001
+        await asyncio.gather(*service.pending_tracker_writes)
 
         assert result == []  # no story_node_id: never a dependency-graph participant
         mock_tracker_write_service.execute.assert_awaited_once()
