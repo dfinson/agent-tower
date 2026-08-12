@@ -44,7 +44,7 @@ async def _make_credential(session: AsyncSession, credential_id: str = "cred-1")
         credential_id=credential_id, provider="github", label="GH", base_url="https://api.github.com", pat="secret"
     )
     await session.commit()
-    return row["id"]
+    return str(row["id"])
 
 
 async def _make_job(session: AsyncSession, job_id: str = "job-1") -> None:
