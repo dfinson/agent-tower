@@ -9,14 +9,20 @@ Exercises:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import pytest
+
+from backend.config import CPLConfig
+from backend.models.db import JobRow
 
 if TYPE_CHECKING:
     from unittest.mock import AsyncMock
 
     from httpx import AsyncClient
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.services.job.approval_service import ApprovalService
 
@@ -177,6 +183,142 @@ class TestResolveApproval:
             json={"resolution": "maybe"},
         )
         assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_approving_gated_spawn_task_link_spawns_and_starts_job(
+        self,
+        client: AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+        approval_service: ApprovalService,
+        mock_runtime_service: AsyncMock,
+        tmp_path: object,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Story 5.4, AC #1: approving a `spawn_task:{task_link_id}` approval
+        performs the deferred spawn and starts the new job."""
+        import asyncio
+        from pathlib import Path
+
+        from backend.persistence.project_repo import ProjectRepository
+        from backend.persistence.task_link_repo import TaskLinkRepository
+
+        repo_path = str(Path(str(tmp_path)).resolve())
+        import subprocess
+
+        subprocess.run(["git", "init", "--quiet", repo_path], check=True)
+        subprocess.run(["git", "-C", repo_path, "config", "user.email", "test@test.com"], check=True)
+        subprocess.run(["git", "-C", repo_path, "config", "user.name", "test"], check=True)
+        (Path(repo_path) / "README.md").write_text("init")
+        subprocess.run(["git", "-C", repo_path, "add", "."], check=True)
+        subprocess.run(["git", "-C", repo_path, "commit", "-m", "init", "--quiet"], check=True)
+
+        job_id = f"job-{uuid4().hex[:8]}"
+        async with session_factory() as session:
+            session.add(
+                JobRow(
+                    id=job_id,
+                    repo=repo_path,
+                    prompt="Test prompt",
+                    state="completed",
+                    resolution="merged",
+                    base_ref="main",
+                    created_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+
+            project = await ProjectRepository(session).create("proj-gated", "Gated Project", [repo_path])
+            task_link_repo = TaskLinkRepository(session)
+            created = await task_link_repo.upsert_many(
+                project.id,
+                [
+                    {
+                        "repo_path": repo_path,
+                        "story_node_id": "1-2-b",
+                        "depends_on": [],
+                        "epic_id": "epic-1",
+                    }
+                ],
+            )
+            await session.commit()
+            dependent_link = created[0]
+
+        approval = await approval_service.create_request(
+            job_id, "Ready to spawn", proposed_action=f"spawn_task:{dependent_link.id}"
+        )
+
+        monkeypatch.setattr("backend.services.job.job_service.load_config", lambda: CPLConfig(repos=[repo_path]))
+
+        resp = await client.post(
+            f"/api/approvals/{approval.id}/resolve",
+            json={"resolution": "approved"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["resolution"] == "approved"
+
+        # The spawn + start happen on a fire-and-forget task — give the loop a
+        # tick to let it run before asserting.
+        await asyncio.sleep(0.05)
+
+        async with session_factory() as session:
+            refreshed = await TaskLinkRepository(session).get(dependent_link.id)
+        assert refreshed is not None
+        assert refreshed.job_id is not None
+        mock_runtime_service.setup_and_start.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_rejecting_gated_spawn_task_link_never_spawns(
+        self,
+        client: AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+        approval_service: ApprovalService,
+        mock_runtime_service: AsyncMock,
+        seed_job: SeedJobFn,
+        tmp_path: object,
+    ) -> None:
+        """Story 5.4, AC #3: rejecting leaves the TaskLink's job_id unset."""
+        from pathlib import Path
+
+        from backend.persistence.project_repo import ProjectRepository
+        from backend.persistence.task_link_repo import TaskLinkRepository
+
+        repo_path = str(Path(str(tmp_path)).resolve())
+        job_id = await seed_job()
+
+        async with session_factory() as session:
+            project = await ProjectRepository(session).create("proj-gated-2", "Gated Project 2", [repo_path])
+            task_link_repo = TaskLinkRepository(session)
+            created = await task_link_repo.upsert_many(
+                project.id,
+                [
+                    {
+                        "repo_path": repo_path,
+                        "story_node_id": "1-2-c",
+                        "depends_on": [],
+                        "epic_id": "epic-1",
+                    }
+                ],
+            )
+            await session.commit()
+            dependent_link = created[0]
+
+        approval = await approval_service.create_request(
+            job_id, "Ready to spawn", proposed_action=f"spawn_task:{dependent_link.id}"
+        )
+
+        resp = await client.post(
+            f"/api/approvals/{approval.id}/resolve",
+            json={"resolution": "rejected"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["resolution"] == "rejected"
+
+        async with session_factory() as session:
+            refreshed = await TaskLinkRepository(session).get(dependent_link.id)
+        assert refreshed is not None
+        assert refreshed.job_id is None
+        mock_runtime_service.setup_and_start.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

@@ -257,8 +257,23 @@ class RequestProvider(Provider):
         return TaskLinkRepository(session)
 
     @provide
-    def recipe_service(self, task_link_repo: TaskLinkRepository, project_service: ProjectService) -> RecipeService:
-        return RecipeService(task_link_repo, project_service)
+    def recipe_service(
+        self,
+        task_link_repo: TaskLinkRepository,
+        project_service: ProjectService,
+        job_service: JobService,
+        job_repo: JobRepository,
+        chat_repo: ChatRepository,
+        approval_service: ApprovalService,
+    ) -> RecipeService:
+        return RecipeService(
+            task_link_repo,
+            project_service,
+            job_service=job_service,
+            job_repo=job_repo,
+            chat_repo=chat_repo,
+            approval_service=approval_service,
+        )
 
     @provide
     def telemetry_spans_repo(self, session: AsyncSession) -> TelemetrySpansRepository:

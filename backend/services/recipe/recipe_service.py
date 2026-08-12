@@ -26,8 +26,10 @@ from backend.services.recipe.parsers import (
 
 if TYPE_CHECKING:
     from backend.models.domain import Job, TaskLink
+    from backend.persistence.chat_repo import ChatRepository
     from backend.persistence.job_repo import JobRepository
     from backend.persistence.task_link_repo import TaskLinkRepository
+    from backend.services.job.approval_service import ApprovalService
     from backend.services.job.job_service import JobService
     from backend.services.project.project_service import ProjectService
 
@@ -41,6 +43,12 @@ log = structlog.get_logger()
 # dependency or spawn the next task in the chain.
 _SUCCESSFUL_RESOLUTIONS = frozenset({"merged", "pr_created"})
 
+# Prefix for the ``Approval.proposed_action`` created when a gated chain's
+# dependent TaskLink becomes spawn-eligible (Story 5.4, AC #1). The suffix is
+# the candidate TaskLink's id, so the approval-resolve route (and this
+# service's own re-entrancy guard) can recover which TaskLink to spawn.
+_SPAWN_TASK_ACTION_PREFIX = "spawn_task:"
+
 
 class RecipeService:
     """Orchestrates Project-scoped TaskLink creation and ingestion."""
@@ -52,14 +60,19 @@ class RecipeService:
         *,
         job_service: JobService | None = None,
         job_repo: JobRepository | None = None,
+        chat_repo: ChatRepository | None = None,
+        approval_service: ApprovalService | None = None,
     ) -> None:
         self._task_link_repo = task_link_repo
         self._project_service = project_service
-        # Both optional: request-scoped DI call sites (ingestion/listing, Story
-        # 4.2-4.4) never spawn jobs and don't need them. Only the job-completion
-        # subscriber wired in backend/lifespan.py supplies them (Story 4.5).
+        # All optional: request-scoped DI call sites (ingestion/listing, Story
+        # 4.2-4.4) never spawn jobs and don't need them. The job-completion
+        # subscriber wired in backend/lifespan.py supplies job_service/job_repo
+        # (Story 4.5) plus chat_repo/approval_service (Story 5.4, gating).
         self._job_service = job_service
         self._job_repo = job_repo
+        self._chat_repo = chat_repo
+        self._approval_service = approval_service
 
     @staticmethod
     def _resolve_dependency(raw: str, *, current_repo_path: str, repo_path_by_folder: dict[str, str]) -> str:
@@ -187,16 +200,24 @@ class RecipeService:
         return str(job.state) == "completed" and str(job.resolution or "") in _SUCCESSFUL_RESOLUTIONS
 
     async def handle_job_completed(self, job_id: str, *, resolution: str | None) -> list[Job]:
-        """React to a Job reaching ``JobState.completed`` (Story 4.5, AC #1-#3).
+        """React to a Job reaching ``JobState.completed`` (Story 4.5 AC #1-#3; Story 5.4 AC #1-#2).
 
         Finds the TaskLink whose linked Job just completed, and for every other
         TaskLink in the same Project that depends on it and has no `job_id` of
         its own yet, checks whether *all* of its dependencies are now satisfied.
-        If so, spawns the dependent's job via the same `JobService.create_job`
-        path used by `codeplane_job create`, and persists the new `job_id`.
+
+        If the Project has an open Chat attached to a chain (Story 5.3's
+        `task_link_id` pointer) — i.e. the chain is in gated mode (Story 5.4,
+        AC #1) — a `codeplane_approval` entry is created instead of spawning
+        directly, and the actual spawn is deferred to
+        `spawn_approved_task_link` once that approval is granted. With no
+        attached open Chat, the pre-existing Story 4.5 immediate-spawn
+        behavior is completely unchanged (AC #2).
 
         Returns the newly-created Jobs (so callers, e.g. the `lifespan.py`
         event-bus subscriber, can start each one via `RuntimeService.setup_and_start`).
+        Jobs deferred behind a pending approval are never included here — they
+        are returned later, from `spawn_approved_task_link`, once approved.
 
         Never raises: a bad dependent (disallowed repo, mismatched SDK/model)
         is logged and skipped so it never blocks other dependents or crashes
@@ -219,6 +240,15 @@ class RecipeService:
         project_links = await self._task_link_repo.list_by_project(completed_link.project_id)
         links_by_key = {key: link for link in project_links if (key := self._composite_key(link)) is not None}
 
+        gated = await self._is_chain_gated(completed_link.project_id)
+        pending_spawn_actions: set[str] | None = None
+        if gated:
+            assert self._approval_service is not None  # narrowed by _is_chain_gated
+            pending = await self._approval_service.list_pending()
+            pending_spawn_actions = {
+                a.proposed_action for a in pending if a.proposed_action is not None
+            }
+
         spawned: list[Job] = []
         for candidate in project_links:
             if candidate.job_id is not None:
@@ -229,6 +259,26 @@ class RecipeService:
 
             satisfied = all([await self._is_satisfied(dep_key, links_by_key) for dep_key in candidate.depends_on])
             if not satisfied:
+                continue
+
+            if gated:
+                assert self._approval_service is not None  # narrowed by _is_chain_gated
+                assert pending_spawn_actions is not None
+                action = f"{_SPAWN_TASK_ACTION_PREFIX}{candidate.id}"
+                if action in pending_spawn_actions:
+                    # Already have a pending approval for this exact candidate —
+                    # never double-request (e.g. repeat event-bus deliveries, or
+                    # multiple simultaneously-satisfied dependents on one pass).
+                    continue
+                await self._approval_service.create_request(
+                    job_id=job_id,
+                    description=(
+                        f"Chain is gated by an attached Chat: dependent task "
+                        f"'{candidate.story_node_id or candidate.tracker_ticket_ref}' is ready to "
+                        "spawn. Approve to start its job."
+                    ),
+                    proposed_action=action,
+                )
                 continue
 
             prompt = self._derive_prompt(candidate)
@@ -250,3 +300,48 @@ class RecipeService:
                 spawned.append(new_job)
 
         return spawned
+
+    async def _is_chain_gated(self, project_id: str) -> bool:
+        """Whether a Project's chains are gated behind approval (Story 5.4, AC #1-#2).
+
+        Gating requires both an attached, open Chat for the Project (the sole
+        trigger per AC #2's exact wording — nothing else switches gating on)
+        and an `ApprovalService` collaborator to actually raise the approval;
+        without either, the Project's chains are ungated.
+        """
+        if self._chat_repo is None or self._approval_service is None:
+            return False
+        attached_chat = await self._chat_repo.get_attached_open_chat_for_project(project_id)
+        return attached_chat is not None
+
+    async def spawn_approved_task_link(self, task_link_id: str, *, parent_job_id: str | None) -> Job | None:
+        """Spawn a TaskLink's job once its gated approval has been granted (Story 5.4, AC #1).
+
+        Idempotent: returns ``None`` (no-op) if the TaskLink doesn't exist or
+        already has a `job_id` — mirroring `TaskLinkRepository.set_job_id`'s
+        own `job_id IS NULL` guard, preserving Story 4.5's "one TaskLink,
+        zero-or-one real Job" invariant even for the deferred/gated path.
+        """
+        if self._job_service is None or self._job_repo is None:
+            return None
+
+        task_link = await self._task_link_repo.get(task_link_id)
+        if task_link is None or task_link.job_id is not None:
+            return None
+
+        prompt = self._derive_prompt(task_link)
+        try:
+            new_job = await self._job_service.create_job(
+                JobSpec(repo=task_link.repo_path, prompt=prompt, parent_job_id=parent_job_id)
+            )
+        except (RepoNotAllowedError, SDKModelMismatchError) as exc:
+            log.warning(
+                "task_link_gated_spawn_failed",
+                task_link_id=task_link.id,
+                repo_path=task_link.repo_path,
+                error=str(exc),
+            )
+            return None
+
+        updated = await self._task_link_repo.set_job_id(task_link.id, new_job.id)
+        return new_job if updated is not None else None

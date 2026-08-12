@@ -1327,6 +1327,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         async def _run_spawn() -> None:
             try:
+                from backend.persistence.chat_repo import ChatRepository
                 from backend.persistence.job_repo import JobRepository
                 from backend.persistence.project_repo import ProjectRepository
                 from backend.persistence.task_link_repo import TaskLinkRepository
@@ -1337,6 +1338,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 async with serialized_write(session_factory) as session:
                     task_link_repo = TaskLinkRepository(session)
                     job_repo = JobRepository(session)
+                    chat_repo = ChatRepository(session)
                     project_service = ProjectService(ProjectRepository(session), config)
                     job_service = JobService.from_session(session, config)
                     recipe_service = RecipeService(
@@ -1344,6 +1346,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         project_service,
                         job_service=job_service,
                         job_repo=job_repo,
+                        chat_repo=chat_repo,
+                        approval_service=services.approval_service,
                     )
                     spawned_jobs = await recipe_service.handle_job_completed(job_id, resolution=resolution)
 

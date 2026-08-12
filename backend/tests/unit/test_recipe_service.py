@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.models.domain import Job, JobState, Project, RepoNotAllowedError, TaskLink
+from backend.models.domain import Approval, Job, JobState, Project, RepoNotAllowedError, TaskLink
 from backend.services.recipe.recipe_service import RecipeService
 
 if TYPE_CHECKING:
@@ -540,3 +540,241 @@ class TestHandleJobCompleted:
 
         assert result == []
         mock_task_link_repo.set_job_id.assert_not_awaited()
+
+
+@pytest.fixture
+def mock_chat_repo() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
+def mock_approval_service() -> AsyncMock:
+    return AsyncMock()
+
+
+def _make_approval(*, proposed_action: str | None, job_id: str = "job-1") -> Approval:
+    now = datetime.now(UTC)
+    return Approval(
+        id="appr-1",
+        job_id=job_id,
+        description="desc",
+        proposed_action=proposed_action,
+        requested_at=now,
+    )
+
+
+class TestHandleJobCompletedGating:
+    """Story 5.4: gate a chain's auto-spawn behind approval."""
+
+    @pytest.mark.asyncio
+    async def test_ungated_project_spawns_exactly_as_before(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+        mock_chat_repo: AsyncMock,
+        mock_approval_service: AsyncMock,
+    ) -> None:
+        """No attached open Chat for the Project => ungated, unchanged Story 4.5 behavior."""
+        completed_link = _make_task_link(id="link-a", story_node_id="1-1-a", job_id="job-1")
+        dependent = _make_task_link(id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"])
+        mock_task_link_repo.get_by_job_id.return_value = completed_link
+        mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
+        mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
+        new_job = _make_job(id="job-2", state=JobState.preparing)
+        mock_job_service.create_job.return_value = new_job
+        mock_task_link_repo.set_job_id.return_value = _make_task_link(
+            id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"], job_id="job-2"
+        )
+        mock_chat_repo.get_attached_open_chat_for_project.return_value = None
+
+        service = RecipeService(
+            mock_task_link_repo,
+            mock_project_service,
+            job_service=mock_job_service,
+            job_repo=mock_job_repo,
+            chat_repo=mock_chat_repo,
+            approval_service=mock_approval_service,
+        )
+        result = await service.handle_job_completed("job-1", resolution="merged")
+
+        assert result == [new_job]
+        mock_job_service.create_job.assert_awaited_once()
+        mock_approval_service.create_request.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_gated_project_creates_approval_instead_of_spawning(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+        mock_chat_repo: AsyncMock,
+        mock_approval_service: AsyncMock,
+    ) -> None:
+        completed_link = _make_task_link(id="link-a", story_node_id="1-1-a", job_id="job-1")
+        dependent = _make_task_link(id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"])
+        mock_task_link_repo.get_by_job_id.return_value = completed_link
+        mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
+        mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
+        mock_chat_repo.get_attached_open_chat_for_project.return_value = object()  # any truthy Chat
+        mock_approval_service.list_pending.return_value = []
+
+        service = RecipeService(
+            mock_task_link_repo,
+            mock_project_service,
+            job_service=mock_job_service,
+            job_repo=mock_job_repo,
+            chat_repo=mock_chat_repo,
+            approval_service=mock_approval_service,
+        )
+        result = await service.handle_job_completed("job-1", resolution="merged")
+
+        assert result == []
+        mock_job_service.create_job.assert_not_awaited()
+        mock_task_link_repo.set_job_id.assert_not_awaited()
+        mock_approval_service.create_request.assert_awaited_once()
+        call = mock_approval_service.create_request.call_args
+        assert call.kwargs["job_id"] == "job-1"
+        assert call.kwargs["proposed_action"] == "spawn_task:link-b"
+
+    @pytest.mark.asyncio
+    async def test_gated_project_never_double_requests_pending_approval(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+        mock_chat_repo: AsyncMock,
+        mock_approval_service: AsyncMock,
+    ) -> None:
+        completed_link = _make_task_link(id="link-a", story_node_id="1-1-a", job_id="job-1")
+        dependent = _make_task_link(id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"])
+        mock_task_link_repo.get_by_job_id.return_value = completed_link
+        mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
+        mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
+        mock_chat_repo.get_attached_open_chat_for_project.return_value = object()
+        mock_approval_service.list_pending.return_value = [
+            _make_approval(proposed_action="spawn_task:link-b")
+        ]
+
+        service = RecipeService(
+            mock_task_link_repo,
+            mock_project_service,
+            job_service=mock_job_service,
+            job_repo=mock_job_repo,
+            chat_repo=mock_chat_repo,
+            approval_service=mock_approval_service,
+        )
+        result = await service.handle_job_completed("job-1", resolution="merged")
+
+        assert result == []
+        mock_approval_service.create_request.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_missing_chat_repo_or_approval_service_falls_back_to_ungated(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+    ) -> None:
+        """No chat_repo/approval_service configured at all => never gated (Story 4.5 default)."""
+        completed_link = _make_task_link(id="link-a", story_node_id="1-1-a", job_id="job-1")
+        dependent = _make_task_link(id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"])
+        mock_task_link_repo.get_by_job_id.return_value = completed_link
+        mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
+        mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
+        new_job = _make_job(id="job-2", state=JobState.preparing)
+        mock_job_service.create_job.return_value = new_job
+        mock_task_link_repo.set_job_id.return_value = _make_task_link(
+            id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"], job_id="job-2"
+        )
+
+        service = RecipeService(
+            mock_task_link_repo, mock_project_service, job_service=mock_job_service, job_repo=mock_job_repo
+        )
+        result = await service.handle_job_completed("job-1", resolution="merged")
+
+        assert result == [new_job]
+
+
+class TestSpawnApprovedTaskLink:
+    """Story 5.4: deferred spawn once a gated approval is granted."""
+
+    @pytest.mark.asyncio
+    async def test_spawns_and_sets_job_id_when_task_link_has_none(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+    ) -> None:
+        task_link = _make_task_link(id="link-b", story_node_id="1-2-b")
+        mock_task_link_repo.get.return_value = task_link
+        new_job = _make_job(id="job-2", state=JobState.preparing)
+        mock_job_service.create_job.return_value = new_job
+        mock_task_link_repo.set_job_id.return_value = _make_task_link(
+            id="link-b", story_node_id="1-2-b", job_id="job-2"
+        )
+
+        service = RecipeService(
+            mock_task_link_repo, mock_project_service, job_service=mock_job_service, job_repo=mock_job_repo
+        )
+        result = await service.spawn_approved_task_link("link-b", parent_job_id="job-1")
+
+        assert result == new_job
+        mock_job_service.create_job.assert_awaited_once()
+        spec = mock_job_service.create_job.call_args.args[0]
+        assert spec.repo == task_link.repo_path
+        assert spec.parent_job_id == "job-1"
+        mock_task_link_repo.set_job_id.assert_awaited_once_with("link-b", "job-2")
+
+    @pytest.mark.asyncio
+    async def test_no_op_when_task_link_already_has_job_id(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+    ) -> None:
+        task_link = _make_task_link(id="link-b", story_node_id="1-2-b", job_id="job-already-there")
+        mock_task_link_repo.get.return_value = task_link
+
+        service = RecipeService(
+            mock_task_link_repo, mock_project_service, job_service=mock_job_service, job_repo=mock_job_repo
+        )
+        result = await service.spawn_approved_task_link("link-b", parent_job_id="job-1")
+
+        assert result is None
+        mock_job_service.create_job.assert_not_awaited()
+        mock_task_link_repo.set_job_id.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_op_for_unknown_task_link(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+    ) -> None:
+        mock_task_link_repo.get.return_value = None
+
+        service = RecipeService(
+            mock_task_link_repo, mock_project_service, job_service=mock_job_service, job_repo=mock_job_repo
+        )
+        result = await service.spawn_approved_task_link("no-such-link", parent_job_id="job-1")
+
+        assert result is None
+        mock_job_service.create_job.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_op_when_job_service_not_configured(
+        self, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+    ) -> None:
+        service = RecipeService(mock_task_link_repo, mock_project_service)
+        result = await service.spawn_approved_task_link("link-b", parent_job_id="job-1")
+
+        assert result is None
+        mock_task_link_repo.get.assert_not_awaited()
