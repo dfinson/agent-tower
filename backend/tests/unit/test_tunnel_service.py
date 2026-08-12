@@ -599,6 +599,85 @@ class TestGiveupCooldown:
         assert call_count >= 2
 
 
+class TestWatchdogRestartTrigger:
+    """A connector restart must only happen for a failure a restart can repair.
+
+    The watchdog exists to restart the connector when the public relay stops
+    forwarding. Counting a failing *origin* check toward the same threshold
+    made a slow local startup look like a tunnel fault: observed on Windows,
+    where application startup outlasts ``_INITIAL_DELAY`` and two origin
+    checks failed in a row, tearing down and respawning a healthy connector
+    while the server was still booting.
+    """
+
+    def _watchdog(self, health_results: list[bool]) -> tuple[TunnelWatchdog, list[bool]]:
+        watchdog = TunnelWatchdog(
+            tunnel_url="https://example.test",
+            restart_command=["echo"],
+            proc=_as_popen(_FakeProc(poll_result=None)),
+            label="test",
+            local_port=8080,
+        )
+        watchdog._INITIAL_DELAY = 0
+        watchdog._CHECK_INTERVAL = 0
+        return watchdog, health_results
+
+    def test_origin_down_never_restarts_the_connector(self) -> None:
+        watchdog, _ = self._watchdog([])
+        checks = 0
+
+        def _health(*, use_tunnel_url: bool = False) -> bool:
+            nonlocal checks
+            checks += 1
+            if checks >= 6:
+                watchdog._stop_event.set()
+            return False  # origin never answers; connector is alive
+
+        with (
+            patch.object(watchdog, "_health_ok", side_effect=_health),
+            patch.object(watchdog, "_restart_process", return_value=True) as mock_restart,
+        ):
+            watchdog._run()
+
+        assert mock_restart.call_count == 0
+
+    def test_relay_failure_with_healthy_origin_restarts_the_connector(self) -> None:
+        watchdog, _ = self._watchdog([])
+        watchdog._RELAY_CHECK_FREQUENCY = 1
+
+        def _health(*, use_tunnel_url: bool = False) -> bool:
+            # Origin healthy, public relay broken — the connector is at fault.
+            return not use_tunnel_url
+
+        def _restart() -> bool:
+            watchdog._stop_event.set()
+            return True
+
+        with (
+            patch.object(watchdog, "_health_ok", side_effect=_health),
+            patch.object(watchdog, "_restart_process", side_effect=_restart) as mock_restart,
+        ):
+            watchdog._run()
+
+        assert mock_restart.call_count == 1
+
+    def test_dead_connector_still_restarts_immediately(self) -> None:
+        watchdog, _ = self._watchdog([])
+        watchdog.proc = _as_popen(_FakeProc(poll_result=1))
+
+        def _restart() -> bool:
+            watchdog._stop_event.set()
+            return True
+
+        with (
+            patch.object(watchdog, "_health_ok", return_value=True),
+            patch.object(watchdog, "_restart_process", side_effect=_restart) as mock_restart,
+        ):
+            watchdog._run()
+
+        assert mock_restart.call_count == 1
+
+
 # ---------------------------------------------------------------------------
 # Explicit tunnel ownership (SPEC CAP-6 / ARCHITECTURE-SPINE AD-8)
 # ---------------------------------------------------------------------------

@@ -456,9 +456,20 @@ class TunnelWatchdog:
                     if self._stop_event.wait(timeout=self._GIVEUP_COOLDOWN):
                         return
                 consecutive_failures = 0
-            elif self._health_ok(use_tunnel_url=use_relay):
+            elif not self._health_ok():
+                # The local origin is down or has not finished starting. The
+                # connector is alive and restarting it cannot make the origin
+                # answer, so this must not count toward the restart threshold:
+                # observed on Windows, where startup takes longer than
+                # _INITIAL_DELAY and two failed origin checks tore down and
+                # respawned a perfectly healthy connector during boot.
+                log.debug("tunnel_watchdog_origin_unavailable", provider=self.label)
+                consecutive_failures = 0
+            elif not use_relay or self._health_ok(use_tunnel_url=True):
                 consecutive_failures = 0
             else:
+                # Origin healthy but the public relay does not reach it — the
+                # one condition a connector restart can actually repair.
                 consecutive_failures += 1
                 log.debug(
                     "tunnel_watchdog_check_failed",
