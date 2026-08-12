@@ -5,7 +5,7 @@ Covers: invalid arguments, edge cases for cpl up/init/version.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 from unittest.mock import patch
 
 from click.testing import CliRunner
@@ -13,29 +13,56 @@ from click.testing import CliRunner
 from backend.main import cli
 
 
-def _invoke_up(*args: str) -> tuple[int, dict[str, Any]]:
+class _UpInvocation(NamedTuple):
+    exit_code: int
+    config_kwargs: dict[str, Any]
+    bound_port: int | None
+
+
+def _invoke_up(*args: str) -> _UpInvocation:
     """Run ``cpl up`` far enough to capture the uvicorn config it builds.
 
     ``cpl up`` does not call ``uvicorn.Server(...)`` directly — it defines a
     ``uvicorn.Server`` *subclass* (``_LaunchProfileServer``) and instantiates
-    that, so the bind settings can only be observed on ``uvicorn.Config``.
-    ``uvicorn.Server`` is still patched so ``server.run()`` never binds a real
-    socket, and ``--skip-preflight`` keeps the invocation independent of the
-    host machine's toolchain and of whether port 8080 happens to be free.
+    that, so the bind settings can only be observed on ``uvicorn.Config``. For
+    the same reason ``server.run`` cannot be observed via
+    ``mock_server.return_value``: the instance is of the subclass, not of the
+    mock. ``uvicorn.Server`` is still patched so ``server.run()`` never serves,
+    and ``--skip-preflight`` keeps the invocation independent of the host
+    machine's toolchain and of whether port 8080 happens to be free.
 
-    Returns the exit code and the keyword arguments passed to ``uvicorn.Config``.
+    ``_bind_ephemeral_socket`` is wrapped rather than replaced so ``--port 0``
+    exercises a genuine bind; ``bound_port`` is the port it actually obtained,
+    recorded at bind time because ``cpl up`` closes the socket on the way out.
+
+    Returns the exit code, the ``uvicorn.Config`` kwargs, and that bound port
+    (``None`` when no ephemeral bind happened).
     """
+    from backend.cli import _bind_ephemeral_socket as _real_bind
+
+    recorded: list[int] = []
+
+    def _recording_bind(host: str) -> Any:
+        sock = _real_bind(host)
+        recorded.append(sock.getsockname()[1])
+        return sock
+
     runner = CliRunner()
     with (
         patch("backend.cli._build_frontend"),
         patch("backend.persistence.database.run_migrations"),
+        patch("backend.cli._bind_ephemeral_socket", side_effect=_recording_bind),
         patch("uvicorn.Server"),
         patch("uvicorn.Config") as mock_config,
     ):
         result = runner.invoke(cli, ["up", "--skip-preflight", *args])
         if result.exit_code == 0:
             assert mock_config.called, "cpl up exited 0 without building a uvicorn config"
-        return result.exit_code, dict(mock_config.call_args.kwargs) if mock_config.called else {}
+        return _UpInvocation(
+            result.exit_code,
+            dict(mock_config.call_args.kwargs) if mock_config.called else {},
+            recorded[0] if recorded else None,
+        )
 
 
 class TestVersionCommand:
@@ -111,22 +138,46 @@ class TestUpCommand:
 
     def test_up_accepts_negative_port(self) -> None:
         """Click accepts negative int; uvicorn would fail at bind time."""
-        exit_code, uv_config = _invoke_up("--port", "-1")
+        exit_code, uv_config, _ = _invoke_up("--port", "-1")
         assert exit_code == 0
         assert uv_config["port"] == -1
 
     def test_up_with_zero_port(self) -> None:
-        exit_code, uv_config = _invoke_up("--port", "0")
+        """``--port 0`` must resolve to a real OS-assigned port, not stay 0.
+
+        ``0`` is a *request* for an ephemeral port, not a port anyone can serve
+        on. Everything downstream of the bind — the banner, the tunnel origin,
+        the published ``run.json``, and the listener-ownership check that runs
+        after the socket binds — needs the port the OS actually handed out. An
+        earlier version of this test asserted ``uv_config["port"] == 0``, which
+        certified a build where ``cpl up --port 0`` crashed on startup with
+        "PID N does not appear to own the listener on port 0".
+
+        So assert the resolved port is real, and that it is exactly the port of
+        the socket that was actually bound — that is what guarantees the rest
+        of the command is talking about the port that gets served.
+        """
+        exit_code, uv_config, bound_port = _invoke_up("--port", "0")
         assert exit_code == 0
-        assert uv_config["port"] == 0
+        assert uv_config["port"] != 0, "--port 0 was passed through unresolved"
+        assert 1024 <= uv_config["port"] <= 65535
+        assert bound_port is not None, "--port 0 must pre-bind a socket to learn the real port"
+        assert uv_config["port"] == bound_port
+
+    def test_up_without_zero_port_does_not_prebind(self) -> None:
+        """A normal port must keep uvicorn's own binding path (no pre-bound socket)."""
+        exit_code, uv_config, bound_port = _invoke_up("--port", "9123")
+        assert exit_code == 0
+        assert uv_config["port"] == 9123
+        assert bound_port is None
 
     def test_up_with_custom_host(self) -> None:
-        exit_code, uv_config = _invoke_up("--host", "0.0.0.0")
+        exit_code, uv_config, _ = _invoke_up("--host", "0.0.0.0")
         assert exit_code == 0
         assert uv_config["host"] == "0.0.0.0"
 
     def test_up_uses_config_defaults(self) -> None:
-        exit_code, uv_config = _invoke_up()
+        exit_code, uv_config, _ = _invoke_up()
         assert exit_code == 0
         assert uv_config["host"] == "127.0.0.1"
         assert uv_config["port"] == 8080
@@ -184,6 +235,43 @@ class TestUpCommand:
         result = runner.invoke(cli, ["up", "--remote", "--no-password", "--skip-preflight"])
         assert result.exit_code == 1
         assert "not allowed" in result.output.lower()
+
+
+class TestBindEphemeralSocket:
+    """``--port 0`` is resolved by binding the real socket up front.
+
+    Binding and closing to "peek" at the port would race another process for
+    it, so the helper must return the socket still open and bound.
+    """
+
+    def test_returns_open_socket_bound_to_a_real_port(self) -> None:
+        import socket
+
+        from backend.cli import _bind_ephemeral_socket
+
+        sock = _bind_ephemeral_socket("127.0.0.1")
+        try:
+            host, port = sock.getsockname()[:2]
+            assert host == "127.0.0.1"
+            assert port != 0
+            assert 1024 <= port <= 65535
+            # Still open and usable: it must be listenable, since uvicorn will
+            # call listen() on it rather than binding its own.
+            sock.listen(1)
+            with socket.socket() as probe:
+                probe.settimeout(5)
+                probe.connect(("127.0.0.1", port))
+        finally:
+            sock.close()
+
+    def test_binds_the_requested_host_only(self) -> None:
+        from backend.cli import _bind_ephemeral_socket
+
+        sock = _bind_ephemeral_socket("127.0.0.1")
+        try:
+            assert sock.getsockname()[0] == "127.0.0.1"
+        finally:
+            sock.close()
 
 
 class TestRestartPortHandling:
