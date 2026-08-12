@@ -53,6 +53,7 @@ from backend.services.dev_restart.restart_protocol import (
     RestartRequestPaths,
     RestartTimeouts,
     acquire_restart_lock,
+    get_replacement_log_path,
     get_request_paths,
     is_identity_alive,
     log_phase,
@@ -165,8 +166,19 @@ def spawn_detached_helper(python_executable: Path, helper_script: Path, request_
     return proc.pid
 
 
+def _request_marker_matches(path: Path, request_id: str) -> bool:
+    """True when *path* exists and names the expected restart request."""
+    if not path.exists():
+        return False
+    try:
+        payload = read_json_file(path)
+    except RestartProtocolError:
+        return False
+    return payload.get("requestId") == request_id
+
+
 def await_adoption(paths: RestartRequestPaths, request_id: str, timeout_seconds: float) -> bool:
-    """Block until ``<id>.started.json`` exists and names this exact request.
+    """Block until a claimed/started marker names this exact request.
 
     Parent success requires adoption, not restart completion (AD-3) — this
     only proves a helper claimed the request and is proceeding; it says
@@ -174,16 +186,13 @@ def await_adoption(paths: RestartRequestPaths, request_id: str, timeout_seconds:
     """
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        if paths.started.exists():
-            try:
-                started = read_json_file(paths.started)
-            except RestartProtocolError:
-                time.sleep(0.1)
-                continue
-            if started.get("requestId") == request_id:
-                return True
+        if _request_marker_matches(paths.started, request_id) or _request_marker_matches(paths.claimed, request_id):
+            return True
         time.sleep(0.1)
-    return False
+    # One final check closes a race where the helper publishes its marker
+    # right at the deadline and Windows surfaces the file just after the loop's
+    # last iteration.
+    return _request_marker_matches(paths.started, request_id) or _request_marker_matches(paths.claimed, request_id)
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +401,14 @@ def _start_replacement(
     triggers the exact same ``if __name__ == "__main__": cli()`` entry point
     (verified against ``backend/main.py``/``backend/cli.py``'s ``up``
     command options: ``--host``, ``--port``, ``--dev``, ``--remote``,
-    ``--provider``, ``--tunnel-name``, ``--tunnel-ownership``).
+    ``--provider``, ``--tunnel-name``, ``--tunnel-ownership``,
+    ``--skip-preflight``).
+    ``--skip-preflight`` is always passed because the parent already completed
+    the restart-only preflight/build pipeline before the old server was ever
+    paused or stopped. Isolated Windows reruns confirmed that skipping the
+    replacement-side preflight is the behavior needed for reliable startup;
+    replacement output itself does not need to stay attached to
+    ``restart.log``.
     ``--provider`` is always passed explicitly (never left to the CLI
     default) so a non-default recorded provider (e.g. cloudflare) is
     reproduced exactly. ``--tunnel-ownership`` is likewise replayed exactly
@@ -416,6 +432,7 @@ def _start_replacement(
         "-m",
         "backend.main",
         "up",
+        "--skip-preflight",
         "--host",
         profile.host,
         "--port",
@@ -447,15 +464,18 @@ def _start_replacement(
         RestartPhase.starting, request_id, host=profile.host, port=profile.port, dev=profile.dev, remote=profile.remote
     )
 
-    return subprocess.Popen(  # noqa: S603 - fixed argv, recorded native executable
-        args,
-        cwd=str(target_source_root),
-        env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=(sys.platform != "win32"),
-    )
+    replacement_log_path = get_replacement_log_path(request_id)
+    replacement_log_path.parent.mkdir(parents=True, exist_ok=True)
+    with replacement_log_path.open("a", encoding="utf-8") as replacement_log_handle:
+        return subprocess.Popen(  # noqa: S603 - fixed argv, recorded native executable
+            args,
+            cwd=str(target_source_root),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=replacement_log_handle,
+            stderr=replacement_log_handle,
+            start_new_session=(sys.platform != "win32"),
+        )
 
 
 def _wait_for_ready(

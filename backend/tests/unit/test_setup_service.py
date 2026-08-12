@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 from unittest.mock import patch
 
+from backend.config import CPLConfig
 from backend.services.setup.checks import (
     AgentAuthStatus,
     AgentCLIStatus,
@@ -21,6 +22,7 @@ from backend.services.setup.checks import (
 from backend.services.setup.service import (
     _offer_inline_fix,
     _should_prompt_for_warning,
+    validate_preflight,
 )
 from backend.services.setup.wizard import (
     _get_env_persistence_instructions,
@@ -373,6 +375,76 @@ class TestPromptSuppression:
             "copilot", "GitHub Copilot", False, False, False, "not installed", "Install: uv add github-copilot-sdk"
         )
         assert _should_prompt_for_warning(warning, "copilot", ["claude"]) is True
+
+
+class TestValidatePreflight:
+    def test_non_interactive_warning_continues_without_prompt(self, tmp_path) -> None:
+        warning = CheckResult(
+            label="Claude Code",
+            status=CheckStatus.warn,
+            detail="claude CLI installed (auth unknown)",
+            hint="Unable to verify authentication",
+            category="agent",
+        )
+        with (
+            patch("backend.services.setup.service.load_config", return_value=CPLConfig()),
+            patch("backend.services.setup.service.verify_requirements", return_value=[warning]),
+            patch("backend.services.setup.service._render_check_line"),
+            patch("backend.services.setup.service.get_codeplane_dir", return_value=tmp_path),
+            patch("backend.services.setup.service._offer_inline_fix") as mock_offer,
+            patch("sys.stdin.isatty", return_value=False),
+            patch("sys.stdout.isatty", return_value=False),
+        ):
+            assert validate_preflight(8080) is True
+
+        mock_offer.assert_not_called()
+
+    def test_interactive_warning_still_uses_existing_prompt_flow(self, tmp_path) -> None:
+        warning = CheckResult(
+            label="Claude Code",
+            status=CheckStatus.warn,
+            detail="claude CLI installed (auth unknown)",
+            hint="Unable to verify authentication",
+            category="agent",
+        )
+
+        with (
+            patch("backend.services.setup.service.load_config", return_value=CPLConfig()),
+            patch("backend.services.setup.service.verify_requirements", side_effect=[[warning], [warning]]),
+            patch("backend.services.setup.service._render_check_line"),
+            patch("backend.services.setup.service.get_codeplane_dir", return_value=tmp_path),
+            patch("backend.services.setup.service._offer_inline_fix", return_value="continued") as mock_offer,
+            patch("sys.stdin.isatty", return_value=True),
+            patch("sys.stdout.isatty", return_value=True),
+        ):
+            assert validate_preflight(8080) is True
+
+        mock_offer.assert_called_once_with(warning)
+
+    def test_interactive_prompt_abort_semantics_are_unchanged(self, tmp_path) -> None:
+        warning = CheckResult(
+            label="Claude Code",
+            status=CheckStatus.warn,
+            detail="claude CLI installed (auth unknown)",
+            hint="Unable to verify authentication",
+            category="agent",
+        )
+
+        with (
+            patch("backend.services.setup.service.load_config", return_value=CPLConfig()),
+            patch("backend.services.setup.service.verify_requirements", return_value=[warning]),
+            patch("backend.services.setup.service._render_check_line"),
+            patch("backend.services.setup.service.get_codeplane_dir", return_value=tmp_path),
+            patch("backend.services.setup.service._offer_inline_fix", side_effect=SystemExit(1)),
+            patch("sys.stdin.isatty", return_value=True),
+            patch("sys.stdout.isatty", return_value=True),
+        ):
+            try:
+                validate_preflight(8080)
+            except SystemExit as exc:
+                assert exc.code == 1
+            else:
+                raise AssertionError("Expected SystemExit")
 
 
 # ---------------------------------------------------------------------------

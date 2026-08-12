@@ -46,6 +46,13 @@ if sys.platform == "win32":
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = REPO_ROOT / "frontend"
 
+# Running ``python tools/dev_restart.py`` sets ``sys.path[0]`` to the tools
+# directory, not the repository root. Put the checkout root on sys.path so the
+# script and the detached helper can import ``backend.*`` without depending on
+# the caller to have launched it as a module.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 # Marker files a directory must contain to be treated as a native CodePlane
 # checkout (AC 1) — cheap, no-import structural check before any subprocess
 # or profile validation runs against it.
@@ -70,9 +77,7 @@ def resolve_target_source_root(source: str | None) -> Path:
     root = Path(source).expanduser().resolve() if source else REPO_ROOT
     missing = [marker for marker in _CHECKOUT_MARKERS if not (root / marker).is_file()]
     if missing:
-        raise DevRestartError(
-            f"{root} does not look like a CodePlane checkout (missing: {', '.join(missing)})"
-        )
+        raise DevRestartError(f"{root} does not look like a CodePlane checkout (missing: {', '.join(missing)})")
     return root
 
 
@@ -186,6 +191,10 @@ def build_frontend(frontend_dir: Path = FRONTEND_DIR) -> bool:
     available (Story 1.2 AC 2) -- always before helper spawn, pause, or stop.
     """
     npm = _resolve_npm_command()
+    if not (frontend_dir / "node_modules").is_dir():
+        install = subprocess.run([npm, "ci"], cwd=frontend_dir)
+        if install.returncode != 0:
+            return False
     result = subprocess.run([npm, "run", "build"], cwd=frontend_dir)
     return result.returncode == 0
 
@@ -234,9 +243,7 @@ def _resolve_timeouts(args: argparse.Namespace) -> RestartTimeouts:
     return RestartTimeouts(
         adoption_seconds=args.adoption_seconds if args.adoption_seconds is not None else defaults.adoption_seconds,
         response_grace_seconds=(
-            args.response_grace_seconds
-            if args.response_grace_seconds is not None
-            else defaults.response_grace_seconds
+            args.response_grace_seconds if args.response_grace_seconds is not None else defaults.response_grace_seconds
         ),
         pause_wait_seconds=(
             args.pause_wait_seconds if args.pause_wait_seconds is not None else defaults.pause_wait_seconds
@@ -305,12 +312,11 @@ def run_parent(args: argparse.Namespace) -> int:
 
     try:
         paths, request_id, timeouts = prepare_restart_request(args)
+        log_path = get_restart_log_path()
+        rotate_restart_log_if_needed(log_path)
     except (DevRestartError, RestartProtocolError) as exc:
         print(f"\n✗ Restart preparation failed: {exc}\n  The current server has NOT been restarted.\n", file=sys.stderr)
         return 1
-
-    log_path = get_restart_log_path()
-    rotate_restart_log_if_needed(log_path)
     print(f"[4/4] Spawning detached restart helper (log: {log_path})…")
     try:
         with open(log_path, "a", encoding="utf-8") as log_handle:
