@@ -11,6 +11,10 @@ vi.mock("../../api/client", () => ({
   unregisterRepo: vi.fn(),
   fetchSidecarTemplates: vi.fn().mockResolvedValue({ items: [] }),
   request: vi.fn().mockResolvedValue(null),
+  fetchProjects: vi.fn().mockResolvedValue({ items: [] }),
+  fetchCredentials: vi.fn().mockResolvedValue({ credentials: [] }),
+  fetchTrackerLinks: vi.fn().mockResolvedValue({ trackerLinks: [] }),
+  refreshTrackerLink: vi.fn(),
 }));
 
 // Mock sonner toast
@@ -86,6 +90,9 @@ describe("SettingsScreen", () => {
     await waitFor(() => {
       expect(screen.getByText("Runtime")).toBeInTheDocument();
     });
+    expect(
+      screen.queryByText("Tracker poll interval (seconds)"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows error toast when settings fail to load", async () => {

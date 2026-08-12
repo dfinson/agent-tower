@@ -58,6 +58,7 @@ from backend.services.sidecar.template_service import SidecarTemplateService
 from backend.services.steps.diff_service import StepDiffService
 from backend.services.story.service import StoryService
 from backend.services.terminal.terminal_service import TerminalService
+from backend.services.tracker_sync_service import TrackerSyncService
 from backend.services.tracker_write_service import TrackerWriteService
 from backend.services.trail import TrailService
 
@@ -96,6 +97,7 @@ class AppProvider(Provider):
     ingest_service = from_context(provides=IngestService)
     model_pricing = from_context(provides=ModelPricingService)
     claude_session_watcher = from_context(provides=ClaudeSessionStateWatcher)
+    tracker_sync_service = from_context(provides=TrackerSyncService)
 
     @provide
     def git_service(self, config: CPLConfig) -> GitService:

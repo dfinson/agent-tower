@@ -80,7 +80,7 @@ def get_settings(
 
 
 @router.put("/settings", response_model=SettingsResponse)
-def update_settings(
+async def update_settings(
     body: UpdateSettingsRequest,
     config: FromDishka[CPLConfig],
 ) -> SettingsResponse:

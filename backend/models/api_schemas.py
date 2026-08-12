@@ -119,6 +119,8 @@ class ResolveBatchResponse(CamelModel):
 class UpdateSettingsRequest(CamelModel):
     """Structured settings update — only include fields to change."""
 
+    model_config = ConfigDict(extra="forbid")
+
     max_concurrent_jobs: int | None = Field(None, ge=1, le=10)
     auto_push: bool | None = None
     cleanup_worktree: bool | None = None

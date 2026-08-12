@@ -76,6 +76,17 @@ def test_init_config_roundtrips(tmp_path: Path) -> None:
     assert config.server.port == 8080
     assert config.runtime.worktrees_dirname == ".codeplane-worktrees"
     assert config.retention.artifact_retention_days == 30
+def test_load_config_removes_retired_tracker_interval(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        "telemetry:\n"
+        "  instance_id: existing-instance\n"
+        "tracker:\n"
+        "  poll_interval_seconds: 90\n"
+    )
+    config = load_config(cfg_path)
+    assert not hasattr(config, "tracker")
+    assert "tracker" not in cfg_path.read_text()
 
 
 # ---------------------------------------------------------------------------

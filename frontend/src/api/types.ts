@@ -24,6 +24,10 @@ export type ProjectResponse = components["schemas"]["ProjectResponse"];
 export type ProjectListResponse = components["schemas"]["ProjectListResponse"];
 export type TaskLinkResponse = components["schemas"]["TaskLinkResponse"];
 export type TaskLinkListResponse = components["schemas"]["TaskLinkListResponse"];
+export type TrackerTicketResponse = components["schemas"]["TrackerTicketResponse"];
+export type TrackerSummaryResponse = components["schemas"]["TrackerSummaryResponse"];
+export type TrackerLinkResponse = components["schemas"]["TrackerLinkResponse"];
+export type TrackerLinkListResponse = components["schemas"]["TrackerLinkListResponse"];
 export type CompletionStrategy = "auto_merge" | "pr_only" | "manual";
 
 // Sidecar template types

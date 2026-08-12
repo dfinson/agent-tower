@@ -339,6 +339,11 @@ def load_config(path: Path | None = None) -> CPLConfig:
             save_config(cfg, path)
         except (OSError, yaml.YAMLError):
             log.warning("instance_id_persist_failed", exc_info=True)
+    elif "tracker" in raw:
+        try:
+            save_config(cfg, path)
+        except (OSError, yaml.YAMLError):
+            log.warning("retired_tracker_config_removal_failed", exc_info=True)
 
     return cfg
 
@@ -390,6 +395,9 @@ def save_config(config: CPLConfig, path: Path | None = None) -> None:
     # repos is intentionally omitted — managed by register_repo / unregister_repo
     existing["verification"] = _to_dict(config.verification)
     existing["telemetry"] = _to_dict(config.telemetry)
+    # Tracker synchronization uses a fixed production cadence. Remove the
+    # retired persisted section when any settings save occurs.
+    existing.pop("tracker", None)
     existing["coderecon"] = _to_dict(config.coderecon)
     if config.platforms:
         existing["platforms"] = {name: _to_dict(pc) for name, pc in config.platforms.items()}

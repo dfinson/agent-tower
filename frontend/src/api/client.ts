@@ -21,6 +21,8 @@ import type {
   ProjectListSummaryResponse,
   ProjectListResponse,
   TaskLinkListResponse,
+  TrackerLinkListResponse,
+  TrackerSummaryResponse,
   SDKListResponse,
   Settings,
   SidecarTemplate,
@@ -640,6 +642,19 @@ export function deleteCredential(credentialId: string): Promise<void> {
   return request(`/settings/credentials/${encodeURIComponent(credentialId)}`, {
     method: "DELETE",
   });
+}
+
+// --- Project tracker state (Story 3.3) ---
+
+export function fetchTrackerLinks(projectId: string): Promise<TrackerLinkListResponse> {
+  return request(`/projects/${encodeURIComponent(projectId)}/tracker-links`);
+}
+
+export function refreshTrackerLink(projectId: string, linkId: string): Promise<TrackerSummaryResponse> {
+  return request(
+    `/projects/${encodeURIComponent(projectId)}/tracker-links/${encodeURIComponent(linkId)}/refresh`,
+    { method: "POST" },
+  );
 }
 
 // --- Operator Messages ---

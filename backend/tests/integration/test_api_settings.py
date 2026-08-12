@@ -64,6 +64,7 @@ class TestGetSettings:
             "selfReviewPrompt",
         }
         assert expected_keys.issubset(data.keys())
+        assert "trackerPollIntervalSeconds" not in data
 
     @pytest.mark.asyncio
     async def test_default_values_have_correct_types(self, client: AsyncClient, app: FastAPI) -> None:
@@ -136,6 +137,10 @@ class TestUpdateSettings:
         resp = await client.put("/api/settings", json={"maxConcurrentJobs": 0})
         assert resp.status_code == 422
 
+    @pytest.mark.asyncio
+    async def test_retired_tracker_interval_is_rejected(self, client: AsyncClient) -> None:
+        resp = await client.put("/api/settings", json={"trackerPollIntervalSeconds": 5})
+        assert resp.status_code == 422
 
 # ---------------------------------------------------------------------------
 # Repo Endpoints
