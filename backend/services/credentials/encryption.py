@@ -16,7 +16,7 @@ import stat
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from backend.config import get_codeplane_dir
+from backend import config as backend_config
 
 _KEY_FILENAME = "credential.key"
 
@@ -26,7 +26,7 @@ class CredentialDecryptionError(Exception):
 
 
 def _load_or_create_key() -> bytes:
-    path = get_codeplane_dir() / _KEY_FILENAME
+    path = backend_config.get_codeplane_dir() / _KEY_FILENAME
     if path.exists():
         return path.read_bytes()
 

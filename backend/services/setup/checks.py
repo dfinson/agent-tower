@@ -21,7 +21,7 @@ from enum import StrEnum
 
 from rich.console import Console
 
-from backend.config import get_codeplane_dir
+from backend import config as backend_config
 from backend.services.setup.dependencies import (  # noqa: F401 — re-exported
     DEPENDENCIES,
     HOST_PLATFORM,
@@ -537,7 +537,7 @@ def verify_requirements(
         )
 
     # --- Environment ---
-    config_path = get_codeplane_dir() / "config.yaml"
+    config_path = backend_config.get_codeplane_dir() / "config.yaml"
     if config_path.exists():
         results.append(CheckResult("Config", CheckStatus.passed, str(config_path), category="env"))
     else:

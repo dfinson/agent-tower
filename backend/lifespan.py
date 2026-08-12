@@ -20,7 +20,8 @@ from dishka import make_async_container
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, get_codeplane_dir, load_config
+from backend import config as backend_config
+from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, load_config
 from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMaxBytes
 from backend.models.events import EventKind, SessionEvent, new_event
 from backend.persistence.database import create_engine, create_session_factory, serialized_write
@@ -856,7 +857,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     # --- Push notification service ---
-    vapid_keys = get_or_create_vapid_keys(get_codeplane_dir())
+    vapid_keys = get_or_create_vapid_keys(backend_config.get_codeplane_dir())
     push_service = PushService(
         vapid_private_key=vapid_keys["private_key"],
         vapid_public_key=vapid_keys["public_key"],
@@ -987,8 +988,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from backend.services.events.governance_subscriber import GovernanceSubscriber
 
     governance_decider = GovernanceDecider(
-        db_path=get_codeplane_dir() / "governance.db",
-        spend_reader=make_job_spend_reader(get_codeplane_dir() / "data.db"),
+        db_path=backend_config.get_codeplane_dir() / "governance.db",
+        spend_reader=make_job_spend_reader(backend_config.get_codeplane_dir() / "data.db"),
         usd_ceilings=await load_usd_ceilings(session_factory),
     )
     governance_subscriber = GovernanceSubscriber(governance_decider)
@@ -1397,7 +1398,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # --- ModelPricingService (runtime-fetched LLM pricing) ---
     model_pricing_service = ModelPricingService(
-        cache_path=get_codeplane_dir() / "model_pricing_cache.json",
+        cache_path=backend_config.get_codeplane_dir() / "model_pricing_cache.json",
         refresh_interval_hours=config.pricing.refresh_interval_hours,
     )
     await model_pricing_service.refresh()
