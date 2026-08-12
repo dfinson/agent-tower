@@ -34,10 +34,34 @@ from backend.services.sharing.tunnel_service import (
 
 if TYPE_CHECKING:
     import subprocess
+    from collections.abc import Iterator
 
 
 def _as_popen(proc: _FakeProc) -> subprocess.Popen[str]:
     return cast("subprocess.Popen[str]", proc)
+
+
+@pytest.fixture(autouse=True)
+def _stop_leaked_watchdogs() -> Iterator[None]:
+    """Stop every watchdog a test starts, so none outlives it.
+
+    ``start_remote_access`` starts a real daemon thread. Tests that exercise
+    it never stopped one, so after ``_INITIAL_DELAY`` the surviving thread ran
+    a live health check and wrote ``tunnel_health_check_failed`` to stdout —
+    landing inside whichever test happened to be running, which corrupted the
+    JSON that ``cpl doctor --json`` prints and failed an unrelated test.
+    """
+    started: list[TunnelWatchdog] = []
+    real_start = TunnelWatchdog.start
+
+    def _tracking_start(self: TunnelWatchdog) -> None:
+        started.append(self)
+        real_start(self)
+
+    with patch.object(TunnelWatchdog, "start", _tracking_start):
+        yield
+    for watchdog in started:
+        watchdog.stop()
 
 
 class _FakeProc:
