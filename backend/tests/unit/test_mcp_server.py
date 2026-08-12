@@ -127,6 +127,7 @@ class TestMCPServerCreation:
         expected = {
             "codeplane_job",
             "codeplane_pr",
+            "codeplane_tracker",
             "codeplane_approval",
             "codeplane_workspace",
             "codeplane_artifact",
@@ -321,6 +322,99 @@ class TestPrTool:
 
             result = await _tool(mcp_server, "codeplane_pr")(job_id="job-123")
             assert "error" in result
+
+
+# ── Tracker tool (Story 6.1, CAP-13) ────────────────────────────────
+
+
+def _make_task_link(**overrides: object):
+    from backend.models.domain import TaskLink
+
+    defaults = dict(
+        id="tl-1",
+        project_id="proj-1",
+        repo_path="/repo",
+        story_node_id=None,
+        depends_on=[],
+        job_id="job-123",
+        tracker_ticket_ref="ABC-123",
+        prompt_override=None,
+        epic_id=None,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    defaults.update(overrides)
+    return TaskLink(**defaults)
+
+
+class TestTrackerTool:
+    @pytest.mark.asyncio
+    async def test_missing_job_id(self, mcp_server) -> None:
+        result = await _tool(mcp_server, "codeplane_tracker")(action="comment", job_id=None, value="hi")
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_missing_value(self, mcp_server) -> None:
+        result = await _tool(mcp_server, "codeplane_tracker")(action="comment", job_id="job-123", value=None)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_job_without_task_link(self, mcp_server) -> None:
+        with patch("backend.mcp.server.resolve_tracker_for_job") as mock_resolve:
+            from backend.services.tracker_resolution import TrackerResolutionError
+
+            mock_resolve.side_effect = TrackerResolutionError("Job 'job-123' has no associated TaskLink")
+
+            result = await _tool(mcp_server, "codeplane_tracker")(action="comment", job_id="job-123", value="hi")
+            assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_comment_creates_approval_via_tracker_write_service(self, mcp_server, mock_approval) -> None:
+        from backend.models.domain import ApprovalResolution
+        from backend.services.tracker_resolution import ResolvedTracker
+
+        resolved = ResolvedTracker(tracker_link_id="link-1", credential_id="cred-1", ticket_ref="ABC-123")
+        mock_approval.create_request = AsyncMock(return_value=_make_approval(id="apr-1"))
+        mock_approval.wait_for_resolution = AsyncMock(return_value=ApprovalResolution.approved)
+
+        with (
+            patch("backend.mcp.server.resolve_tracker_for_job", AsyncMock(return_value=resolved)),
+            patch("backend.persistence.credential_repo.CredentialRepository") as mock_cred_cls,
+        ):
+            mock_cred_cls.return_value.resolve_secret = AsyncMock(return_value="secret-pat")
+
+            result = await _tool(mcp_server, "codeplane_tracker")(
+                action="comment", job_id="job-123", value="Ready for review"
+            )
+
+        assert result["dispatched"] is True
+        assert result["ticketRef"] == "ABC-123"
+        assert result["action"] == "comment"
+        mock_approval.create_request.assert_awaited_once()
+        _, kwargs = mock_approval.create_request.call_args
+        assert kwargs["requires_explicit_approval"] is True
+
+    @pytest.mark.asyncio
+    async def test_rejected_approval_never_dispatches(self, mcp_server, mock_approval) -> None:
+        from backend.models.domain import ApprovalResolution
+        from backend.services.tracker_resolution import ResolvedTracker
+
+        resolved = ResolvedTracker(tracker_link_id="link-1", credential_id="cred-1", ticket_ref="ABC-123")
+        mock_approval.create_request = AsyncMock(return_value=_make_approval(id="apr-1"))
+        mock_approval.wait_for_resolution = AsyncMock(return_value=ApprovalResolution.rejected)
+
+        with (
+            patch("backend.mcp.server.resolve_tracker_for_job", AsyncMock(return_value=resolved)),
+            patch("backend.persistence.credential_repo.CredentialRepository") as mock_cred_cls,
+        ):
+            mock_cred_cls.return_value.resolve_secret = AsyncMock(return_value="secret-pat")
+
+            result = await _tool(mcp_server, "codeplane_tracker")(
+                action="transition", job_id="job-123", value="Done"
+            )
+
+        assert result["dispatched"] is False
+        mock_cred_cls.return_value.resolve_secret.assert_not_called()
 
 
 # ── Approval tool ────────────────────────────────────────────────────
