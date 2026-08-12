@@ -995,6 +995,19 @@ def restart(
 
     config = load_config()
     host = host or config.server.host
+    # ``restart`` cannot honor ``--port 0`` the way ``up`` can: the down phase
+    # has to target a determinate port to find and stop a listener, and a
+    # restart is only meaningful if the server comes back at the same address.
+    # Reject it rather than silently substituting the configured default.
+    if port == 0:
+        click.secho(
+            "ERROR: --port 0 is not supported by restart (it must target a specific "
+            "port to stop, and would not come back at a predictable address). "
+            "Use 'cpl up --port 0' to start on an OS-assigned port.",
+            fg="red",
+            err=True,
+        )
+        raise SystemExit(1)
     port = port or config.server.port
     base_url = f"http://{host}:{port}"
 

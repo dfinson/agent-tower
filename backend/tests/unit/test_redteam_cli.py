@@ -186,6 +186,40 @@ class TestUpCommand:
         assert "not allowed" in result.output.lower()
 
 
+class TestRestartPortHandling:
+    """``cpl restart`` port semantics.
+
+    Deliberately lives here rather than in ``test_cli.py`` to keep it in the
+    argument-validation suite (and out of the way of unrelated restart tests).
+    """
+
+    def test_restart_rejects_zero_port(self) -> None:
+        """``--port 0`` is meaningful for ``up`` (OS-assigned port) but not for
+        ``restart``, which must target a determinate port to stop and has to
+        come back at a predictable address. It must be rejected outright, not
+        silently rewritten to the configured default."""
+        runner = CliRunner()
+        with patch("os.execv") as mock_execv:
+            result = runner.invoke(cli, ["restart", "--port", "0", "--skip-preflight"])
+
+        assert result.exit_code == 1
+        assert "--port 0 is not supported by restart" in result.output
+        mock_execv.assert_not_called()
+
+    def test_restart_forwards_explicit_port_to_up(self) -> None:
+        """A normal ``--port`` is passed through to the ``cpl up`` exec."""
+        runner = CliRunner()
+        with (
+            patch("backend.cli._is_server_running", return_value=(False, [])),
+            patch("os.execv") as mock_execv,
+        ):
+            result = runner.invoke(cli, ["restart", "--port", "9123", "--skip-preflight"])
+
+        assert result.exit_code == 0
+        forwarded = mock_execv.call_args[0][1]
+        assert forwarded[forwarded.index("--port") + 1] == "9123"
+
+
 class TestUnknownCommands:
     def test_unknown_subcommand(self) -> None:
         runner = CliRunner()
