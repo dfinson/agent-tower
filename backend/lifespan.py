@@ -81,6 +81,9 @@ if TYPE_CHECKING:
 
     from fastapi import FastAPI
     from sqlalchemy.ext.asyncio import AsyncSession
+    from traceforge.types import TitleUpdate
+
+    from backend.services.completers.copilot_steer import CopilotSteerClient
 
 
 log = structlog.get_logger()
@@ -93,6 +96,15 @@ log = structlog.get_logger()
 # and the lazy import of the shared restart-protocol module below — out of the
 # ordinary startup path.
 _RESTART_REQUEST_ID_ENV = "CODEPLANE_RESTART_REQUEST_ID"
+
+
+def _build_copilot_steer_client() -> CopilotSteerClient | None:
+    copilot_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if copilot_token:
+        from backend.services.completers.copilot_steer import CopilotSteerClient
+
+        return CopilotSteerClient(copilot_token)
+    return None
 
 
 async def _publish_restart_readiness(
@@ -919,7 +931,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         flush_on_session_end=True,
     )
 
-    async def _on_title_update(update) -> None:  # noqa: ANN001  (TitleUpdate at runtime)
+    async def _on_title_update(update: TitleUpdate) -> None:
         """Convert a TraceForge TitleUpdate to a CodePlane turn_summary event.
 
         Delegates the field mapping to ``build_turn_summary_payload`` (pure,
@@ -1354,12 +1366,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- IngestService (operator message routing) ---
     from backend.services.events.ingest_service import IngestService
 
-    steer_client = None
-    copilot_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if copilot_token:
-        from backend.services.completers.copilot_steer import CopilotSteerClient
-
-        steer_client = CopilotSteerClient(copilot_token)
+    steer_client = _build_copilot_steer_client()
 
     # --- ModelPricingService (runtime-fetched LLM pricing) ---
     model_pricing_service = ModelPricingService(

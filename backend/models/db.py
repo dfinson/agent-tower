@@ -553,9 +553,7 @@ class TrackerLinkRow(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     project_id: Mapped[str] = mapped_column(String, nullable=False)
-    credential_id: Mapped[str] = mapped_column(
-        String, ForeignKey("credentials.id"), nullable=False, index=True
-    )
+    credential_id: Mapped[str] = mapped_column(String, ForeignKey("credentials.id"), nullable=False, index=True)
     external_ref: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
 

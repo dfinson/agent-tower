@@ -125,6 +125,8 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "permission.resolved",
         "permission.batch.requested",
         "permission.batch.resolved",
+        "approval_requested",
+        "approval_resolved",
         // Session
         "session.heartbeat",
         "session.resumed",
@@ -138,6 +140,7 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "step.entries_reassigned",
         // Action policy governance classification
         "action.classified",
+        "job_failed",
         // Policy settings changed (triggers settings panel refresh)
         "policy.settings_changed",
         // Repository structural index progress
@@ -154,6 +157,11 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         // Bespoke camelCase snapshot frame (not a traceforge event)
         "snapshot",
       ];
+      const legacyEventAliases: Record<string, string> = {
+        approval_requested: "permission.requested",
+        approval_resolved: "permission.resolved",
+        job_failed: "job.failed",
+      };
 
       for (const eventType of eventTypes) {
         es.addEventListener(eventType, (ev: MessageEvent) => {
@@ -166,10 +174,17 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
             // same microtask checkpoint as React's useSyncExternalStore flush.
             // See comment on onopen above for the full explanation of #185.
             setTimeout(async () => {
+              const mappedEventType = legacyEventAliases[eventType] ?? eventType;
+
               // `snapshot` is a bespoke camelCase frame, not a traceforge
               // event — dispatch it through untouched.
               if (eventType === "snapshot") {
                 dispatchSSEEvent(eventType, data as Record<string, unknown>);
+                return;
+              }
+
+              if (legacyEventAliases[eventType]) {
+                dispatchSSEEvent(mappedEventType, data as Record<string, unknown>);
                 return;
               }
 
@@ -198,7 +213,7 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
                 }
               }
 
-              dispatchSSEEvent(eventType, normalizeTFEvent(tfEvent));
+              dispatchSSEEvent(mappedEventType, normalizeTFEvent(tfEvent));
             }, 0);
           } catch {
             // Ignore unparseable events

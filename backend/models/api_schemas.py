@@ -1658,7 +1658,6 @@ class ChatChainStatusResponse(CamelModel):
     job_state: str | None
 
 
-
 # ---------------------------------------------------------------------------
 # Utility / operational responses
 # ---------------------------------------------------------------------------

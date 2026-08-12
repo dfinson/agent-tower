@@ -329,11 +329,7 @@ class SSEManager:
             self.send_snapshot(conn, snapshot)
 
             # Filter events to only those within the replay window
-            stored_events = [
-                stored
-                for stored in stored_events
-                if stored.event.timestamp.replace(tzinfo=UTC) >= cutoff
-            ]
+            stored_events = [stored for stored in stored_events if stored.event.timestamp.replace(tzinfo=UTC) >= cutoff]
 
         # Replay the events
         for stored in stored_events:

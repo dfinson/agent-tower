@@ -246,9 +246,7 @@ class LaunchProfile:
             if self.tunnel_ownership is not None or self.tunnel_name is not None:
                 raise LaunchProfileInvalidError("tunnelOwnership/tunnelName must be null when remote is false")
             if self.tunnel_origin is not None or self.tunnel_origin_reusable is not None:
-                raise LaunchProfileInvalidError(
-                    "tunnelOrigin/tunnelOriginReusable must be null when remote is false"
-                )
+                raise LaunchProfileInvalidError("tunnelOrigin/tunnelOriginReusable must be null when remote is false")
         else:
             if self.provider not in ("devtunnel", "cloudflare"):
                 raise LaunchProfileInvalidError("provider must be 'devtunnel' or 'cloudflare' when remote is true")

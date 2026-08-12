@@ -20,6 +20,7 @@ from backend.services.adapters.base_adapter import (
     PermissionDecision,
 )
 from backend.services.auth.permission_policy import PermissionRequest as PolicyRequest
+from backend.services.copilot_adapter._client import create_copilot_client
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -503,10 +504,9 @@ class CopilotAdapter(BaseAgentAdapter):
         self._schedule_db_write(self._db_write_set_quota(job_id=job_id, quota_remaining=_json.dumps(parsed)))
 
     async def create_session(self, config: SessionConfig) -> str:
-        from copilot import CopilotClient
         from copilot._jsonrpc import JsonRpcError, ProcessExitedError
 
-        client = CopilotClient()
+        client = create_copilot_client()
 
         # Thin closure that delegates to the instance method, capturing only `config`.
         async def _on_permission(request: PermissionRequest, invocation: dict[str, str]) -> PermissionRequestResult:

@@ -149,9 +149,7 @@ class TestEnsureSecretResolvable:
 
         dev_restart.ensure_secret_resolvable(source, tmp_path, label="password source")
 
-    def test_environment_source_raises_when_unresolvable(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_environment_source_raises_when_unresolvable(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("CPL_PASSWORD", raising=False)
         source = SecretSource.resolvable("environment", "CPL_PASSWORD")
 
@@ -179,9 +177,7 @@ class TestEnsureSecretResolvable:
         with pytest.raises(dev_restart.DevRestartError, match="unrecognized provider"):
             dev_restart.ensure_secret_resolvable(source, tmp_path, label="tunnel credential source")
 
-    def test_secret_value_never_appears_in_raised_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_secret_value_never_appears_in_raised_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("CPL_PASSWORD", raising=False)
         source = SecretSource.resolvable("environment", "CPL_PASSWORD")
 
@@ -292,23 +288,25 @@ class TestPrepareRestartRequest:
         profile = _profile()
         call_order: list[str] = []
 
+        def _record_build(*args: object, **kwargs: object) -> bool:
+            call_order.append("build")
+            return True
+
+        def _record_preflight(*args: object, **kwargs: object) -> None:
+            call_order.append("preflight")
+
+        def _record_write(*args: object, **kwargs: object) -> MagicMock:
+            call_order.append("write")
+            return MagicMock()
+
         with (
             patch("tools.dev_restart.resolve_target_source_root", return_value=tmp_path),
             patch("backend.services.dev_restart.launch_profile.load_active_profile", return_value=profile),
             patch("backend.services.dev_restart.launch_profile.validate_launch_profile"),
             patch("tools.dev_restart.ensure_secret_resolvable"),
-            patch(
-                "tools.dev_restart.build_frontend",
-                side_effect=lambda *a, **k: call_order.append("build") or True,
-            ),
-            patch(
-                "tools.dev_restart.run_backend_preflight",
-                side_effect=lambda *a, **k: call_order.append("preflight"),
-            ),
-            patch(
-                "tools.dev_restart.write_pending_request",
-                side_effect=lambda *a, **k: call_order.append("write") or MagicMock(),
-            ),
+            patch("tools.dev_restart.build_frontend", side_effect=_record_build),
+            patch("tools.dev_restart.run_backend_preflight", side_effect=_record_preflight),
+            patch("tools.dev_restart.write_pending_request", side_effect=_record_write),
         ):
             dev_restart.prepare_restart_request(self._args())
 

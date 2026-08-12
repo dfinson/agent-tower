@@ -204,17 +204,35 @@ class TestCopilotControlPlane:
         copilot_watcher._steer.abort.assert_awaited_once_with("sid")
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("repo_path", "expected_name"),
+        [
+            ("C:\\repo\\myproject", "myproject"),
+            ("/repo/myproject", "myproject"),
+        ],
+    )
     async def test_create_job_uses_deterministic_id(
         self,
         copilot_watcher: SessionStateWatcher,
         db_session: async_sessionmaker[AsyncSession],
+        repo_path: str,
+        expected_name: str,
     ) -> None:
         session_id = "sid-abc"
 
-        job = await copilot_watcher._create_job(session_id, "C:\\repo\\myproject")
+        async def _run_git(*args: str, cwd: str) -> str:
+            if args == ("rev-parse", "--show-toplevel"):
+                return repo_path
+            if args == ("rev-parse", "--path-format=absolute", "--git-common-dir"):
+                return f"{repo_path}/.git"
+            raise AssertionError(f"Unexpected git invocation: {args!r} cwd={cwd!r}")
+
+        copilot_watcher._git._run_git = AsyncMock(side_effect=_run_git)  # type: ignore[attr-defined]
+
+        job = await copilot_watcher._create_job(session_id, repo_path)
 
         assert job is not None
-        assert job.id == f"myproject-{hashlib.sha256(session_id.encode()).hexdigest()[:12]}"
+        assert job.id == f"{expected_name}-{hashlib.sha256(session_id.encode()).hexdigest()[:12]}"
         async with db_session() as session:
             persisted = await JobRepository(session).get(job.id)
         assert persisted is not None

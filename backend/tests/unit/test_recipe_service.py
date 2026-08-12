@@ -17,7 +17,13 @@ if TYPE_CHECKING:
 
 def _make_project(project_id: str, repo_paths: list[str]) -> Project:
     now = datetime.now(UTC)
-    return Project(id=project_id, name="Test Project", repo_paths=repo_paths, created_at=now, updated_at=now)
+    return Project(
+        id=project_id,
+        name="Test Project",
+        repo_paths=repo_paths,
+        created_at=now,
+        updated_at=now,
+    )
 
 
 def _write_bmad_story(repo_root: Path, filename: str, body: str = "") -> None:
@@ -41,7 +47,10 @@ def mock_project_service() -> AsyncMock:
 class TestIngestProject:
     @pytest.mark.asyncio
     async def test_single_repo_same_repo_dependency(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         repo_a = tmp_path / "backend-repo"
         repo_a.mkdir()
@@ -64,7 +73,10 @@ class TestIngestProject:
 
     @pytest.mark.asyncio
     async def test_cross_repo_dependency_resolves_to_sibling_repo(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         backend_repo = tmp_path / "codeplane-backend"
         frontend_repo = tmp_path / "codeplane-frontend"
@@ -76,9 +88,7 @@ class TestIngestProject:
             "3-1-frontend-task.md",
             "# S\n\n## Dependencies\n\n- codeplane-backend/2-1-backend-task\n",
         )
-        mock_project_service.get.return_value = _make_project(
-            "proj-1", [str(backend_repo), str(frontend_repo)]
-        )
+        mock_project_service.get.return_value = _make_project("proj-1", [str(backend_repo), str(frontend_repo)])
 
         service = RecipeService(mock_task_link_repo, mock_project_service)
         await service.ingest_project("proj-1")
@@ -89,7 +99,10 @@ class TestIngestProject:
 
     @pytest.mark.asyncio
     async def test_unresolvable_cross_repo_dependency_preserved_raw(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         repo_a = tmp_path / "solo-repo"
         repo_a.mkdir()
@@ -108,7 +121,10 @@ class TestIngestProject:
 
     @pytest.mark.asyncio
     async def test_spec_kit_and_bmad_both_ingested(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         repo_a = tmp_path / "mixed-repo"
         repo_a.mkdir()
@@ -125,7 +141,10 @@ class TestIngestProject:
 
     @pytest.mark.asyncio
     async def test_repo_with_no_source_files_yields_no_entries_but_does_not_fail(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         empty_repo = tmp_path / "empty-repo"
         empty_repo.mkdir()
@@ -139,7 +158,10 @@ class TestIngestProject:
 
     @pytest.mark.asyncio
     async def test_never_writes_to_source_repo(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         repo_a = tmp_path / "repo-a"
         repo_a.mkdir()
@@ -157,7 +179,10 @@ class TestIngestProject:
 
     @pytest.mark.asyncio
     async def test_idempotent_rerun_calls_upsert_not_insert_only(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         repo_a = tmp_path / "repo-a"
         repo_a.mkdir()
@@ -193,7 +218,10 @@ class TestListTaskLinks:
 class TestCreateManualTaskLink:
     @pytest.mark.asyncio
     async def test_creates_manual_link_for_project_member_repo(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         repo_path = tmp_path / "member-repo"
         repo_path.mkdir()
@@ -231,7 +259,10 @@ class TestCreateManualTaskLink:
 
     @pytest.mark.asyncio
     async def test_rejects_repo_outside_project(
-        self, tmp_path: Path, mock_task_link_repo: AsyncMock, mock_project_service: AsyncMock
+        self,
+        tmp_path: Path,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
     ) -> None:
         member_repo = tmp_path / "member-repo"
         other_repo = tmp_path / "other-repo"
@@ -357,14 +388,10 @@ class TestHandleJobCompleted:
         mock_job_service: AsyncMock,
     ) -> None:
         completed_link = _make_task_link(id="link-a", story_node_id="1-1-a", job_id="job-1")
-        dependent = _make_task_link(
-            id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"]
-        )
+        dependent = _make_task_link(id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"])
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
-        mock_job_repo.get.return_value = _make_job(
-            id="job-1", state=JobState.completed, resolution="merged"
-        )
+        mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
         new_job = _make_job(id="job-2", state=JobState.preparing)
         mock_job_service.create_job.return_value = new_job
         mock_task_link_repo.set_job_id.return_value = _make_task_link(
@@ -400,9 +427,7 @@ class TestHandleJobCompleted:
         )
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link, other_dep, dependent]
-        mock_job_repo.get.return_value = _make_job(
-            id="job-1", state=JobState.completed, resolution="merged"
-        )
+        mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
 
         service = RecipeService(
             mock_task_link_repo, mock_project_service, job_service=mock_job_service, job_repo=mock_job_repo
@@ -448,9 +473,7 @@ class TestHandleJobCompleted:
         mock_job_service: AsyncMock,
     ) -> None:
         completed_link = _make_task_link(id="link-a", story_node_id="1-1-a", job_id="job-1")
-        dependent = _make_task_link(
-            id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"]
-        )
+        dependent = _make_task_link(id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"])
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
         # The dependency target's own job is only in `review`, not `completed`.
@@ -482,9 +505,7 @@ class TestHandleJobCompleted:
         )
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
-        mock_job_repo.get.return_value = _make_job(
-            id="job-1", state=JobState.completed, resolution="merged"
-        )
+        mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
         new_job = _make_job(id="job-2", state=JobState.preparing)
         mock_job_service.create_job.return_value = new_job
         mock_task_link_repo.set_job_id.return_value = dependent
@@ -506,14 +527,10 @@ class TestHandleJobCompleted:
         mock_job_service: AsyncMock,
     ) -> None:
         completed_link = _make_task_link(id="link-a", story_node_id="1-1-a", job_id="job-1")
-        dependent = _make_task_link(
-            id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"]
-        )
+        dependent = _make_task_link(id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"])
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
-        mock_job_repo.get.return_value = _make_job(
-            id="job-1", state=JobState.completed, resolution="merged"
-        )
+        mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
         mock_job_service.create_job.side_effect = RepoNotAllowedError("nope")
 
         service = RecipeService(

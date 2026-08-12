@@ -2,9 +2,17 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   useStore,
   selectJobs,
+  selectApprovals,
   selectJobLogs,
   selectJobTranscript,
   selectJobDiffs,
+  selectJobTimeline,
+  selectJobPlan,
+  selectActivityTimeline,
+  selectStreamingToolOutput,
+  selectStreamingReasoning,
+  selectSecondarySessions,
+  selectContextHandoffs,
   selectActiveJobs,
   selectSignoffJobs,
   selectAttentionJobs,
@@ -14,7 +22,19 @@ import {
   selectArchivedJobs,
   selectArchivedCount,
 } from "../index";
-import type { JobSummary } from "../index";
+import type { DiffFileModel } from "../../api/types";
+import type {
+  AppState,
+  ActivityTimelineState,
+  ApprovalRequest,
+  ContextHandoff,
+  JobSummary,
+  LogLine,
+  PlanStep,
+  SecondarySession,
+  TimelineEntry,
+  TranscriptEntry,
+} from "../index";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -37,6 +57,140 @@ function makeJob(overrides: Partial<JobSummary> = {}): JobSummary {
   };
 }
 
+type HydratedSnapshot = Parameters<AppState["hydrateJob"]>[0];
+
+function makeHydratedSnapshot(job: JobSummary, overrides: Partial<HydratedSnapshot> = {}): HydratedSnapshot {
+  return {
+    job,
+    logs: [],
+    transcript: [],
+    diff: [],
+    approvals: [],
+    timeline: [],
+    ...overrides,
+  };
+}
+
+function makeCurrentJobSlice(jobId: string) {
+  const approvals: Record<string, ApprovalRequest> = {
+    "approval-current": {
+      id: "approval-current",
+      jobId,
+      description: "Current approval",
+      proposedAction: null,
+      requestedAt: "2025-01-01T00:00:00Z",
+      resolvedAt: null,
+      resolution: null,
+      requiresExplicitApproval: false,
+      notes: null,
+    },
+  };
+  const logs: LogLine[] = [
+    {
+      jobId,
+      seq: 1,
+      timestamp: "2025-01-01T00:00:00Z",
+      level: "info",
+      message: "Current log",
+      context: null,
+    },
+  ];
+  const transcript: TranscriptEntry[] = [
+    {
+      jobId,
+      timestamp: "2025-01-01T00:00:00Z",
+      kind: "message.assistant",
+      content: "Current transcript",
+    },
+  ];
+  const diffs: DiffFileModel[] = [
+    { path: "current.ts", status: "modified", additions: 1, deletions: 0, hunks: [] },
+  ];
+  const plans: PlanStep[] = [
+    {
+      planStepId: "plan-current",
+      label: "Current plan",
+      status: "active",
+      summary: "Keep this plan",
+    },
+  ];
+  const timelines: TimelineEntry[] = [
+    {
+      headline: "Current headline",
+      headlinePast: "Current headline",
+      summary: "Current summary",
+      timestamp: "2025-01-01T00:00:00Z",
+      active: true,
+    },
+  ];
+  const activityTimelines: Record<string, ActivityTimelineState> = {
+    [jobId]: {
+      activities: [
+        {
+          activityId: "activity-current",
+          label: "Current activity",
+          status: "active",
+          steps: [
+            {
+              turnId: "turn-current",
+              title: "Current turn",
+              activityId: "activity-current",
+            },
+          ],
+        },
+      ],
+    },
+  };
+  const secondarySessions: Record<string, Record<string, SecondarySession>> = {
+    [jobId]: {
+      "secondary-current": {
+        id: "secondary-current",
+        jobId,
+        kind: "sidecar",
+        name: "Current secondary",
+        icon: "box",
+        status: "running",
+        startedAt: "2025-01-01T00:00:00Z",
+        entries: [],
+      },
+    },
+  };
+  const contextHandoffs: Record<string, ContextHandoff[]> = {
+    [jobId]: [
+      {
+        jobId,
+        source: "resume",
+        sourceSessionId: "session-current",
+        summary: "Current handoff",
+        content: "Current content",
+        timestamp: "2025-01-01T00:00:00Z",
+      },
+    ],
+  };
+
+  return {
+    jobs: {
+      [jobId]: makeJob({
+        id: jobId,
+        state: "review",
+        updatedAt: "2025-01-01T00:00:20Z",
+      }),
+    },
+    approvals,
+    logs: { [jobId]: logs },
+    transcript: { [jobId]: transcript },
+    diffs: { [jobId]: diffs },
+    plans: { [jobId]: plans },
+    timelines: { [jobId]: timelines },
+    activityTimelines,
+    secondarySessions,
+    streamingMessages: { [`${jobId}:turn-current`]: "Current streaming message" },
+    streamingToolOutput: { [`${jobId}:tool-current`]: "Current streaming tool output" },
+    streamingReasoning: { [`${jobId}:turn-current`]: "Current streaming reasoning" },
+    contextHandoffs,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -50,7 +204,267 @@ beforeEach(() => {
     diffs: {},
     plans: {},
     timelines: {},
+    activityTimelines: {},
+    secondarySessions: {},
+    streamingMessages: {},
+    streamingToolOutput: {},
+    streamingReasoning: {},
+    contextHandoffs: {},
+    multiSessions: {},
+    reviewStories: {},
+    structuralWarnings: {},
+    telemetryVersions: {},
+    artifactVersions: {},
+    repoIndexState: {},
+    jobHeartbeats: {},
+    terminalSessions: {},
     connectionStatus: "disconnected",
+  });
+});
+
+describe("hydrateJob freshness guard", () => {
+  it("preserves the current job slice when an older reconnect snapshot arrives", () => {
+    const jobId = "job-1";
+    useStore.setState(makeCurrentJobSlice(jobId));
+
+    useStore.getState().hydrateJob(
+      makeHydratedSnapshot(
+        makeJob({
+          id: jobId,
+          state: "running",
+          updatedAt: "2025-01-01T00:00:10Z",
+        }),
+        {
+          logs: [
+            {
+              jobId,
+              seq: 9,
+              timestamp: "2025-01-01T00:00:10Z",
+              level: "warn",
+              message: "Stale log",
+              context: null,
+            },
+          ],
+          transcript: [
+            {
+              jobId,
+              timestamp: "2025-01-01T00:00:10Z",
+              kind: "message.assistant",
+              content: "Stale transcript",
+            },
+          ],
+          diff: [{ path: "stale.ts", status: "modified", additions: 9, deletions: 0, hunks: [] }],
+          approvals: [
+            {
+              id: "approval-stale",
+              jobId,
+              description: "Stale approval",
+              proposedAction: null,
+              requestedAt: "2025-01-01T00:00:10Z",
+              resolvedAt: null,
+              resolution: null,
+              requiresExplicitApproval: false,
+              notes: null,
+            },
+          ],
+          timeline: [
+            {
+              headline: "Stale headline",
+              headlinePast: "Stale headline",
+              summary: "Stale summary",
+              timestamp: "2025-01-01T00:00:10Z",
+              active: false,
+            },
+          ],
+          steps: [
+            {
+              planStepId: "plan-stale",
+              label: "Stale plan",
+              status: "pending",
+              summary: "Replace this plan",
+            },
+          ],
+          turnSummaries: [
+            {
+              turnId: "turn-stale",
+              title: "Stale turn",
+              activityId: "activity-stale",
+              activityLabel: "Stale activity",
+              isNewActivity: true,
+              activityStatus: "done",
+            },
+          ],
+          secondarySessions: [
+            {
+              id: "secondary-stale",
+              kind: "sidecar",
+              name: "Stale secondary",
+              icon: "circle",
+              status: "completed",
+              startedAt: "2025-01-01T00:00:10Z",
+              completedAt: "2025-01-01T00:00:11Z",
+              output: "stale output",
+              entries: [],
+            },
+          ],
+          contextHandoffs: [
+            {
+              source: "followup",
+              sourceSessionId: "session-stale",
+              summary: "Stale handoff",
+              content: "stale content",
+              timestamp: "2025-01-01T00:00:10Z",
+            },
+          ],
+        },
+      ),
+    );
+
+    const state = useStore.getState();
+    expect(selectJobs(state)[jobId]?.state).toBe("review");
+    expect(selectJobs(state)[jobId]?.updatedAt).toBe("2025-01-01T00:00:20Z");
+    expect(selectApprovals(state)).toEqual(makeCurrentJobSlice(jobId).approvals);
+    expect(selectJobLogs(jobId)(state)).toEqual(makeCurrentJobSlice(jobId).logs[jobId]);
+    expect(selectJobTranscript(jobId)(state)).toEqual(makeCurrentJobSlice(jobId).transcript[jobId]);
+    expect(selectJobDiffs(jobId)(state)).toEqual(makeCurrentJobSlice(jobId).diffs[jobId]);
+    expect(selectJobTimeline(jobId)(state)).toEqual(makeCurrentJobSlice(jobId).timelines[jobId]);
+    expect(selectJobPlan(jobId)(state)).toEqual(makeCurrentJobSlice(jobId).plans[jobId]);
+    expect(selectActivityTimeline(jobId)(state)).toEqual(makeCurrentJobSlice(jobId).activityTimelines[jobId]);
+    expect(selectStreamingToolOutput(jobId)(state)).toEqual({ "tool-current": "Current streaming tool output" });
+    expect(selectStreamingReasoning(jobId)(state)).toEqual({ "turn-current": "Current streaming reasoning" });
+    expect(selectSecondarySessions(jobId)(state)).toEqual(makeCurrentJobSlice(jobId).secondarySessions[jobId]);
+    expect(selectContextHandoffs(jobId)(state)).toEqual(makeCurrentJobSlice(jobId).contextHandoffs[jobId]);
+    expect(state.streamingMessages[`${jobId}:turn-current`]).toBe("Current streaming message");
+  });
+
+  it("accepts a newer resume snapshot that returns a terminal job to running", () => {
+    const jobId = "job-1";
+    useStore.setState({
+      jobs: {
+        [jobId]: makeJob({
+          id: jobId,
+          state: "completed",
+          updatedAt: "2025-01-01T00:00:10Z",
+        }),
+      },
+    });
+
+    useStore.getState().hydrateJob(
+      makeHydratedSnapshot(
+        makeJob({
+          id: jobId,
+          state: "running",
+          updatedAt: "2025-01-01T00:00:20Z",
+        }),
+        {
+          logs: [],
+          transcript: [],
+          diff: [],
+          approvals: [],
+          timeline: [],
+        },
+      ),
+    );
+
+    const job = selectJobs(useStore.getState())[jobId]!;
+    expect(job.state).toBe("running");
+    expect(job.updatedAt).toBe("2025-01-01T00:00:20Z");
+  });
+
+  it("treats tied timestamps as fresh when no version evidence exists", () => {
+    const jobId = "job-1";
+    useStore.setState({
+      jobs: {
+        [jobId]: makeJob({
+          id: jobId,
+          state: "review",
+          updatedAt: "2025-01-01T00:00:00Z",
+        }),
+      },
+    });
+
+    useStore.getState().hydrateJob(
+      makeHydratedSnapshot(
+        makeJob({
+          id: jobId,
+          state: "running",
+          updatedAt: "2025-01-01T00:00:00Z",
+        }),
+        {
+          transcript: [
+            {
+              jobId,
+              timestamp: "2025-01-01T00:00:00Z",
+              kind: "message.assistant",
+              content: "Tie snapshot transcript",
+            },
+          ],
+          logs: [],
+          diff: [],
+          approvals: [],
+          timeline: [],
+        },
+      ),
+    );
+
+    const state = useStore.getState();
+    expect(selectJobs(state)[jobId]?.state).toBe("running");
+    expect(selectJobTranscript(jobId)(state)).toEqual([
+      {
+        jobId,
+        timestamp: "2025-01-01T00:00:00Z",
+        kind: "message.assistant",
+        content: "Tie snapshot transcript",
+      },
+    ]);
+  });
+
+  it("treats missing timestamps as fresh when no version evidence exists", () => {
+    const jobId = "job-1";
+    useStore.setState({
+      jobs: {
+        [jobId]: makeJob({
+          id: jobId,
+          state: "review",
+          updatedAt: "",
+        }),
+      },
+    });
+
+    useStore.getState().hydrateJob(
+      makeHydratedSnapshot(
+        makeJob({
+          id: jobId,
+          state: "running",
+          updatedAt: "",
+        }),
+        {
+          logs: [],
+          transcript: [
+            {
+              jobId,
+              timestamp: "",
+              kind: "message.assistant",
+              content: "Missing timestamp snapshot transcript",
+            },
+          ],
+          diff: [],
+          approvals: [],
+          timeline: [],
+        },
+      ),
+    );
+
+    const state = useStore.getState();
+    expect(selectJobs(state)[jobId]?.state).toBe("running");
+    expect(selectJobTranscript(jobId)(state)).toEqual([
+      {
+        jobId,
+        timestamp: "",
+        kind: "message.assistant",
+        content: "Missing timestamp snapshot transcript",
+      },
+    ]);
   });
 });
 

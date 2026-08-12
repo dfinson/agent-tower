@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import structlog
@@ -43,6 +44,14 @@ class AdapterRegistry:
 
     def _create(self, sdk: AgentSDK) -> AgentAdapterInterface:
         if sdk == AgentSDK.copilot:
+            if os.environ.get("CODEPLANE_E2E_FAKE_AGENT") == "1":
+                from backend.services.adapters.fake_adapter import E2EFakeCopilotAdapter
+
+                return E2EFakeCopilotAdapter(
+                    approval_service=self._approval_service,
+                    event_bus=self._event_bus,
+                    session_factory=self._session_factory,
+                )
             from backend.services.copilot_adapter import CopilotAdapter
 
             return CopilotAdapter(

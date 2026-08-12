@@ -18,7 +18,11 @@ from typing import TYPE_CHECKING
 import structlog
 
 from backend.models.domain import JobSpec, RepoNotAllowedError, SDKModelMismatchError
-from backend.services.recipe.parsers import ParsedTask, parse_bmad_stories, parse_spec_kit_tasks
+from backend.services.recipe.parsers import (
+    ParsedTask,
+    parse_bmad_stories,
+    parse_spec_kit_tasks,
+)
 
 if TYPE_CHECKING:
     from backend.models.domain import Job, TaskLink
@@ -126,9 +130,7 @@ class RecipeService:
         project = await self._project_service.get(project_id)
         resolved_repo_path = str(Path(repo_path).expanduser().resolve())
         if resolved_repo_path not in project.repo_paths:
-            raise RepoNotAllowedError(
-                f"Repo path '{resolved_repo_path}' does not belong to Project '{project_id}'."
-            )
+            raise RepoNotAllowedError(f"Repo path '{resolved_repo_path}' does not belong to Project '{project_id}'.")
         return await self._task_link_repo.create_manual(
             project_id=project_id,
             repo_path=resolved_repo_path,
@@ -215,9 +217,7 @@ class RecipeService:
             return []
 
         project_links = await self._task_link_repo.list_by_project(completed_link.project_id)
-        links_by_key = {
-            key: link for link in project_links if (key := self._composite_key(link)) is not None
-        }
+        links_by_key = {key: link for link in project_links if (key := self._composite_key(link)) is not None}
 
         spawned: list[Job] = []
         for candidate in project_links:
@@ -227,9 +227,7 @@ class RecipeService:
             if completed_key not in candidate.depends_on:
                 continue
 
-            satisfied = all(
-                [await self._is_satisfied(dep_key, links_by_key) for dep_key in candidate.depends_on]
-            )
+            satisfied = all([await self._is_satisfied(dep_key, links_by_key) for dep_key in candidate.depends_on])
             if not satisfied:
                 continue
 

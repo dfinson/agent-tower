@@ -97,13 +97,9 @@ def test_no_decision_without_session_id() -> None:
 def _seed_db(path: Path) -> None:
     conn = sqlite3.connect(str(path))
     try:
-        conn.execute(
-            "CREATE TABLE job_telemetry_summary "
-            "(job_id TEXT, session_kind TEXT, total_cost_usd REAL)"
-        )
+        conn.execute("CREATE TABLE job_telemetry_summary (job_id TEXT, session_kind TEXT, total_cost_usd REAL)")
         conn.executemany(
-            "INSERT INTO job_telemetry_summary (job_id, session_kind, total_cost_usd) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO job_telemetry_summary (job_id, session_kind, total_cost_usd) VALUES (?, ?, ?)",
             [
                 ("j1", "job", 12.5),
                 ("j1", "sidecar", 99.0),  # must be excluded by the session_kind filter

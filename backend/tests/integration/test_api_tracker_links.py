@@ -48,7 +48,7 @@ async def _create_credential(client: AsyncClient) -> str:
         "/api/settings/credentials",
         json={"provider": "github", "label": "GH", "baseUrl": "https://api.github.com", "pat": "p"},
     )
-    return resp.json()["id"]
+    return str(resp.json()["id"])
 
 
 class TestCreateTrackerLink:

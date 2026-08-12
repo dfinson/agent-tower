@@ -199,9 +199,7 @@ class TestDenyAndMonitor:
 
 
 class TestCleanup:
-    def test_cleanup_job_delegates(
-        self, router: PolicyRouter, checkpoint_svc: MagicMock, batcher: MagicMock
-    ) -> None:
+    def test_cleanup_job_delegates(self, router: PolicyRouter, checkpoint_svc: MagicMock, batcher: MagicMock) -> None:
         router.cleanup_job("j1")
         checkpoint_svc.cleanup_job.assert_called_once_with("j1")
         batcher.cleanup_job.assert_called_once_with("j1")

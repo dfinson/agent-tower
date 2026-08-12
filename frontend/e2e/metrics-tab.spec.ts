@@ -105,11 +105,11 @@ test.describe("Metrics Tab — Data Display", () => {
   });
 
   test("shows stat cards with telemetry data", async ({ page }) => {
-    await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await page.goto("/jobs/job-1", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
     // Click the Metrics tab
-    await page.getByRole("tab", { name: "Metrics" }).click();
+    await page.getByRole("button", { name: "Metrics" }).click();
 
     // Stat card labels should be visible
     await expect(page.getByText("Duration")).toBeVisible({ timeout: 5_000 });
@@ -118,10 +118,10 @@ test.describe("Metrics Tab — Data Display", () => {
   });
 
   test("shows tool calls table after expanding", async ({ page }) => {
-    await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await page.goto("/jobs/job-1", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    await page.getByRole("tab", { name: "Metrics" }).click();
+    await page.getByRole("button", { name: "Metrics" }).click();
 
     // Wait for metrics to load
     await expect(page.getByText("Duration")).toBeVisible({ timeout: 5_000 });
@@ -136,12 +136,12 @@ test.describe("Metrics Tab — Data Display", () => {
 
   test("shows token breakdown stats", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    await page.getByRole("tab", { name: "Metrics" }).click();
+    await page.getByRole("button", { name: "Metrics" }).click();
 
     // Token breakdown should be visible
-    await expect(page.getByText("Token Breakdown")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Tokens & Context")).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText("Input").first()).toBeVisible();
     await expect(page.getByText("Output").first()).toBeVisible();
   });
@@ -173,9 +173,9 @@ test.describe("Metrics Tab — Empty State", () => {
     });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true }).last()).toBeVisible({ timeout: 5_000 });
 
-    await page.getByRole("tab", { name: "Metrics" }).click();
+    await page.getByRole("button", { name: "Metrics" }).click();
 
     await expect(page.getByText("No data available yet")).toBeVisible({ timeout: 5_000 });
   });

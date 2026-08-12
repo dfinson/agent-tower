@@ -103,8 +103,7 @@ def make_job_spend_reader(db_path: str | Path) -> Callable[[str], float]:
             conn = sqlite3.connect(uri, uri=True, timeout=1.0)
             try:
                 cur = conn.execute(
-                    "SELECT total_cost_usd FROM job_telemetry_summary "
-                    "WHERE job_id = ? AND session_kind = 'job'",
+                    "SELECT total_cost_usd FROM job_telemetry_summary WHERE job_id = ? AND session_kind = 'job'",
                     (job_id,),
                 )
                 row = cur.fetchone()

@@ -20,7 +20,7 @@ export const NOW = new Date().toISOString();
 export function makeJob(overrides: Record<string, unknown> = {}) {
   return {
     id: "job-1",
-    title: "Test Job",
+    title: "",
     prompt: "Fix the bug in auth module",
     state: "running",
     createdAt: NOW,
@@ -200,7 +200,7 @@ export async function setupJobDetailMocks(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(diff),
+      body: JSON.stringify({ items: diff }),
     });
   });
 

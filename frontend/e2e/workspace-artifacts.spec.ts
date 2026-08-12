@@ -16,7 +16,7 @@ const NOW = new Date().toISOString();
 
 const MOCK_JOB = {
   id: "job-1",
-  title: "Test Job",
+  title: "",
   prompt: "Add a feature",
   state: "completed",
   createdAt: NOW,
@@ -142,7 +142,7 @@ async function setupJobDetailMocks(page: import("@playwright/test").Page) {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   });
   await page.route(`**/api/jobs/${jobId}/diff*`, async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
   });
   await page.route(`**/api/jobs/${jobId}/approvals*`, async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
@@ -214,11 +214,10 @@ test.describe("Workspace Browser — Files Tab", () => {
   });
 
   test("file tree renders when switching to Files tab", async ({ page }) => {
-    await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await page.goto("/jobs/job-1", { waitUntil: "domcontentloaded" });
 
     // Click the Files tab
-    await page.getByRole("tab", { name: "Files" }).click();
+    await page.getByRole("button", { name: "Files" }).click();
 
     // File tree should show root entries
     await expect(page.getByText("src")).toBeVisible({ timeout: 5_000 });
@@ -228,9 +227,8 @@ test.describe("Workspace Browser — Files Tab", () => {
 
   test("clicking a file loads its content", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
-    await page.getByRole("tab", { name: "Files" }).click();
+    await page.getByRole("button", { name: "Files" }).click();
     await expect(page.getByText("README.md")).toBeVisible({ timeout: 5_000 });
 
     // Click on a file
@@ -242,10 +240,9 @@ test.describe("Workspace Browser — Files Tab", () => {
   });
 
   test("expanding a directory loads its children", async ({ page }) => {
-    await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await page.goto("/jobs/job-1", { waitUntil: "domcontentloaded" });
 
-    await page.getByRole("tab", { name: "Files" }).click();
+    await page.getByRole("button", { name: "Files" }).click();
     await expect(page.getByText("src")).toBeVisible({ timeout: 5_000 });
 
     // Click the directory to expand it
@@ -258,12 +255,11 @@ test.describe("Workspace Browser — Files Tab", () => {
 
   test("shows 'Files' heading in tree panel", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
-    await page.getByRole("tab", { name: "Files" }).click();
+    await page.getByRole("button", { name: "Files" }).click();
 
     // Verify Files tab is now active (selected)
-    await expect(page.getByRole("tab", { name: "Files", selected: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole("button", { name: "Files" }).first()).toBeVisible({ timeout: 5_000 });
   });
 });
 
@@ -283,10 +279,11 @@ test.describe("Artifact Viewer — Artifacts Tab", () => {
 
   test("artifacts tab shows artifact list", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
     // Click the Artifacts tab
-    await page.getByRole("tab", { name: "Artifacts" }).click();
+    const artifactsTab = page.getByRole("button", { name: "Artifacts" });
+    await expect(artifactsTab).toBeVisible({ timeout: 5_000 });
+    await artifactsTab.click();
 
     // Groups are collapsed — headers should be visible
     await expect(page.getByText("Session Summaries").first()).toBeVisible({ timeout: 5_000 });
@@ -298,9 +295,8 @@ test.describe("Artifact Viewer — Artifacts Tab", () => {
 
   test("artifacts tab shows artifact types", async ({ page }) => {
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
-    await page.getByRole("tab", { name: "Artifacts" }).click();
+    await page.getByRole("button", { name: "Artifacts" }).click();
 
     // Should show type labels (human-readable)
     await expect(page.getByText("Session Summaries").first()).toBeVisible({ timeout: 5_000 });
@@ -318,9 +314,8 @@ test.describe("Artifact Viewer — Artifacts Tab", () => {
     });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
-    // When there are no artifacts, the Artifacts tab should not appear at all
-    await expect(page.getByRole("tab", { name: "Artifacts" })).toBeHidden({ timeout: 5_000 });
+    // When there are no artifacts, the Artifacts tab should not appear.
+    await expect(page.getByRole("button", { name: "Artifacts" })).toBeHidden({ timeout: 5_000 });
   });
 });

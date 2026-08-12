@@ -24,7 +24,7 @@ from backend.models.api_schemas import (
     CreateJobResponse,
     LaunchJobFromChatRequest,
 )
-from backend.models.domain import Chat, ChatMessage, JobState
+from backend.models.domain import Chat, ChatMessage, Job, JobState
 from backend.services.chat.chat_service import ChatService
 from backend.services.job.job_service import JobService
 from backend.services.runtime import RuntimeService
@@ -56,7 +56,7 @@ def _message_to_response(message: ChatMessage) -> ChatMessageResponse:
     )
 
 
-def _job_to_create_response(job) -> CreateJobResponse:  # noqa: ANN001
+def _job_to_create_response(job: Job) -> CreateJobResponse:
     return CreateJobResponse(
         id=job.id,
         state=job.state,
@@ -219,4 +219,3 @@ async def get_chat_chain_status(
         job_id=status.job_id,
         job_state=status.job_state,
     )
-

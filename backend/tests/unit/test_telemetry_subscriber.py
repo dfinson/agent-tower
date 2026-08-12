@@ -253,14 +253,18 @@ async def test_subscriber_persists_usage_tools_files_and_messages(
         assert failed_span["turn_id"] == "turn-1"
 
         access_rows = (
-            await session.execute(
-                text(
-                    "SELECT job_id, file_path, access_type, turn_number "
-                    "FROM job_file_access_log WHERE job_id = :job_id"
-                ),
-                {"job_id": "job-1"},
+            (
+                await session.execute(
+                    text(
+                        "SELECT job_id, file_path, access_type, turn_number "
+                        "FROM job_file_access_log WHERE job_id = :job_id"
+                    ),
+                    {"job_id": "job-1"},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         assert [dict(row) for row in access_rows] == [
             {
                 "job_id": "job-1",

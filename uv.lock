@@ -604,6 +604,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-timeout" },
     { name = "ruff" },
+    { name = "types-psutil" },
     { name = "types-pyyaml" },
 ]
 
@@ -660,6 +661,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=6.0,<7" },
     { name = "pytest-timeout", specifier = ">=2.4.0" },
     { name = "ruff", specifier = ">=0.8,<1" },
+    { name = "types-psutil" },
     { name = "types-pyyaml" },
 ]
 
@@ -4365,6 +4367,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/81/db/25a5e308af68fda1cc49a4423eded2a7cad1381fbc1f7a4d5502d6fe26c6/typer-0.26.0.tar.gz", hash = "sha256:08177aa85fd81ceb6e8f7cb879cf22dbaa81f98c02b7d570acf112513d2aa66f", size = 198809, upload-time = "2026-05-26T14:37:09.446Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/64/e1/01faefdf98e3a05ca5f3487caabab033fda84c5bd1bae7f73b8bb5dd553e/typer-0.26.0-py3-none-any.whl", hash = "sha256:859d520a4dc91c075cb370195462b6f7024fceb5d6de5c204bb8b1d51a60ad66", size = 123093, upload-time = "2026-05-26T14:37:07.783Z" },
+]
+
+[[package]]
+name = "types-psutil"
+version = "7.2.2.20260518"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cb/f1/6901857281d4e8d792492e1495eef6f4f01318a3b6a066486d81000a4511/types_psutil-7.2.2.20260518.tar.gz", hash = "sha256:9f825f631463a5b4d26f19f63aebc9ec25f01140d655026f3ad8a67841f9b331", size = 26660, upload-time = "2026-05-18T06:05:09.389Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/eb/f726339668879819599c74c2e1f0cab760912a4159046942bdae2ad37bd6/types_psutil-7.2.2.20260518-py3-none-any.whl", hash = "sha256:6a3d697665754a60d7b5a41d5a2cff12b53f5e0676d77810cd28ba5e14cb4049", size = 32820, upload-time = "2026-05-18T06:05:08.321Z" },
 ]
 
 [[package]]

@@ -126,10 +126,6 @@ class ChatRepository(BaseRepository):
 
     async def list_messages(self, chat_id: str) -> list[ChatMessage]:
         """List a Chat's messages in transcript order (oldest first)."""
-        stmt = (
-            select(ChatMessageRow)
-            .where(ChatMessageRow.chat_id == chat_id)
-            .order_by(ChatMessageRow.created_at.asc())
-        )
+        stmt = select(ChatMessageRow).where(ChatMessageRow.chat_id == chat_id).order_by(ChatMessageRow.created_at.asc())
         result = await self._session.execute(stmt)
         return [self._message_to_domain(row) for row in result.scalars().all()]

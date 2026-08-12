@@ -96,7 +96,14 @@ class TestTaskLinkRepoUpsert:
 
         await repo.upsert_many(
             project_id,
-            [{"repo_path": "/repo/a", "story_node_id": "1-1-task", "depends_on": [], "epic_id": None}],
+            [
+                {
+                    "repo_path": "/repo/a",
+                    "story_node_id": "1-1-task",
+                    "depends_on": [],
+                    "epic_id": None,
+                }
+            ],
         )
         await session.commit()
 
@@ -127,8 +134,18 @@ class TestTaskLinkRepoUpsert:
         await repo.upsert_many(
             project_id,
             [
-                {"repo_path": "/repo/a", "story_node_id": "T001", "depends_on": [], "epic_id": None},
-                {"repo_path": "/repo/b", "story_node_id": "T001", "depends_on": [], "epic_id": None},
+                {
+                    "repo_path": "/repo/a",
+                    "story_node_id": "T001",
+                    "depends_on": [],
+                    "epic_id": None,
+                },
+                {
+                    "repo_path": "/repo/b",
+                    "story_node_id": "T001",
+                    "depends_on": [],
+                    "epic_id": None,
+                },
             ],
         )
         await session.commit()
@@ -189,7 +206,10 @@ class TestCreateManual:
         listed = await repo.list_by_project(project_id)
         assert first.id != second.id
         assert [task.tracker_ticket_ref for task in listed] == ["JIRA-123", "JIRA-123"]
-        assert [task.prompt_override for task in listed] == ["Implement part one", "Implement part two"]
+        assert [task.prompt_override for task in listed] == [
+            "Implement part one",
+            "Implement part two",
+        ]
         assert all(task.story_node_id is None for task in listed)
 
 
@@ -273,4 +293,3 @@ class TestSetJobIdAndGetByJobId:
     async def test_get_by_job_id_returns_none_when_absent(self, session: AsyncSession) -> None:
         repo = TaskLinkRepository(session)
         assert await repo.get_by_job_id("does-not-exist") is None
-

@@ -145,6 +145,34 @@ function normalizeContextHandoff(jobId: string, handoff: HydratedContextHandoff)
   };
 }
 
+type JobSnapshotWithVersion = AppState["jobs"][string] & { version?: number };
+
+function jobVersion(job: AppState["jobs"][string]): number | null {
+  const version = (job as JobSnapshotWithVersion).version;
+  return typeof version === "number" && Number.isFinite(version) ? version : null;
+}
+
+function jobUpdatedAtMs(job: AppState["jobs"][string]): number | null {
+  const updatedAt = Date.parse(job.updatedAt);
+  return Number.isNaN(updatedAt) ? null : updatedAt;
+}
+
+function isIncomingJobSnapshotStale(currentJob: AppState["jobs"][string], incomingJob: AppState["jobs"][string]): boolean {
+  const currentVersion = jobVersion(currentJob);
+  const incomingVersion = jobVersion(incomingJob);
+  if (currentVersion !== null && incomingVersion !== null && currentVersion !== incomingVersion) {
+    return incomingVersion < currentVersion;
+  }
+
+  const currentUpdatedAt = jobUpdatedAtMs(currentJob);
+  const incomingUpdatedAt = jobUpdatedAtMs(incomingJob);
+  if (currentUpdatedAt !== null && incomingUpdatedAt !== null && currentUpdatedAt !== incomingUpdatedAt) {
+    return incomingUpdatedAt < currentUpdatedAt;
+  }
+
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -415,9 +443,28 @@ export const useStore = create<AppState>((set, get) => ({
     const jobId = snapshot.job.id;
     const evictIds = touchJob(jobId);
     set((s) => {
+      const currentJob = s.jobs[jobId];
+      const incomingJob = enrichJob(snapshot.job);
+      const preserveCurrentJob = !!currentJob && isIncomingJobSnapshotStale(currentJob, incomingJob);
+      const evictedState = evictStaleJobs(s, evictIds);
+
+      if (currentJob && preserveCurrentJob) {
+        return {
+          ...evictedState,
+          jobs: s.jobs,
+          approvals: s.approvals,
+        };
+      }
+
       // Remove stale approvals for this job before merging fresh ones
       const keptApprovals = Object.fromEntries(
         Object.entries(s.approvals).filter(([, a]) => a.jobId !== jobId),
+      );
+      const currentJobApprovals = Object.fromEntries(
+        Object.entries(s.approvals).filter(([, a]) => a.jobId === jobId),
+      );
+      const incomingJobApprovals = Object.fromEntries(
+        (snapshot.approvals ?? []).map((a) => [a.id, a]),
       );
       // Drop any in-flight streaming state for this job
       const streamingMessages = Object.fromEntries(
@@ -441,15 +488,17 @@ export const useStore = create<AppState>((set, get) => ({
         const key = e.turnId ? `${e.toolName}::${e.turnId}` : e.toolName;
         return !completedCallKeys.has(key);
       });
+      const hydratedJob = currentJob ? { ...currentJob, ...incomingJob } : incomingJob;
       return {
-        ...evictStaleJobs(s, evictIds),
-        jobs: { ...s.jobs, [jobId]: enrichJob(snapshot.job) },
+        ...evictedState,
+        jobs: { ...s.jobs, [jobId]: hydratedJob },
         logs: { ...s.logs, [jobId]: snapshot.logs },
         transcript: { ...s.transcript, [jobId]: deduped },
         diffs: { ...s.diffs, [jobId]: snapshot.diff },
         approvals: {
           ...keptApprovals,
-          ...Object.fromEntries(snapshot.approvals.map((a) => [a.id, a])),
+          ...currentJobApprovals,
+          ...incomingJobApprovals,
         },
         streamingMessages,
         streamingToolOutput,

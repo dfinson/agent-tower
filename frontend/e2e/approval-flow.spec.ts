@@ -69,7 +69,7 @@ async function setupApprovalMocks(
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   });
   await page.route("**/api/jobs/job-1/diff*", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
   });
   await page.route("**/api/jobs/job-1/approvals*", async (route) => {
     await route.fulfill({
@@ -183,13 +183,17 @@ test.describe("SSE-Driven Approval Events", () => {
           { event: "session_heartbeat", data: {} },
           { event: "snapshot", data: { jobs: [MOCK_JOB], pendingApprovals: [] } },
           {
-            event: "approval_requested",
+            event: "permission.requested",
             data: {
-              approvalId: "approval-1",
-              jobId: "job-1",
-              description: "Agent wants to execute: rm -rf /tmp/cache",
-              proposedAction: "rm -rf /tmp/cache",
+              id: "evt-1",
+              kind: "permission.requested",
+              session_id: "job-1",
               timestamp: NOW,
+              payload: {
+                approval_id: "approval-1",
+                description: "Agent wants to execute: rm -rf /tmp/cache",
+                proposed_action: "rm -rf /tmp/cache",
+              },
             },
           },
         ]),
@@ -238,7 +242,7 @@ test.describe("SSE-Driven Approval Events", () => {
       await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
     });
     await page.route("**/api/jobs/job-1/diff*", async (route) => {
-      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
     });
     await page.route("**/api/jobs/job-1/approvals*", async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });

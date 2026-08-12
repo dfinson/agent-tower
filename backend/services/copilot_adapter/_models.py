@@ -12,9 +12,12 @@ individual malformed models rather than aborting the whole list.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import structlog
+
+from backend.services.copilot_adapter._client import create_copilot_client
 
 log = structlog.get_logger(__name__)
 
@@ -29,10 +32,18 @@ async def fetch_copilot_models_raw() -> list[dict[str, Any]]:
 
     Returns a list of dicts suitable for storing in ``CachedModelsBySdk``.
     """
-    from copilot import CopilotClient
+    if os.environ.get("CODEPLANE_E2E_FAKE_AGENT") == "1":
+        return [
+            {
+                "id": "claude-sonnet-4-5-20250514",
+                "name": "Claude Sonnet 4.5",
+                "billing": {"multiplier": 1.0},
+            }
+        ]
+
     from copilot.client import ModelInfo
 
-    client = CopilotClient()
+    client = create_copilot_client()
     await client.start()
     try:
         # pylint: disable=protected-access  # JsonRpcClient not exposed publicly

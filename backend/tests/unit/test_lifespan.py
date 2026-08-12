@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.exc import OperationalError
 
-from backend.lifespan import _RESTART_REQUEST_ID_ENV, _persist_event_with_retry, _publish_restart_readiness
+from backend.lifespan import (
+    _RESTART_REQUEST_ID_ENV,
+    _build_copilot_steer_client,
+    _persist_event_with_retry,
+    _publish_restart_readiness,
+)
 from backend.models.events import EventKind, SessionEvent, new_event
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class _FakeSession:
@@ -40,6 +48,35 @@ def _make_event() -> SessionEvent:
         kind=EventKind.job_state_changed,
         payload={"state": "running"},
     )
+
+
+@pytest.mark.parametrize("env_var", ["GITHUB_TOKEN", "GH_TOKEN"])
+def test_build_copilot_steer_client_uses_github_token(monkeypatch: pytest.MonkeyPatch, env_var: str) -> None:
+    class _FakeCopilotSteerClient:
+        def __init__(self, github_token: str) -> None:
+            self.github_token = github_token
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setenv(env_var, "steer-token")
+    monkeypatch.setattr("backend.services.completers.copilot_steer.CopilotSteerClient", _FakeCopilotSteerClient)
+
+    client = _build_copilot_steer_client()
+
+    assert isinstance(client, _FakeCopilotSteerClient)
+    assert client.github_token == "steer-token"
+
+
+def test_build_copilot_steer_client_returns_none_without_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _UnexpectedCopilotSteerClient:
+        def __init__(self, github_token: str) -> None:
+            raise AssertionError("CopilotSteerClient should not be constructed without a token")
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setattr("backend.services.completers.copilot_steer.CopilotSteerClient", _UnexpectedCopilotSteerClient)
+
+    assert _build_copilot_steer_client() is None
 
 
 @pytest.mark.asyncio
@@ -134,7 +171,7 @@ async def test_persist_event_does_not_retry_non_lock_errors(monkeypatch: pytest.
 
 
 @pytest.fixture(autouse=True)
-def _isolated_codeplane_home(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+def _isolated_codeplane_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point CODEPLANE_HOME at a throwaway directory for every test in this file."""
     monkeypatch.setenv("CODEPLANE_HOME", str(tmp_path))
     import backend.config as config_module
@@ -143,20 +180,20 @@ def _isolated_codeplane_home(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> 
     return tmp_path
 
 
-def _read_ready_marker(tmp_path: Any, request_id: str) -> dict[str, Any]:
+def _read_ready_marker(tmp_path: Path, request_id: str) -> dict[str, Any]:
     import json
 
     path = tmp_path / "dev-restart" / f"{request_id}.ready.json"
     assert path.exists(), f"expected ready marker at {path}"
-    return json.loads(path.read_text(encoding="utf-8"))
+    return cast("dict[str, Any]", json.loads(path.read_text(encoding="utf-8")))
 
 
-def _ready_marker_path(tmp_path: Any, request_id: str) -> Any:
+def _ready_marker_path(tmp_path: Path, request_id: str) -> Path:
     return tmp_path / "dev-restart" / f"{request_id}.ready.json"
 
 
 @pytest.mark.asyncio
-async def test_publish_restart_readiness_writes_locked_marker_shape(tmp_path: Any) -> None:
+async def test_publish_restart_readiness_writes_locked_marker_shape(tmp_path: Path) -> None:
     import asyncio
     import os
 
@@ -177,7 +214,7 @@ async def test_publish_restart_readiness_writes_locked_marker_shape(tmp_path: An
 
 @pytest.mark.asyncio
 async def test_publish_restart_readiness_orders_recovery_then_remote_before_write(
-    tmp_path: Any,
+    tmp_path: Path,
 ) -> None:
     import asyncio
 
@@ -203,7 +240,7 @@ async def test_publish_restart_readiness_orders_recovery_then_remote_before_writ
 
 @pytest.mark.asyncio
 async def test_publish_restart_readiness_does_not_write_marker_if_recovery_raises(
-    tmp_path: Any,
+    tmp_path: Path,
 ) -> None:
     import asyncio
 
