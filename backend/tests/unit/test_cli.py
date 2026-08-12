@@ -281,13 +281,23 @@ class TestStopServer:
     @patch("time.sleep", return_value=None)
     @patch("backend.cli._kill_process_group")
     @patch("os.kill")
+    @patch("os.getpgid", create=True, side_effect=lambda pid: pid)
     @patch("backend.cli._find_pids_on_port")
     def test_escalates_to_sigkill_after_timeout(
-        self, mock_find_pids, _mock_os_kill, mock_kill_group, _mock_sleep, _mock_monotonic, capsys
+        self, mock_find_pids, _mock_getpgid, _mock_os_kill, mock_kill_group, _mock_sleep, _mock_monotonic, capsys
     ) -> None:
         """Preserve existing graceful-then-force behavior for the target
-        PID(s): still bound to the port after the timeout -> escalate."""
+        PID(s): still bound to the port after the timeout -> escalate.
+
+        ``os.getpgid`` is stubbed (it does not exist on Windows, and on POSIX
+        it would raise ``ProcessLookupError`` for the synthetic PID 100 and
+        silently skip the process-group path) so both platforms exercise the
+        same escalation branch. The force signal mirrors production's
+        ``getattr(signal, "SIGKILL", signal.SIGTERM)`` fallback: Windows has
+        no ``SIGKILL``.
+        """
         mock_find_pids.side_effect = [[100], [100], [100], []]
+        force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
 
         result = _stop_server(8080, timeout_seconds=1)
 
@@ -295,7 +305,10 @@ class TestStopServer:
         output = capsys.readouterr().out
         assert "SIGKILL" in output
         assert [c.args for c in _mock_os_kill.call_args_list] == [(100, signal.SIGTERM)]
-        assert [c.args for c in mock_kill_group.call_args_list] == [(100, signal.SIGKILL)]
+        assert [c.args for c in mock_kill_group.call_args_list] == [
+            (100, signal.SIGTERM),
+            (100, force_signal),
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -397,12 +410,18 @@ async def _fake_startup(self: object, sockets: list[object] | None = None) -> No
     self.started = True  # type: ignore[attr-defined]
 
 
-def _fake_server_run(self: object) -> None:
+def _fake_server_run(self: object, sockets: list[object] | None = None) -> None:
     """Stand-in for ``uvicorn.Server.run`` that drives startup synchronously
-    instead of entering the real (blocking) serve loop."""
+    instead of entering the real (blocking) serve loop.
+
+    Mirrors the real ``uvicorn.Server.run(self, sockets=None)`` signature and
+    forwards ``sockets`` on to ``startup`` exactly as uvicorn does, so that
+    callers passing pre-bound sockets (``cpl up --port 0``) are exercised
+    rather than rejected with a ``TypeError``.
+    """
     import asyncio
 
-    asyncio.run(self.startup())  # type: ignore[attr-defined]
+    asyncio.run(self.startup(sockets=sockets))  # type: ignore[attr-defined]
 
 
 def _invoke_up(args: list[str], *, owning_pids: list[int] | None = None) -> tuple[object, dict[str, object] | None]:

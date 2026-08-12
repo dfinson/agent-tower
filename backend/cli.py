@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import multiprocessing
 import signal
+import socket
 import warnings
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,32 @@ from backend.config import load_config  # noqa: E402
 @click.group()
 def cli() -> None:
     """CodePlane — control plane for coding agents."""
+
+
+def _bind_ephemeral_socket(host: str) -> socket.socket:
+    """Bind an OS-assigned port on ``host`` and return the still-open socket.
+
+    Used to resolve ``--port 0`` to a concrete port *before* anything
+    downstream needs it. Binding and then closing the socket to "peek" at the
+    port would race another process for it, so the bound socket is kept and
+    handed to uvicorn via ``server.run(sockets=...)``.
+
+    Mirrors ``uvicorn.Config.bind_socket`` so the socket uvicorn receives is
+    configured the way it would have configured one itself.
+    """
+    family = socket.AF_INET
+    with contextlib.suppress(OSError):
+        socket.inet_pton(socket.AF_INET6, host)
+        family = socket.AF_INET6
+    sock = socket.socket(family=family)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, 0))
+    except OSError:
+        sock.close()
+        raise
+    sock.set_inheritable(True)
+    return sock
 
 
 # ---------------------------------------------------------------------------
@@ -165,8 +192,10 @@ def up(
         remote = True
 
     config = load_config()
-    host = host or config.server.host
-    port = port or config.server.port
+    host = host if host is not None else config.server.host
+    # ``port or config.server.port`` would silently discard an explicit
+    # ``--port 0``, which is a valid request for an OS-assigned ephemeral port.
+    port = port if port is not None else config.server.port
 
     # Run preflight checks before starting
     if not skip_preflight:
@@ -174,6 +203,22 @@ def up(
 
         if not validate_preflight(port):
             raise SystemExit(1)
+
+    # ``--port 0`` asks the OS to assign an ephemeral port. Resolve it now, by
+    # binding the listening socket ourselves and reading back the assigned
+    # port, so that every downstream consumer agrees on the port the server
+    # actually serves on: the tunnel origin, the banner, the published
+    # ``run.json`` (which ``cpl down``/``cpl restart`` read), and the
+    # listener-ownership check. Done after preflight, which would otherwise
+    # find the port already taken -- by us.
+    ephemeral_socket: socket.socket | None = None
+    if port == 0:
+        try:
+            ephemeral_socket = _bind_ephemeral_socket(host)
+        except OSError as exc:
+            click.secho(f"ERROR: could not bind an ephemeral port on {host}: {exc}", fg="red", err=True)
+            raise SystemExit(1) from exc
+        port = ephemeral_socket.getsockname()[1]
 
     if not remote and provider != "devtunnel":
         click.secho(
@@ -524,7 +569,7 @@ def up(
     # Suppress the KeyboardInterrupt that uvicorn re-raises after shutdown
     # (it restores the default SIGINT handler then calls signal.raise_signal).
     try:
-        server.run()
+        server.run(sockets=[ephemeral_socket] if ephemeral_socket is not None else None)
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
@@ -532,6 +577,10 @@ def up(
             dashboard.stop()
         if tunnel_handle is not None:
             tunnel_handle.close()
+        if ephemeral_socket is not None:
+            # Idempotent: uvicorn also closes sockets handed to it.
+            with contextlib.suppress(OSError):
+                ephemeral_socket.close()
 
 
 # ---------------------------------------------------------------------------
@@ -993,6 +1042,19 @@ def restart(
 
     config = load_config()
     host = host or config.server.host
+    # ``restart`` cannot honor ``--port 0`` the way ``up`` can: the down phase
+    # has to target a determinate port to find and stop a listener, and a
+    # restart is only meaningful if the server comes back at the same address.
+    # Reject it rather than silently substituting the configured default.
+    if port == 0:
+        click.secho(
+            "ERROR: --port 0 is not supported by restart (it must target a specific "
+            "port to stop, and would not come back at a predictable address). "
+            "Use 'cpl up --port 0' to start on an OS-assigned port.",
+            fg="red",
+            err=True,
+        )
+        raise SystemExit(1)
     port = port or config.server.port
     base_url = f"http://{host}:{port}"
 

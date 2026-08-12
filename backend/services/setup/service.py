@@ -15,7 +15,8 @@ from typing import Any
 import questionary
 from rich.panel import Panel
 
-from backend.config import get_codeplane_dir, init_config, load_config, save_config
+from backend import config as backend_config
+from backend.config import init_config, load_config, save_config
 
 # Re-export everything that external callers import from this module.
 from backend.services.setup.checks import (  # noqa: F401
@@ -239,7 +240,7 @@ def validate_preflight(port: int) -> bool:
     warnings = [r for r in results if r.status == CheckStatus.warn]
 
     # Auto-create config on first run
-    config_path = get_codeplane_dir() / "config.yaml"
+    config_path = backend_config.get_codeplane_dir() / "config.yaml"
     if not config_path.exists():
         init_config()
         _console.print()

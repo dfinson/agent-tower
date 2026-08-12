@@ -29,7 +29,7 @@ from typing import Any, TextIO
 import psutil
 import structlog
 
-from backend.config import get_codeplane_dir
+from backend import config as backend_config
 from backend.models.domain import CodePlaneError
 
 log = structlog.get_logger()
@@ -55,7 +55,7 @@ class RestartProtocolError(CodePlaneError):
 
 def get_dev_restart_dir() -> Path:
     """Return ``~/.codeplane/dev-restart/`` (``CODEPLANE_HOME``-aware), creating it if needed."""
-    path = get_codeplane_dir() / _DEV_RESTART_SUBDIR
+    path = backend_config.get_codeplane_dir() / _DEV_RESTART_SUBDIR
     path.mkdir(parents=True, exist_ok=True)
     return path
 

@@ -14,7 +14,8 @@ from pathlib import Path
 import questionary
 from rich.panel import Panel
 
-from backend.config import get_codeplane_dir, init_config, load_config, save_config
+from backend import config as backend_config
+from backend.config import init_config, load_config, save_config
 from backend.services.setup.checks import (
     DEPENDENCIES,
     HOST_PLATFORM,
@@ -281,7 +282,7 @@ def _setup_config() -> None:
     """Step 4: Config initialization."""
     _step_header(4, _SETUP_TOTAL_STEPS, "Configuration")
 
-    config_path = get_codeplane_dir() / "config.yaml"
+    config_path = backend_config.get_codeplane_dir() / "config.yaml"
     if config_path.exists():
         _console.print(f"  [green]✓[/green]  Config exists at [bold]{config_path}[/bold]")
     else:

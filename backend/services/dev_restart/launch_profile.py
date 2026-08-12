@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Literal
 if TYPE_CHECKING:
     from pathlib import Path
 
-from backend.config import get_codeplane_dir
+from backend import config as backend_config
 from backend.models.domain import CodePlaneError
 from backend.services.dev_restart.restart_protocol import (
     RestartProtocolError,
@@ -310,7 +310,7 @@ def build_active_launch_profile(
 
 def active_launch_profile_path() -> Path:
     """Resolve through ``get_codeplane_dir()`` so ``CODEPLANE_HOME`` remains authoritative."""
-    return get_codeplane_dir() / "run.json"
+    return backend_config.get_codeplane_dir() / "run.json"
 
 
 def write_active_launch_profile(profile: LaunchProfile) -> None:
