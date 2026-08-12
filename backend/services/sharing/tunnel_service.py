@@ -58,6 +58,8 @@ def _windows_kill_on_close_job() -> Any:
     which case spawning proceeds unmanaged rather than failing.
     """
     global _job_handle
+    if sys.platform != "win32":
+        return None
     with _job_lock:
         if _job_handle is not None:
             return _job_handle
