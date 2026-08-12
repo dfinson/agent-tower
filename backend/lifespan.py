@@ -1308,15 +1308,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     event_bus.subscribe(_persist_structural_analytics)
 
-    # --- Story 4.5: auto-spawn a dependent TaskLink's job on completion ---
+    # --- Story 4.5/4.6: auto-spawn a dependent TaskLink's job on completion, and
+    # route the completed TaskLink's tracker write-back through the approval gate ---
     # Fires only on EventKind.job_completed (a job reaching JobState.completed —
     # merged/pr_created/discarded all land here, see backend/services/runtime/service.py).
     # `resolution` is read from the payload so a "discarded" completion never
     # satisfies a dependency (see RecipeService._SUCCESSFUL_RESOLUTIONS). All
-    # decision logic (satisfaction check, spawn, idempotency) lives in
-    # RecipeService.handle_job_completed — this closure only wires the event,
-    # opens a session, and starts any newly-spawned job's agent, mirroring the
-    # `codeplane_job create` MCP handler's own setup/start pattern.
+    # decision logic (satisfaction check, spawn, idempotency, tracker write
+    # routing) lives in RecipeService.handle_job_completed — this closure only
+    # wires the event, opens a session, and starts any newly-spawned job's
+    # agent, mirroring the `codeplane_job create` MCP handler's own
+    # setup/start pattern.
     async def _spawn_dependent_task_links(event: SessionEvent) -> None:
         if event.kind != EventKind.job_completed:
             return
@@ -1331,16 +1333,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 from backend.persistence.job_repo import JobRepository
                 from backend.persistence.project_repo import ProjectRepository
                 from backend.persistence.task_link_repo import TaskLinkRepository
+                from backend.persistence.tracker_link_repo import TrackerLinkRepository
                 from backend.services.job.job_service import JobService
                 from backend.services.project.project_service import ProjectService
                 from backend.services.recipe.recipe_service import RecipeService
+                from backend.services.tracker_write_service import TrackerWriteService
 
                 async with serialized_write(session_factory) as session:
                     task_link_repo = TaskLinkRepository(session)
                     job_repo = JobRepository(session)
                     chat_repo = ChatRepository(session)
+                    tracker_link_repo = TrackerLinkRepository(session)
                     project_service = ProjectService(ProjectRepository(session), config)
                     job_service = JobService.from_session(session, config)
+                    # Story 4.6: routes a completed TaskLink's `tracker_write` output
+                    # route through the same approval gate as any other tracker
+                    # write-back (Story 3.4) — see RecipeService._maybe_route_tracker_write.
+                    tracker_write_service = TrackerWriteService(services.approval_service)
                     recipe_service = RecipeService(
                         task_link_repo,
                         project_service,
@@ -1348,6 +1357,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         job_repo=job_repo,
                         chat_repo=chat_repo,
                         approval_service=services.approval_service,
+                        tracker_link_repo=tracker_link_repo,
+                        tracker_write_service=tracker_write_service,
                     )
                     spawned_jobs = await recipe_service.handle_job_completed(job_id, resolution=resolution)
 

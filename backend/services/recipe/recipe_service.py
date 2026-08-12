@@ -12,6 +12,7 @@ across re-runs.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -23,17 +24,38 @@ from backend.services.recipe.parsers import (
     parse_bmad_stories,
     parse_spec_kit_tasks,
 )
+from backend.services.tracker_write_service import TrackerWriteAction, TrackerWriteRequest
 
 if TYPE_CHECKING:
     from backend.models.domain import Job, TaskLink
     from backend.persistence.chat_repo import ChatRepository
     from backend.persistence.job_repo import JobRepository
     from backend.persistence.task_link_repo import TaskLinkRepository
+    from backend.persistence.tracker_link_repo import TrackerLinkRepository
     from backend.services.job.approval_service import ApprovalService
     from backend.services.job.job_service import JobService
     from backend.services.project.project_service import ProjectService
+    from backend.services.tracker_write_service import TrackerWriteService
 
 log = structlog.get_logger()
+
+
+async def _log_only_tracker_write_dispatch(request: TrackerWriteRequest) -> None:
+    """Placeholder dispatcher for an approved recipe tracker write (Story 4.6).
+
+    No real tracker adapter (Jira/GitHub Issues/Azure DevOps client) exists in
+    this codebase yet — building one is out of this story's scope, which is
+    only to route the write through the existing approval gate (Story 3.4).
+    Once such an adapter exists, this stub should be replaced with a real
+    dispatch call; until then the write is logged only after approval.
+    """
+    log.info(
+        "tracker_write_dispatch_stub",
+        ticket_ref=request.ticket_ref,
+        action=request.action.value,
+        value=request.value,
+    )
+
 
 # Resolutions that count as a job "completing successfully" for the purpose of
 # satisfying a dependent TaskLink's dependency (Story 4.5, AC #1). A job that
@@ -62,17 +84,26 @@ class RecipeService:
         job_repo: JobRepository | None = None,
         chat_repo: ChatRepository | None = None,
         approval_service: ApprovalService | None = None,
+        tracker_link_repo: TrackerLinkRepository | None = None,
+        tracker_write_service: TrackerWriteService | None = None,
     ) -> None:
         self._task_link_repo = task_link_repo
         self._project_service = project_service
         # All optional: request-scoped DI call sites (ingestion/listing, Story
         # 4.2-4.4) never spawn jobs and don't need them. The job-completion
         # subscriber wired in backend/lifespan.py supplies job_service/job_repo
-        # (Story 4.5) plus chat_repo/approval_service (Story 5.4, gating).
+        # (Story 4.5) plus chat_repo/approval_service (Story 5.4, gating), plus
+        # tracker_link_repo/tracker_write_service (Story 4.6, tracker write-back).
         self._job_service = job_service
         self._job_repo = job_repo
         self._chat_repo = chat_repo
         self._approval_service = approval_service
+        self._tracker_link_repo = tracker_link_repo
+        self._tracker_write_service = tracker_write_service
+        # Tracks fire-and-forget tracker-write tasks so they aren't garbage
+        # collected mid-flight (Story 4.6) — the approval wait can take an
+        # arbitrarily long time and must never block dependent-spawn logic.
+        self._tracker_write_tasks: set[asyncio.Task[bool]] = set()
 
     @staticmethod
     def _resolve_dependency(raw: str, *, current_repo_path: str, repo_path_by_folder: dict[str, str]) -> str:
@@ -233,6 +264,8 @@ class RecipeService:
         if completed_link is None:
             return []
 
+        await self._maybe_route_tracker_write(completed_link, job_id)
+
         completed_key = self._composite_key(completed_link)
         if completed_key is None:
             return []
@@ -313,6 +346,58 @@ class RecipeService:
             return False
         attached_chat = await self._chat_repo.get_attached_open_chat_for_project(project_id)
         return attached_chat is not None
+
+    async def _maybe_route_tracker_write(self, task_link: TaskLink, job_id: str) -> None:
+        """Route a completed TaskLink's `tracker_write` output route through the
+        approval gate (Story 4.6, AC #1-#3).
+
+        Fires for *any* TaskLink whose linked Job just completed successfully
+        (ingested or manually-assigned, Story 4.3) — unlike dependent-spawn
+        logic this doesn't require a `story_node_id`/composite key, since a
+        manually-assigned TaskLink is exactly the kind most likely to be
+        paired with a tracker ticket.
+
+        Only fires when `tracker_ticket_ref` is set on the TaskLink itself:
+        with none set, the write route is unavailable and there is no
+        fallback to a Project-level default ticket (AC #2). When present, the
+        write targets exactly that ticket, never any other ticket the Project
+        might be linked to (AC #1) — the Project-level TrackerLink only
+        supplies routing/credential context, never the ticket identity.
+
+        Creating the approval and dispatching are fired-and-forgotten: the
+        approval wait (Story 3.4's `TrackerWriteService.execute`) can block
+        for an arbitrarily long time on operator action and must never delay
+        this method's caller, `handle_job_completed`, from running its own
+        dependent-spawn logic (Story 4.5 AC #1-#3).
+        """
+        if self._tracker_write_service is None or self._tracker_link_repo is None:
+            return
+        if not task_link.tracker_ticket_ref:
+            return
+
+        tracker_links = await self._tracker_link_repo.list_for_project(task_link.project_id)
+        if not tracker_links:
+            log.warning(
+                "tracker_write_skipped_no_tracker_link",
+                task_link_id=task_link.id,
+                project_id=task_link.project_id,
+                ticket_ref=task_link.tracker_ticket_ref,
+            )
+            return
+
+        request = TrackerWriteRequest(
+            tracker_link_id=tracker_links[0]["id"],
+            ticket_ref=task_link.tracker_ticket_ref,
+            action=TrackerWriteAction.comment,
+            value=f"Task '{task_link.story_node_id or task_link.id}' completed.",
+        )
+
+        task = asyncio.create_task(
+            self._tracker_write_service.execute(job_id, request, _log_only_tracker_write_dispatch),
+            name=f"tracker-write-{task_link.id[:8]}",
+        )
+        self._tracker_write_tasks.add(task)
+        task.add_done_callback(self._tracker_write_tasks.discard)
 
     async def spawn_approved_task_link(self, task_link_id: str, *, parent_job_id: str | None) -> Job | None:
         """Spawn a TaskLink's job once its gated approval has been granted (Story 5.4, AC #1).
