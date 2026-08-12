@@ -601,6 +601,21 @@ class TaskLinkRow(Base):
     updated_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
 
 
+class TrackerSummaryRow(Base):
+    """Latest normalized external ticket state for one TrackerLink (AD-7)."""
+
+    __tablename__ = "tracker_summaries"
+
+    tracker_link_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("tracker_links.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    tickets_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
+    last_synced_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class SidecarTemplateRow(Base):
     __tablename__ = "sidecar_templates"
 

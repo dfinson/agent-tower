@@ -1,5 +1,5 @@
 # generated: 2026-08-10
-# last_updated: 2026-08-10
+# last_updated: 2026-08-12
 # project: codeplane
 # project_key: NOKEY
 # tracking_system: file-system
@@ -66,10 +66,10 @@ development_status:
   2-5-filter-projects-by-name: review
   epic-2-retrospective: optional
 
-  epic-3: backlog
+  epic-3: in-progress
   3-1-register-a-credential: review
   3-2-attach-a-trackerlink-to-a-project: backlog
-  3-3-view-synced-ticket-state: backlog
+  3-3-view-synced-ticket-state: review
   3-4-approve-a-tracker-write-back: backlog
   3-5-see-per-provider-pat-scope-guidance: review
   epic-3-retrospective: optional

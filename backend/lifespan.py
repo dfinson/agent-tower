@@ -1474,6 +1474,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- Share service ---
     share_service = ShareService()
 
+    from backend.services.tracker_sync_service import TrackerSyncService
+
+    tracker_sync_service = TrackerSyncService(
+        session_factory=session_factory,
+        config=config,
+    )
+    tracker_sync_service.start()
+
     # Build the dishka DI container with all services as context values
     container = make_async_container(
         AppProvider(),
@@ -1502,6 +1510,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             ModelPricingService: model_pricing_service,
             SessionStateWatcher: session_state_watcher,
             ClaudeSessionStateWatcher: claude_session_watcher,
+            TrackerSyncService: tracker_sync_service,
         },
     )
     app.state.dishka_container = container
@@ -1560,6 +1569,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     async def _quiet_shutdown() -> None:
         """Run teardown steps, suppressing noisy exceptions."""
+        await tracker_sync_service.stop()
         await container.close()
         optional.mcp_stop_event.set()
         await optional.mcp_task

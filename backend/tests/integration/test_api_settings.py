@@ -62,6 +62,7 @@ class TestGetSettings:
             "maxTurns",
             "verifyPrompt",
             "selfReviewPrompt",
+            "trackerPollIntervalSeconds",
         }
         assert expected_keys.issubset(data.keys())
 
@@ -75,6 +76,7 @@ class TestGetSettings:
         assert isinstance(data["cleanupWorktree"], bool)
         assert isinstance(data["artifactRetentionDays"], int)
         assert isinstance(data["verify"], bool)
+        assert data["trackerPollIntervalSeconds"] == 300
 
     @pytest.mark.asyncio
     async def test_returns_effective_default_verification_prompts(self, client: AsyncClient, app: FastAPI) -> None:
@@ -134,6 +136,23 @@ class TestUpdateSettings:
         monkeypatch.setattr("backend.api.settings.save_config", lambda config, path=None: None)
 
         resp = await client.put("/api/settings", json={"maxConcurrentJobs": 0})
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_update_tracker_poll_interval(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("backend.api.settings.save_config", lambda config, path=None: None)
+
+        resp = await client.put("/api/settings", json={"trackerPollIntervalSeconds": 45})
+
+        assert resp.status_code == 200
+        assert resp.json()["trackerPollIntervalSeconds"] == 45
+
+    @pytest.mark.asyncio
+    async def test_tracker_poll_interval_out_of_range_returns_422(self, client: AsyncClient) -> None:
+        resp = await client.put("/api/settings", json={"trackerPollIntervalSeconds": 4})
+
         assert resp.status_code == 422
 
 

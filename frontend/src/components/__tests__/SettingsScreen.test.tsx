@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 // Mock the API client
@@ -11,6 +11,10 @@ vi.mock("../../api/client", () => ({
   unregisterRepo: vi.fn(),
   fetchSidecarTemplates: vi.fn().mockResolvedValue({ items: [] }),
   request: vi.fn().mockResolvedValue(null),
+  fetchProjects: vi.fn().mockResolvedValue({ items: [] }),
+  fetchCredentials: vi.fn().mockResolvedValue({ credentials: [] }),
+  fetchTrackerLinks: vi.fn().mockResolvedValue({ trackerLinks: [] }),
+  refreshTrackerLink: vi.fn(),
 }));
 
 // Mock sonner toast
@@ -35,6 +39,7 @@ const defaultSettings = {
   maxArtifactSizeMb: 100,
   autoArchiveDays: 90,
   maxTurns: 3,
+  trackerPollIntervalSeconds: 300,
 };
 
 beforeEach(() => {
@@ -85,6 +90,25 @@ describe("SettingsScreen", () => {
     );
     await waitFor(() => {
       expect(screen.getByText("Runtime")).toBeInTheDocument();
+    });
+  });
+
+  it("edits and saves the tracker polling interval", async () => {
+    vi.mocked(updateSettings).mockImplementation(async (settings) => settings as any);
+    render(
+      <MemoryRouter>
+        <SettingsScreen />
+      </MemoryRouter>,
+    );
+
+    const field = await screen.findByLabelText("Tracker poll interval (seconds)");
+    fireEvent.change(field, { target: { value: "45" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ trackerPollIntervalSeconds: 45 }),
+      );
     });
   });
 

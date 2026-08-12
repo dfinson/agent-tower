@@ -45,6 +45,7 @@ from backend.services.runtime import RuntimeService
 from backend.services.sharing.share_service import ShareService
 from backend.services.sidecar.session import SidecarSessionManager
 from backend.services.terminal.terminal_service import TerminalService
+from backend.services.tracker_sync_service import TrackerSyncService
 
 # ---------------------------------------------------------------------------
 # Database
@@ -162,6 +163,11 @@ def mock_coderecon_service() -> AsyncMock:
 
 
 @pytest.fixture
+def mock_tracker_sync_service() -> AsyncMock:
+    return AsyncMock(spec=TrackerSyncService)
+
+
+@pytest.fixture
 def voice_max_bytes_value() -> int:
     """Default voice max bytes — override in specific test classes for smaller limits."""
     return 10 * 1024 * 1024
@@ -195,6 +201,7 @@ async def app(
     mock_utility_session: AsyncMock,
     mock_terminal_service: Mock,
     mock_coderecon_service: AsyncMock,
+    mock_tracker_sync_service: AsyncMock,
     voice_max_bytes_value: int,
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncGenerator[FastAPI, None]:
@@ -261,6 +268,7 @@ async def app(
             TerminalService: mock_terminal_service,
             CodeReconService: mock_coderecon_service,
             IngestService: AsyncMock(spec=IngestService),
+            TrackerSyncService: mock_tracker_sync_service,
         },
     )
     setup_dishka(container, application)

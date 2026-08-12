@@ -642,6 +642,54 @@ export function deleteCredential(credentialId: string): Promise<void> {
   });
 }
 
+// --- Project tracker state (Story 3.3) ---
+
+export interface Project {
+  id: string;
+  name: string;
+  repoPaths: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TrackerTicket {
+  id: string;
+  title: string;
+  status: string;
+  url: string | null;
+}
+
+export interface TrackerSummary {
+  trackerLinkId: string;
+  tickets: TrackerTicket[];
+  lastSyncedAt: string | null;
+  lastError: string | null;
+}
+
+export interface TrackerLink {
+  id: string;
+  projectId: string;
+  credentialId: string;
+  externalRef: string;
+  createdAt: string;
+  summary: TrackerSummary | null;
+}
+
+export function fetchProjects(): Promise<{ items: Project[] }> {
+  return request("/settings/projects");
+}
+
+export function fetchTrackerLinks(projectId: string): Promise<{ trackerLinks: TrackerLink[] }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/tracker-links`);
+}
+
+export function refreshTrackerLink(projectId: string, linkId: string): Promise<TrackerSummary> {
+  return request(
+    `/projects/${encodeURIComponent(projectId)}/tracker-links/${encodeURIComponent(linkId)}/refresh`,
+    { method: "POST" },
+  );
+}
+
 // --- Operator Messages ---
 
 export function sendOperatorMessage(

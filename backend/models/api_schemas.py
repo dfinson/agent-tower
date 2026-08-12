@@ -137,6 +137,7 @@ class UpdateSettingsRequest(CamelModel):
     )
     coderecon_splade: bool | None = None
     coderecon_cross_encoder: bool | None = None
+    tracker_poll_interval_seconds: int | None = Field(None, ge=5, le=86_400)
 
 
 class SettingsResponse(CamelModel):
@@ -155,6 +156,7 @@ class SettingsResponse(CamelModel):
     cli_sidecars: list[str] | None
     coderecon_splade: bool
     coderecon_cross_encoder: bool
+    tracker_poll_interval_seconds: int
 
 
 class RegisterRepoRequest(CamelModel):

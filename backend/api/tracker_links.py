@@ -24,9 +24,29 @@ from backend.persistence.tracker_link_repo import (
     TrackerLinkProjectNotFoundError,
     TrackerLinkRepository,
 )
+from backend.persistence.tracker_summary_repo import TrackerSummaryRepository
+from backend.services.tracker_sync_service import (
+    TrackerLinkNotFoundError,
+    TrackerSyncError,
+    TrackerSyncService,
+)
 
 router = APIRouter(prefix="/projects/{project_id}/tracker-links", tags=["tracker-links"], route_class=DishkaRoute)
 log = structlog.get_logger()
+
+
+class TrackerTicketResponse(CamelModel):
+    id: str
+    title: str
+    status: str
+    url: str | None = None
+
+
+class TrackerSummaryResponse(CamelModel):
+    tracker_link_id: str
+    tickets: list[TrackerTicketResponse] = Field(default_factory=list)
+    last_synced_at: str | None = None
+    last_error: str | None = None
 
 
 class TrackerLinkResponse(CamelModel):
@@ -35,6 +55,7 @@ class TrackerLinkResponse(CamelModel):
     credential_id: str
     external_ref: str
     created_at: str
+    summary: TrackerSummaryResponse | None = None
 
 
 class TrackerLinkListResponse(CamelModel):
@@ -46,8 +67,11 @@ class CreateTrackerLinkRequest(CamelModel):
     external_ref: str = Field(min_length=1)
 
 
-def _to_response(data: dict[str, Any]) -> TrackerLinkResponse:
-    return TrackerLinkResponse(**data)
+def _to_response(
+    data: dict[str, Any],
+    summary: dict[str, Any] | None = None,
+) -> TrackerLinkResponse:
+    return TrackerLinkResponse(**data, summary=TrackerSummaryResponse(**summary) if summary else None)
 
 
 @router.get("", response_model=TrackerLinkListResponse)
@@ -58,7 +82,10 @@ async def list_tracker_links(
     async with sf() as session:
         repo = TrackerLinkRepository(session)
         rows = await repo.list_for_project(project_id)
-    return TrackerLinkListResponse(tracker_links=[_to_response(r) for r in rows])
+        summaries = await TrackerSummaryRepository(session).list_for_project(project_id)
+    return TrackerLinkListResponse(
+        tracker_links=[_to_response(row, summaries.get(row["id"])) for row in rows]
+    )
 
 
 @router.post("", response_model=TrackerLinkResponse, status_code=201)
@@ -84,3 +111,24 @@ async def create_tracker_link(
         await session.commit()
     log.info("tracker_link.created", tracker_link_id=link_id, project_id=project_id, credential_id=body.credential_id)
     return _to_response(result)
+
+
+@router.post(
+    "/{link_id}/refresh",
+    response_model=TrackerSummaryResponse,
+)
+async def refresh_tracker_link(
+    project_id: str,
+    link_id: str,
+    tracker_sync_service: FromDishka[TrackerSyncService],
+) -> TrackerSummaryResponse:
+    try:
+        summary = await tracker_sync_service.refresh_link(
+            project_id=project_id,
+            link_id=link_id,
+        )
+    except TrackerLinkNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TrackerSyncError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return TrackerSummaryResponse(**summary)

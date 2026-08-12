@@ -15,6 +15,7 @@ from backend.services.credentials import encryption
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from unittest.mock import AsyncMock
 
     from httpx import AsyncClient
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -172,3 +173,64 @@ class TestListTrackerLinks:
 
         resp = await client.get("/api/projects/proj-2/tracker-links")
         assert resp.json() == {"trackerLinks": []}
+
+    @pytest.mark.asyncio
+    async def test_list_includes_persisted_summary_without_secret_material(
+        self,
+        client: AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        from backend.persistence.tracker_summary_repo import TrackerSummaryRepository
+        from backend.services.tracker_adapter import TrackerTicket
+
+        await _seed_project(session_factory)
+        credential_id = await _create_credential(client)
+        created = await client.post(
+            "/api/projects/proj-1/tracker-links",
+            json={"credentialId": credential_id, "externalRef": "acme/7"},
+        )
+        link_id = created.json()["id"]
+        async with session_factory() as session:
+            await TrackerSummaryRepository(session).record_success(
+                link_id,
+                [TrackerTicket(id="42", title="Ship it", status="Ready", url=None)],
+            )
+            await session.commit()
+
+        resp = await client.get("/api/projects/proj-1/tracker-links")
+
+        assert resp.status_code == 200
+        summary = resp.json()["trackerLinks"][0]["summary"]
+        assert summary["tickets"][0]["title"] == "Ship it"
+        assert "secret" not in str(resp.json()).lower()
+        assert "encrypted" not in str(resp.json()).lower()
+
+
+class TestRefreshTrackerLink:
+    @pytest.mark.asyncio
+    async def test_manual_refresh_delegates_to_sync_service(
+        self,
+        client: AsyncClient,
+        mock_tracker_sync_service: AsyncMock,
+    ) -> None:
+        mock_tracker_sync_service.refresh_link.return_value = {
+            "tracker_link_id": "link-1",
+            "tickets": [{"id": "1", "title": "Ticket", "status": "Open", "url": None}],
+            "last_synced_at": "2026-08-10T12:00:00+00:00",
+            "last_error": None,
+        }
+
+        resp = await client.post("/api/projects/proj-1/tracker-links/link-1/refresh")
+
+        assert resp.status_code == 200
+        assert resp.json()["tickets"][0]["status"] == "Open"
+        mock_tracker_sync_service.refresh_link.assert_awaited_once_with(
+            project_id="proj-1",
+            link_id="link-1",
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_inbound_webhook_route_exists(self, client: AsyncClient) -> None:
+        resp = await client.post("/api/tracker-webhooks/github", json={})
+
+        assert resp.status_code == 404

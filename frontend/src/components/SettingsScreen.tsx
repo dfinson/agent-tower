@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useId, useState, useCallback } from "react";
 import { Trash2, Plus, Save, Bell } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
@@ -11,6 +11,7 @@ import type { Settings } from "../api/types";
 import { AddRepoModal } from "./AddRepoModal";
 import { PolicySettingsPanel } from "./PolicySettingsPanel";
 import { IntegrationsSettings } from "./IntegrationsSettings";
+import { TrackerSyncPanel } from "./TrackerSyncPanel";
 import { RepoIndexIndicator } from "./RepoIndexIndicator";
 import { SidecarLibraryPanel } from "./SidecarLibraryPanel";
 import { Button } from "./ui/button";
@@ -29,6 +30,7 @@ function NumberField({ label, value, onChange, min, max, description, placeholde
   description?: string;
   placeholder?: string;
 }) {
+  const inputId = useId();
   const [raw, setRaw] = useState(String(value));
 
   useEffect(() => {
@@ -59,8 +61,9 @@ function NumberField({ label, value, onChange, min, max, description, placeholde
 
   return (
     <div className="flex flex-col gap-1.5">
-      <Label>{label}</Label>
+      <Label htmlFor={inputId}>{label}</Label>
       <Input
+        id={inputId}
         type="text"
         inputMode="numeric"
         pattern="[0-9]*"
@@ -285,6 +288,21 @@ export function SettingsScreen() {
 
       {/* Integrations */}
       <IntegrationsSettings />
+
+      <TrackerSyncPanel />
+
+      <div className="rounded-lg border border-border bg-card p-5">
+        <p className="text-sm font-semibold mb-4">Tracker synchronization</p>
+        <NumberField
+          label="Tracker poll interval (seconds)"
+          value={settings.trackerPollIntervalSeconds}
+          onChange={(value) => patch({ trackerPollIntervalSeconds: value })}
+          min={5}
+          max={86400}
+          placeholder="300"
+          description="How often CodePlane fetches ticket state for attached tracker links."
+        />
+      </div>
 
       {/* Retention */}
       <div className="rounded-lg border border-border bg-card p-5">

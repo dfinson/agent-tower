@@ -47,6 +47,7 @@ export interface Settings {
   selfReview: boolean;
   verifyPrompt: string;
   selfReviewPrompt: string;
+  trackerPollIntervalSeconds: number;
 }
 
 // SSE payload types — not in the OpenAPI schema since they're sent via SSE,
