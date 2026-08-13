@@ -139,9 +139,13 @@ class PushService:
         import json
 
         payload = json.dumps({"title": title, "body": body, "tag": tag, "url": url})
-        stale: list[str] = []
+        stale: list[tuple[str, PushSubscription]] = []
 
-        for endpoint, sub in list(self._subscriptions.items()):
+        # Snapshot subscriptions; track captured objects to avoid pruning a
+        # freshly-refreshed endpoint that replaced the stale one mid-delivery.
+        snapshot = list(self._subscriptions.items())
+
+        for endpoint, sub in snapshot:
             try:
                 await asyncio.get_running_loop().run_in_executor(
                     None,
@@ -151,13 +155,16 @@ class PushService:
                 )
             except Exception as exc:  # noqa: BLE001
                 if _is_gone_status(exc):
-                    stale.append(endpoint)
+                    stale.append((endpoint, sub))
                     log.debug("push_subscription_expired", endpoint=endpoint)
                 else:
                     log.warning("push_send_failed", endpoint=endpoint, error=str(exc))
 
-        for ep in stale:
-            self._subscriptions.pop(ep, None)
+        for ep, captured_sub in stale:
+            # Only remove if the cache still holds the same object we delivered to;
+            # a concurrent subscribe_async may have replaced it with a fresh entry.
+            if self._subscriptions.get(ep) is captured_sub:
+                del self._subscriptions[ep]
 
         # Prune stale endpoints from the database (best-effort)
         if stale and self._session_factory is not None:
@@ -165,9 +172,10 @@ class PushService:
                 from backend.persistence.database import serialized_write
                 from backend.persistence.push_subscription_repo import PushSubscriptionRepository
 
+                stale_endpoints = [ep for ep, _ in stale]
                 async with serialized_write(self._session_factory) as session:
                     repo = PushSubscriptionRepository(session)
-                    await repo.delete_many(stale)
+                    await repo.delete_many(stale_endpoints)
             except Exception:  # noqa: BLE001
                 log.warning("push_prune_db_failed", stale_count=len(stale))
 

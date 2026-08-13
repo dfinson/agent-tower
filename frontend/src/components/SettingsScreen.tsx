@@ -111,13 +111,18 @@ export function SettingsScreen() {
     navigator.serviceWorker.ready
       .then((reg) => reg.pushManager.getSubscription())
       .then((sub) => {
-        setPushEnabled(sub !== null);
-        if (sub) {
-          subscribePush(sub.toJSON() as PushSubscriptionJSON).catch((err) => {
+        if (!sub) {
+          setPushEnabled(false);
+          return;
+        }
+        // Re-register with server; only mark enabled after server confirms.
+        subscribePush(sub.toJSON() as PushSubscriptionJSON)
+          .then(() => setPushEnabled(true))
+          .catch((err) => {
             console.warn("Push re-registration failed; notifications may not work until next visit", err);
             toast.error("Push re-registration failed");
+            setPushEnabled(false);
           });
-        }
       })
       .catch(() => {});
   }, [pushSupported]);
