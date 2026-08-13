@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from backend.services.sharing.push_service import PushService, PushSubscription
+
+
+def _gone_exc(status: int = 410) -> Exception:
+    exc = Exception(f"HTTP {status}")
+    exc.response = SimpleNamespace(status_code=status)  # type: ignore[attr-defined]
+    return exc
 
 
 @pytest.fixture
@@ -94,7 +101,7 @@ class TestPushServiceNotify:
     async def test_stale_410_subscription_removed(self, svc: PushService) -> None:
         ep = "https://push.example.com/sub1"
         svc.subscribe({"endpoint": ep, "keys": {"p256dh": "a", "auth": "b"}})
-        with patch.object(svc, "_send_one", side_effect=Exception("410 Gone")):
+        with patch.object(svc, "_send_one", side_effect=_gone_exc(410)):
             await svc.notify(title="Hi", body="World")
         assert ep not in svc._subscriptions
 
@@ -102,7 +109,7 @@ class TestPushServiceNotify:
     async def test_stale_404_subscription_removed(self, svc: PushService) -> None:
         ep = "https://push.example.com/sub1"
         svc.subscribe({"endpoint": ep, "keys": {"p256dh": "a", "auth": "b"}})
-        with patch.object(svc, "_send_one", side_effect=Exception("404 Not Found")):
+        with patch.object(svc, "_send_one", side_effect=_gone_exc(404)):
             await svc.notify(title="Hi", body="World")
         assert ep not in svc._subscriptions
 

@@ -723,5 +723,5 @@ class PushSubscriptionRow(Base):
     endpoint: Mapped[str] = mapped_column(String, primary_key=True)
     p256dh: Mapped[str] = mapped_column(String, nullable=False)
     auth_key: Mapped[str] = mapped_column(String, nullable=False)
-    created_at: Mapped[str] = mapped_column(String, nullable=False)
-    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)

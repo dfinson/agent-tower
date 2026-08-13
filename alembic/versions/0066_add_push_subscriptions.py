@@ -20,8 +20,8 @@ def upgrade() -> None:
         sa.Column("endpoint", sa.String(), primary_key=True),
         sa.Column("p256dh", sa.String(), nullable=False),
         sa.Column("auth_key", sa.String(), nullable=False),
-        sa.Column("created_at", sa.String(), nullable=False),
-        sa.Column("updated_at", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
 
 

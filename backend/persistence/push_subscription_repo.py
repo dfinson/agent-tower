@@ -23,7 +23,7 @@ class PushSubscriptionRepository(BaseRepository):
 
     async def upsert(self, endpoint: str, p256dh: str, auth_key: str) -> None:
         """Insert or update a subscription (endpoint is the natural idempotency key)."""
-        now = datetime.now(UTC).isoformat()
+        now = datetime.now(UTC)
         existing = await self._session.execute(
             select(PushSubscriptionRow).where(PushSubscriptionRow.endpoint == endpoint)
         )

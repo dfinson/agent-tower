@@ -104,8 +104,8 @@ export function SettingsScreen() {
 
   // Check whether a push subscription already exists and re-register with
   // the server (subscriptions survive in the browser but the server may have
-  // restarted and lost its in-memory registry). The endpoint URL is the
-  // idempotency key on the server side, so duplicate POSTs are harmless.
+  // restarted and lost its registry). The endpoint URL is the idempotency
+  // key on the server side, so duplicate POSTs are harmless.
   useEffect(() => {
     if (!pushSupported) return;
     navigator.serviceWorker.ready
@@ -113,7 +113,10 @@ export function SettingsScreen() {
       .then((sub) => {
         setPushEnabled(sub !== null);
         if (sub) {
-          subscribePush(sub.toJSON() as PushSubscriptionJSON).catch(() => {});
+          subscribePush(sub.toJSON() as PushSubscriptionJSON).catch((err) => {
+            console.warn("Push re-registration failed; notifications may not work until next visit", err);
+            toast.error("Push re-registration failed");
+          });
         }
       })
       .catch(() => {});

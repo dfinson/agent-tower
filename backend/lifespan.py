@@ -866,7 +866,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await push_service.load_from_db()
 
     async def _push_subscriber(event: SessionEvent) -> None:
-        """Send push notifications for approval requests and terminal job states."""
+        """Send push notifications for actionable and terminal job events."""
         if event.kind == EventKind.approval_requested:
             desc = event.payload.get("description", "Action requires your approval")
             await push_service.notify(
