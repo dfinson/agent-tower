@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import delete, select
 
 from backend.models.db import PushSubscriptionRow
 from backend.persistence.repository import BaseRepository
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import CursorResult
 
 
 class PushSubscriptionRepository(BaseRepository):
@@ -45,7 +48,7 @@ class PushSubscriptionRepository(BaseRepository):
         result = await self._session.execute(
             delete(PushSubscriptionRow).where(PushSubscriptionRow.endpoint == endpoint)
         )
-        return result.rowcount > 0  # type: ignore[union-attr]
+        return cast("CursorResult[Any]", result).rowcount > 0
 
     async def delete_many(self, endpoints: list[str]) -> int:
         if not endpoints:
@@ -53,4 +56,4 @@ class PushSubscriptionRepository(BaseRepository):
         result = await self._session.execute(
             delete(PushSubscriptionRow).where(PushSubscriptionRow.endpoint.in_(endpoints))
         )
-        return result.rowcount  # type: ignore[union-attr]
+        return int(cast("CursorResult[Any]", result).rowcount)

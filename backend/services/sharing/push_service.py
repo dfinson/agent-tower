@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 log = structlog.get_logger()
 
@@ -38,7 +38,7 @@ class PushService:
         self,
         vapid_private_key: str,
         vapid_public_key: str,
-        session_factory: async_sessionmaker | None = None,
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
         vapid_mailto: str = "mailto:noreply@codeplane.dev",
     ) -> None:
         self._vapid_private_key = vapid_private_key
