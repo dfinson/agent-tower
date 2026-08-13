@@ -16,10 +16,7 @@ class PushSubscriptionRepository(BaseRepository):
 
     async def list_all(self) -> list[dict[str, Any]]:
         result = await self._session.execute(select(PushSubscriptionRow))
-        return [
-            {"endpoint": r.endpoint, "keys": {"p256dh": r.p256dh, "auth": r.auth_key}}
-            for r in result.scalars()
-        ]
+        return [{"endpoint": r.endpoint, "keys": {"p256dh": r.p256dh, "auth": r.auth_key}} for r in result.scalars()]
 
     async def upsert(self, endpoint: str, p256dh: str, auth_key: str) -> None:
         """Insert or update a subscription (endpoint is the natural idempotency key)."""

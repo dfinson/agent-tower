@@ -87,9 +87,7 @@ class TestPushServiceRestart:
             vapid_public_key="k2",
             session_factory=session_factory,
         )
-        await svc1.subscribe_async(
-            {"endpoint": "https://ep.com/persist", "keys": {"p256dh": "abc", "auth": "xyz"}}
-        )
+        await svc1.subscribe_async({"endpoint": "https://ep.com/persist", "keys": {"p256dh": "abc", "auth": "xyz"}})
 
         # Second "server lifetime": new instance loads from DB
         svc2 = PushService(
@@ -110,9 +108,7 @@ class TestPushServiceRestart:
             vapid_public_key="k2",
             session_factory=session_factory,
         )
-        await svc.subscribe_async(
-            {"endpoint": "https://ep.com/stale", "keys": {"p256dh": "a", "auth": "b"}}
-        )
+        await svc.subscribe_async({"endpoint": "https://ep.com/stale", "keys": {"p256dh": "a", "auth": "b"}})
 
         with patch.object(svc, "_send_one", side_effect=Exception("410 Gone")):
             await svc.notify(title="Hi", body="World")

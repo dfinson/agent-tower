@@ -61,9 +61,7 @@ class PushService:
             repo = PushSubscriptionRepository(session)
             rows = await repo.list_all()
         for row in rows:
-            self._subscriptions[row["endpoint"]] = PushSubscription(
-                endpoint=row["endpoint"], keys=row["keys"]
-            )
+            self._subscriptions[row["endpoint"]] = PushSubscription(endpoint=row["endpoint"], keys=row["keys"])
         log.info("push_subscriptions_loaded", count=len(rows))
 
     def subscribe(self, subscription_info: dict[str, Any]) -> None:
