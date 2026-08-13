@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.models.db import Base, PushSubscriptionRow
+from backend.models.db import Base
 from backend.persistence.push_subscription_repo import PushSubscriptionRepository
 
 
