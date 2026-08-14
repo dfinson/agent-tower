@@ -1,13 +1,12 @@
 import { Component, type ReactNode, Suspense, useEffect } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, Link, useNavigate, useLocation } from "react-router-dom";
 import { Search, ExternalLink } from "lucide-react";
 import { modKey } from "./lib/utils";
 import { CommandPalette } from "./components/CommandPalette";
 import { NavMenuSlideout } from "./components/NavMenuSlideout";
 import { useSSE } from "./hooks/useSSE";
 import { useStore } from "./store";
-import { DashboardScreen } from "./components/DashboardScreen";
 import { ConnectionStatusIndicator } from "./components/ConnectionStatusIndicator";
 import { Spinner } from "./components/ui/spinner";
 import { lazyRetry } from "./lib/lazyRetry";
@@ -204,7 +203,7 @@ export function App() {
         <ErrorBoundary>
           <Suspense fallback={<RouteFallback />}>
             <Routes>
-              <Route path="/" element={<DashboardScreen />} />
+              <Route path="/" element={<Navigate to="/repos" replace />} />
               <Route path="/jobs/new" element={<JobCreationScreen />} />
               <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
               <Route path="/history" element={<HistoryScreen />} />

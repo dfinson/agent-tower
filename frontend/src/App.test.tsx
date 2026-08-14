@@ -6,9 +6,6 @@ import { App } from "./App";
 
 // Mock heavy child components to isolate App shell behavior
 vi.mock("./hooks/useSSE", () => ({ useSSE: () => ({ reconnect: vi.fn() }) }));
-vi.mock("./components/DashboardScreen", () => ({
-  DashboardScreen: () => <div data-testid="dashboard">Dashboard</div>,
-}));
 vi.mock("./components/JobDetailScreen", () => ({
   JobDetailScreen: () => <div data-testid="job-detail">JobDetail</div>,
 }));
@@ -82,9 +79,9 @@ describe("App", () => {
     expect(screen.getByText("Reconnecting\u2026")).toBeInTheDocument();
   });
 
-  it("routes / to DashboardScreen", async () => {
+  it("routes / to /repos (retired flat DashboardScreen)", async () => {
     await renderApp("/");
-    expect(screen.getByTestId("dashboard")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("repo-layout")).toBeInTheDocument());
   });
 
   it("routes /jobs/new to JobCreationScreen", async () => {
