@@ -5,6 +5,7 @@ import json
 import subprocess as real_subprocess
 import sys
 import threading
+import urllib.error
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock, patch
@@ -348,6 +349,93 @@ class TestBoundedOutputRead:
 # ---------------------------------------------------------------------------
 # #15 — Watchdog local health check
 # ---------------------------------------------------------------------------
+
+
+class TestWatchdogRelayProbeUnderAccessControl:
+    """The relay probe must not treat an access-control rejection as a fault.
+
+    Observed live: with Cloudflare Access in front of the hostname, the relay
+    probe (urllib, no session cookie, no browser User-Agent) is answered with
+    403. ``urllib`` raises ``HTTPError``, which subclasses ``URLError``, so the
+    old blanket ``except`` reported the relay as broken on every single check.
+    The watchdog then restarted a perfectly healthy connector roughly every
+    100s, and each restart took the public hostname down for a few seconds --
+    surfacing to users as intermittent 502s.
+    """
+
+    @staticmethod
+    def _watchdog() -> TunnelWatchdog:
+        return TunnelWatchdog(
+            tunnel_url="https://example.codeplane.dev",
+            restart_command=["echo"],
+            proc=_as_popen(_FakeProc(poll_result=None)),
+            label="cloudflare",
+            local_port=8080,
+        )
+
+    @staticmethod
+    def _http_error(code: int) -> urllib.error.HTTPError:
+        return urllib.error.HTTPError(
+            url="https://example.codeplane.dev/api/health",
+            code=code,
+            msg="err",
+            hdrs=None,  # type: ignore[arg-type]
+            fp=None,
+        )
+
+    @pytest.mark.parametrize("code", [401, 403, 404, 200, 302])
+    def test_relay_probe_treats_a_definite_status_as_reachable(self, code: int) -> None:
+        watchdog = self._watchdog()
+        with patch("urllib.request.urlopen", side_effect=self._http_error(code)):
+            assert watchdog._health_ok(use_tunnel_url=True) is True
+
+    @pytest.mark.parametrize("code", [502, 503, 504])
+    def test_relay_probe_still_fails_on_bad_gateway(self, code: int) -> None:
+        """The connector fault a restart can actually repair must still be caught."""
+        watchdog = self._watchdog()
+        with patch("urllib.request.urlopen", side_effect=self._http_error(code)):
+            assert watchdog._health_ok(use_tunnel_url=True) is False
+
+    @pytest.mark.parametrize("code", [502, 503, 504])
+    def test_relay_probe_fails_on_bad_gateway_returned_as_a_response(self, code: int) -> None:
+        """Some stacks return the status instead of raising; both paths must agree."""
+        watchdog = self._watchdog()
+        resp = MagicMock()
+        resp.status = code
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=resp):
+            assert watchdog._health_ok(use_tunnel_url=True) is False
+
+    def test_relay_probe_still_fails_when_the_edge_is_unreachable(self) -> None:
+        watchdog = self._watchdog()
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("no route")):
+            assert watchdog._health_ok(use_tunnel_url=True) is False
+
+    @pytest.mark.parametrize("code", [401, 403, 500, 502])
+    def test_local_origin_probe_is_unchanged_and_still_demands_200(self, code: int) -> None:
+        """The relaxation applies only to the relay probe.
+
+        The local origin is not behind Access, so anything other than 200 there
+        is a genuine origin failure and must keep suppressing restarts.
+        """
+        watchdog = self._watchdog()
+        with patch("urllib.request.urlopen", side_effect=self._http_error(code)):
+            assert watchdog._health_ok() is False
+            assert watchdog._origin_ok() is False
+
+    def test_gated_relay_does_not_accumulate_restart_pressure(self) -> None:
+        """End to end through the check loop: a 403 relay must not trigger a restart."""
+        watchdog = self._watchdog()
+        with (
+            patch("urllib.request.urlopen", side_effect=self._http_error(403)),
+            patch.object(watchdog, "_restart_process") as restart,
+        ):
+            # Origin healthy, relay "403" -- the exact live configuration.
+            with patch.object(watchdog, "_origin_ok", return_value=True):
+                for _ in range(watchdog._FAIL_THRESHOLD + 2):
+                    assert watchdog._health_ok(use_tunnel_url=True) is True
+            restart.assert_not_called()
 
 
 class TestWatchdogLocalHealthCheck:
