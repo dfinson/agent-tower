@@ -140,7 +140,7 @@ export function MetadataChipStrip({ job, hasMergeConflict, className, onCostClic
     <div className={cn("flex items-center gap-1.5 overflow-x-auto scrollbar-none", className)}>
       <Chip
         className="cursor-pointer hover:bg-muted/80"
-        onClick={(e: React.MouseEvent) => { e.stopPropagation(); navigate(`/repos/${encodeURIComponent(job.repo)}`); }}
+        onClick={(e: React.MouseEvent) => { e.stopPropagation(); navigate(`/projects/${encodeURIComponent(job.repo)}`); }}
       ><FolderGit2 size={10} />{repoName}</Chip>
       {job.branch && (
         <Chip>{job.branch} → {job.baseRef}</Chip>

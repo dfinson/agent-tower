@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, PlaneTakeoff, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, PlaneTakeoff } from "lucide-react";
 import { toast } from "sonner";
-import { createJob, fetchRepos, fetchRepoDetail, suggestNames, fetchModelComparison, warmUtilitySession, releaseUtilitySession, fetchPolicySettings } from "../api/client";
+import { createJob, fetchProjects, fetchRepoDetail, suggestNames, fetchModelComparison, warmUtilitySession, releaseUtilitySession, fetchPolicySettings } from "../api/client";
 import type { SDKInfo } from "../api/types";
 import { useStore } from "../store";
 import { PromptWithVoice } from "./VoiceButton";
-import { AddRepoModal } from "./AddRepoModal";
 import { SidecarPicker } from "./SidecarPicker";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -43,7 +42,6 @@ export function JobCreationScreen() {
   const [model, setModel] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [addRepoOpen, setAddRepoOpen] = useState(false);
   const [preset, setPreset] = useState<"autonomous" | "supervised" | "locked">("supervised");
   const [mode, setMode] = useState<"standard" | "plan">("standard");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -110,13 +108,18 @@ export function JobCreationScreen() {
         toast.error("Failed to load policy settings");
         setSettingsLoaded(true); // fall back to hardcoded defaults so the form is usable
       });
-    fetchRepos()
+    fetchProjects()
       .then((r) => {
-        const items = r.items.map((p) => ({ value: p, label: pathBasename(p) || p }));
+        const items = r.items.flatMap((project) =>
+          project.repoPaths.map((path) => ({
+            value: path,
+            label: `${project.name} · ${pathBasename(path) || path}`,
+          })),
+        );
         setRepos(items);
         setRepo((prev) => prev ?? items[0]?.value ?? null);
       })
-      .catch(() => toast.error("Failed to load repos"));
+      .catch(() => toast.error("Failed to load Projects"));
   }, []);
 
   useEffect(() => {
@@ -269,31 +272,7 @@ export function JobCreationScreen() {
               }}
               className="flex-1"
             />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setAddRepoOpen(true)}
-              className="mb-px shrink-0"
-            >
-              <Plus size={14} />
-              Add
-            </Button>
           </div>
-
-          <AddRepoModal
-            opened={addRepoOpen}
-            onClose={() => setAddRepoOpen(false)}
-            onAdded={(path) => {
-              const label = pathBasename(path) || path;
-              setRepos((prev) => {
-                if (prev.some((r) => r.value === path)) return prev;
-                return [...prev, { value: path, label }];
-              });
-              setRepo(path);
-              setBaseRef("");
-              setBaseRefEdited(false);
-            }}
-          />
 
           <PromptWithVoice
             value={prompt}

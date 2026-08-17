@@ -116,6 +116,18 @@ async def add_chat_message(
     return _message_to_response(message)
 
 
+@router.get("/chats/{chat_id}/messages", response_model=list[ChatMessageResponse])
+async def list_chat_messages(
+    chat_id: str,
+    service: FromDishka[ChatService],
+) -> list[ChatMessageResponse]:
+    """Return the append-only transcript for a Chat."""
+    if await service.get_chat(chat_id) is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    messages = await service.list_messages(chat_id)
+    return [_message_to_response(message) for message in messages]
+
+
 @router.post("/chats/{chat_id}/launch-job", response_model=CreateJobResponse, status_code=201)
 async def launch_job_from_chat(
     chat_id: str,

@@ -7,8 +7,6 @@ import { MemoryRouter } from "react-router-dom";
 vi.mock("../../api/client", () => ({
   fetchSettings: vi.fn(),
   updateSettings: vi.fn(),
-  fetchRepos: vi.fn(),
-  unregisterRepo: vi.fn(),
   fetchSidecarTemplates: vi.fn().mockResolvedValue({ items: [] }),
   request: vi.fn().mockResolvedValue(null),
   fetchProjects: vi.fn().mockResolvedValue({ items: [] }),
@@ -22,12 +20,7 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-// Mock AddRepoModal
-vi.mock("../AddRepoModal", () => ({
-  AddRepoModal: () => null,
-}));
-
-import { fetchSettings, fetchRepos, updateSettings } from "../../api/client";
+import { fetchSettings, updateSettings } from "../../api/client";
 import { SettingsScreen } from "../SettingsScreen";
 
 const defaultSettings = {
@@ -43,7 +36,6 @@ const defaultSettings = {
 
 beforeEach(() => {
   vi.mocked(fetchSettings).mockResolvedValue(defaultSettings as any);
-  vi.mocked(fetchRepos).mockResolvedValue({ items: ["/repos/my-app"] } as any);
   vi.mocked(updateSettings).mockReset();
 });
 
@@ -56,28 +48,6 @@ describe("SettingsScreen", () => {
     );
     await waitFor(() => {
       expect(screen.getByText("Settings")).toBeInTheDocument();
-    });
-  });
-
-  it("loads and displays repos", async () => {
-    render(
-      <MemoryRouter>
-        <SettingsScreen />
-      </MemoryRouter>,
-    );
-    await waitFor(() => {
-      expect(screen.getByText("/repos/my-app")).toBeInTheDocument();
-    });
-  });
-
-  it("displays Repositories section with count", async () => {
-    render(
-      <MemoryRouter>
-        <SettingsScreen />
-      </MemoryRouter>,
-    );
-    await waitFor(() => {
-      expect(screen.getByText("Repositories (1)")).toBeInTheDocument();
     });
   });
 
@@ -98,7 +68,6 @@ describe("SettingsScreen", () => {
   it("shows error toast when settings fail to load", async () => {
     const { toast } = await import("sonner");
     vi.mocked(fetchSettings).mockRejectedValueOnce(new Error("fail"));
-    vi.mocked(fetchRepos).mockRejectedValueOnce(new Error("fail"));
     render(
       <MemoryRouter>
         <SettingsScreen />

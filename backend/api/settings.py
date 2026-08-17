@@ -44,11 +44,17 @@ from backend.models.api_schemas import (
     UpdateSettingsRequest,
 )
 from backend.models.db import JobRow
+from backend.persistence.project_repo import ProjectRepository
 from backend.services.adapters.platform_adapter import PlatformRegistry, detect_platform
 from backend.services.coderecon.coderecon_service import CodeReconService
 from backend.services.git.git_service import GitError, GitService
 
 router = APIRouter(tags=["settings"], route_class=DishkaRoute)
+
+
+async def _is_project_member(repo_path: str, project_repo: ProjectRepository) -> bool:
+    resolved = str(Path(repo_path).expanduser().resolve())
+    return any(resolved in project.repo_paths for project in await project_repo.list())
 
 
 def _config_to_response(config: CPLConfig) -> SettingsResponse:
@@ -138,12 +144,13 @@ def list_repos(
 async def get_repo_health(
     repo_path: str,
     config: FromDishka[CPLConfig],
+    project_repo: FromDishka[ProjectRepository],
     coderecon: FromDishka[CodeReconService],
 ) -> RepoHealthResponse:
     """Structural health status for a repository (§6.2)."""
     log = structlog.get_logger()
     resolved = str(Path(repo_path).expanduser().resolve())
-    if resolved not in config.repos:
+    if resolved not in config.repos and not await _is_project_member(resolved, project_repo):
         raise HTTPException(status_code=404, detail=f"Repository '{repo_path}' is not registered.")
 
     if not coderecon.available:
@@ -202,6 +209,7 @@ async def get_repo_health(
 async def get_repo_summary(
     repo_path: str,
     config: FromDishka[CPLConfig],
+    project_repo: FromDishka[ProjectRepository],
     git_service: FromDishka[GitService],
     coderecon: FromDishka[CodeReconService],
     sf: FromDishka[async_sessionmaker[AsyncSession]],
@@ -210,7 +218,7 @@ async def get_repo_summary(
     log = structlog.get_logger()
 
     resolved = str(Path(repo_path).expanduser().resolve())
-    if resolved not in config.repos:
+    if resolved not in config.repos and not await _is_project_member(resolved, project_repo):
         raise HTTPException(status_code=404, detail=f"Repository '{repo_path}' is not registered.")
 
     # --- Git info ---
@@ -362,11 +370,12 @@ async def get_repo_summary(
 async def get_repo_detail(
     repo_path: str,
     config: FromDishka[CPLConfig],
+    project_repo: FromDishka[ProjectRepository],
     git_service: FromDishka[GitService],
 ) -> RepoDetailResponse:
     """Get detailed config for a single registered repository."""
     resolved = str(Path(repo_path).expanduser().resolve())
-    if resolved not in config.repos:
+    if resolved not in config.repos and not await _is_project_member(resolved, project_repo):
         raise HTTPException(status_code=404, detail=f"Repository '{repo_path}' is not registered.")
 
     origin_url: str | None = None

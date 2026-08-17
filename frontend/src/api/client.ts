@@ -20,8 +20,14 @@ import type {
   RepoListResponse,
   ProjectListSummaryResponse,
   ProjectListResponse,
+  ProjectResponse,
+  Chat,
+  ChatListResponse,
+  ChatMessage,
+  CreateChatRequest,
   TaskLinkListResponse,
   TrackerLinkListResponse,
+  TrackerLinkResponse,
   TrackerSummaryResponse,
   SDKListResponse,
   Settings,
@@ -417,9 +423,50 @@ export function fetchProjects(): Promise<ProjectListResponse> {
   return request("/settings/projects");
 }
 
+export function fetchProject(projectId: string): Promise<ProjectResponse> {
+  return request(`/settings/projects/${encodeURIComponent(projectId)}`);
+}
+
+export function createProject(body: { name: string; repoPaths: string[] }): Promise<ProjectResponse> {
+  return request("/settings/projects", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateProject(projectId: string, body: { name?: string; repoPaths?: string[] }): Promise<ProjectResponse> {
+  return request(`/settings/projects/${encodeURIComponent(projectId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
 /** List a Project's currently persisted TaskLinks (Story 4.2 / CAP-9). */
 export function fetchProjectTaskLinks(projectId: string): Promise<TaskLinkListResponse> {
   return request(`/settings/projects/${encodeURIComponent(projectId)}/task-links`);
+}
+
+export function fetchChats(): Promise<ChatListResponse> {
+  return request("/chats");
+}
+
+export function createChat(body: CreateChatRequest): Promise<Chat> {
+  return request("/chats", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function fetchChat(chatId: string): Promise<Chat> {
+  return request(`/chats/${encodeURIComponent(chatId)}`);
+}
+
+export function addChatMessage(chatId: string, content: string): Promise<ChatMessage> {
+  return request(`/chats/${encodeURIComponent(chatId)}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export function fetchChatMessages(chatId: string): Promise<ChatMessage[]> {
+  return request(`/chats/${encodeURIComponent(chatId)}/messages`);
 }
 
 export function fetchRepoDetail(repoPath: string): Promise<RepoDetailResponse> {
@@ -648,6 +695,16 @@ export function deleteCredential(credentialId: string): Promise<void> {
 
 export function fetchTrackerLinks(projectId: string): Promise<TrackerLinkListResponse> {
   return request(`/projects/${encodeURIComponent(projectId)}/tracker-links`);
+}
+
+export function createTrackerLink(
+  projectId: string,
+  body: { credentialId: string; externalRef: string },
+): Promise<TrackerLinkResponse> {
+  return request(`/projects/${encodeURIComponent(projectId)}/tracker-links`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export function refreshTrackerLink(projectId: string, linkId: string): Promise<TrackerSummaryResponse> {

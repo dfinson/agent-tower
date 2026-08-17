@@ -5,18 +5,17 @@ import { useShallow } from "zustand/react/shallow";
 import {
   useStore,
   enrichJob,
-  selectActiveJobsForRepo,
-  selectSignoffJobsForRepo,
-  selectAttentionJobsForRepo,
+  selectActiveJobsForProject,
+  selectSignoffJobsForProject,
+  selectAttentionJobsForProject,
 } from "../store";
 import type { JobSummary } from "../store";
-import { fetchJobs, fetchProjects, fetchProjectTaskLinks } from "../api/client";
-import type { TaskLinkResponse } from "../api/types";
+import { fetchJobs, fetchProject, fetchProjectTaskLinks } from "../api/client";
+import type { ProjectResponse, TaskLinkResponse } from "../api/types";
 import { KanbanColumn } from "./KanbanColumn";
 import { KanbanSkeleton } from "./KanbanSkeleton";
 import { TaskLinkCard } from "./TaskLinkCard";
 import { KANBAN_COLUMNS } from "../constants/kanban";
-import { pathBasename } from "../lib/paths";
 
 /**
  * Determine whether a TaskLink's `dependsOn` list is fully satisfied (Story 4.4 / CAP-10).
@@ -53,14 +52,14 @@ function computeSatisfaction(
 }
 
 /**
- * Project-scoped Kanban board (Story 2.3 / CAP-1). Child route of the existing
- * `/repos/:repoPath` shell (AD-2) — `repoPath` is read from the URL, not client-only
- * state, so a refresh or shared link resolves to the same scoped board.
+ * Project-scoped Kanban board (Story 2.3 / CAP-1). Child route of the
+ * project-identity-keyed `/projects/id/:projectId` shell — `projectId` is
+ * read from the URL, not client-only state, so a refresh or shared link
+ * resolves to the same scoped board even after a Project's member repos change.
  *
- * A single-repo Project reduces to `job.repo === repoPath` (see Dev Notes on the
- * story file); once Story 2.2 wires multi-repo Project membership into the
- * frontend, only the repo-scoped selectors' filter needs to widen — this route and
- * component shape are unaffected.
+ * Aggregates jobs across ALL of the Project's member repos (not just the
+ * first), via the project-scoped selectors — a genuinely multi-repo Project's
+ * board shows every member repo's jobs on one board.
  *
  * Story 4.4 / CAP-10: also fetches the owning Project's TaskLinks (a second,
  * independent call — `GET /settings/projects/:id/task-links`, AD-11) and renders
@@ -68,21 +67,29 @@ function computeSatisfaction(
  * in this same rendering pass.
  */
 export function RepoBoard() {
-  const { repoPath } = useParams<{ repoPath: string }>();
-  const decoded = repoPath ? decodeURIComponent(repoPath) : "";
-  const repoName = pathBasename(decoded) || decoded;
+  const { projectId } = useParams<{ projectId: string }>();
 
   const [loading, setLoading] = useState(true);
+  const [project, setProject] = useState<ProjectResponse | null>(null);
   const [taskLinks, setTaskLinks] = useState<TaskLinkResponse[]>([]);
   const hasJobs = useStore((state) => Object.keys(state.jobs).length > 0);
   const jobs = useStore((state) => state.jobs);
 
-  const activeJobs = useStore(useShallow(selectActiveJobsForRepo(decoded)));
-  const signoffJobs = useStore(useShallow(selectSignoffJobsForRepo(decoded)));
-  const attentionJobs = useStore(useShallow(selectAttentionJobsForRepo(decoded)));
+  const repoPaths = project?.repoPaths ?? [];
+  const activeJobs = useStore(useShallow(selectActiveJobsForProject(repoPaths)));
+  const signoffJobs = useStore(useShallow(selectSignoffJobsForProject(repoPaths)));
+  const attentionJobs = useStore(useShallow(selectAttentionJobsForProject(repoPaths)));
 
   useEffect(() => {
-    if (!decoded) return;
+    if (!projectId) return;
+    let cancelled = false;
+    fetchProject(projectId)
+      .then((proj) => { if (!cancelled) setProject(proj); })
+      .catch((err) => { if (!cancelled) console.error("Failed to fetch Project", err); });
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  useEffect(() => {
     let cancelled = false;
     fetchJobs({ limit: 100, archived: false })
       .then((result) => {
@@ -100,33 +107,26 @@ export function RepoBoard() {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [decoded]);
+  }, []);
 
   useEffect(() => {
-    if (!decoded) return;
+    if (!projectId) return;
     let cancelled = false;
-    fetchProjects()
-      .then(async ({ items }) => {
-        const owningProject = items.find((p) => p.repoPaths.includes(decoded));
-        if (!owningProject) return;
-        const { items: links } = await fetchProjectTaskLinks(owningProject.id);
-        if (!cancelled) setTaskLinks(links);
-      })
+    fetchProjectTaskLinks(projectId)
+      .then(({ items: links }) => { if (!cancelled) setTaskLinks(links); })
       .catch((err) => {
         if (!cancelled) console.error("Failed to fetch TaskLinks", err);
       });
     return () => { cancelled = true; };
-  }, [decoded]);
+  }, [projectId]);
 
   if (loading && !hasJobs) return <KanbanSkeleton />;
-
-  const boardTaskLinks = taskLinks.filter((t) => t.repoPath === decoded);
 
   return (
     <div>
       <div className="flex items-center gap-3 mb-4">
         <Link
-          to={`/repos/${encodeURIComponent(decoded)}`}
+          to={`/projects/id/${encodeURIComponent(projectId ?? "")}`}
           className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
           aria-label="Back to overview"
         >
@@ -137,7 +137,7 @@ export function RepoBoard() {
             <LayoutGrid size={16} className="text-muted-foreground" />
             Board
           </h1>
-          <p className="text-sm text-muted-foreground truncate">{repoName}</p>
+          <p className="text-sm text-muted-foreground truncate">{project?.name ?? ""}</p>
         </div>
       </div>
 
@@ -146,9 +146,9 @@ export function RepoBoard() {
           title={KANBAN_COLUMNS.IN_PROGRESS}
           jobs={activeJobs}
           extraCards={
-            boardTaskLinks.length > 0 ? (
+            taskLinks.length > 0 ? (
               <>
-                {boardTaskLinks.map((taskLink) => {
+                {taskLinks.map((taskLink) => {
                   const { satisfied, blockingLabel } = computeSatisfaction(taskLink, taskLinks, jobs);
                   return (
                     <TaskLinkCard
@@ -169,4 +169,3 @@ export function RepoBoard() {
     </div>
   );
 }
-

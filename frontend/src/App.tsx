@@ -1,6 +1,6 @@
-import { Component, type ReactNode, Suspense, useEffect } from "react";
+import { Component, type ReactNode, Suspense, useEffect, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { Routes, Route, Navigate, Link, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, Link, useNavigate, useLocation, useParams } from "react-router-dom";
 import { Search, ExternalLink } from "lucide-react";
 import { modKey } from "./lib/utils";
 import { CommandPalette } from "./components/CommandPalette";
@@ -46,6 +46,9 @@ const RepoCost = lazyRetry(() =>
 );
 const RepoSettings = lazyRetry(() =>
   import("./components/RepoSettings").then((module) => ({ default: module.RepoSettings })),
+);
+const ProjectChats = lazyRetry(() =>
+  import("./components/ProjectChats").then((module) => ({ default: module.ProjectChats })),
 );
 /* SharedJobView disabled — read-only view not useful yet
 const SharedJobView = lazyRetry(() =>
@@ -106,6 +109,38 @@ function RouteFallback() {
   );
 }
 
+/**
+ * Resolves a legacy `/projects/:repoPath[/...]` URL (repo-path-as-routing-key,
+ * pre project-id routing) to its canonical `/projects/id/:projectId[/...]` URL.
+ * Old bookmarks/shared links must still work — this looks up the owning
+ * Project by repo membership and redirects, rather than 404ing outright.
+ * `repoScoped` routes (health/cost/jobs) carry the repo path forward as a
+ * nested segment since those screens stay repo-keyed by spec.
+ */
+function LegacyRepoRedirect({ suffix, repoScoped }: { suffix: string; repoScoped?: boolean }) {
+  const { repoPath } = useParams<{ repoPath: string }>();
+  const decoded = repoPath ? decodeURIComponent(repoPath) : "";
+  const [target, setTarget] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    let ignore = false;
+    if (!decoded) { setTarget(null); return; }
+    import("./api/client").then(({ fetchProjects }) =>
+      fetchProjects().then((res) => {
+        if (ignore) return;
+        const project = res.items.find((p) => p.repoPaths.includes(decoded));
+        if (!project) { setTarget(null); return; }
+        const base = `/projects/id/${encodeURIComponent(project.id)}`;
+        setTarget(repoScoped ? `${base}/repos/${encodeURIComponent(decoded)}${suffix}` : `${base}${suffix}`);
+      }).catch(() => { if (!ignore) setTarget(null); }),
+    );
+    return () => { ignore = true; };
+  }, [decoded, suffix, repoScoped]);
+
+  if (target === undefined) return <RouteFallback />;
+  return <Navigate to={target ?? "/projects"} replace />;
+}
+
 /* ------------------------------------------------------------------ */
 /* App                                                                 */
 /* ------------------------------------------------------------------ */
@@ -148,7 +183,7 @@ export function App() {
   useHotkeys("alt+j", () => navigate("/"), { preventDefault: true });
   useHotkeys("alt+n", () => navigate("/jobs/new"), { preventDefault: true });
   useHotkeys("alt+a", () => navigate("/analytics"), { preventDefault: true });
-  useHotkeys("alt+r", () => navigate("/repos"), { preventDefault: true });
+  useHotkeys("alt+r", () => navigate("/projects"), { preventDefault: true });
   useHotkeys("alt+h", () => navigate("/history"), { preventDefault: true });
   useHotkeys("ctrl+comma,meta+comma", () => navigate("/settings"), {
     enableOnFormTags: true,
@@ -203,18 +238,30 @@ export function App() {
         <ErrorBoundary>
           <Suspense fallback={<RouteFallback />}>
             <Routes>
-              <Route path="/" element={<Navigate to="/repos" replace />} />
+              <Route path="/" element={<Navigate to="/projects" replace />} />
               <Route path="/jobs/new" element={<JobCreationScreen />} />
               <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
               <Route path="/history" element={<HistoryScreen />} />
               <Route path="/analytics" element={<AnalyticsScreen />} />
-              <Route path="/repos" element={<RepoLayout />}>
-                <Route path=":repoPath" element={<RepoOverview />} />
-                <Route path=":repoPath/board" element={<RepoBoard />} />
-                <Route path=":repoPath/jobs" element={<RepoJobs />} />
-                <Route path=":repoPath/health" element={<RepoHealth />} />
-                <Route path=":repoPath/cost" element={<RepoCost />} />
-                <Route path=":repoPath/settings" element={<RepoSettings />} />
+              <Route path="/projects" element={<RepoLayout />}>
+                <Route index element={<RepoOverview />} />
+                <Route path="id/:projectId" element={<RepoOverview />} />
+                <Route path="id/:projectId/board" element={<RepoBoard />} />
+                <Route path="id/:projectId/chats" element={<ProjectChats />} />
+                <Route path="id/:projectId/settings" element={<RepoSettings />} />
+                <Route path="id/:projectId/repos/:repoPath/jobs" element={<RepoJobs />} />
+                <Route path="id/:projectId/repos/:repoPath/health" element={<RepoHealth />} />
+                <Route path="id/:projectId/repos/:repoPath/cost" element={<RepoCost />} />
+                {/* Legacy repo-path-keyed URLs (pre project-id routing). Not stable/shareable
+                    across a Project's member-repo edits, but old bookmarks/links must still
+                    resolve — redirect to the canonical project-id URL instead of 404ing. */}
+                <Route path=":repoPath" element={<LegacyRepoRedirect suffix="" />} />
+                <Route path=":repoPath/board" element={<LegacyRepoRedirect suffix="/board" />} />
+                <Route path=":repoPath/chats" element={<LegacyRepoRedirect suffix="/chats" />} />
+                <Route path=":repoPath/settings" element={<LegacyRepoRedirect suffix="/settings" />} />
+                <Route path=":repoPath/jobs" element={<LegacyRepoRedirect suffix="/jobs" repoScoped />} />
+                <Route path=":repoPath/health" element={<LegacyRepoRedirect suffix="/health" repoScoped />} />
+                <Route path=":repoPath/cost" element={<LegacyRepoRedirect suffix="/cost" repoScoped />} />
               </Route>
               <Route path="/settings" element={<SettingsScreen />} />
               {/* Share disabled — read-only view not useful yet

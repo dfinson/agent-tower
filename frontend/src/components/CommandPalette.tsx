@@ -91,12 +91,12 @@ export function CommandPalette() {
         keywords: ["metrics", "telemetry", "cost", "usage", "dashboard", "stats"],
       },
       {
-        id: "repos",
-        label: "Repositories",
-        description: "Repository dashboards & wisdom",
+        id: "projects",
+        label: "Projects",
+        description: "Project dashboards & work tracking",
         icon: <FolderGit2 className="h-4 w-4" />,
-        action: () => navigate("/repos"),
-        keywords: ["repo", "repository", "memory", "wisdom", "health", "git"],
+        action: () => navigate("/projects"),
+        keywords: ["project", "projects", "repo", "repository", "memory", "wisdom", "health", "git"],
       },
       // Context-aware terminal entries: show job terminal first when inside a job view
       ...(currentJob?.worktreePath && !currentJob?.archivedAt && currentJobId

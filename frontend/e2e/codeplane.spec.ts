@@ -45,7 +45,7 @@ test.describe("Project board", () => {
     await page.goto("/");
     // Kanban board is now scoped under a project, not the flat root dashboard.
     await page.locator('[aria-label="Project list"] a').first().click();
-    await page.waitForURL(/\/projects\/.+\/board/);
+    await page.waitForURL(/\/projects\/id\/.+\/board/);
     await expect(page.getByRole("region", { name: "In Progress" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Awaiting Input" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Failed" })).toBeVisible();
@@ -111,7 +111,7 @@ const COMPLETED_JOB_FIXTURE = {
   completedAt: new Date(Date.now() - 5_000).toISOString(),
 };
 
-const BOARD_PROJECT_URL = `/projects/${encodeURIComponent(JOB_FIXTURE.repo)}/board`;
+const BOARD_PROJECT_URL = "/projects/id/e2e-project-1/board";
 
 test.describe("React #185 – kanban renders job cards without infinite loop", () => {
   test("project board renders job cards fetched via REST without crashing", async ({
@@ -154,8 +154,27 @@ test.describe("React #185 – kanban renders job cards without infinite loop", (
       });
     });
 
-    // The kanban board is now scoped under a Project (AD-2); navigate directly
-    // to the project board route that owns this job's repo.
+    // Mock the owning Project fetch (project-id routing, AD-2 successor):
+    // the board resolves job membership via the Project's repoPaths.
+    await page.route("**/api/settings/projects/e2e-project-1", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "e2e-project-1",
+          name: "example-app",
+          repoPaths: [JOB_FIXTURE.repo],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }),
+      });
+    });
+    await page.route("**/api/settings/projects/e2e-project-1/task-links", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+    });
+
+    // The kanban board is scoped under a stable Project identity (project-id
+    // routing); navigate directly to the canonical board route.
     await page.goto(BOARD_PROJECT_URL);
 
     // The running job appears in the kanban board card. Use .first() to guard
@@ -219,6 +238,25 @@ test.describe("React #185 – kanban renders job cards without infinite loop", (
         contentType: "application/json",
         body: JSON.stringify({ items: [], cursor: null, hasMore: false }),
       });
+    });
+
+    // Mock the owning Project fetch (project-id routing, AD-2 successor):
+    // the board resolves job membership via the Project's repoPaths.
+    await page.route("**/api/settings/projects/e2e-project-1", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "e2e-project-1",
+          name: "example-app",
+          repoPaths: [JOB_FIXTURE.repo],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }),
+      });
+    });
+    await page.route("**/api/settings/projects/e2e-project-1/task-links", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
     });
 
     // SSE mock: heartbeat + snapshot in the same response body so the browser

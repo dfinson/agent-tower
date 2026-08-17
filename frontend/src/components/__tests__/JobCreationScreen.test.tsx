@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 // Mock API client
 vi.mock("../../api/client", () => ({
   createJob: vi.fn(),
-  fetchRepos: vi.fn(),
+  fetchProjects: vi.fn(),
   fetchModels: vi.fn(),
   fetchSDKs: vi.fn(),
   fetchSettings: vi.fn(),
@@ -31,11 +31,6 @@ vi.mock("../VoiceButton", () => ({
       onChange={(e) => onChange(e.target.value)}
     />
   ),
-}));
-
-// Mock AddRepoModal
-vi.mock("../AddRepoModal", () => ({
-  AddRepoModal: () => null,
 }));
 
 vi.mock("../ui/tooltip", () => ({
@@ -65,7 +60,7 @@ import {
   createJob,
   fetchModels,
   fetchRepoDetail,
-  fetchRepos,
+  fetchProjects,
   fetchSDKs,
   fetchSettings,
   fetchPolicySettings,
@@ -87,7 +82,7 @@ async function renderScreen() {
 
   await waitFor(() => {
     expect(fetchPolicySettings).toHaveBeenCalled();
-    expect(fetchRepos).toHaveBeenCalled();
+    expect(fetchProjects).toHaveBeenCalled();
   });
 }
 
@@ -99,7 +94,7 @@ vi.mock("react-router-dom", async () => {
 
 beforeEach(() => {
   vi.mocked(createJob).mockReset();
-  vi.mocked(fetchRepos).mockResolvedValue({ items: ["/repos/my-app"] } as any);
+  vi.mocked(fetchProjects).mockResolvedValue({ items: [{ id: "p1", name: "My Project", repoPaths: ["/repos/my-app"] }] } as any);
   vi.mocked(fetchModels).mockResolvedValue([
     { id: "gpt-5.4-mini", name: "GPT-5.4 Mini" },
     { id: "gpt-5.4", name: "GPT-5.4", default: true },

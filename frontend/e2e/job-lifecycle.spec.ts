@@ -118,6 +118,26 @@ async function setupBaseMocks(page: import("@playwright/test").Page, jobs: unkno
     });
   });
 
+  // Board is keyed by project id (not repo path); mock the single-project
+  // fetch and its task-links so RepoBoard resolves cleanly.
+  await page.route("**/api/settings/projects/project-1", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "project-1",
+        name: "test-repo",
+        repoPaths: ["/tmp/test-repo"],
+        createdAt: NOW,
+        updatedAt: NOW,
+      }),
+    });
+  });
+  await page.route("**/api/settings/projects/project-1/task-links", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+
   await page.route("**/api/sdks", async (route) => {
     await route.fulfill({
       status: 200,
@@ -218,7 +238,7 @@ test.describe("Project board SSE Integration", () => {
   test("job appears on project board via SSE snapshot event", async ({ page }) => {
     await setupBaseMocks(page, [MOCK_JOB]);
 
-    await page.goto(`/projects/${encodeURIComponent(MOCK_JOB.repo)}/board`);
+    await page.goto("/projects/id/project-1/board");
 
     // Job should appear in the kanban — use .first() for strict mode
     await expect(page.getByRole("button", { name: /Job: job-1/i })).toBeVisible({ timeout: 8_000 });
@@ -228,7 +248,7 @@ test.describe("Project board SSE Integration", () => {
     // Start with a running job
     await setupBaseMocks(page, [MOCK_JOB]);
 
-    await page.goto(`/projects/${encodeURIComponent(MOCK_JOB.repo)}/board`);
+    await page.goto("/projects/id/project-1/board");
     await expect(page.getByRole("button", { name: /Job: job-1/i })).toBeVisible({ timeout: 8_000 });
 
     // The job card should show "running" state initially — verified by its presence

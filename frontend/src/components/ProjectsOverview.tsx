@@ -1,12 +1,14 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { FolderGit2, PlayCircle, Clock, AlertTriangle } from "lucide-react";
+import { FolderGit2, PlayCircle, Clock, AlertTriangle, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { fetchProjectsSummary } from "../api/client";
 import type { ProjectSummaryResponse } from "../api/types";
 import { Spinner } from "./ui/spinner";
+import { Button } from "./ui/button";
 import { pathBasename } from "../lib/paths";
 import { matchesNameFilter } from "../lib/nameFilter";
+import { CreateProjectDialog } from "./CreateProjectDialog";
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -69,6 +71,7 @@ export function ProjectsOverview() {
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<ProjectSummaryResponse[]>([]);
   const [filterQuery, setFilterQuery] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
 
   // Combined cross-Project attention signal (Story 2.4): summed awaiting+failed
   // across all Projects, derived from the same batch summary fetch as Story 2.2
@@ -93,9 +96,7 @@ export function ProjectsOverview() {
   useEffect(() => { load(); }, [load]);
 
   function openProject(project: ProjectSummaryResponse) {
-    const firstRepo = project.repoPaths[0];
-    if (!firstRepo) return;
-    navigate(`/repos/${encodeURIComponent(firstRepo)}`);
+    navigate(`/projects/id/${encodeURIComponent(project.id)}`);
   }
 
   if (loading) {
@@ -109,10 +110,22 @@ export function ProjectsOverview() {
   if (projects.length === 0) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
-        <div className="text-center">
-          <FolderGit2 size={32} className="mx-auto mb-3 opacity-50" />
+        <div className="text-center space-y-3">
+          <FolderGit2 size={32} className="mx-auto opacity-50" />
           <p className="text-sm">No Projects registered</p>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus size={14} />
+            New Project
+          </Button>
         </div>
+        <CreateProjectDialog
+          open={createOpen}
+          onClose={() => setCreateOpen(false)}
+          onCreated={(project) => {
+            void load();
+            navigate(`/projects/id/${encodeURIComponent(project.id)}`);
+          }}
+        />
       </div>
     );
   }
@@ -137,6 +150,11 @@ export function ProjectsOverview() {
           {attentionCount > 0 ? <AlertTriangle size={12} /> : null}
           {attentionCount}
         </span>
+        <div className="flex-1" />
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
+          <Plus size={14} />
+          New Project
+        </Button>
       </div>
       <input
         type="text"
@@ -157,6 +175,14 @@ export function ProjectsOverview() {
           ))}
         </div>
       )}
+      <CreateProjectDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(project) => {
+          void load();
+          navigate(`/projects/id/${encodeURIComponent(project.id)}`);
+        }}
+      />
     </div>
   );
 }

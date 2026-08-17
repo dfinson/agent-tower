@@ -115,6 +115,7 @@ def _make_job_service(
     git: bool = True,
 ) -> JobService:
     from backend.persistence.job_repo import JobRepository
+    from backend.persistence.project_repo import ProjectRepository
     from backend.services.completers.naming_service import NamingService
 
     naming: NamingService | None = None
@@ -125,6 +126,7 @@ def _make_job_service(
         git_service=GitService(config) if git else None,
         config=config,
         naming_service=naming,
+        project_repo=ProjectRepository(session),
     )
 
 

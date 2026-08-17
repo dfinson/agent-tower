@@ -1,11 +1,4 @@
-"""Project CRUD orchestration (Story 2.1 / CAP-6).
-
-``ProjectRow`` is the sole persistence entity for repo-path membership
-(AD-5). Creating or editing a Project reuses the existing clone/register
-logic in :mod:`backend.config` so the legacy ``codeplane_repo`` allowlist
-stays authoritative and in sync — this service never duplicates or bypasses
-it, only calls into it.
-"""
+"""Project CRUD orchestration (Story 2.1 / CAP-6)."""
 
 from __future__ import annotations
 
@@ -13,7 +6,6 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from backend.config import register_repo
 from backend.models.domain import Project, ProjectNotFoundError, ProjectSummary, RepoAlreadyAssignedError
 
 if TYPE_CHECKING:
@@ -49,9 +41,6 @@ class ProjectService:
         resolved = [self._resolve(p) for p in repo_paths]
         await self._assert_repo_paths_available(resolved, exclude_project_id=None)
 
-        for path in resolved:
-            register_repo(self._config, path)
-
         project_id = str(uuid.uuid4())
         return await self._project_repo.create(project_id, name, resolved)
 
@@ -82,10 +71,6 @@ class ProjectService:
         if repo_paths is not None:
             resolved_repo_paths = [self._resolve(p) for p in repo_paths]
             await self._assert_repo_paths_available(resolved_repo_paths, exclude_project_id=project_id)
-            new_paths = set(resolved_repo_paths) - set(existing.repo_paths)
-            for path in new_paths:
-                register_repo(self._config, path)
-
         updated = await self._project_repo.update(project_id, name=name, repo_paths=resolved_repo_paths)
         if updated is None:
             raise ProjectNotFoundError(f"Project '{project_id}' does not exist.")

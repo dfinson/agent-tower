@@ -81,6 +81,11 @@ class ChatService:
         )
         return await self._repo.add_message(message)
 
+    async def list_messages(self, chat_id: str) -> list[ChatMessage]:
+        if await self._repo.get(chat_id) is None:
+            return []
+        return await self._repo.list_messages(chat_id)
+
     async def build_transcript(self, chat_id: str) -> str | None:
         """Concatenate a Chat's messages, role-prefixed, in transcript order.
 

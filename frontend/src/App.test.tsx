@@ -79,7 +79,7 @@ describe("App", () => {
     expect(screen.getByText("Reconnecting\u2026")).toBeInTheDocument();
   });
 
-  it("routes / to /repos (retired flat DashboardScreen)", async () => {
+  it("routes / to /projects", async () => {
     await renderApp("/");
     await waitFor(() => expect(screen.getByTestId("repo-layout")).toBeInTheDocument());
   });
@@ -104,8 +104,8 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByTestId("history")).toBeInTheDocument());
   });
 
-  it("routes /repos/:repoPath/board to RepoBoard", async () => {
-    await renderApp("/repos/%2Frepos%2Ftest/board");
+  it("routes /projects/id/:projectId/board to RepoBoard", async () => {
+    await renderApp("/projects/id/proj-1/board");
     await waitFor(() => expect(screen.getByTestId("repo-board")).toBeInTheDocument());
   });
 

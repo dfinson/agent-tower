@@ -195,6 +195,79 @@ class TestJobService:
             )
 
     @pytest.mark.asyncio
+    async def test_create_job_allowed_via_project_membership(
+        self,
+        session: AsyncSession,
+        config: CPLConfig,
+        git_service: GitService,
+    ) -> None:
+        """A repo that belongs only to a Project (not config.repos) may still
+        launch a job — Project membership is an equally valid authorization
+        source (AD-5), since Project creation never populates the legacy
+        allowlist."""
+        from backend.persistence.project_repo import ProjectRepository
+
+        project_repo = ProjectRepository(session)
+        await project_repo.create("proj-1", "Project One", ["/repos/project-only"])
+        await session.commit()
+
+        svc = JobService(
+            job_repo=JobRepository(session),
+            git_service=git_service,
+            config=config,
+            project_repo=project_repo,
+        )
+
+        with (
+            patch.object(
+                git_service,
+                "create_worktree",
+                new_callable=AsyncMock,
+                return_value=("/repos/project-only", "cpl/job-1"),
+            ),
+            patch.object(
+                git_service,
+                "get_default_branch",
+                new_callable=AsyncMock,
+                return_value="main",
+            ),
+        ):
+            job = await svc.create_job(
+                JobSpec(repo="/repos/project-only", prompt="Fix it")
+            )
+            await session.commit()
+
+        assert job.state == JobState.preparing
+
+    @pytest.mark.asyncio
+    async def test_create_job_still_rejects_repo_in_neither_allowlist_nor_project(
+        self,
+        session: AsyncSession,
+        config: CPLConfig,
+        git_service: GitService,
+    ) -> None:
+        """A repo absent from both config.repos AND all Project repo_paths
+        must remain rejected — adding Project-membership authorization must
+        not accidentally widen the allowlist to all paths."""
+        from backend.persistence.project_repo import ProjectRepository
+
+        project_repo = ProjectRepository(session)
+        await project_repo.create("proj-1", "Project One", ["/repos/project-only"])
+        await session.commit()
+
+        svc = JobService(
+            job_repo=JobRepository(session),
+            git_service=git_service,
+            config=config,
+            project_repo=project_repo,
+        )
+
+        with pytest.raises(RepoNotAllowedError):
+            await svc.create_job(
+                JobSpec(repo="/repos/totally-unrelated", prompt="Fix it")
+            )
+
+    @pytest.mark.asyncio
     async def test_get_job_found(
         self,
         job_service: JobService,

@@ -1,8 +1,8 @@
-"""Tests for ProjectService — NFR5 enforcement and repo registration reuse."""
+"""Tests for ProjectService — NFR5 enforcement and project membership."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -30,16 +30,15 @@ def mock_repo() -> AsyncMock:
 
 class TestProjectServiceCreate:
     @pytest.mark.asyncio
-    async def test_create_registers_each_repo_path(self, mock_repo: AsyncMock, config: CPLConfig) -> None:
+    async def test_create_does_not_populate_legacy_repo_allowlist(self, mock_repo: AsyncMock, config: CPLConfig) -> None:
         mock_repo.list_all_repo_paths.return_value = {}
         mock_repo.create.return_value = _make_project("proj-1", "Test", ["/repo/a", "/repo/b"])
         service = ProjectService(mock_repo, config)
 
-        with patch("backend.services.project.project_service.register_repo") as mock_register:
-            project = await service.create("Test", ["/repo/a", "/repo/b"])
+        project = await service.create("Test", ["/repo/a", "/repo/b"])
 
         assert project.id == "proj-1"
-        assert mock_register.call_count == 2
+        assert config.repos == []
         mock_repo.create.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -64,15 +63,13 @@ class TestProjectServiceUpdate:
         mock_repo.update.return_value = _make_project("proj-1", "New", ["/repo/a"])
         service = ProjectService(mock_repo, config)
 
-        with patch("backend.services.project.project_service.register_repo") as mock_register:
-            updated = await service.update("proj-1", name="New")
+        updated = await service.update("proj-1", name="New")
 
         assert updated.name == "New"
-        mock_register.assert_not_called()
         mock_repo.update.assert_awaited_once_with("proj-1", name="New", repo_paths=None)
 
     @pytest.mark.asyncio
-    async def test_update_adds_new_repo_path_and_registers_it(self, mock_repo: AsyncMock, config: CPLConfig) -> None:
+    async def test_update_adds_new_repo_path_without_registering_it(self, mock_repo: AsyncMock, config: CPLConfig) -> None:
         import backend.services.project.project_service as mod
 
         existing_path = mod.ProjectService._resolve("/repo/a")
@@ -84,12 +81,10 @@ class TestProjectServiceUpdate:
         )
         service = ProjectService(mock_repo, config)
 
-        with patch("backend.services.project.project_service.register_repo") as mock_register:
-            updated = await service.update("proj-1", repo_paths=["/repo/a", "/repo/b"])
+        updated = await service.update("proj-1", repo_paths=["/repo/a", "/repo/b"])
 
         assert len(updated.repo_paths) == 2
-        # Only the newly added repo path should be (re-)registered.
-        assert mock_register.call_count == 1
+        assert config.repos == []
 
     @pytest.mark.asyncio
     async def test_update_rejects_repo_assigned_to_another_project(

@@ -399,12 +399,15 @@ class RuntimeService:
         return self._adapter_registry.get_adapter(sdk)
 
     def _make_job_service(self, session: AsyncSession) -> JobService:
+        from backend.persistence.project_repo import ProjectRepository
+
         return JobService(
             job_repo=JobRepository(session),
             git_service=self._git_service,
             config=self._config,
             event_bus=self._event_bus,
             coderecon=self._coderecon_service,
+            project_repo=ProjectRepository(session),
         )
 
     async def _get_job(self, job_id: str) -> Job | None:

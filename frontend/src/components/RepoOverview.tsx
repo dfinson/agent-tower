@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, Navigate } from "react-router-dom";
 import {
   GitBranch, Globe, Activity, DollarSign, Boxes,
   AlertTriangle, Briefcase, LayoutGrid,
 } from "lucide-react";
 import { toast } from "sonner";
-import { fetchRepoSummary } from "../api/client";
+import { fetchRepoSummary, fetchProject } from "../api/client";
 import type { RepoSummaryResponse } from "../api/client";
+import type { ProjectResponse } from "../api/types";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
 import { pathBasename } from "../lib/paths";
@@ -60,26 +61,60 @@ function timeAgo(dateStr: string): string {
   return `${days}d ago`;
 }
 
+/**
+ * Project overview, keyed by stable `project.id` (not `repoPaths[0]`) so the
+ * URL survives a Project's member-repo edits and is safe to bookmark/share.
+ * The underlying repo-summary card still reflects one representative repo
+ * (the Project's first member) — genuinely multi-repo aggregation for this
+ * card is a larger follow-up; the Board already aggregates across all
+ * member repos (`selectActiveJobsForProject` etc).
+ */
 export function RepoOverview() {
-  const { repoPath } = useParams<{ repoPath: string }>();
-  const decoded = repoPath ? decodeURIComponent(repoPath) : "";
-  const repoName = pathBasename(decoded) || decoded;
+  const { projectId } = useParams<{ projectId: string }>();
 
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<RepoSummaryResponse | null>(null);
+  const [project, setProject] = useState<ProjectResponse | null>(null);
   const [error, setError] = useState(false);
+  const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
-    if (!decoded) return;
+    if (!projectId) return;
     let ignore = false;
     setLoading(true);
     setError(false);
-    fetchRepoSummary(decoded)
-      .then((res) => { if (!ignore) setSummary(res); })
-      .catch(() => { if (!ignore) { setError(true); toast.error("Failed to load repository summary"); } })
-      .finally(() => { if (!ignore) setLoading(false); });
+    setNotFound(false);
+    fetchProject(projectId)
+      .then((proj) => {
+        if (ignore) return;
+        setProject(proj);
+        const repoPath = proj.repoPaths[0];
+        if (!repoPath) {
+          setLoading(false);
+          return;
+        }
+        fetchRepoSummary(repoPath)
+          .then((res) => { if (!ignore) setSummary(res); })
+          .catch(() => { if (!ignore) { setError(true); toast.error("Failed to load repository summary"); } })
+          .finally(() => { if (!ignore) setLoading(false); });
+      })
+      .catch((err: unknown) => {
+        if (ignore) return;
+        const status = (err as { status?: number } | null)?.status;
+        if (status === 404) {
+          setNotFound(true);
+        } else {
+          setError(true);
+          toast.error("Failed to load Project");
+        }
+        setLoading(false);
+      });
     return () => { ignore = true; };
-  }, [decoded]);
+  }, [projectId]);
+
+  if (notFound) {
+    return <Navigate to="/projects" replace />;
+  }
 
   if (loading) {
     return (
@@ -89,10 +124,10 @@ export function RepoOverview() {
     );
   }
 
-  if (error || !summary) {
+  if (error || !project) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
-        <p>{error ? "Failed to load repository" : "Repository not found"}</p>
+        <p>{error ? "Failed to load Project" : "Project not found"}</p>
       </div>
     );
   }
@@ -102,43 +137,55 @@ export function RepoOverview() {
       {/* Header */}
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-foreground">{repoName}</h1>
+          <h1 className="text-xl font-semibold text-foreground">{project.name}</h1>
+          <p className="text-xs text-muted-foreground">{project.repoPaths.length} member repositories</p>
           <Link
-            to={`/repos/${encodeURIComponent(decoded)}/board`}
+            to={`/projects/id/${encodeURIComponent(project.id)}/board`}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0"
           >
             <LayoutGrid size={12} />
             Board
           </Link>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          {summary.originUrl && (
-            <span className="flex items-center gap-1">
-              <Globe size={12} />
-              <span className="truncate max-w-[20rem]">{summary.originUrl}</span>
-            </span>
-          )}
-          {summary.currentBranch && (
-            <span className="flex items-center gap-1">
-              <GitBranch size={12} />
-              {summary.currentBranch}
-            </span>
-          )}
-          {summary.activeJobCount > 0 && (
-            <span className="flex items-center gap-1 text-blue-400">
-              <Activity size={12} />
-              {summary.activeJobCount} active
-            </span>
-          )}
-          {summary.platform && (
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wider">
-              {summary.platform}
-            </span>
-          )}
+        {summary && (
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            {summary.originUrl && (
+              <span className="flex items-center gap-1">
+                <Globe size={12} />
+                <span className="truncate max-w-[20rem]">{summary.originUrl}</span>
+              </span>
+            )}
+            {summary.currentBranch && (
+              <span className="flex items-center gap-1">
+                <GitBranch size={12} />
+                {summary.currentBranch}
+              </span>
+            )}
+            {summary.activeJobCount > 0 && (
+              <span className="flex items-center gap-1 text-blue-400">
+                <Activity size={12} />
+                {summary.activeJobCount} active
+              </span>
+            )}
+            {summary.platform && (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wider">
+                {summary.platform}
+              </span>
+            )}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-1.5 pt-2">
+          {project.repoPaths.map((path) => (
+            <span key={path} className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-mono">{pathBasename(path) || path}</span>
+          ))}
         </div>
       </div>
 
-      {/* Cards grid */}
+      {!summary ? (
+        <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground text-sm">
+          No member repository available for this Project yet.
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* Recent Jobs */}
@@ -149,7 +196,7 @@ export function RepoOverview() {
               Recent Jobs
             </span>
             <Link
-              to={`/repos/${encodeURIComponent(decoded)}/jobs`}
+              to={`/projects/id/${encodeURIComponent(project.id)}/repos/${encodeURIComponent(project.repoPaths[0] ?? "")}/jobs`}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               View all →
@@ -200,7 +247,7 @@ export function RepoOverview() {
               Cost (7d)
             </span>
             <Link
-              to={`/repos/${encodeURIComponent(decoded)}/cost`}
+              to={`/projects/id/${encodeURIComponent(project.id)}/repos/${encodeURIComponent(project.repoPaths[0] ?? "")}/cost`}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               Details →
@@ -225,7 +272,7 @@ export function RepoOverview() {
               Structural Health
             </span>
             <Link
-              to={`/repos/${encodeURIComponent(decoded)}/health`}
+              to={`/projects/id/${encodeURIComponent(project.id)}/repos/${encodeURIComponent(project.repoPaths[0] ?? "")}/health`}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               Details →
@@ -262,6 +309,7 @@ export function RepoOverview() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

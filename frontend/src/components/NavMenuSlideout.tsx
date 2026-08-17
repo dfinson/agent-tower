@@ -85,16 +85,16 @@ export function NavMenuSlideout() {
           </button>
 
           <button
-            onClick={() => closeAndNavigate("/repos")}
+            onClick={() => closeAndNavigate("/projects")}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors",
-              isActive("/repos")
+              isActive("/projects")
                 ? "text-foreground bg-accent"
                 : "text-muted-foreground hover:text-foreground hover:bg-accent",
             )}
           >
             <FolderGit2 size={15} className="shrink-0" />
-            <span className="flex-1 text-left font-medium">Repositories</span>
+            <span className="flex-1 text-left font-medium">Projects</span>
             <kbd className="hidden sm:inline rounded border border-border px-1.5 py-0.5 font-mono text-xs text-muted-foreground/70">
               Alt+R
             </kbd>
