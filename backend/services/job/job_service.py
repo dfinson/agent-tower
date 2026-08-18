@@ -152,8 +152,10 @@ class JobService:
         added to ``config.repos``.
         """
         resolved = str(Path(repo).expanduser().resolve())
-        if resolved in self._resolve_repos():
-            return resolved
+        try:
+            return self.validate_repo(repo)
+        except RepoNotAllowedError:
+            pass
         if resolved in await self._resolve_project_member_repos():
             return resolved
         raise RepoNotAllowedError(f"Repository '{repo}' is not in the allowlist.")

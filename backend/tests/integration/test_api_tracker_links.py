@@ -112,7 +112,13 @@ class TestCreateTrackerLink:
         cred_1 = await _create_credential(client)
         cred_2_resp = await client.post(
             "/api/settings/credentials",
-            json={"provider": "jira", "label": "Jira", "baseUrl": "https://x.atlassian.net", "pat": "tok"},
+            json={
+                "provider": "jira",
+                "label": "Jira",
+                "baseUrl": "https://x.atlassian.net",
+                "pat": "tok",
+                "email": "jira@example.com",
+            },
         )
         cred_2 = cred_2_resp.json()["id"]
 
