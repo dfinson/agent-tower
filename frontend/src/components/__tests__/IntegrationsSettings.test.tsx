@@ -6,13 +6,20 @@ vi.mock("../../api/client", () => ({
   fetchCredentialGuidance: vi.fn(),
   createCredential: vi.fn(),
   deleteCredential: vi.fn(),
+  updateJiraCredentialEmail: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-import { fetchCredentials, fetchCredentialGuidance, createCredential, deleteCredential } from "../../api/client";
+import {
+  fetchCredentials,
+  fetchCredentialGuidance,
+  createCredential,
+  deleteCredential,
+  updateJiraCredentialEmail,
+} from "../../api/client";
 import { IntegrationsSettings } from "../IntegrationsSettings";
 
 const guidance = {
@@ -26,6 +33,7 @@ beforeEach(() => {
   vi.mocked(fetchCredentialGuidance).mockResolvedValue({ guidance });
   vi.mocked(createCredential).mockReset();
   vi.mocked(deleteCredential).mockReset();
+  vi.mocked(updateJiraCredentialEmail).mockReset();
 });
 
 it("requires and submits the Jira account email", async () => {
@@ -75,6 +83,7 @@ describe("IntegrationsSettings", () => {
           label: "My GitHub",
           baseUrl: "https://api.github.com",
           email: null,
+          requiresEmailUpdate: false,
           createdAt: "2026-01-01T00:00:00Z",
         },
       ],
@@ -105,6 +114,7 @@ describe("IntegrationsSettings", () => {
       label: "New Cred",
       baseUrl: "https://api.github.com",
       email: null,
+      requiresEmailUpdate: false,
       createdAt: "2026-01-01T00:00:00Z",
     });
 
@@ -152,6 +162,7 @@ describe("IntegrationsSettings", () => {
           label: "Jira Cred",
           baseUrl: "https://x.atlassian.net",
           email: "dev@example.com",
+          requiresEmailUpdate: false,
           createdAt: "2026-01-01T00:00:00Z",
         },
       ],
@@ -171,5 +182,45 @@ describe("IntegrationsSettings", () => {
     await waitFor(() => {
       expect(deleteCredential).toHaveBeenCalledWith("cred-1");
     });
+  });
+
+  it("remediates a legacy Jira credential without requesting its token", async () => {
+      vi.mocked(fetchCredentials).mockResolvedValue({
+        credentials: [{
+          id: "legacy-jira",
+          provider: "jira",
+          label: "Legacy Jira",
+          baseUrl: "https://x.atlassian.net",
+          email: null,
+          requiresEmailUpdate: true,
+          createdAt: "2026-01-01T00:00:00Z",
+        }],
+      });
+      vi.mocked(updateJiraCredentialEmail).mockResolvedValue({
+        id: "legacy-jira",
+        provider: "jira",
+        label: "Legacy Jira",
+        baseUrl: "https://x.atlassian.net",
+        email: "dev@example.com",
+        requiresEmailUpdate: false,
+        createdAt: "2026-01-01T00:00:00Z",
+      });
+      render(<IntegrationsSettings />);
+
+      const warning = await screen.findByRole("alert");
+      expect(warning).toHaveTextContent(/Action required/);
+      expect(within(warning).queryByLabelText(/token/i)).not.toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText("Jira account email for Legacy Jira"), {
+        target: { value: "dev@example.com" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Update email" }));
+
+      await waitFor(() => {
+        expect(updateJiraCredentialEmail).toHaveBeenCalledWith(
+          "legacy-jira",
+          "dev@example.com",
+        );
+      });
+      expect(screen.queryByText(/Action required/)).not.toBeInTheDocument();
   });
 });

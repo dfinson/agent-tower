@@ -19,6 +19,7 @@ from backend.models.domain import Job, JobSource, JobState
 from backend.models.events import EventKind
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
+from backend.persistence.project_repo import ProjectRepository
 from backend.services.ingest.claude_source import (
     _SESSION_FILE_RE,
     ClaudeSessionStateWatcher,
@@ -146,6 +147,24 @@ class TestClaudeControlPlane:
         assert isinstance(_is_claude_process_alive("missing", None), bool)
 
     @pytest.mark.anyio
+    async def test_discovery_membership_includes_projects_and_legacy_config(
+        self,
+        claude_watcher: ClaudeSessionStateWatcher,
+        db_session: async_sessionmaker[AsyncSession],
+    ) -> None:
+        claude_watcher._config.repos = ["C:\\legacy\\repo"]
+        async with db_session() as session:
+            await ProjectRepository(session).create(
+                "project-1", "Canonical", ["C:\\project\\repo"]
+            )
+            await session.commit()
+
+        assert await claude_watcher._managed_repo_paths() == [
+            "C:\\legacy\\repo",
+            "C:\\project\\repo",
+        ]
+
+    @pytest.mark.anyio
     async def test_double_finalization_guard(
         self,
         claude_watcher: ClaudeSessionStateWatcher,
@@ -202,6 +221,24 @@ class TestCopilotControlPlane:
 
         copilot_watcher._steer.send_message.assert_awaited_once_with("sid", "hello")
         copilot_watcher._steer.abort.assert_awaited_once_with("sid")
+
+    @pytest.mark.anyio
+    async def test_discovery_membership_includes_projects_and_legacy_config(
+        self,
+        copilot_watcher: SessionStateWatcher,
+        db_session: async_sessionmaker[AsyncSession],
+    ) -> None:
+        copilot_watcher._config.repos = ["C:\\legacy\\repo"]
+        async with db_session() as session:
+            await ProjectRepository(session).create(
+                "project-1", "Canonical", ["C:\\project\\repo"]
+            )
+            await session.commit()
+
+        assert await copilot_watcher._managed_repo_paths() == [
+            "C:\\legacy\\repo",
+            "C:\\project\\repo",
+        ]
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(

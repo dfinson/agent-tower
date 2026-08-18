@@ -42,6 +42,7 @@ beforeEach(() => {
         label: "Acme Jira",
         baseUrl: "https://acme.atlassian.net",
         email: "dev@example.com",
+        requiresEmailUpdate: false,
         createdAt: "2026-08-10T12:00:00Z",
       },
     ],
@@ -165,7 +166,32 @@ describe("TrackerSyncPanel", () => {
         trackerLinkId: "link-1",
         trackerTicketRef: "PAY-42",
         promptOverride: "Implement payment retry",
+        outputRoutes: [],
       });
+    });
+  });
+
+  it("persists the explicit tracker-write output route when selected", async () => {
+    vi.mocked(createManualTaskLink).mockResolvedValue({ id: "task-1" } as never);
+    render(<TrackerSyncPanel />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Assign task for PAY-42" }));
+    fireEvent.change(screen.getByLabelText("Task repository"), {
+      target: { value: "/repos/payments" },
+    });
+    fireEvent.change(screen.getByLabelText("Task prompt"), {
+      target: { value: "Implement payment retry" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: /approved tracker comment/i,
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Create TaskLink" }));
+
+    await waitFor(() => {
+      expect(createManualTaskLink).toHaveBeenCalledWith(
+        "project-1",
+        expect.objectContaining({ outputRoutes: ["tracker_write"] }),
+      );
     });
   });
 });

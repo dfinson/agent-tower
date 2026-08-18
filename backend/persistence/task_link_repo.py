@@ -38,6 +38,7 @@ class TaskLinkRepository(BaseRepository):
             tracker_ticket_ref=row.tracker_ticket_ref,
             prompt_override=row.prompt_override,
             epic_id=row.epic_id,
+            output_routes=json.loads(row.output_routes or "[]"),
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -50,6 +51,7 @@ class TaskLinkRepository(BaseRepository):
         tracker_link_id: str | None = None,
         tracker_ticket_ref: str,
         prompt_override: str,
+        output_routes: list[str] | None = None,
     ) -> TaskLink:
         """Insert a fresh manually-assigned TaskLink without story backing."""
         now = datetime.now(UTC)
@@ -66,6 +68,7 @@ class TaskLinkRepository(BaseRepository):
             tracker_ticket_ref=tracker_ticket_ref,
             prompt_override=prompt_override,
             epic_id=None,
+            output_routes=json.dumps(output_routes or []),
             created_at=now,
             updated_at=now,
         )
@@ -95,6 +98,12 @@ class TaskLinkRepository(BaseRepository):
             depends_on = entry.get("depends_on", [])
             raw_epic_id = entry.get("epic_id")
             epic_id = str(raw_epic_id) if raw_epic_id is not None else None
+            raw_output_routes = entry.get("output_routes", [])
+            output_routes = (
+                [str(route) for route in raw_output_routes]
+                if isinstance(raw_output_routes, list)
+                else []
+            )
 
             stmt = select(TaskLinkRow).where(
                 TaskLinkRow.project_id == project_id,
@@ -114,6 +123,7 @@ class TaskLinkRepository(BaseRepository):
                     chain_root_id="",
                     state=TaskLinkState.ready if not depends_on else TaskLinkState.waiting,
                     epic_id=epic_id,
+                    output_routes=json.dumps(output_routes),
                     created_at=now,
                     updated_at=now,
                 )
@@ -122,6 +132,7 @@ class TaskLinkRepository(BaseRepository):
             else:
                 row.depends_on = json.dumps(depends_on)
                 row.epic_id = epic_id
+                row.output_routes = json.dumps(output_routes)
                 if row.job_id is None and row.state in {
                     TaskLinkState.waiting,
                     TaskLinkState.ready,
@@ -237,12 +248,34 @@ class TaskLinkRepository(BaseRepository):
                 TaskLinkRow.state == TaskLinkState.ready,
                 TaskLinkRow.job_id.is_(None),
             )
-            .values(state=TaskLinkState.running, updated_at=datetime.now(UTC))
+            .values(state=TaskLinkState.starting, updated_at=datetime.now(UTC))
         )
         result = await self._session.execute(stmt)
         await self._session.flush()
         if result.rowcount == 0:  # type: ignore[attr-defined]
             return None
+        return await self.get(task_link_id)
+
+    async def claim_ready_and_commit(self, task_link_id: str) -> TaskLink | None:
+        """Persist a short atomic claim before any Git-backed Job preparation."""
+        claimed = await self.claim_ready(task_link_id)
+        await self._session.commit()
+        return claimed
+
+    async def recover_start_claim(self, task_link_id: str) -> TaskLink | None:
+        """Discard a failed Job insert and make this caller's start claim retryable."""
+        await self._session.rollback()
+        stmt = (
+            update(TaskLinkRow)
+            .where(
+                TaskLinkRow.id == task_link_id,
+                TaskLinkRow.state == TaskLinkState.starting,
+                TaskLinkRow.job_id.is_(None),
+            )
+            .values(state=TaskLinkState.ready, updated_at=datetime.now(UTC))
+        )
+        await self._session.execute(stmt)
+        await self._session.commit()
         return await self.get(task_link_id)
 
     async def attach_claimed_job(
@@ -257,7 +290,7 @@ class TaskLinkRepository(BaseRepository):
             update(TaskLinkRow)
             .where(
                 TaskLinkRow.id == task_link_id,
-                TaskLinkRow.state == TaskLinkState.running,
+                TaskLinkRow.state == TaskLinkState.starting,
                 TaskLinkRow.job_id.is_(None),
             )
             .values(job_id=job_id, state=state, updated_at=datetime.now(UTC))

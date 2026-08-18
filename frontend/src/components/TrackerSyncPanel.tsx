@@ -34,6 +34,7 @@ export function TrackerSyncPanel() {
     repoPath: string;
   } | null>(null);
   const [assignmentPrompt, setAssignmentPrompt] = useState("");
+  const [writeCompletionToTracker, setWriteCompletionToTracker] = useState(false);
   const [assigning, setAssigning] = useState(false);
 
   const load = useCallback(async () => {
@@ -111,10 +112,12 @@ export function TrackerSyncPanel() {
         trackerLinkId: assignment.trackerLinkId,
         trackerTicketRef: assignment.ticketRef,
         promptOverride: assignmentPrompt.trim(),
+        outputRoutes: writeCompletionToTracker ? ["tracker_write"] : [],
       });
       toast.success(`Assigned ${assignment.ticketRef} as a task.`);
       setAssignment(null);
       setAssignmentPrompt("");
+      setWriteCompletionToTracker(false);
     } catch (error) {
       toast.error(String(error));
     } finally {
@@ -229,6 +232,14 @@ export function TrackerSyncPanel() {
                                       <option value="">Select repository…</option>
                                       {project.repoPaths.map((repoPath) => <option key={repoPath} value={repoPath}>{repoPath}</option>)}
                                     </select>
+                                  </label>
+                                  <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                    <input
+                                      type="checkbox"
+                                      checked={writeCompletionToTracker}
+                                      onChange={(event) => setWriteCompletionToTracker(event.target.checked)}
+                                    />
+                                    Request an approved tracker comment when this task completes
                                   </label>
                                   <label className="block">
                                     <span className="text-[11px] text-muted-foreground">Task prompt</span>

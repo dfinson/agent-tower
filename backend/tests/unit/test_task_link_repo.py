@@ -175,6 +175,7 @@ class TestCreateManual:
             repo_path="/repo/a",
             tracker_ticket_ref="JIRA-123",
             prompt_override="Implement the ticket",
+            output_routes=["tracker_write"],
         )
         await session.commit()
 
@@ -186,6 +187,7 @@ class TestCreateManual:
         assert created.depends_on == []
         assert created.job_id is None
         assert created.epic_id is None
+        assert created.output_routes == ["tracker_write"]
 
     @pytest.mark.asyncio
     async def test_same_ticket_ref_creates_independent_persisted_rows(self, session: AsyncSession) -> None:
@@ -333,9 +335,9 @@ class TestTaskLinkLifecycle:
             )
         )[0]
 
-        claimed = await repo.claim_ready(task_link.id)
-        duplicate_claim = await repo.claim_ready(task_link.id)
-        assert claimed is not None and claimed.state == TaskLinkState.running
+        claimed = await repo.claim_ready_and_commit(task_link.id)
+        duplicate_claim = await repo.claim_ready_and_commit(task_link.id)
+        assert claimed is not None and claimed.state == TaskLinkState.starting
         assert duplicate_claim is None
 
         await _make_job(session, "job-claimed")
@@ -343,3 +345,41 @@ class TestTaskLinkLifecycle:
         assert attached is not None
         assert attached.job_id == "job-claimed"
         assert attached.state == TaskLinkState.running
+
+    @pytest.mark.asyncio
+    async def test_recover_claim_rolls_back_pending_job_and_restores_ready_state(
+        self,
+        session: AsyncSession,
+    ) -> None:
+        project_id = await _make_project(session)
+        repo = TaskLinkRepository(session)
+        task_link = (
+            await repo.upsert_many(
+                project_id,
+                [{"repo_path": "/repo/a", "story_node_id": "root", "depends_on": [], "epic_id": None}],
+            )
+        )[0]
+        claimed = await repo.claim_ready_and_commit(task_link.id)
+        assert claimed is not None and claimed.state == TaskLinkState.starting
+
+        now = datetime.now(UTC)
+        session.add(
+            JobRow(
+                id="job-not-attached",
+                repo="/repo/a",
+                prompt="do the thing",
+                state=JobState.preparing,
+                base_ref="main",
+                permission_mode="full_auto",
+                preset="autonomous",
+                sdk="copilot",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await session.flush()
+
+        recovered = await repo.recover_start_claim(task_link.id)
+
+        assert recovered is not None and recovered.state == TaskLinkState.ready
+        assert await session.get(JobRow, "job-not-attached") is None

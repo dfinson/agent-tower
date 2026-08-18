@@ -66,6 +66,7 @@ describe("RepoSettings", () => {
         label: "Alpha GitHub",
         baseUrl: "https://api.github.com",
         email: null,
+        requiresEmailUpdate: false,
         createdAt: "2024-01-01T00:00:00Z",
       }],
     } as unknown as Awaited<ReturnType<typeof fetchCredentials>>);
@@ -194,5 +195,70 @@ describe("RepoSettings", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load Project settings");
     expect(screen.queryByText("Alpha project")).not.toBeInTheDocument();
+  });
+
+  it("ignores a stale Project response after navigating to another Project", async () => {
+    let resolveFirst!: (project: ProjectResponse) => void;
+    const firstProject = new Promise<ProjectResponse>((resolve) => {
+      resolveFirst = resolve;
+    });
+    vi.mocked(fetchProject)
+      .mockReturnValueOnce(firstProject)
+      .mockResolvedValueOnce({
+        id: "project-2",
+        name: "Current project",
+        repoPaths: ["/repo/current"],
+        createdAt: "2024-01-01T00:00:00Z",
+        updatedAt: "2024-01-02T00:00:00Z",
+      } as ProjectResponse);
+    vi.mocked(fetchCredentials).mockResolvedValue({ credentials: [] });
+    vi.mocked(fetchTrackerLinks).mockResolvedValue({ trackerLinks: [] } as TrackerLinkListResponse);
+    vi.mocked(updateProject).mockResolvedValue({
+      id: "project-2",
+      name: "Current project updated",
+      repoPaths: ["/repo/current"],
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-03T00:00:00Z",
+    } as ProjectResponse);
+
+    render(
+      <MemoryRouter initialEntries={["/projects/id/project-1"]}>
+        <Routes>
+          <Route
+            path="/projects/id/:projectId"
+            element={(
+              <>
+                <Link to="/projects/id/project-2">Open current Project</Link>
+                <RepoSettings />
+              </>
+            )}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "Open current Project" }));
+    expect(await screen.findByText("Current project")).toBeInTheDocument();
+
+    resolveFirst({
+      id: "project-1",
+      name: "Stale project",
+      repoPaths: ["/repo/stale"],
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-02T00:00:00Z",
+    } as ProjectResponse);
+
+    await waitFor(() => expect(fetchProject).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Current project")).toBeInTheDocument();
+    expect(screen.queryByText("Stale project")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByDisplayValue("Current project"), {
+      target: { value: "Current project updated" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save project/i }));
+    await waitFor(() => expect(updateProject).toHaveBeenCalledWith(
+      "project-2",
+      expect.objectContaining({ name: "Current project updated" }),
+    ));
   });
 });

@@ -14,6 +14,7 @@ interface TaskLinkCardProps {
 const stateStyle = {
   waiting: "border-amber-500/30 bg-amber-500/15 text-amber-600",
   ready: "border-sky-500/30 bg-sky-500/15 text-sky-600",
+  starting: "border-indigo-500/30 bg-indigo-500/15 text-indigo-600",
   running: "border-indigo-500/30 bg-indigo-500/15 text-indigo-600",
   completed: "border-emerald-500/30 bg-emerald-500/15 text-emerald-600",
   failed: "border-red-500/30 bg-red-500/15 text-red-600",
@@ -22,7 +23,7 @@ const stateStyle = {
 function StateIcon({ state }: { state: TaskLinkResponse["state"] }) {
   if (state === "completed") return <CheckCircle2 size={11} />;
   if (state === "failed") return <XCircle size={11} />;
-  if (state === "running") return <Loader2 size={11} className="animate-spin" />;
+  if (state === "starting" || state === "running") return <Loader2 size={11} className="animate-spin" />;
   if (state === "ready") return <CirclePlay size={11} />;
   return <Clock3 size={11} />;
 }

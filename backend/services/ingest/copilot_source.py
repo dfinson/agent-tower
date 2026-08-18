@@ -143,7 +143,10 @@ class SessionStateWatcher(TraceForgeIngestBase):
     async def _discovery_loop(self) -> None:
         while self._running:
             try:
-                for session_id, cwd, _summary in await asyncio.to_thread(self._query_new_sessions):
+                managed_paths = await self._managed_repo_paths()
+                for session_id, cwd, _summary in await asyncio.to_thread(
+                    self._query_new_sessions, managed_paths
+                ):
                     if session_id in self._tracked_sessions:
                         continue
                     self._tracked_sessions.add(session_id)
@@ -154,10 +157,25 @@ class SessionStateWatcher(TraceForgeIngestBase):
                 log.debug("session_state_watcher_discovery_error", exc_info=True)
             await asyncio.sleep(_DISCOVERY_POLL_S)
 
-    def _query_new_sessions(self) -> list[tuple[str, str, str]]:
-        if not _SESSION_STORE_PATH.exists() or not self._config.repos:
+    async def _managed_repo_paths(self) -> list[str]:
+        from backend.services.project.repo_membership import (
+            list_managed_repo_paths_from_factory,
+        )
+
+        return await list_managed_repo_paths_from_factory(
+            self._config, self._session_factory
+        )
+
+    def _query_new_sessions(
+        self, managed_repo_paths: list[str] | None = None
+    ) -> list[tuple[str, str, str]]:
+        managed_paths = set(
+            self._config.repos
+            if managed_repo_paths is None
+            else managed_repo_paths
+        )
+        if not _SESSION_STORE_PATH.exists() or not managed_paths:
             return []
-        managed_paths = set(self._config.repos)
         results: list[tuple[str, str, str]] = []
         try:
             db = sqlite3.connect(str(_SESSION_STORE_PATH), timeout=2.0)

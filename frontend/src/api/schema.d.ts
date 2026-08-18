@@ -2172,33 +2172,33 @@ export interface paths {
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        get: operations["preview_proxy_api_preview__port___path__delete"];
+        get: operations["preview_proxy_api_preview__port___path__put"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        put: operations["preview_proxy_api_preview__port___path__delete"];
+        put: operations["preview_proxy_api_preview__port___path__put"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        post: operations["preview_proxy_api_preview__port___path__delete"];
+        post: operations["preview_proxy_api_preview__port___path__put"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        delete: operations["preview_proxy_api_preview__port___path__delete"];
+        delete: operations["preview_proxy_api_preview__port___path__put"];
         options?: never;
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        head: operations["preview_proxy_api_preview__port___path__delete"];
+        head: operations["preview_proxy_api_preview__port___path__put"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        patch: operations["preview_proxy_api_preview__port___path__delete"];
+        patch: operations["preview_proxy_api_preview__port___path__put"];
         trace?: never;
     };
     "/api/jobs/{job_id}/share": {
@@ -2533,6 +2533,26 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/settings/credentials/{credential_id}/jira-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Jira Credential Email
+         * @description Remediate a legacy Jira credential without reading or replacing its token.
+         */
+        patch: operations["update_jira_credential_email_api_settings_credentials__credential_id__jira_email_patch"];
         trace?: never;
     };
     "/api/metrics/chat": {
@@ -3963,6 +3983,8 @@ export interface components {
             trackerTicketRef: string;
             /** Promptoverride */
             promptOverride: string;
+            /** Outputroutes */
+            outputRoutes?: "tracker_write"[];
         };
         /** CreateProjectRequest */
         CreateProjectRequest: {
@@ -4042,6 +4064,8 @@ export interface components {
             baseUrl: string;
             /** Email */
             email: string | null;
+            /** Requiresemailupdate */
+            requiresEmailUpdate: boolean;
             /** Createdat */
             createdAt: string;
         };
@@ -7300,7 +7324,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "waiting" | "ready" | "running" | "completed" | "failed";
+            state: "waiting" | "ready" | "starting" | "running" | "completed" | "failed";
             /** Jobid */
             jobId: string | null;
             /** Trackerlinkid */
@@ -7311,6 +7335,8 @@ export interface components {
             promptOverride: string | null;
             /** Epicid */
             epicId: string | null;
+            /** Outputroutes */
+            outputRoutes: string[];
             /**
              * Createdat
              * Format: date-time
@@ -8250,6 +8276,11 @@ export interface components {
             preset?: string | null;
             /** Batchwindowseconds */
             batchWindowSeconds?: number | null;
+        };
+        /** UpdateJiraCredentialRequest */
+        UpdateJiraCredentialRequest: {
+            /** Email */
+            email: string;
         };
         /** UpdateMetricRequest */
         UpdateMetricRequest: {
@@ -11755,7 +11786,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -11785,7 +11816,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -11815,7 +11846,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -11845,7 +11876,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -11875,7 +11906,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -11905,7 +11936,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -12569,6 +12600,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_jira_credential_email_api_settings_credentials__credential_id__jira_email_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateJiraCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

@@ -177,6 +177,7 @@ class RecipeService:
         tracker_link_id: str | None = None,
         tracker_ticket_ref: str,
         prompt_override: str,
+        output_routes: list[str] | None = None,
     ) -> TaskLink:
         """Create a fresh TaskLink directly against an existing tracker ticket."""
         project = await self._project_service.get(project_id)
@@ -197,6 +198,7 @@ class RecipeService:
                 repo_path=resolved_repo_path,
                 tracker_ticket_ref=tracker_ticket_ref,
                 prompt_override=prompt_override,
+                output_routes=output_routes,
             )
         return await self._task_link_repo.create_manual(
             project_id=project_id,
@@ -204,6 +206,7 @@ class RecipeService:
             tracker_link_id=tracker_link_id,
             tracker_ticket_ref=tracker_ticket_ref,
             prompt_override=prompt_override,
+            output_routes=output_routes,
         )
 
     async def list_task_links(self, project_id: str) -> list[TaskLink]:
@@ -262,7 +265,9 @@ class RecipeService:
         links_by_key = {key: link for link in links if (key := self._composite_key(link)) is not None}
         refreshed: list[TaskLink] = []
         for link in links:
-            if link.job_id is not None:
+            if link.state == TaskLinkState.starting and link.job_id is None:
+                desired = TaskLinkState.starting
+            elif link.job_id is not None:
                 job = await self._job_repo.get(link.job_id)
                 if job is None:
                     desired = TaskLinkState.failed
@@ -291,10 +296,10 @@ class RecipeService:
         *,
         parent_job_id: str | None,
     ) -> tuple[TaskLink, Job] | None:
-        """Claim before Job creation, then attach both records in one transaction."""
+        """Commit a short claim before Git-backed Job creation, then attach atomically."""
         if self._job_service is None:
             raise StateConflictError("Job creation is unavailable.")
-        claimed = await self._task_link_repo.claim_ready(task_link.id)
+        claimed = await self._task_link_repo.claim_ready_and_commit(task_link.id)
         if claimed is None:
             return None
         try:
@@ -306,7 +311,7 @@ class RecipeService:
                 )
             )
         except Exception:
-            await self._task_link_repo.set_state(claimed.id, TaskLinkState.ready)
+            await self._task_link_repo.recover_start_claim(claimed.id)
             raise
         attached = await self._task_link_repo.attach_claimed_job(
             claimed.id,
@@ -314,6 +319,7 @@ class RecipeService:
             state=TaskLinkState.failed if new_job.state == JobState.failed else TaskLinkState.running,
         )
         if attached is None:
+            await self._task_link_repo.recover_start_claim(claimed.id)
             raise StateConflictError(f"TaskLink '{claimed.id}' lost its start claim.")
         return attached, new_job
 
@@ -328,6 +334,17 @@ class RecipeService:
         if task_link.state != TaskLinkState.ready:
             raise StateConflictError(
                 f"TaskLink '{task_link_id}' is {task_link.state.value}; only ready TaskLinks can start."
+            )
+        pending_action = f"{_SPAWN_TASK_ACTION_PREFIX}{task_link.id}"
+        if self._approval_service is not None:
+            pending = await self._approval_service.list_pending()
+            if any(approval.proposed_action == pending_action for approval in pending):
+                raise StateConflictError(
+                    f"TaskLink '{task_link_id}' has a pending chain approval and cannot be started directly."
+                )
+        if task_link.depends_on and await self._is_chain_gated(task_link.chain_root_id or task_link.id):
+            raise StateConflictError(
+                f"TaskLink '{task_link_id}' belongs to a gated chain and requires approval before it can start."
             )
         started = await self._start_ready_task_link(task_link, parent_job_id=None)
         if started is None:
@@ -480,6 +497,8 @@ class RecipeService:
         `_fire_and_forget` helper instead.
         """
         if self._tracker_write_service is None or self._tracker_link_repo is None:
+            return
+        if "tracker_write" not in task_link.output_routes:
             return
         if not task_link.tracker_ticket_ref:
             return

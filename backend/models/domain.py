@@ -172,6 +172,7 @@ class TaskLinkState(StrEnum):
 
     waiting = "waiting"
     ready = "ready"
+    starting = "starting"
     running = "running"
     completed = "completed"
     failed = "failed"
@@ -783,6 +784,7 @@ class TaskLink:
     state: TaskLinkState = TaskLinkState.waiting
     tracker_link_id: str | None = None
     chain_root_id: str = ""
+    output_routes: list[str] = field(default_factory=list)
 
 
 @dataclass

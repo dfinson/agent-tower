@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import { FolderGit2, PlayCircle, Clock, AlertTriangle, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { fetchProjectsSummary } from "../api/client";
@@ -9,6 +9,7 @@ import { Button } from "./ui/button";
 import { pathBasename } from "../lib/paths";
 import { matchesNameFilter } from "../lib/nameFilter";
 import { CreateProjectDialog } from "./CreateProjectDialog";
+import type { RepoLayoutOutletContext } from "./RepoLayout";
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -68,6 +69,7 @@ function ProjectCard({ project, onOpen }: { project: ProjectSummaryResponse; onO
 
 export function ProjectsOverview() {
   const navigate = useNavigate();
+  const layoutContext = useOutletContext<RepoLayoutOutletContext | null>();
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<ProjectSummaryResponse[]>([]);
   const [filterQuery, setFilterQuery] = useState("");
@@ -122,7 +124,14 @@ export function ProjectsOverview() {
           open={createOpen}
           onClose={() => setCreateOpen(false)}
           onCreated={(project) => {
-            void load();
+            layoutContext?.onProjectCreated(project);
+            setProjects((current) => [...current, {
+              ...project,
+              activeJobCount: 0,
+              awaitingInputCount: 0,
+              failedCount: 0,
+              lastActivityAt: null,
+            }]);
             navigate(`/projects/id/${encodeURIComponent(project.id)}`);
           }}
         />
@@ -179,7 +188,14 @@ export function ProjectsOverview() {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onCreated={(project) => {
-          void load();
+          layoutContext?.onProjectCreated(project);
+          setProjects((current) => [...current, {
+            ...project,
+            activeJobCount: 0,
+            awaitingInputCount: 0,
+            failedCount: 0,
+            lastActivityAt: null,
+          }]);
           navigate(`/projects/id/${encodeURIComponent(project.id)}`);
         }}
       />

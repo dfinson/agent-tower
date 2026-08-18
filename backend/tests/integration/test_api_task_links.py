@@ -170,6 +170,7 @@ class TestCreateManualTaskLink:
                 "trackerLinkId": tracker_link_id,
                 "trackerTicketRef": "JIRA-123",
                 "promptOverride": "Implement the ticket",
+                "outputRoutes": ["tracker_write"],
             },
         )
 
@@ -183,6 +184,7 @@ class TestCreateManualTaskLink:
         assert body["dependsOn"] == []
         assert body["jobId"] is None
         assert body["epicId"] is None
+        assert body["outputRoutes"] == ["tracker_write"]
 
         listed = await client.get(f"/api/settings/projects/{project_id}/task-links")
         assert listed.status_code == 200

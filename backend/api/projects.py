@@ -68,6 +68,7 @@ def _task_link_to_response(task_link: TaskLink) -> TaskLinkResponse:
         tracker_ticket_ref=task_link.tracker_ticket_ref,
         prompt_override=task_link.prompt_override,
         epic_id=task_link.epic_id,
+        output_routes=task_link.output_routes,
         created_at=task_link.created_at,
         updated_at=task_link.updated_at,
     )
@@ -179,6 +180,7 @@ async def create_manual_task_link(
         tracker_link_id=body.tracker_link_id,
         tracker_ticket_ref=body.tracker_ticket_ref,
         prompt_override=body.prompt_override,
+        output_routes=list(body.output_routes),
     )
     return _task_link_to_response(task_link)
 

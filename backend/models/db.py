@@ -606,6 +606,7 @@ class TaskLinkRow(Base):
     tracker_ticket_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     prompt_override: Mapped[str | None] = mapped_column(Text, nullable=True)
     epic_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    output_routes: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
     created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
 

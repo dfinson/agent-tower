@@ -13,6 +13,7 @@ import { pathBasename } from "../lib/paths";
 
 export interface RepoLayoutOutletContext {
   onProjectUpdated: (project: ProjectResponse) => void;
+  onProjectCreated: (project: ProjectResponse) => void;
 }
 
 export function RepoLayout() {
@@ -23,12 +24,15 @@ export function RepoLayout() {
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const loadProjects = useCallback(async () => {
     try {
       const res = await fetchProjects();
       setProjects(res.items);
+      setLoadFailed(false);
     } catch {
+      setLoadFailed(true);
       toast.error("Failed to load Projects");
     } finally {
       setLoading(false);
@@ -39,6 +43,12 @@ export function RepoLayout() {
 
   const onProjectUpdated = useCallback((updated: ProjectResponse) => {
     setProjects((current) => current.map((project) => project.id === updated.id ? updated : project));
+  }, []);
+
+  const onProjectCreated = useCallback((created: ProjectResponse) => {
+    setProjects((current) => current.some((project) => project.id === created.id)
+      ? current.map((project) => project.id === created.id ? created : project)
+      : [...current, created]);
   }, []);
 
   const filteredProjects = projects.filter((project) => matchesNameFilter(project.name, filterQuery));
@@ -58,6 +68,10 @@ export function RepoLayout() {
   if (!loading && activeProject && repoPath && !activeProject.repoPaths.includes(repoPath)) {
     return <Navigate to={`${projectUrl}/board`} replace />;
   }
+  // Direct project-id routes are the canonical shell and can resolve their own
+  // Project context by ID, even before the sidebar list is hydrated. Redirecting
+  // here breaks the stable project route on fresh loads and when a Project is
+  // returned from a direct fetch but not yet present in the global list.
 
   return (
     <div className="flex h-full min-h-0">
@@ -210,7 +224,15 @@ export function RepoLayout() {
                 </div>
               </div>
             )}
-            <Outlet context={{ onProjectUpdated } satisfies RepoLayoutOutletContext} />
+            {loading ? (
+              <div className="flex justify-center py-16"><Spinner /></div>
+            ) : loadFailed ? (
+              <div role="alert" className="rounded-lg border border-red-500/40 bg-card p-8 text-center">
+                Project navigation could not be loaded.
+              </div>
+            ) : (
+              <Outlet context={{ onProjectUpdated, onProjectCreated } satisfies RepoLayoutOutletContext} />
+            )}
           </>
         )}
       </div>

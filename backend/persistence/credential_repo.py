@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from backend.models.db import CredentialRow, TrackerLinkRow
 from backend.persistence.repository import BaseRepository
@@ -71,6 +71,18 @@ class CredentialRepository(BaseRepository):
             )
         result = await self._session.execute(delete(CredentialRow).where(CredentialRow.id == credential_id))
         return cast("CursorResult[Any]", result).rowcount > 0
+
+    async def update_email(self, credential_id: str, email: str) -> dict[str, Any] | None:
+        """Update Jira account identity without touching the encrypted token."""
+        result = await self._session.execute(
+            update(CredentialRow)
+            .where(CredentialRow.id == credential_id, CredentialRow.provider == "jira")
+            .values(email=email)
+        )
+        if cast("CursorResult[Any]", result).rowcount == 0:
+            return None
+        await self._session.flush()
+        return await self.get(credential_id)
 
     async def resolve_secret(self, credential_id: str) -> str | None:
         """Decrypt and return the PAT for server-side use only (never for API responses)."""

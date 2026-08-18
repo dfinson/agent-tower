@@ -192,6 +192,7 @@ class CreateManualTaskLinkRequest(CamelModel):
     tracker_link_id: str = Field(min_length=1)
     tracker_ticket_ref: str = Field(min_length=1)
     prompt_override: str = Field(min_length=1)
+    output_routes: list[Literal["tracker_write"]] = Field(default_factory=list)
 
     @field_validator("repo_path", "tracker_link_id", "tracker_ticket_ref", "prompt_override")
     @classmethod
@@ -516,12 +517,13 @@ class TaskLinkResponse(CamelModel):
     story_node_id: str | None
     depends_on: list[str]
     chain_root_id: str
-    state: Literal["waiting", "ready", "running", "completed", "failed"]
+    state: Literal["waiting", "ready", "starting", "running", "completed", "failed"]
     job_id: str | None
     tracker_link_id: str | None
     tracker_ticket_ref: str | None
     prompt_override: str | None
     epic_id: str | None
+    output_routes: list[str]
     created_at: datetime
     updated_at: datetime
 

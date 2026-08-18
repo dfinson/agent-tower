@@ -15,6 +15,7 @@ from backend.models.domain import (
     JobState,
     Project,
     RepoNotAllowedError,
+    StateConflictError,
     TaskLink,
     TaskLinkState,
 )
@@ -247,6 +248,7 @@ class TestCreateManualTaskLink:
             tracker_link_id="tracker-1",
             tracker_ticket_ref="PAY-42",
             prompt_override="Implement PAY-42",
+            output_routes=None,
         )
         service = RecipeService(
             mock_task_link_repo,
@@ -269,6 +271,7 @@ class TestCreateManualTaskLink:
             tracker_link_id="tracker-1",
             tracker_ticket_ref="PAY-42",
             prompt_override="Implement PAY-42",
+            output_routes=None,
         )
 
     @pytest.mark.asyncio
@@ -290,6 +293,7 @@ class TestCreateManualTaskLink:
             job_id=None,
             tracker_ticket_ref="JIRA-123",
             prompt_override="Implement this ticket",
+            output_routes=None,
             epic_id=None,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -310,6 +314,7 @@ class TestCreateManualTaskLink:
             repo_path=str(repo_path),
             tracker_ticket_ref="JIRA-123",
             prompt_override="Implement this ticket",
+            output_routes=None,
         )
 
     @pytest.mark.asyncio
@@ -350,6 +355,7 @@ def _make_task_link(
     tracker_ticket_ref: str | None = None,
     prompt_override: str | None = None,
     chain_root_id: str | None = None,
+    output_routes: list[str] | None = None,
 ) -> TaskLink:
     now = datetime.now(UTC)
     return TaskLink(
@@ -367,6 +373,7 @@ def _make_task_link(
         created_at=now,
         updated_at=now,
         chain_root_id=chain_root_id or id,
+        output_routes=output_routes or [],
     )
 
 
@@ -475,11 +482,11 @@ class TestHandleJobCompleted:
         mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
         new_job = _make_job(id="job-2", state=JobState.preparing)
         mock_job_service.create_job.return_value = new_job
-        mock_task_link_repo.claim_ready.return_value = _make_task_link(
+        mock_task_link_repo.claim_ready_and_commit.return_value = _make_task_link(
             id="link-b",
             story_node_id="1-2-b",
             depends_on=["/repo/a::1-1-a"],
-            state=TaskLinkState.running,
+            state=TaskLinkState.starting,
         )
         mock_task_link_repo.attach_claimed_job.return_value = _make_task_link(
             id="link-b",
@@ -499,7 +506,7 @@ class TestHandleJobCompleted:
         spec = mock_job_service.create_job.call_args.args[0]
         assert spec.repo == "/repo/a"
         assert spec.parent_job_id == "job-1"
-        mock_task_link_repo.claim_ready.assert_awaited_once_with("link-b")
+        mock_task_link_repo.claim_ready_and_commit.assert_awaited_once_with("link-b")
         mock_task_link_repo.attach_claimed_job.assert_awaited_once_with(
             "link-b", "job-2", state=TaskLinkState.running
         )
@@ -602,11 +609,11 @@ class TestHandleJobCompleted:
         mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
         new_job = _make_job(id="job-2", state=JobState.preparing)
         mock_job_service.create_job.return_value = new_job
-        mock_task_link_repo.claim_ready.return_value = _make_task_link(
+        mock_task_link_repo.claim_ready_and_commit.return_value = _make_task_link(
             id="link-b",
             story_node_id=None,
             depends_on=["/repo/a::1-1-a"],
-            state=TaskLinkState.running,
+            state=TaskLinkState.starting,
             tracker_ticket_ref="JIRA-9",
             prompt_override="Do exactly this",
         )
@@ -673,6 +680,7 @@ class TestHandleJobCompletedTrackerWrite:
             job_id="job-1",
             tracker_link_id="trk-2",
             tracker_ticket_ref="JIRA-42",
+            output_routes=["tracker_write"],
         )
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link]
@@ -722,6 +730,7 @@ class TestHandleJobCompletedTrackerWrite:
             job_id="job-1",
             tracker_link_id="trk-1",
             tracker_ticket_ref="JIRA-7",
+            output_routes=["tracker_write"],
         )
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_tracker_link_repo.get.return_value = {
@@ -755,7 +764,13 @@ class TestHandleJobCompletedTrackerWrite:
         mock_tracker_link_repo: AsyncMock,
         mock_tracker_write_service: AsyncMock,
     ) -> None:
-        completed_link = _make_task_link(id="link-a", story_node_id="1-1-a", job_id="job-1", tracker_ticket_ref=None)
+        completed_link = _make_task_link(
+            id="link-a",
+            story_node_id="1-1-a",
+            job_id="job-1",
+            tracker_ticket_ref=None,
+            output_routes=["tracker_write"],
+        )
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link]
 
@@ -767,6 +782,39 @@ class TestHandleJobCompletedTrackerWrite:
             tracker_link_repo=mock_tracker_link_repo,
             tracker_write_service=mock_tracker_write_service,
         )
+        await service.handle_job_completed("job-1", resolution="merged")
+
+        mock_tracker_link_repo.get.assert_not_awaited()
+        mock_tracker_write_service.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_write_when_tracker_output_route_is_not_configured(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+        mock_tracker_link_repo: AsyncMock,
+        mock_tracker_write_service: AsyncMock,
+    ) -> None:
+        completed_link = _make_task_link(
+            id="link-a",
+            story_node_id="1-1-a",
+            job_id="job-1",
+            tracker_link_id="trk-1",
+            tracker_ticket_ref="JIRA-42",
+        )
+        mock_task_link_repo.get_by_job_id.return_value = completed_link
+        mock_task_link_repo.list_by_project.return_value = [completed_link]
+        service = RecipeService(
+            mock_task_link_repo,
+            mock_project_service,
+            job_service=mock_job_service,
+            job_repo=mock_job_repo,
+            tracker_link_repo=mock_tracker_link_repo,
+            tracker_write_service=mock_tracker_write_service,
+        )
+
         await service.handle_job_completed("job-1", resolution="merged")
 
         mock_tracker_link_repo.get.assert_not_awaited()
@@ -788,6 +836,7 @@ class TestHandleJobCompletedTrackerWrite:
             job_id="job-1",
             tracker_link_id="missing",
             tracker_ticket_ref="JIRA-42",
+            output_routes=["tracker_write"],
         )
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link]
@@ -814,7 +863,11 @@ class TestHandleJobCompletedTrackerWrite:
         mock_job_service: AsyncMock,
     ) -> None:
         completed_link = _make_task_link(
-            id="link-a", story_node_id="1-1-a", job_id="job-1", tracker_ticket_ref="JIRA-42"
+            id="link-a",
+            story_node_id="1-1-a",
+            job_id="job-1",
+            tracker_ticket_ref="JIRA-42",
+            output_routes=["tracker_write"],
         )
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link]
@@ -845,6 +898,187 @@ def _make_approval(*, proposed_action: str | None, job_id: str = "job-1") -> App
         proposed_action=proposed_action,
         requested_at=now,
     )
+
+
+class TestStartTaskLinkGatingAndClaims:
+    @staticmethod
+    def _ready_chain() -> tuple[TaskLink, TaskLink]:
+        root = _make_task_link(
+            id="link-a",
+            story_node_id="1-1-a",
+            state=TaskLinkState.completed,
+            job_id="job-1",
+        )
+        dependent = _make_task_link(
+            id="link-b",
+            story_node_id="1-2-b",
+            depends_on=["/repo/a::1-1-a"],
+            chain_root_id="link-a",
+        )
+        return root, dependent
+
+    @pytest.mark.asyncio
+    async def test_direct_dependent_start_rejects_attached_chat_gated_chain(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+        mock_chat_repo: AsyncMock,
+        mock_approval_service: AsyncMock,
+    ) -> None:
+        root, dependent = self._ready_chain()
+        mock_task_link_repo.get.return_value = dependent
+        mock_task_link_repo.list_by_project.return_value = [root, dependent]
+        mock_job_repo.get.return_value = _make_job(
+            id="job-1", state=JobState.completed, resolution="merged"
+        )
+        mock_approval_service.list_pending.return_value = []
+        mock_chat_repo.get_attached_open_chat_for_chain.return_value = object()
+        service = RecipeService(
+            mock_task_link_repo,
+            mock_project_service,
+            job_service=mock_job_service,
+            job_repo=mock_job_repo,
+            chat_repo=mock_chat_repo,
+            approval_service=mock_approval_service,
+        )
+
+        with pytest.raises(StateConflictError, match="requires approval"):
+            await service.start_task_link("proj-1", "link-b")
+
+        mock_task_link_repo.claim_ready_and_commit.assert_not_awaited()
+        mock_job_service.create_job.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_direct_start_rejects_matching_pending_chain_approval(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+        mock_approval_service: AsyncMock,
+    ) -> None:
+        root = _make_task_link(id="link-a")
+        mock_task_link_repo.get.return_value = root
+        mock_task_link_repo.list_by_project.return_value = [root]
+        mock_approval_service.list_pending.return_value = [
+            _make_approval(proposed_action="spawn_task:link-a")
+        ]
+        service = RecipeService(
+            mock_task_link_repo,
+            mock_project_service,
+            job_service=mock_job_service,
+            job_repo=mock_job_repo,
+            approval_service=mock_approval_service,
+        )
+
+        with pytest.raises(StateConflictError, match="pending chain approval"):
+            await service.start_task_link("proj-1", "link-a")
+
+        mock_task_link_repo.claim_ready_and_commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_dependency_free_root_start_remains_allowed_in_gated_chain(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+        mock_chat_repo: AsyncMock,
+        mock_approval_service: AsyncMock,
+    ) -> None:
+        root = _make_task_link(id="link-a")
+        claimed = _make_task_link(id="link-a", state=TaskLinkState.starting)
+        attached = _make_task_link(id="link-a", state=TaskLinkState.running, job_id="job-1")
+        job = _make_job(id="job-1", state=JobState.preparing)
+        mock_task_link_repo.get.return_value = root
+        mock_task_link_repo.list_by_project.return_value = [root]
+        mock_task_link_repo.claim_ready_and_commit.return_value = claimed
+        mock_task_link_repo.attach_claimed_job.return_value = attached
+        mock_job_service.create_job.return_value = job
+        mock_approval_service.list_pending.return_value = []
+        mock_chat_repo.get_attached_open_chat_for_chain.return_value = object()
+        service = RecipeService(
+            mock_task_link_repo,
+            mock_project_service,
+            job_service=mock_job_service,
+            job_repo=mock_job_repo,
+            chat_repo=mock_chat_repo,
+            approval_service=mock_approval_service,
+        )
+
+        started_link, started_job = await service.start_task_link("proj-1", "link-a")
+
+        assert started_link == attached
+        assert started_job == job
+        mock_chat_repo.get_attached_open_chat_for_chain.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_claim_is_committed_before_git_backed_job_creation(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+    ) -> None:
+        events: list[str] = []
+        root = _make_task_link(id="link-a")
+        claimed = _make_task_link(id="link-a", state=TaskLinkState.starting)
+        job = _make_job(id="job-1", state=JobState.preparing)
+        attached = _make_task_link(id="link-a", state=TaskLinkState.running, job_id="job-1")
+        mock_task_link_repo.get.return_value = root
+        mock_task_link_repo.list_by_project.return_value = [root]
+
+        async def claim(_: str) -> TaskLink:
+            events.append("claim-committed")
+            return claimed
+
+        async def create_job(_: object) -> Job:
+            events.append("git-preparation")
+            return job
+
+        mock_task_link_repo.claim_ready_and_commit.side_effect = claim
+        mock_job_service.create_job.side_effect = create_job
+        mock_task_link_repo.attach_claimed_job.return_value = attached
+        service = RecipeService(
+            mock_task_link_repo,
+            mock_project_service,
+            job_service=mock_job_service,
+            job_repo=mock_job_repo,
+        )
+
+        await service.start_task_link("proj-1", "link-a")
+
+        assert events == ["claim-committed", "git-preparation"]
+
+    @pytest.mark.asyncio
+    async def test_failed_job_creation_recovers_committed_claim(
+        self,
+        mock_task_link_repo: AsyncMock,
+        mock_project_service: AsyncMock,
+        mock_job_repo: AsyncMock,
+        mock_job_service: AsyncMock,
+    ) -> None:
+        root = _make_task_link(id="link-a")
+        mock_task_link_repo.get.return_value = root
+        mock_task_link_repo.list_by_project.return_value = [root]
+        mock_task_link_repo.claim_ready_and_commit.return_value = _make_task_link(
+            id="link-a", state=TaskLinkState.starting
+        )
+        mock_job_service.create_job.side_effect = RuntimeError("git failed")
+        service = RecipeService(
+            mock_task_link_repo,
+            mock_project_service,
+            job_service=mock_job_service,
+            job_repo=mock_job_repo,
+        )
+
+        with pytest.raises(RuntimeError, match="git failed"):
+            await service.start_task_link("proj-1", "link-a")
+
+        mock_task_link_repo.recover_start_claim.assert_awaited_once_with("link-a")
+        mock_task_link_repo.attach_claimed_job.assert_not_awaited()
 
 
 class TestHandleJobCompletedGating:
@@ -1052,8 +1286,8 @@ class TestSpawnApprovedTaskLink:
         mock_task_link_repo.get.return_value = task_link
         mock_task_link_repo.list_by_project.return_value = [task_link]
         mock_task_link_repo.set_state.return_value = task_link
-        mock_task_link_repo.claim_ready.return_value = _make_task_link(
-            id="link-b", story_node_id="1-2-b", state=TaskLinkState.running
+        mock_task_link_repo.claim_ready_and_commit.return_value = _make_task_link(
+            id="link-b", story_node_id="1-2-b", state=TaskLinkState.starting
         )
         new_job = _make_job(id="job-2", state=JobState.preparing)
         mock_job_service.create_job.return_value = new_job
@@ -1071,7 +1305,7 @@ class TestSpawnApprovedTaskLink:
         spec = mock_job_service.create_job.call_args.args[0]
         assert spec.repo == task_link.repo_path
         assert spec.parent_job_id == "job-1"
-        mock_task_link_repo.claim_ready.assert_awaited_once_with("link-b")
+        mock_task_link_repo.claim_ready_and_commit.assert_awaited_once_with("link-b")
         mock_task_link_repo.attach_claimed_job.assert_awaited_once_with(
             "link-b", "job-2", state=TaskLinkState.running
         )

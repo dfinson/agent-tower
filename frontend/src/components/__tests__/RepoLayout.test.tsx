@@ -1,7 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { MemoryRouter, Routes, Route, useOutletContext } from "react-router-dom";
+import {
+  MemoryRouter,
+  Routes,
+  Route,
+  useNavigate,
+  useOutletContext,
+} from "react-router-dom";
 
 vi.mock("../../api/client", () => ({
   fetchProjects: vi.fn(),
@@ -44,6 +50,25 @@ function MembershipUpdater() {
       })}
     >
       Apply membership
+    </button>
+  );
+}
+
+function ProjectCreator() {
+  const { onProjectCreated } = useOutletContext<RepoLayoutOutletContext>();
+  const navigate = useNavigate();
+  return (
+    <button onClick={() => {
+      onProjectCreated({
+        id: "created",
+        name: "created-project",
+        repoPaths: ["/repos/created"],
+        createdAt: "",
+        updatedAt: "",
+      });
+      navigate("/projects/id/created/settings");
+    }}>
+      Create and open
     </button>
   );
 }
@@ -150,5 +175,53 @@ describe("RepoLayout project sidebar", () => {
 
     expect(screen.queryByRole("option", { name: "old" })).not.toBeInTheDocument();
     expect(screen.getByRole("option", { name: "new" })).toBeInTheDocument();
+  });
+
+  it("lets direct project routes mount while the sidebar list resolves project membership", async () => {
+    let resolveProjects!: (value: { items: never[] }) => void;
+    vi.mocked(fetchProjects).mockReturnValueOnce(new Promise((resolve) => {
+      resolveProjects = resolve;
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/projects/id/missing/settings"]}>
+        <Routes>
+          <Route path="/projects" element={<RepoLayout />}>
+            <Route path="id/:projectId/settings" element={<div>Unknown child content</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Unknown child content")).not.toBeInTheDocument();
+    resolveProjects({ items: [] });
+    expect(await screen.findByText("No Projects")).toBeInTheDocument();
+    expect(screen.getByText("Unknown child content")).toBeInTheDocument();
+  });
+
+  it("adds a newly created Project to the shell before navigating to its child", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{
+        id: "seed",
+        name: "seed-project",
+        repoPaths: ["/repos/seed"],
+      }],
+    } as any);
+
+    render(
+      <MemoryRouter initialEntries={["/projects/id/seed/create-test"]}>
+        <Routes>
+          <Route path="/projects" element={<RepoLayout />}>
+            <Route path="id/:projectId/create-test" element={<ProjectCreator />} />
+            <Route path="id/:projectId/settings" element={<div>Created project page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create and open" }));
+
+    expect(await screen.findByText("Created project page")).toBeInTheDocument();
+    expect(screen.getAllByText("created-project")).toHaveLength(2);
   });
 });

@@ -725,6 +725,7 @@ export interface Credential {
   label: string;
   baseUrl: string;
   email: string | null;
+  requiresEmailUpdate: boolean;
   createdAt: string;
 }
 
@@ -754,6 +755,13 @@ export function createCredential(body: CreateCredentialRequest): Promise<Credent
 export function deleteCredential(credentialId: string): Promise<void> {
   return request(`/settings/credentials/${encodeURIComponent(credentialId)}`, {
     method: "DELETE",
+  });
+}
+
+export function updateJiraCredentialEmail(credentialId: string, email: string): Promise<Credential> {
+  return request(`/settings/credentials/${encodeURIComponent(credentialId)}/jira-email`, {
+    method: "PATCH",
+    body: JSON.stringify({ email }),
   });
 }
 

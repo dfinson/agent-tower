@@ -16,12 +16,21 @@ branch_labels = None
 depends_on = None
 
 
+def _has_column(table_name: str, column_name: str) -> bool:
+    conn = op.get_bind()
+    rows = conn.execute(sa.text(f"PRAGMA table_info({table_name})")).fetchall()
+    return any(row[1] == column_name for row in rows)
+
+
 def upgrade() -> None:
-    op.add_column(
-        "task_links",
-        sa.Column("chain_root_id", sa.String(), nullable=False, server_default=""),
-    )
-    op.add_column("credentials", sa.Column("email", sa.String(), nullable=True))
+    if not _has_column("task_links", "chain_root_id"):
+        with op.batch_alter_table("task_links", recreate="always") as batch_op:
+            batch_op.add_column(
+                sa.Column("chain_root_id", sa.String(), nullable=False, server_default=""),
+            )
+    if not _has_column("credentials", "email"):
+        with op.batch_alter_table("credentials", recreate="always") as batch_op:
+            batch_op.add_column(sa.Column("email", sa.String(), nullable=True))
 
     connection = op.get_bind()
     rows = (
@@ -109,5 +118,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("credentials", "email")
-    op.drop_column("task_links", "chain_root_id")
+    if _has_column("credentials", "email"):
+        with op.batch_alter_table("credentials", recreate="always") as batch_op:
+            batch_op.drop_column("email")
+    if _has_column("task_links", "chain_root_id"):
+        with op.batch_alter_table("task_links", recreate="always") as batch_op:
+            batch_op.drop_column("chain_root_id")

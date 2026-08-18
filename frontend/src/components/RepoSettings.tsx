@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, Link, useOutletContext } from "react-router-dom";
 import { ArrowLeft, Settings, GitBranch, Globe, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -39,8 +39,11 @@ export function RepoSettings() {
   const [removalConfirmOpen, setRemovalConfirmOpen] = useState(false);
   const [trackerLinkToDetach, setTrackerLinkToDetach] = useState<TrackerLinkResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const loadGeneration = useRef(0);
+  const currentProjectId = useRef(projectId);
+  currentProjectId.current = projectId;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (generation: number) => {
     if (!projectId) return;
     setLoading(true);
     setLoadError(null);
@@ -56,20 +59,22 @@ export function RepoSettings() {
         fetchProject(projectId),
         fetchCredentials(),
       ]);
+      if (generation !== loadGeneration.current) return;
       const nextCredentials = credentialsResp.credentials ?? [];
       setCredentials(nextCredentials);
       setSelectedCredentialId((current) => current || nextCredentials[0]?.id || "");
       setProject(proj);
       setProjectName(proj.name);
       setRepoPaths(proj.repoPaths);
-      if (repoPath && proj.repoPaths.includes(repoPath)) {
-        setDetail(await fetchRepoDetail(repoPath));
-      } else {
-        setDetail(null);
-      }
-      const trackerResp = await fetchTrackerLinks(proj.id);
+      const [repoDetail, trackerResp] = await Promise.all([
+        repoPath && proj.repoPaths.includes(repoPath) ? fetchRepoDetail(repoPath) : Promise.resolve(null),
+        fetchTrackerLinks(proj.id),
+      ]);
+      if (generation !== loadGeneration.current) return;
+      setDetail(repoDetail);
       setTrackerLinks(trackerResp.trackerLinks ?? []);
     } catch {
+      if (generation !== loadGeneration.current) return;
       setProject(null);
       setDetail(null);
       setProjectName("");
@@ -80,14 +85,19 @@ export function RepoSettings() {
       setLoadError("Project details could not be loaded. Check the Project ID and try again.");
       toast.error("Failed to load Project details");
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   }, [projectId, repoPath]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const generation = ++loadGeneration.current;
+    void load(generation);
+    return () => { loadGeneration.current += 1; };
+  }, [load]);
 
   const persistProject = useCallback(async (confirmRepoRemoval: boolean) => {
-    if (!project) return;
+    if (!project || project.id !== projectId) return;
+    const savingProjectId = project.id;
     setSaving(true);
     try {
       const trimmedName = projectName.trim();
@@ -100,6 +110,7 @@ export function RepoSettings() {
         repoPaths: uniquePaths,
         confirmRepoRemoval,
       });
+      if (currentProjectId.current !== savingProjectId) return;
       setProject(updated);
       setProjectName(updated.name);
       setRepoPaths(updated.repoPaths);
@@ -111,7 +122,7 @@ export function RepoSettings() {
     } finally {
       setSaving(false);
     }
-  }, [layoutContext, project, projectName, repoPaths]);
+  }, [layoutContext, project, projectId, projectName, repoPaths]);
 
   const saveProject = useCallback(async () => {
     if (!project) return;

@@ -107,6 +107,47 @@ class TestResolveSecret:
         assert await repo.resolve_secret("nope") is None
 
 
+class TestUpdateJiraEmail:
+    @pytest.mark.asyncio
+    async def test_updates_only_jira_email_and_preserves_encrypted_token(
+        self, session: AsyncSession
+    ) -> None:
+        repo = CredentialRepository(session)
+        await repo.create(
+            credential_id="legacy-jira",
+            provider="jira",
+            label="Legacy Jira",
+            base_url="https://x.atlassian.net",
+            pat="existing-secret",
+            email=None,
+        )
+        await session.commit()
+
+        updated = await repo.update_email("legacy-jira", "dev@example.com")
+        await session.commit()
+
+        assert updated is not None
+        assert updated["email"] == "dev@example.com"
+        assert "pat" not in updated
+        assert await repo.resolve_secret("legacy-jira") == "existing-secret"
+
+    @pytest.mark.asyncio
+    async def test_rejects_email_update_for_non_jira_credential(
+        self, session: AsyncSession
+    ) -> None:
+        repo = CredentialRepository(session)
+        await repo.create(
+            credential_id="github",
+            provider="github",
+            label="GitHub",
+            base_url="https://api.github.com",
+            pat="secret",
+        )
+        await session.commit()
+
+        assert await repo.update_email("github", "dev@example.com") is None
+
+
 class TestDelete:
     @pytest.mark.asyncio
     async def test_delete_succeeds_when_unreferenced(self, session: AsyncSession) -> None:
