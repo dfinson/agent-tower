@@ -68,4 +68,27 @@ describe("RepoOverview", () => {
     expect(screen.queryByRole("link", { name: "Details →" })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText("Select a repository above for details")).toHaveLength(2));
   });
+  it("guides the user to Project settings when no repositories are available", async () => {
+    vi.mocked(fetchProject).mockResolvedValueOnce({
+      id: "project-1",
+      name: "Payments",
+      repoPaths: [],
+    } as any);
+
+    render(
+      <MemoryRouter initialEntries={["/projects/id/project-1"]}>
+        <Routes>
+          <Route path="/projects/id/:projectId" element={<RepoOverview />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText(/This project has no repositories/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Project settings" })).toHaveAttribute(
+      "href",
+      "/projects/id/project-1/settings",
+    );
+  });
+
 });
+
