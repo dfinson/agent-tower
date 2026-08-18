@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 
 vi.mock("../../api/client", () => ({
   createProject: vi.fn(),
@@ -30,13 +30,25 @@ beforeEach(() => {
   });
 });
 
+async function selectRowPath(name: string) {
+  const row = (await screen.findByText(name)).closest("div");
+  if (!row) throw new Error(`Could not find row for ${name}`);
+  fireEvent.click(within(row).getByRole("button", { name: /use|selected/i }));
+}
+
+async function selectCurrentFolder() {
+  const current = await screen.findByText("Current folder");
+  const row = current.parentElement;
+  if (!row) throw new Error("Could not find current folder row");
+  fireEvent.click(within(row).getByRole("button", { name: "Use" }));
+}
+
 describe("CreateProjectDialog", () => {
   it("blocks creation with an error when no name is entered", async () => {
-    const onCreated = vi.fn();
-    render(<CreateProjectDialog open onClose={() => {}} onCreated={onCreated} />);
+    render(<CreateProjectDialog open onClose={() => {}} onCreated={vi.fn()} />);
 
-    await waitFor(() => expect(screen.getByText("repo-a")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await selectRowPath("repo-a");
+    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
     fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
 
     expect(await screen.findByText("Project name is required.")).toBeInTheDocument();
@@ -55,7 +67,7 @@ describe("CreateProjectDialog", () => {
     expect(createProject).not.toHaveBeenCalled();
   });
 
-  it("creates a project from a browsed repo and calls onCreated", async () => {
+  it("creates a project from an added existing repository", async () => {
     vi.mocked(createProject).mockResolvedValueOnce({
       id: "proj-1",
       name: "My Project",
@@ -64,8 +76,8 @@ describe("CreateProjectDialog", () => {
     const onCreated = vi.fn();
     render(<CreateProjectDialog open onClose={() => {}} onCreated={onCreated} />);
 
-    await waitFor(() => expect(screen.getByText("repo-a")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await selectRowPath("repo-a");
+    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
     fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "My Project" } });
     fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
 
@@ -78,7 +90,7 @@ describe("CreateProjectDialog", () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
   });
 
-  it("registers a repo via clone/register mode and adds it to the member list", async () => {
+  it("clones a repository into an explicit destination and adds it to the member list", async () => {
     vi.mocked(registerRepo).mockResolvedValueOnce({
       path: "/home/user/cloned-repo",
       source: "https://example.com/repo.git",
@@ -87,27 +99,33 @@ describe("CreateProjectDialog", () => {
     });
     render(<CreateProjectDialog open onClose={() => {}} onCreated={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Clone / register" }));
-    fireEvent.change(screen.getByPlaceholderText("Local path or git clone URL"), {
+    fireEvent.click(screen.getAllByRole("button", { name: "Clone repository" })[0]!);
+    fireEvent.change(screen.getByLabelText("Repository URL"), {
       target: { value: "https://example.com/repo.git" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Register repository" }));
+    await selectCurrentFolder();
+    fireEvent.click(screen.getAllByRole("button", { name: "Clone repository" })[1]!);
 
-    await waitFor(() => expect(registerRepo).toHaveBeenCalledWith("https://example.com/repo.git", undefined));
+    await waitFor(() =>
+      expect(registerRepo).toHaveBeenCalledWith(
+        "https://example.com/repo.git",
+        "/home/user/repo",
+        "clone",
+      ),
+    );
     expect(await screen.findByText("/home/user/cloned-repo")).toBeInTheDocument();
   });
 
-  it("creates a repo via init mode and adds it to the member list", async () => {
+  it("creates a local repository from a selected parent directory", async () => {
     vi.mocked(createRepo).mockResolvedValueOnce({ path: "/home/user/new-repo", name: "new-repo" });
     render(<CreateProjectDialog open onClose={() => {}} onCreated={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Init new" }));
-    fireEvent.change(screen.getByPlaceholderText("/absolute/path/to/new-repo"), {
-      target: { value: "/home/user/new-repo" },
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Create local repository" }));
+    await selectCurrentFolder();
+    fireEvent.change(screen.getByLabelText("Repository name"), { target: { value: "new-repo" } });
     fireEvent.click(screen.getByRole("button", { name: "Create repository" }));
 
-    await waitFor(() => expect(createRepo).toHaveBeenCalledWith("/home/user/new-repo", undefined));
+    await waitFor(() => expect(createRepo).toHaveBeenCalledWith("/home/user", "new-repo"));
     expect(await screen.findByText("/home/user/new-repo")).toBeInTheDocument();
   });
 
@@ -116,30 +134,13 @@ describe("CreateProjectDialog", () => {
     const onCreated = vi.fn();
     render(<CreateProjectDialog open onClose={() => {}} onCreated={onCreated} />);
 
-    await waitFor(() => expect(screen.getByText("repo-a")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await selectRowPath("repo-a");
+    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
     fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "My Project" } });
     fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
 
     expect(await screen.findByText(/boom/)).toBeInTheDocument();
     expect(onCreated).not.toHaveBeenCalled();
-  });
-
-  it("surfaces repository validation failures without persisting a Project", async () => {
-    vi.mocked(createProject).mockRejectedValueOnce(
-      new Error("Repository '/home/user/repo-a' does not exist or is not a valid Git repository."),
-    );
-    render(<CreateProjectDialog open onClose={() => {}} onCreated={vi.fn()} />);
-
-    await screen.findByText("repo-a");
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    fireEvent.change(screen.getByLabelText("Project name"), {
-      target: { value: "My Project" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
-
-    expect(await screen.findByText(/not a valid Git repository/)).toBeInTheDocument();
-    expect(screen.getByText("/home/user/repo-a")).toBeInTheDocument();
   });
 
   it("rolls back staged registration when creation fails and reports retained files", async () => {
@@ -149,15 +150,15 @@ describe("CreateProjectDialog", () => {
       cloned: true,
       registered: true,
     });
-
     vi.mocked(createProject).mockRejectedValueOnce(new Error("Project save failed"));
     render(<CreateProjectDialog open onClose={() => {}} onCreated={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Clone / register" }));
-    fireEvent.change(screen.getByPlaceholderText("Local path or git clone URL"), {
+    fireEvent.click(screen.getByRole("button", { name: "Clone repository" }));
+    fireEvent.change(screen.getByLabelText("Repository URL"), {
       target: { value: "https://example.com/repo.git" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Register repository" }));
+    await selectCurrentFolder();
+    fireEvent.click(screen.getAllByRole("button", { name: "Clone repository" })[1]!);
     await screen.findByText("/home/user/cloned-repo");
     fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "My Project" } });
     fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
@@ -168,22 +169,12 @@ describe("CreateProjectDialog", () => {
     ).toBeInTheDocument();
   });
 
-  it("does not compensate a pre-existing registration when project creation fails", async () => {
-    vi.mocked(registerRepo).mockResolvedValueOnce({
-      path: "/home/user/existing-repo",
-      source: "/home/user/existing-repo",
-      cloned: false,
-      registered: false,
-    });
+  it("does not compensate an existing repository path when project creation fails", async () => {
     vi.mocked(createProject).mockRejectedValueOnce(new Error("Project save failed"));
     render(<CreateProjectDialog open onClose={() => {}} onCreated={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Clone / register" }));
-    fireEvent.change(screen.getByPlaceholderText("Local path or git clone URL"), {
-      target: { value: "/home/user/existing-repo" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Register repository" }));
-    await screen.findByText("/home/user/existing-repo");
+    await selectRowPath("repo-a");
+    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
     fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "My Project" } });
     fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
 

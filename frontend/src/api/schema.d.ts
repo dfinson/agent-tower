@@ -6152,6 +6152,8 @@ export interface components {
             source: string;
             /** Cloneto */
             cloneTo?: string | null;
+            /** Mode */
+            mode?: "register" | "clone" | null;
         };
         /** RegisterRepoResponse */
         RegisterRepoResponse: {

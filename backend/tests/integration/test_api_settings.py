@@ -269,7 +269,7 @@ class TestRegisterRepo:
             lambda config, repo_path, config_path=None: repo_path,
         )
 
-        resp = await client.post("/api/settings/repos", json={"source": "/some/path"})
+        resp = await client.post("/api/settings/repos", json={"source": "/some/path", "mode": "register"})
         assert resp.status_code == 201
         data = resp.json()
         assert data["source"] == "/some/path"
@@ -280,10 +280,20 @@ class TestRegisterRepo:
 
         resp = await client.post(
             "/api/settings/repos",
-            json={"source": "https://github.com/test/repo.git"},
+            json={"source": "https://github.com/test/repo.git", "mode": "clone"},
         )
         assert resp.status_code == 400
         assert "clone_to" in resp.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_register_mode_rejects_remote_url(self, client: AsyncClient, app: FastAPI) -> None:
+
+        resp = await client.post(
+            "/api/settings/repos",
+            json={"source": "https://github.com/test/repo.git", "mode": "register"},
+        )
+        assert resp.status_code == 400
+        assert "local repository path" in resp.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_invalid_local_repo_returns_400(

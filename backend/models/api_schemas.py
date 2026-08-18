@@ -163,6 +163,7 @@ class SettingsResponse(CamelModel):
 class RegisterRepoRequest(CamelModel):
     source: str
     clone_to: str | None = None
+    mode: Literal["register", "clone"] | None = None
 
 
 class CreateRepoRequest(CamelModel):
