@@ -91,14 +91,10 @@ class TrackerSyncService:
             credential = await CredentialRepository(session).get(credential_id)
             token = await CredentialRepository(session).resolve_secret(credential_id)
         if credential is None or token is None:
-            raise TrackerSyncError(
-                f"Credential '{credential_id}' could not be resolved"
-            )
+            raise TrackerSyncError(f"Credential '{credential_id}' could not be resolved")
         adapter = self._adapters.get(credential["provider"])
         if adapter is None:
-            raise TrackerSyncError(
-                f"Unsupported tracker provider: {credential['provider']}"
-            )
+            raise TrackerSyncError(f"Unsupported tracker provider: {credential['provider']}")
         try:
             await adapter.test_connection(
                 base_url=credential["base_url"],

@@ -96,6 +96,7 @@ class TestGetAttachedOpenChatForProject:
         found = await repo.get_attached_open_chat_for_project(project_id)
 
         assert found is None
+
     @pytest.mark.asyncio
     async def test_returns_none_when_attached_chat_not_open(self, session: AsyncSession) -> None:
         project_id = await _make_project(session)
@@ -106,7 +107,6 @@ class TestGetAttachedOpenChatForProject:
         found = await repo.get_attached_open_chat_for_project(project_id)
 
         assert found is None
-
 
     @pytest.mark.asyncio
     async def test_returns_none_for_different_project(self, session: AsyncSession) -> None:
@@ -170,8 +170,6 @@ class TestGetAttachedOpenChatForChain:
         )
         await _make_chat(session, project_id=project_id, task_link_id=root.id)
 
-        found = await ChatRepository(session).get_attached_open_chat_for_chain(
-            successor.chain_root_id
-        )
+        found = await ChatRepository(session).get_attached_open_chat_for_chain(successor.chain_root_id)
 
         assert found is not None

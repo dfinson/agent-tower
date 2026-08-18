@@ -54,15 +54,12 @@ async def resolve_tracker_for_job(session: AsyncSession, job_id: str) -> Resolve
     if task_link is None:
         raise TrackerResolutionError(f"Job '{job_id}' has no associated TaskLink")
     if not task_link.tracker_link_id or not task_link.tracker_ticket_ref:
-        raise TrackerResolutionError(
-            f"TaskLink for job '{job_id}' has no explicit TrackerLink/ticket pair"
-        )
+        raise TrackerResolutionError(f"TaskLink for job '{job_id}' has no explicit TrackerLink/ticket pair")
 
     link = await TrackerLinkRepository(session).get(task_link.tracker_link_id)
     if link is None or link["project_id"] != task_link.project_id:
         raise TrackerResolutionError(
-            f"TrackerLink '{task_link.tracker_link_id}' is not attached to Project "
-            f"'{task_link.project_id}'"
+            f"TrackerLink '{task_link.tracker_link_id}' is not attached to Project '{task_link.project_id}'"
         )
 
     return ResolvedTracker(
@@ -80,13 +77,9 @@ async def dispatch_tracker_write(
 ) -> None:
     """Resolve one explicit TrackerLink and invoke its provider adapter once."""
     async with session_factory() as session:
-        target = await TrackerSummaryRepository(session).get_target_by_link_id(
-            request.tracker_link_id
-        )
+        target = await TrackerSummaryRepository(session).get_target_by_link_id(request.tracker_link_id)
         if target is None:
-            raise TrackerAdapterError(
-                f"TrackerLink '{request.tracker_link_id}' does not exist"
-            )
+            raise TrackerAdapterError(f"TrackerLink '{request.tracker_link_id}' does not exist")
         token = await CredentialRepository(session).resolve_secret(target["credential_id"])
     if token is None:
         raise TrackerAdapterError("Tracker credential could not be resolved")
@@ -94,9 +87,7 @@ async def dispatch_tracker_write(
     if adapters is not None:
         adapter = adapters.get(target["provider"])
         if adapter is None:
-            raise TrackerAdapterError(
-                f"Unsupported tracker provider: {target['provider']}"
-            )
+            raise TrackerAdapterError(f"Unsupported tracker provider: {target['provider']}")
         await adapter.write(
             base_url=target["base_url"],
             external_ref=target["external_ref"],
@@ -108,14 +99,10 @@ async def dispatch_tracker_write(
         )
         return
 
-    async with httpx.AsyncClient(
-        timeout=httpx.Timeout(connect=10.0, read=30.0, write=15.0, pool=5.0)
-    ) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=30.0, write=15.0, pool=5.0)) as client:
         adapter = build_tracker_adapters(client).get(target["provider"])
         if adapter is None:
-            raise TrackerAdapterError(
-                f"Unsupported tracker provider: {target['provider']}"
-            )
+            raise TrackerAdapterError(f"Unsupported tracker provider: {target['provider']}")
         await adapter.write(
             base_url=target["base_url"],
             external_ref=target["external_ref"],

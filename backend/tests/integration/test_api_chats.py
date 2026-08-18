@@ -185,13 +185,11 @@ class TestSendChatTurn:
         async def complete(_prompt: str) -> str:
             async with session_factory() as observer:
                 rows = (
-                    await observer.execute(
-                        select(ChatMessageRow).where(ChatMessageRow.chat_id == chat_id)
-                    )
-                ).scalars().all()
-            assert [(row.role, row.content) for row in rows] == [
-                ("user", "Persist this first")
-            ]
+                    (await observer.execute(select(ChatMessageRow).where(ChatMessageRow.chat_id == chat_id)))
+                    .scalars()
+                    .all()
+                )
+            assert [(row.role, row.content) for row in rows] == [("user", "Persist this first")]
             return "Now reply"
 
         mock_utility_session.complete.side_effect = complete

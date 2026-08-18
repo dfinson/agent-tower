@@ -232,9 +232,7 @@ class TestJobService:
                 return_value="main",
             ),
         ):
-            job = await svc.create_job(
-                JobSpec(repo="/repos/project-only", prompt="Fix it")
-            )
+            job = await svc.create_job(JobSpec(repo="/repos/project-only", prompt="Fix it"))
             await session.commit()
 
         assert job.state == JobState.preparing
@@ -263,9 +261,7 @@ class TestJobService:
         )
 
         with pytest.raises(RepoNotAllowedError):
-            await svc.create_job(
-                JobSpec(repo="/repos/totally-unrelated", prompt="Fix it")
-            )
+            await svc.create_job(JobSpec(repo="/repos/totally-unrelated", prompt="Fix it"))
 
     @pytest.mark.asyncio
     async def test_get_job_found(

@@ -151,9 +151,7 @@ async def test_provider_failure_is_reported_as_failed(
     )
     dispatch = AsyncMock(side_effect=RuntimeError("provider unavailable"))
 
-    execution = asyncio.create_task(
-        tracker_write_service.execute("job-1", request, dispatch)
-    )
+    execution = asyncio.create_task(tracker_write_service.execute("job-1", request, dispatch))
     approval = await _pending_approval(approval_service)
     await approval_service.resolve(approval.id, "approved")
 

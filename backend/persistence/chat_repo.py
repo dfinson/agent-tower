@@ -59,11 +59,7 @@ class ChatRepository(BaseRepository):
 
     async def list_by_project(self, project_id: str) -> list[Chat]:
         """List chats owned by one Project, most recently active first."""
-        stmt = (
-            select(ChatRow)
-            .where(ChatRow.project_id == project_id)
-            .order_by(ChatRow.last_message_at.desc())
-        )
+        stmt = select(ChatRow).where(ChatRow.project_id == project_id).order_by(ChatRow.last_message_at.desc())
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]
 
@@ -114,12 +110,16 @@ class ChatRepository(BaseRepository):
             func.nullif(TaskLinkRow.chain_root_id, ""),
             TaskLinkRow.id,
         )
-        stmt = select(ChatRow).join(
-            TaskLinkRow,
-            TaskLinkRow.id == ChatRow.task_link_id,
-        ).where(
-            attached_chain_id == chain_root_id,
-            ChatRow.status == "open",
+        stmt = (
+            select(ChatRow)
+            .join(
+                TaskLinkRow,
+                TaskLinkRow.id == ChatRow.task_link_id,
+            )
+            .where(
+                attached_chain_id == chain_root_id,
+                ChatRow.status == "open",
+            )
         )
         result = await self._session.execute(stmt)
         row = result.scalars().first()

@@ -108,9 +108,7 @@ class RecipeService:
         # `pending_tracker_writes` and schedule each coroutine through the
         # module-level `_fire_and_forget` helper, whose `_ephemeral_tasks` set
         # has app-lifetime scope — the same fix used for Story 5.4/PR #70.
-        self.pending_tracker_writes: list[
-            Coroutine[None, None, TrackerWriteOutcome]
-        ] = []
+        self.pending_tracker_writes: list[Coroutine[None, None, TrackerWriteOutcome]] = []
 
     @staticmethod
     def _resolve_dependency(raw: str, *, current_repo_path: str, repo_path_by_folder: dict[str, str]) -> str:
@@ -189,9 +187,7 @@ class RecipeService:
                 raise StateConflictError("TrackerLink validation is unavailable.")
             tracker_link = await self._tracker_link_repo.get(tracker_link_id)
             if tracker_link is None or tracker_link["project_id"] != project_id:
-                raise StateConflictError(
-                    f"TrackerLink '{tracker_link_id}' does not belong to Project '{project_id}'."
-                )
+                raise StateConflictError(f"TrackerLink '{tracker_link_id}' does not belong to Project '{project_id}'.")
         if tracker_link_id is None:
             return await self._task_link_repo.create_manual(
                 project_id=project_id,
@@ -382,9 +378,7 @@ class RecipeService:
         if completed_link is None:
             return []
 
-        terminal_state = (
-            TaskLinkState.completed if resolution in _SUCCESSFUL_RESOLUTIONS else TaskLinkState.failed
-        )
+        terminal_state = TaskLinkState.completed if resolution in _SUCCESSFUL_RESOLUTIONS else TaskLinkState.failed
         await self._task_link_repo.set_state(completed_link.id, terminal_state)
         if resolution not in _SUCCESSFUL_RESOLUTIONS:
             return []
@@ -525,9 +519,7 @@ class RecipeService:
             value=f"Task '{task_link.story_node_id or task_link.id}' completed.",
         )
 
-        self.pending_tracker_writes.append(
-            self._tracker_write_service.execute(job_id, request)
-        )
+        self.pending_tracker_writes.append(self._tracker_write_service.execute(job_id, request))
 
     async def spawn_approved_task_link(self, task_link_id: str, *, parent_job_id: str | None) -> Job | None:
         """Spawn a TaskLink's job once its gated approval has been granted (Story 5.4, AC #1).
@@ -544,9 +536,7 @@ class RecipeService:
         if task_link is None or task_link.job_id is not None:
             return None
 
-        project_links = await self._refresh_states(
-            await self._task_link_repo.list_by_project(task_link.project_id)
-        )
+        project_links = await self._refresh_states(await self._task_link_repo.list_by_project(task_link.project_id))
         task_link = next(link for link in project_links if link.id == task_link_id)
         if task_link.state != TaskLinkState.ready:
             return None

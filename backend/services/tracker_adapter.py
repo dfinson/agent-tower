@@ -189,19 +189,13 @@ class GitHubProjectsTrackerAdapter(_HttpTrackerAdapter):
             status = node.get("status")
             number = content.get("number")
             repository = content.get("repository")
-            name_with_owner = (
-                repository.get("nameWithOwner")
-                if isinstance(repository, dict)
-                else None
-            )
+            name_with_owner = repository.get("nameWithOwner") if isinstance(repository, dict) else None
             if not name_with_owner and number and content.get("url"):
                 parts = urlparse(str(content["url"])).path.strip("/").split("/")
                 if len(parts) >= 4 and parts[-2] in {"issues", "pull"}:
                     name_with_owner = "/".join(parts[:2])
             ticket_id = (
-                f"{name_with_owner}#{number}"
-                if name_with_owner and number
-                else str(number or node.get("id") or "")
+                f"{name_with_owner}#{number}" if name_with_owner and number else str(number or node.get("id") or "")
             )
             tickets.append(
                 TrackerTicket(
@@ -230,10 +224,7 @@ class GitHubProjectsTrackerAdapter(_HttpTrackerAdapter):
         if match is None:
             raise TrackerReferenceError("GitHub ticket ref must use owner/repository#number")
         owner, repo, issue_number = match.groups()
-        issue_url = (
-            f"{base_url.rstrip('/')}/repos/{quote(owner, safe='')}/"
-            f"{quote(repo, safe='')}/issues/{issue_number}"
-        )
+        issue_url = f"{base_url.rstrip('/')}/repos/{quote(owner, safe='')}/{quote(repo, safe='')}/issues/{issue_number}"
         headers = {
             "Authorization": "Bearer " + token,
             "Accept": "application/vnd.github+json",

@@ -223,14 +223,10 @@ class TestDetachTrackerLink:
             json={"credentialId": credential_id, "externalRef": "acme/2"},
         )
 
-        response = await client.delete(
-            f"/api/projects/proj-1/tracker-links/{first.json()['id']}"
-        )
+        response = await client.delete(f"/api/projects/proj-1/tracker-links/{first.json()['id']}")
 
         assert response.status_code == 204
-        assert (await client.get("/api/projects/proj-1/tracker-links")).json() == {
-            "trackerLinks": []
-        }
+        assert (await client.get("/api/projects/proj-1/tracker-links")).json() == {"trackerLinks": []}
         project_two = await client.get("/api/projects/proj-2/tracker-links")
         assert project_two.json()["trackerLinks"][0]["id"] == second.json()["id"]
 
@@ -248,9 +244,7 @@ class TestDetachTrackerLink:
             json={"credentialId": credential_id, "externalRef": "acme/2"},
         )
 
-        response = await client.delete(
-            f"/api/projects/proj-1/tracker-links/{created.json()['id']}"
-        )
+        response = await client.delete(f"/api/projects/proj-1/tracker-links/{created.json()['id']}")
 
         assert response.status_code == 404
         project_two = await client.get("/api/projects/proj-2/tracker-links")

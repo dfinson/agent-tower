@@ -141,11 +141,7 @@ class JobService:
         if self._project_repo is None:
             return set()
         projects = await self._project_repo.list()
-        return {
-            str(Path(path).expanduser().resolve())
-            for project in projects
-            for path in project.repo_paths
-        }
+        return {str(Path(path).expanduser().resolve()) for project in projects for path in project.repo_paths}
 
     async def validate_repo_async(self, repo: str) -> str:
         """Validate a repo path against the legacy allowlist OR Project membership.

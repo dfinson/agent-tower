@@ -263,13 +263,9 @@ class ClaudeSessionStateWatcher(TraceForgeIngestBase):
             list_managed_repo_paths_from_factory,
         )
 
-        return await list_managed_repo_paths_from_factory(
-            self._config, self._session_factory
-        )
+        return await list_managed_repo_paths_from_factory(self._config, self._session_factory)
 
-    def _scan_for_new_sessions(
-        self, managed_repo_paths: list[str] | None = None
-    ) -> list[tuple[str, Path, str]]:
+    def _scan_for_new_sessions(self, managed_repo_paths: list[str] | None = None) -> list[tuple[str, Path, str]]:
         repo_paths = self._config.repos if managed_repo_paths is None else managed_repo_paths
         if not _CLAUDE_PROJECTS_DIR.exists() or not repo_paths:
             return []

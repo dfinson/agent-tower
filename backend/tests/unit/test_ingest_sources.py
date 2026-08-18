@@ -154,9 +154,7 @@ class TestClaudeControlPlane:
     ) -> None:
         claude_watcher._config.repos = ["C:\\legacy\\repo"]
         async with db_session() as session:
-            await ProjectRepository(session).create(
-                "project-1", "Canonical", ["C:\\project\\repo"]
-            )
+            await ProjectRepository(session).create("project-1", "Canonical", ["C:\\project\\repo"])
             await session.commit()
 
         assert await claude_watcher._managed_repo_paths() == [
@@ -230,9 +228,7 @@ class TestCopilotControlPlane:
     ) -> None:
         copilot_watcher._config.repos = ["C:\\legacy\\repo"]
         async with db_session() as session:
-            await ProjectRepository(session).create(
-                "project-1", "Canonical", ["C:\\project\\repo"]
-            )
+            await ProjectRepository(session).create("project-1", "Canonical", ["C:\\project\\repo"])
             await session.commit()
 
         assert await copilot_watcher._managed_repo_paths() == [

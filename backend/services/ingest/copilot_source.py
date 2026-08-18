@@ -144,9 +144,7 @@ class SessionStateWatcher(TraceForgeIngestBase):
         while self._running:
             try:
                 managed_paths = await self._managed_repo_paths()
-                for session_id, cwd, _summary in await asyncio.to_thread(
-                    self._query_new_sessions, managed_paths
-                ):
+                for session_id, cwd, _summary in await asyncio.to_thread(self._query_new_sessions, managed_paths):
                     if session_id in self._tracked_sessions:
                         continue
                     self._tracked_sessions.add(session_id)
@@ -162,18 +160,10 @@ class SessionStateWatcher(TraceForgeIngestBase):
             list_managed_repo_paths_from_factory,
         )
 
-        return await list_managed_repo_paths_from_factory(
-            self._config, self._session_factory
-        )
+        return await list_managed_repo_paths_from_factory(self._config, self._session_factory)
 
-    def _query_new_sessions(
-        self, managed_repo_paths: list[str] | None = None
-    ) -> list[tuple[str, str, str]]:
-        managed_paths = set(
-            self._config.repos
-            if managed_repo_paths is None
-            else managed_repo_paths
-        )
+    def _query_new_sessions(self, managed_repo_paths: list[str] | None = None) -> list[tuple[str, str, str]]:
+        managed_paths = set(self._config.repos if managed_repo_paths is None else managed_repo_paths)
         if not _SESSION_STORE_PATH.exists() or not managed_paths:
             return []
         results: list[tuple[str, str, str]] = []

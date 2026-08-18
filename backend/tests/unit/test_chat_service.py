@@ -361,9 +361,7 @@ class TestChatServiceLaunchJob:
         job_service = AsyncMock()
 
         with pytest.raises(StateConflictError):
-            await ChatService(repo, project_repo=project_repo).launch_job(
-                "c1", job_service, repo="/repos/test"
-            )
+            await ChatService(repo, project_repo=project_repo).launch_job("c1", job_service, repo="/repos/test")
 
         job_service.create_job.assert_not_awaited()
 

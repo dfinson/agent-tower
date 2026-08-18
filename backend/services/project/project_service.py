@@ -55,9 +55,7 @@ class ProjectService:
             return
         for path in repo_paths:
             if not await self._git_service.validate_repo(path):
-                raise StateConflictError(
-                    f"Repository '{path}' does not exist or is not a valid Git repository."
-                )
+                raise StateConflictError(f"Repository '{path}' does not exist or is not a valid Git repository.")
 
     async def create(self, name: str, repo_paths: builtins.list[str]) -> Project:
         """Create a new Project, registering each repo path via the existing clone/register logic."""

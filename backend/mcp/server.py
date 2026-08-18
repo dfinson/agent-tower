@@ -861,10 +861,7 @@ def _register_repo_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                 }
 
             if action == "remove":
-                return {
-                    "error": "Standalone repository removal is unavailable; "
-                    "use codeplane_project update."
-                }
+                return {"error": "Standalone repository removal is unavailable; use codeplane_project update."}
 
 
 # ---------------------------------------------------------------------------

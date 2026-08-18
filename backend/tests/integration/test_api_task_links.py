@@ -347,17 +347,13 @@ class TestStartTaskLink:
 
         mock_runtime_service.setup_and_start.side_effect = assert_job_is_committed
 
-        started = await client.post(
-            f"/api/settings/projects/{project_id}/task-links/{task_link_id}/start"
-        )
+        started = await client.post(f"/api/settings/projects/{project_id}/task-links/{task_link_id}/start")
         assert started.status_code == 200
         assert started.json()["state"] == "running"
         assert started.json()["jobId"]
         mock_runtime_service.setup_and_start.assert_awaited_once()
 
-        duplicate = await client.post(
-            f"/api/settings/projects/{project_id}/task-links/{task_link_id}/start"
-        )
+        duplicate = await client.post(f"/api/settings/projects/{project_id}/task-links/{task_link_id}/start")
         assert duplicate.status_code == 409
         async with session_factory() as session:
             job_ids = (await session.execute(select(JobRow.id))).scalars().all()

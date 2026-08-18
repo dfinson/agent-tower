@@ -253,6 +253,4 @@ async def test_azure_transition_performs_one_provider_write() -> None:
 
     assert len(requests) == 1
     assert requests[0].method == "PATCH"
-    assert json.loads(requests[0].content) == [
-        {"op": "add", "path": "/fields/System.State", "value": "Closed"}
-    ]
+    assert json.loads(requests[0].content) == [{"op": "add", "path": "/fields/System.State", "value": "Closed"}]

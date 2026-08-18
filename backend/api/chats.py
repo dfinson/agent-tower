@@ -151,9 +151,7 @@ async def send_chat_turn(
     return ChatTurnResponse(
         user_message=_message_to_response(result.user_message),
         assistant_message=(
-            _message_to_response(result.assistant_message)
-            if result.assistant_message is not None
-            else None
+            _message_to_response(result.assistant_message) if result.assistant_message is not None else None
         ),
         state=result.state,
         error=result.error,

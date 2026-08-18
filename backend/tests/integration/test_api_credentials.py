@@ -195,9 +195,7 @@ class TestRemediateLegacyJiraCredential:
             assert await CredentialRepository(session).resolve_secret("legacy-jira") == "existing-token"
 
     @pytest.mark.asyncio
-    async def test_remediation_rejects_non_jira_and_invalid_email(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_remediation_rejects_non_jira_and_invalid_email(self, client: AsyncClient) -> None:
         created = (
             await client.post(
                 "/api/settings/credentials",

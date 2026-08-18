@@ -415,9 +415,7 @@ class TestTrackerTool:
                 AsyncMock(),
             ) as dispatch,
         ):
-            result = await _tool(mcp_server, "codeplane_tracker")(
-                action="transition", job_id="job-123", value="Done"
-            )
+            result = await _tool(mcp_server, "codeplane_tracker")(action="transition", job_id="job-123", value="Done")
 
         assert result["applied"] is False
         assert result["state"] == "rejected"
@@ -434,9 +432,7 @@ class TestTrackerTool:
             ticket_ref="ABC-123",
         )
         mock_approval.create_request = AsyncMock(return_value=_make_approval(id="apr-1"))
-        mock_approval.wait_for_resolution = AsyncMock(
-            return_value=ApprovalResolution.approved
-        )
+        mock_approval.wait_for_resolution = AsyncMock(return_value=ApprovalResolution.approved)
 
         with (
             patch(

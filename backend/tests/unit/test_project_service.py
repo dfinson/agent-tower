@@ -103,22 +103,16 @@ class TestProjectServiceUpdate:
         mock_repo.update.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_confirmed_removal_is_blocked_by_active_work(
-        self, mock_repo: AsyncMock, config: CPLConfig
-    ) -> None:
+    async def test_confirmed_removal_is_blocked_by_active_work(self, mock_repo: AsyncMock, config: CPLConfig) -> None:
         mock_repo.get.return_value = _make_project("proj-1", "Test", ["/repo/a", "/repo/b"])
         mock_repo.list_all_repo_paths.return_value = {}
         mock_repo.membership_impact.return_value = ProjectMembershipImpact(active_job_count=1)
 
         with pytest.raises(StateConflictError, match="blocked while active jobs"):
-            await ProjectService(mock_repo, config).update(
-                "proj-1", repo_paths=["/repo/a"], confirm_repo_removal=True
-            )
+            await ProjectService(mock_repo, config).update("proj-1", repo_paths=["/repo/a"], confirm_repo_removal=True)
 
     @pytest.mark.asyncio
-    async def test_confirmed_safe_removal_updates_membership(
-        self, mock_repo: AsyncMock, config: CPLConfig
-    ) -> None:
+    async def test_confirmed_safe_removal_updates_membership(self, mock_repo: AsyncMock, config: CPLConfig) -> None:
         existing = _make_project("proj-1", "Test", ["/repo/a", "/repo/b"])
         mock_repo.get.return_value = existing
         mock_repo.list_all_repo_paths.return_value = {}

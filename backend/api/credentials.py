@@ -75,10 +75,7 @@ class CreateCredentialRequest(CamelModel):
         if self.email is not None:
             self.email = self.email.strip() or None
         if self.provider == "jira" and (
-            self.email is None
-            or "@" not in self.email
-            or self.email.startswith("@")
-            or self.email.endswith("@")
+            self.email is None or "@" not in self.email or self.email.startswith("@") or self.email.endswith("@")
         ):
             raise ValueError("Jira credentials require the account email used to create the API token")
         return self
@@ -90,11 +87,7 @@ class UpdateJiraCredentialRequest(CamelModel):
     @model_validator(mode="after")
     def validate_email(self) -> UpdateJiraCredentialRequest:
         self.email = self.email.strip()
-        if (
-            "@" not in self.email
-            or self.email.startswith("@")
-            or self.email.endswith("@")
-        ):
+        if "@" not in self.email or self.email.startswith("@") or self.email.endswith("@"):
             raise ValueError("Enter the Jira account email used to create the API token")
         return self
 

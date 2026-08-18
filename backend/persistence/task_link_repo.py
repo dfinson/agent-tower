@@ -99,11 +99,7 @@ class TaskLinkRepository(BaseRepository):
             raw_epic_id = entry.get("epic_id")
             epic_id = str(raw_epic_id) if raw_epic_id is not None else None
             raw_output_routes = entry.get("output_routes", [])
-            output_routes = (
-                [str(route) for route in raw_output_routes]
-                if isinstance(raw_output_routes, list)
-                else []
-            )
+            output_routes = [str(route) for route in raw_output_routes] if isinstance(raw_output_routes, list) else []
 
             stmt = select(TaskLinkRow).where(
                 TaskLinkRow.project_id == project_id,
@@ -146,15 +142,9 @@ class TaskLinkRepository(BaseRepository):
         # A chain is the connected component formed by dependency edges. Use
         # the earliest root node's persisted ID as a stable identity shared by
         # every branch and successor in that component.
-        all_result = await self._session.execute(
-            select(TaskLinkRow).where(TaskLinkRow.project_id == project_id)
-        )
+        all_result = await self._session.execute(select(TaskLinkRow).where(TaskLinkRow.project_id == project_id))
         all_rows = list(all_result.scalars().all())
-        by_key = {
-            f"{row.repo_path}::{row.story_node_id}": row
-            for row in all_rows
-            if row.story_node_id is not None
-        }
+        by_key = {f"{row.repo_path}::{row.story_node_id}": row for row in all_rows if row.story_node_id is not None}
         adjacency: dict[str, set[str]] = {row.id: set() for row in all_rows}
         by_id = {row.id: row for row in all_rows}
         for row in all_rows:
@@ -182,8 +172,7 @@ class TaskLinkRepository(BaseRepository):
                 item
                 for item in component
                 if not any(
-                    (dependency := by_key.get(dep_key)) is not None
-                    and dependency.id in component_ids
+                    (dependency := by_key.get(dep_key)) is not None and dependency.id in component_ids
                     for dep_key in json.loads(item.depends_on or "[]")
                 )
             ]
@@ -304,9 +293,7 @@ class TaskLinkRepository(BaseRepository):
     async def set_state(self, task_link_id: str, state: TaskLinkState) -> TaskLink | None:
         """Persist one explicit TaskLink lifecycle transition."""
         stmt = (
-            update(TaskLinkRow)
-            .where(TaskLinkRow.id == task_link_id)
-            .values(state=state, updated_at=datetime.now(UTC))
+            update(TaskLinkRow).where(TaskLinkRow.id == task_link_id).values(state=state, updated_at=datetime.now(UTC))
         )
         result = await self._session.execute(stmt)
         await self._session.flush()

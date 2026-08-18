@@ -507,9 +507,7 @@ class TestHandleJobCompleted:
         assert spec.repo == "/repo/a"
         assert spec.parent_job_id == "job-1"
         mock_task_link_repo.claim_ready_and_commit.assert_awaited_once_with("link-b")
-        mock_task_link_repo.attach_claimed_job.assert_awaited_once_with(
-            "link-b", "job-2", state=TaskLinkState.running
-        )
+        mock_task_link_repo.attach_claimed_job.assert_awaited_once_with("link-b", "job-2", state=TaskLinkState.running)
 
     @pytest.mark.asyncio
     async def test_does_not_spawn_until_all_dependencies_satisfied(
@@ -930,9 +928,7 @@ class TestStartTaskLinkGatingAndClaims:
         root, dependent = self._ready_chain()
         mock_task_link_repo.get.return_value = dependent
         mock_task_link_repo.list_by_project.return_value = [root, dependent]
-        mock_job_repo.get.return_value = _make_job(
-            id="job-1", state=JobState.completed, resolution="merged"
-        )
+        mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
         mock_approval_service.list_pending.return_value = []
         mock_chat_repo.get_attached_open_chat_for_chain.return_value = object()
         service = RecipeService(
@@ -962,9 +958,7 @@ class TestStartTaskLinkGatingAndClaims:
         root = _make_task_link(id="link-a")
         mock_task_link_repo.get.return_value = root
         mock_task_link_repo.list_by_project.return_value = [root]
-        mock_approval_service.list_pending.return_value = [
-            _make_approval(proposed_action="spawn_task:link-a")
-        ]
+        mock_approval_service.list_pending.return_value = [_make_approval(proposed_action="spawn_task:link-a")]
         service = RecipeService(
             mock_task_link_repo,
             mock_project_service,
@@ -1175,9 +1169,7 @@ class TestHandleJobCompletedGating:
         mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
         mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
         mock_chat_repo.get_attached_open_chat_for_chain.return_value = object()
-        mock_approval_service.list_pending.return_value = [
-            _make_approval(proposed_action="spawn_task:link-b")
-        ]
+        mock_approval_service.list_pending.return_value = [_make_approval(proposed_action="spawn_task:link-b")]
 
         service = RecipeService(
             mock_task_link_repo,
@@ -1238,10 +1230,7 @@ class TestHandleJobCompletedGating:
         assert result == []
         mock_chat_repo.get_attached_open_chat_for_chain.assert_awaited_once_with("link-a")
         mock_approval_service.create_request.assert_awaited_once()
-        assert (
-            mock_approval_service.create_request.call_args.kwargs["proposed_action"]
-            == "spawn_task:link-c"
-        )
+        assert mock_approval_service.create_request.call_args.kwargs["proposed_action"] == "spawn_task:link-c"
 
     @pytest.mark.asyncio
     async def test_missing_chat_repo_or_approval_service_falls_back_to_ungated(
@@ -1306,9 +1295,7 @@ class TestSpawnApprovedTaskLink:
         assert spec.repo == task_link.repo_path
         assert spec.parent_job_id == "job-1"
         mock_task_link_repo.claim_ready_and_commit.assert_awaited_once_with("link-b")
-        mock_task_link_repo.attach_claimed_job.assert_awaited_once_with(
-            "link-b", "job-2", state=TaskLinkState.running
-        )
+        mock_task_link_repo.attach_claimed_job.assert_awaited_once_with("link-b", "job-2", state=TaskLinkState.running)
 
     @pytest.mark.asyncio
     async def test_no_op_when_task_link_already_has_job_id(

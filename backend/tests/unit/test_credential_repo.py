@@ -108,9 +108,7 @@ class TestResolveSecret:
 
 class TestUpdateJiraEmail:
     @pytest.mark.asyncio
-    async def test_updates_only_jira_email_and_preserves_encrypted_token(
-        self, session: AsyncSession
-    ) -> None:
+    async def test_updates_only_jira_email_and_preserves_encrypted_token(self, session: AsyncSession) -> None:
         repo = CredentialRepository(session)
         await repo.create(
             credential_id="legacy-jira",
@@ -131,9 +129,7 @@ class TestUpdateJiraEmail:
         assert await repo.resolve_secret("legacy-jira") == "existing-secret"
 
     @pytest.mark.asyncio
-    async def test_rejects_email_update_for_non_jira_credential(
-        self, session: AsyncSession
-    ) -> None:
+    async def test_rejects_email_update_for_non_jira_credential(self, session: AsyncSession) -> None:
         repo = CredentialRepository(session)
         await repo.create(
             credential_id="github",
