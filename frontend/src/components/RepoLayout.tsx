@@ -168,7 +168,7 @@ export function RepoLayout() {
                       {activeProject.repoPaths.length} {activeProject.repoPaths.length === 1 ? "repository" : "repositories"} in this Project
                     </p>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => navigate("/settings")}>Manage Projects</Button>
+                  <Button variant="ghost" size="sm" onClick={() => navigate(`${projectUrl}/settings`)}>Project settings</Button>
                 </div>
                 <nav className="flex gap-1 border-b border-border" aria-label="Project navigation">
                   {tabs.map(([label, to]) => (

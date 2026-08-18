@@ -137,6 +137,26 @@ describe("RepoLayout project sidebar", () => {
     expect(screen.getByText("Select a member repository for Jobs, Health, Cost, and index status.")).toBeInTheDocument();
   });
 
+  it("labels the project-scoped settings action clearly", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "multi", name: "multi-project", repoPaths: ["/repos/api"] }],
+    } as any);
+
+    render(
+      <MemoryRouter initialEntries={["/projects/id/multi"]}>
+        <Routes>
+          <Route path="/projects" element={<RepoLayout />}>
+            <Route path="id/:projectId" element={<div>Overview</div>} />
+            <Route path="id/:projectId/settings" element={<div>Project settings page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Project settings" }));
+    expect(await screen.findByText("Project settings page")).toBeInTheDocument();
+  });
+
   it("redirects a repository path that is not a member of the active Project", async () => {
     vi.mocked(fetchProjects).mockResolvedValueOnce({
       items: [{
