@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Download, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
@@ -18,6 +18,15 @@ import { KanbanSkeleton } from "./KanbanSkeleton";
 import { TaskLinkCard } from "./TaskLinkCard";
 import { Button } from "./ui/button";
 import { KANBAN_COLUMNS } from "../constants/kanban";
+
+function lifecycleSignature(jobs: Record<string, JobSummary>, repoPaths: string[]): string {
+  const memberRepos = new Set(repoPaths);
+  return Object.values(jobs)
+    .filter((job) => memberRepos.has(job.repo))
+    .map((job) => `${job.id}:${job.state}`)
+    .sort()
+    .join("|");
+}
 
 /**
  * Project-scoped Kanban board (Story 2.3 / CAP-1). Child route of the
@@ -43,10 +52,12 @@ export function RepoBoard() {
   const [ingesting, setIngesting] = useState(false);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const hasJobs = useStore((state) => Object.keys(state.jobs).length > 0);
-
   const currentProject = project?.id === projectId ? project : null;
   const repoPaths = currentProject?.repoPaths ?? [];
+  const hasJobs = useStore((state) => Object.keys(state.jobs).length > 0);
+  const jobLifecycleSignature = useStore((state) => lifecycleSignature(state.jobs, repoPaths));
+  const reconciledLifecycleSignature = useRef<string | null>(null);
+
   const activeJobs = useStore(useShallow(selectActiveJobsForProject(repoPaths)));
   const signoffJobs = useStore(useShallow(selectSignoffJobsForProject(repoPaths)));
   const attentionJobs = useStore(useShallow(selectAttentionJobsForProject(repoPaths)));
@@ -57,6 +68,7 @@ export function RepoBoard() {
     setTaskLinks([]);
     setLoadError(null);
     setLoading(true);
+    reconciledLifecycleSignature.current = null;
 
     if (!projectId) {
       setLoadError("No Project was selected.");
@@ -112,6 +124,23 @@ export function RepoBoard() {
       });
     return () => { cancelled = true; };
   }, [projectId]);
+
+  useEffect(() => {
+    if (!projectId || project?.id !== projectId) return;
+    if (reconciledLifecycleSignature.current === jobLifecycleSignature) return;
+    let cancelled = false;
+    reconciledLifecycleSignature.current = jobLifecycleSignature;
+
+    fetchProjectTaskLinks(projectId)
+      .then((response) => {
+        if (!cancelled) setTaskLinks(response.items);
+      })
+      .catch(() => {
+        // Keep the last authoritative snapshot; a later lifecycle event retries.
+      });
+
+    return () => { cancelled = true; };
+  }, [jobLifecycleSignature, project?.id, projectId]);
 
   if ((loading && !hasJobs) || (!loadError && project !== null && !currentProject)) {
     return <KanbanSkeleton />;

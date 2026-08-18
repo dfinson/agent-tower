@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useOutletContext } from "react-router-dom";
 import { ArrowLeft, Settings, GitBranch, Globe, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -18,9 +18,11 @@ import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { ConfirmDialog } from "./ui/confirm-dialog";
+import type { RepoLayoutOutletContext } from "./RepoLayout";
 
 export function RepoSettings() {
   const { projectId, repoPath } = useParams<{ projectId: string; repoPath?: string }>();
+  const layoutContext = useOutletContext<RepoLayoutOutletContext | null>();
 
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<RepoDetailResponse | null>(null);
@@ -101,6 +103,7 @@ export function RepoSettings() {
       setProject(updated);
       setProjectName(updated.name);
       setRepoPaths(updated.repoPaths);
+      layoutContext?.onProjectUpdated(updated);
       toast.success("Project updated");
     } catch (error) {
       toast.error(String(error));
@@ -108,7 +111,7 @@ export function RepoSettings() {
     } finally {
       setSaving(false);
     }
-  }, [project, projectName, repoPaths]);
+  }, [layoutContext, project, projectName, repoPaths]);
 
   const saveProject = useCallback(async () => {
     if (!project) return;

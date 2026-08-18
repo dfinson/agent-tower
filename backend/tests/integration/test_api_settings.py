@@ -15,12 +15,16 @@ Exercises:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+from urllib.parse import quote
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
 from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT, CPLConfig
+from backend.models.db import JobRow
 from backend.services.git.git_service import GitError
 
 if TYPE_CHECKING:
@@ -29,6 +33,7 @@ if TYPE_CHECKING:
 
     from fastapi import FastAPI
     from httpx import AsyncClient
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
 def _test_config() -> CPLConfig:
@@ -185,6 +190,42 @@ class TestGetRepoDetail:
         assert data["baseBranch"] == "main"
         assert data["currentBranch"] == "feature/my-branch"
         assert "platform" in data
+
+    @pytest.mark.asyncio
+    async def test_counts_persisted_jobs_in_active_states(
+        self,
+        client: AsyncClient,
+        tmp_path: Path,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        created = await client.post(
+            "/api/settings/projects",
+            json={"name": "Active jobs", "repoPaths": [str(tmp_path)]},
+        )
+        assert created.status_code == 201
+        repo_path = created.json()["repoPaths"][0]
+
+        active_states = ("preparing", "queued", "running", "waiting_for_approval", "review")
+        async with session_factory() as session:
+            now = datetime.now(UTC)
+            for state in (*active_states, "completed", "failed", "canceled"):
+                session.add(
+                    JobRow(
+                        id=f"job-{uuid4().hex[:8]}",
+                        repo=repo_path,
+                        prompt="Count me",
+                        state=state,
+                        base_ref="main",
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            await session.commit()
+
+        resp = await client.get(f"/api/settings/repos/{quote(repo_path, safe='')}")
+
+        assert resp.status_code == 200
+        assert resp.json()["activeJobCount"] == len(active_states)
 
     @pytest.mark.asyncio
     async def test_unregistered_repo_returns_404(self, client: AsyncClient, app: FastAPI) -> None:

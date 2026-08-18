@@ -10,7 +10,7 @@ from pathlib import Path
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.config import (
@@ -44,6 +44,7 @@ from backend.models.api_schemas import (
     UpdateSettingsRequest,
 )
 from backend.models.db import JobRow
+from backend.models.domain import ACTIVE_STATES
 from backend.persistence.project_repo import ProjectRepository
 from backend.services.adapters.platform_adapter import PlatformRegistry, detect_platform
 from backend.services.coderecon.coderecon_service import CodeReconService
@@ -374,6 +375,7 @@ async def get_repo_detail(
     config: FromDishka[CPLConfig],
     project_repo: FromDishka[ProjectRepository],
     git_service: FromDishka[GitService],
+    sf: FromDishka[async_sessionmaker[AsyncSession]],
 ) -> RepoDetailResponse:
     """Get detailed config for a single registered repository."""
     resolved = str(Path(repo_path).expanduser().resolve())
@@ -392,11 +394,25 @@ async def get_repo_detail(
     with contextlib.suppress(GitError):
         current_branch = await git_service.get_current_branch(cwd=resolved)
 
+    async with sf() as session:
+        active_job_count = int(
+            await session.scalar(
+                select(func.count())
+                .select_from(JobRow)
+                .where(
+                    JobRow.repo == resolved,
+                    JobRow.state.in_(tuple(state.value for state in ACTIVE_STATES)),
+                )
+            )
+            or 0
+        )
+
     return RepoDetailResponse(
         path=resolved,
         origin_url=origin_url,
         base_branch=base_branch,
         current_branch=current_branch,
+        active_job_count=active_job_count,
         platform=detect_platform(origin_url),
     )
 

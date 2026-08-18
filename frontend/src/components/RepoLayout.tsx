@@ -11,6 +11,9 @@ import { matchesNameFilter } from "../lib/nameFilter";
 import { ProjectsOverview } from "./ProjectsOverview";
 import { pathBasename } from "../lib/paths";
 
+export interface RepoLayoutOutletContext {
+  onProjectUpdated: (project: ProjectResponse) => void;
+}
 
 export function RepoLayout() {
   const { projectId, repoPath } = useParams<{ projectId: string; repoPath?: string }>();
@@ -33,6 +36,10 @@ export function RepoLayout() {
   }, []);
 
   useEffect(() => { loadProjects(); }, [loadProjects]);
+
+  const onProjectUpdated = useCallback((updated: ProjectResponse) => {
+    setProjects((current) => current.map((project) => project.id === updated.id ? updated : project));
+  }, []);
 
   const filteredProjects = projects.filter((project) => matchesNameFilter(project.name, filterQuery));
   const activeProject = projects.find((project) => project.id === projectId);
@@ -203,7 +210,7 @@ export function RepoLayout() {
                 </div>
               </div>
             )}
-            <Outlet />
+            <Outlet context={{ onProjectUpdated } satisfies RepoLayoutOutletContext} />
           </>
         )}
       </div>

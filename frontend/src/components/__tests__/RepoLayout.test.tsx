@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { MemoryRouter, Routes, Route, useOutletContext } from "react-router-dom";
 
 vi.mock("../../api/client", () => ({
   fetchProjects: vi.fn(),
@@ -10,6 +10,7 @@ vi.mock("../../api/client", () => ({
 
 import { fetchProjects, fetchProjectsSummary } from "../../api/client";
 import { RepoLayout } from "../RepoLayout";
+import type { RepoLayoutOutletContext } from "../RepoLayout";
 
 beforeEach(() => {
   vi.mocked(fetchProjects).mockReset();
@@ -27,6 +28,23 @@ function renderLayout(route = "/projects") {
         <Route path="/projects/*" element={<RepoLayout />} />
       </Routes>
     </MemoryRouter>,
+  );
+}
+
+function MembershipUpdater() {
+  const { onProjectUpdated } = useOutletContext<RepoLayoutOutletContext>();
+  return (
+    <button
+      onClick={() => onProjectUpdated({
+        id: "multi",
+        name: "multi-project",
+        repoPaths: ["/repos/keep", "/repos/new"],
+        createdAt: "",
+        updatedAt: "",
+      })}
+    >
+      Apply membership
+    </button>
   );
 }
 
@@ -106,5 +124,31 @@ describe("RepoLayout project sidebar", () => {
     renderLayout("/projects/id/multi/repos/%2Frepos%2Fother/jobs");
 
     expect(await screen.findByText("Project board")).toBeInTheDocument();
+  });
+
+  it("updates repository navigation from a nested membership save without reloading", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{
+        id: "multi",
+        name: "multi-project",
+        repoPaths: ["/repos/old", "/repos/keep"],
+      }],
+    } as any);
+
+    render(
+      <MemoryRouter initialEntries={["/projects/id/multi/settings"]}>
+        <Routes>
+          <Route path="/projects" element={<RepoLayout />}>
+            <Route path="id/:projectId/settings" element={<MembershipUpdater />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("option", { name: "old" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Apply membership" }));
+
+    expect(screen.queryByRole("option", { name: "old" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "new" })).toBeInTheDocument();
   });
 });

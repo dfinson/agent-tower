@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import type {
   ProjectResponse,
   RepoDetailResponse,
@@ -40,6 +40,7 @@ describe("RepoSettings", () => {
   });
 
   it("allows editing the owning project membership and saves it", async () => {
+    const onProjectUpdated = vi.fn();
     vi.mocked(fetchProject).mockResolvedValue({
       id: "project-1",
       name: "Alpha project",
@@ -100,7 +101,9 @@ describe("RepoSettings", () => {
     render(
       <MemoryRouter initialEntries={["/projects/id/project-1"]}>
         <Routes>
-          <Route path="/projects/id/:projectId" element={<RepoSettings />} />
+          <Route element={<Outlet context={{ onProjectUpdated }} />}>
+            <Route path="/projects/id/:projectId" element={<RepoSettings />} />
+          </Route>
         </Routes>
       </MemoryRouter>,
     );
@@ -144,6 +147,10 @@ describe("RepoSettings", () => {
         repoPaths: ["/repo/app", "/repo/shared", "/repo/new-tool"],
         confirmRepoRemoval: false,
       });
+      expect(onProjectUpdated).toHaveBeenCalledWith(expect.objectContaining({
+        id: "project-1",
+        repoPaths: ["/repo/app", "/repo/shared", "/repo/new-tool"],
+      }));
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Remove /repo/shared" }));

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { useStore } from "../../store";
 import type { JobSummary } from "../../store";
@@ -227,7 +227,7 @@ describe("RepoBoard", () => {
 
   it("renders TaskLink cards for the Project in the In Progress column", async () => {
     vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
-    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValue({
       items: [makeTaskLink({ id: "tl-1", storyNodeId: "add-sca" })],
     } as any);
     renderBoard("proj-1");
@@ -237,7 +237,7 @@ describe("RepoBoard", () => {
 
   it("greys out a TaskLink card whose dependency's linked job has not completed", async () => {
     vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
-    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValue({
       items: [
         makeTaskLink({ id: "tl-1", storyNodeId: "add-sca", jobId: "job-running", state: "running" }),
         makeTaskLink({ id: "tl-2", storyNodeId: "sca-tests", dependsOn: ["/repos/test::add-sca"], state: "waiting" }),
@@ -254,7 +254,7 @@ describe("RepoBoard", () => {
 
   it("renders a TaskLink card as satisfied once its dependency's job has completed", async () => {
     vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
-    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValue({
       items: [
         makeTaskLink({ id: "tl-1", storyNodeId: "add-sca", jobId: "job-done", state: "completed" }),
         makeTaskLink({ id: "tl-2", storyNodeId: "sca-tests", dependsOn: ["/repos/test::add-sca"], state: "ready" }),
@@ -272,7 +272,7 @@ describe("RepoBoard", () => {
   it("renders TaskLink cards from any of the Project's member repos", async () => {
     vi.mocked(fetchProject).mockResolvedValueOnce(makeProject({ repoPaths: ["/repos/test", "/repos/other"] }) as any);
     vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
-    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValue({
       items: [
         makeTaskLink({ id: "tl-1", repoPath: "/repos/test", storyNodeId: "add-sca" }),
         makeTaskLink({ id: "tl-2", repoPath: "/repos/other", storyNodeId: "other-task" }),
@@ -283,10 +283,70 @@ describe("RepoBoard", () => {
     expect(screen.getByText("other-task")).toBeInTheDocument();
   });
 
+  it("reconciles TaskLinks when a linked Job lifecycle event changes", async () => {
+    const runningLink = makeTaskLink({
+      id: "tl-live",
+      storyNodeId: "live-task",
+      state: "running",
+      jobId: "job-live",
+    });
+    vi.mocked(fetchJobs).mockResolvedValueOnce({
+      items: [makeJob({ id: "job-live", state: "running" })],
+      cursor: null,
+    } as any);
+    vi.mocked(fetchProjectTaskLinks)
+      .mockResolvedValueOnce({ items: [runningLink] } as any)
+      .mockResolvedValueOnce({ items: [runningLink] } as any)
+      .mockResolvedValueOnce({
+        items: [{ ...runningLink, state: "completed" }],
+      } as any);
+
+    renderBoard();
+    expect(await screen.findByLabelText("Task recipe: live-task — running")).toBeInTheDocument();
+    await waitFor(() => expect(fetchProjectTaskLinks).toHaveBeenCalledTimes(2));
+
+    act(() => {
+      useStore.getState().dispatchSSEEvent("job.completed", {
+        jobId: "job-live",
+        resolution: "merged",
+      });
+    });
+
+    expect(await screen.findByLabelText("Task recipe: live-task — completed")).toBeInTheDocument();
+    expect(fetchProjectTaskLinks).toHaveBeenCalledTimes(3);
+  });
+
+  it("reconciles an auto-spawned TaskLink when its new Job enters the store", async () => {
+    const readyLink = makeTaskLink({ id: "tl-auto", storyNodeId: "auto-task" });
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjectTaskLinks)
+      .mockResolvedValueOnce({ items: [readyLink] } as any)
+      .mockResolvedValueOnce({ items: [readyLink] } as any)
+      .mockResolvedValueOnce({
+        items: [{ ...readyLink, state: "running", jobId: "job-auto" }],
+      } as any);
+
+    renderBoard();
+    expect(await screen.findByLabelText("Task recipe: auto-task — ready")).toBeInTheDocument();
+    await waitFor(() => expect(fetchProjectTaskLinks).toHaveBeenCalledTimes(2));
+
+    act(() => {
+      useStore.setState((state) => ({
+        jobs: {
+          ...state.jobs,
+          "job-auto": makeJob({ id: "job-auto", state: "preparing" }),
+        },
+      }));
+    });
+
+    expect(await screen.findByLabelText("Task recipe: auto-task — running")).toHaveTextContent("job-auto");
+    expect(fetchProjectTaskLinks).toHaveBeenCalledTimes(3);
+  });
+
   it("starts a ready root task through the TaskLink API", async () => {
     const ready = makeTaskLink({ id: "tl-ready", storyNodeId: "root", state: "ready" });
     vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
-    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({ items: [ready] } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValue({ items: [ready] } as any);
     vi.mocked(startTaskLink).mockResolvedValueOnce({ ...ready, state: "running", jobId: "job-new" } as any);
     renderBoard();
 
