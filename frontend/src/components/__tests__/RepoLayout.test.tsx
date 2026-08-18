@@ -137,6 +137,17 @@ describe("RepoLayout project sidebar", () => {
     expect(screen.getByText("Select a member repository for Jobs, Health, Cost, and index status.")).toBeInTheDocument();
   });
 
+  it("labels the project board tab consistently", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "multi", name: "multi-project", repoPaths: ["/repos/api"] }],
+    } as any);
+
+    renderLayout("/projects/id/multi");
+
+    expect(await screen.findByRole("link", { name: "Board" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Agent Runs" })).not.toBeInTheDocument();
+  });
+
   it("labels the project-scoped settings action clearly", async () => {
     vi.mocked(fetchProjects).mockResolvedValueOnce({
       items: [{ id: "multi", name: "multi-project", repoPaths: ["/repos/api"] }],

@@ -56,7 +56,7 @@ export function RepoLayout() {
   const projectUrl = projectId ? `/projects/id/${encodeURIComponent(projectId)}` : "";
   const tabs = [
     ["Overview", projectUrl],
-    ["Agent Runs", `${projectUrl}/board`],
+    ["Board", `${projectUrl}/board`],
     ["Chats", `${projectUrl}/chats`],
     ["Settings", `${projectUrl}/settings`],
   ] as const;
