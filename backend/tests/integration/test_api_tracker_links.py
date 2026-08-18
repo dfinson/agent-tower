@@ -11,8 +11,6 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from backend.services.credentials import encryption
-
 if TYPE_CHECKING:
     from pathlib import Path
     from unittest.mock import AsyncMock
@@ -23,7 +21,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def _isolated_codeplane_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(encryption, "get_codeplane_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.config.get_codeplane_dir", lambda: tmp_path)
 
 
 async def _seed_project(session_factory: async_sessionmaker[AsyncSession], project_id: str = "proj-1") -> None:

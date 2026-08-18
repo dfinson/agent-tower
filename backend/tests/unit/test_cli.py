@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import os
 import signal
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
+from backend import cli as cli_module
 from backend.cli import (
     _find_pids_on_port,
     _find_pids_on_port_posix,
@@ -16,6 +23,19 @@ from backend.cli import (
     _stop_server,
 )
 from backend.main import cli
+
+
+@pytest.fixture(autouse=True)
+def _isolate_repo_dotenv(tmp_path):
+    """Keep the developer's real ``.env`` out of every CLI test.
+
+    ``cpl up`` loads the repository ``.env`` and exports it into
+    ``os.environ``. Without this redirect, running the suite in a configured
+    checkout changes provider auto-detection and credential classification,
+    and the exported values persist for the rest of the pytest session.
+    """
+    with patch("backend.cli.DOTENV_PATH", tmp_path / "absent.env"):
+        yield
 
 
 def test_version_command() -> None:
@@ -204,6 +224,158 @@ class TestIsServerRunning:
 # ---------------------------------------------------------------------------
 
 
+class TestTerminationSignalIsSurvivable:
+    """``cpl up`` must still run its cleanup after a ``SIGTERM``.
+
+    ``uvicorn.Server.run`` restores the pre-existing termination handler once
+    ``serve()`` returns and then re-raises the signal it caught. With the
+    default handler in place that re-raise kills the process outright, so the
+    ``finally`` block that closes the tunnel handle never executes and the
+    connector is orphaned -- ``cpl down`` reported success while the public
+    origin still had a live host connection. This replays uvicorn's exact
+    capture/restore/re-raise dance in a subprocess (a live ``SIGTERM`` would
+    otherwise take the test runner with it).
+    """
+
+    SCRIPT = textwrap.dedent(
+        """
+        import signal
+        import uvicorn
+        from backend import cli
+
+        async def _app(scope, receive, send):
+            pass
+
+        cli._neutralize_fatal_termination_signals()
+
+        # Drive the *real* uvicorn signal machinery rather than a replica of
+        # it, so this test fails if uvicorn's capture/restore/re-raise
+        # behavior changes underneath us.
+        server = uvicorn.Server(uvicorn.Config(app=_app))
+        with server.capture_signals():
+            signal.raise_signal(signal.SIGTERM)   # the signal cpl down sends
+        # Leaving the context manager restores the previous handler and
+        # re-raises; reaching the next line is what cpl up's finally needs.
+        print("CLEANUP", flush=True)
+        """
+    )
+
+    SECOND_SIGNAL_SCRIPT = textwrap.dedent(
+        """
+        import signal
+        from backend import cli
+
+        cli._neutralize_fatal_termination_signals()
+        signal.raise_signal(signal.SIGTERM)   # absorbed once, so cleanup can run
+        print("ABSORBED", flush=True)
+        signal.raise_signal(signal.SIGTERM)   # a second one must still kill us
+        print("STILL_ALIVE", flush=True)
+        """
+    )
+
+    def _run(self, script: str) -> subprocess.CompletedProcess[str]:
+        env = {**os.environ, "PYTHONPATH": str(Path(cli_module.__file__).parents[2])}
+        return subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+        )
+
+    def test_cleanup_runs_after_uvicorn_reraises_sigterm(self) -> None:
+        result = self._run(self.SCRIPT)
+        assert "CLEANUP" in result.stdout, f"cleanup was skipped; rc={result.returncode} stderr={result.stderr}"
+        assert result.returncode == 0
+
+    def test_a_second_sigterm_still_terminates_the_process(self) -> None:
+        """Surviving the re-raise must not make the server unkillable.
+
+        The handler absorbs one signal so teardown can run; leaving it
+        installed would mean a second ``cpl down``, or a ``SIGTERM`` arriving
+        during a slow teardown, is silently ignored forever.
+        """
+        result = self._run(self.SECOND_SIGNAL_SCRIPT)
+        assert "ABSORBED" in result.stdout, f"the first signal was not survived; stderr={result.stderr}"
+        assert "STILL_ALIVE" not in result.stdout, "a second SIGTERM was ignored; the process is unkillable"
+        assert result.returncode != 0
+
+
+class TestKillProcessGroupOnWindows:
+    """Stopping the server must take its connector children with it.
+
+    Windows has no process group to signal and ``os.kill`` there terminates
+    only the named process, so a ``cloudflared``/``devtunnel host`` child
+    survived ``cpl down``: the command printed "Server stopped" while the
+    public hostname still had a live host connection to a machine whose
+    server was gone.
+    """
+
+    def test_children_are_terminated_when_no_process_groups_exist(self) -> None:
+        child = MagicMock()
+        child.is_running.return_value = False
+        fake_psutil = MagicMock()
+        fake_psutil.NoSuchProcess = RuntimeError
+        fake_psutil.AccessDenied = PermissionError
+        fake_psutil.Process.return_value.children.return_value = [child]
+
+        with (
+            patch.dict(sys.modules, {"psutil": fake_psutil}),
+            patch("os.getpgid", None, create=True),
+            patch("os.killpg", None, create=True),
+            patch("os.kill"),
+        ):
+            cli_module._kill_process_group(100, 15)
+
+        fake_psutil.Process.return_value.children.assert_called_once_with(recursive=True)
+        child.terminate.assert_called_once()
+
+    def test_process_groups_are_preferred_where_they_exist(self) -> None:
+        fake_psutil = MagicMock()
+        with (
+            patch.dict(sys.modules, {"psutil": fake_psutil}),
+            patch("os.getpgid", return_value=100, create=True),
+            patch("os.killpg", create=True) as mock_killpg,
+        ):
+            cli_module._kill_process_group(100, 15)
+
+        mock_killpg.assert_called_once_with(100, 15)
+        fake_psutil.Process.assert_not_called()
+
+    def test_connectors_are_killed_before_the_rest_of_the_tree(self) -> None:
+        """The connector holds the public relay registration.
+
+        Every descendant is hard killed here (psutil's `terminate` is an alias
+        for `kill` on Windows), and an agent CLI that is slow to die must not
+        delay closing the internet-facing entrypoint.
+        """
+        order: list[str] = []
+
+        def _make(name: str) -> MagicMock:
+            proc = MagicMock()
+            proc.name.return_value = name
+            proc.is_running.return_value = False
+            proc.terminate.side_effect = lambda: order.append(name)
+            return proc
+
+        agent = _make("copilot.exe")
+        connector = _make("cloudflared.exe")
+        fake_psutil = MagicMock()
+        fake_psutil.NoSuchProcess = RuntimeError
+        fake_psutil.AccessDenied = PermissionError
+        fake_psutil.Process.return_value.children.return_value = [agent, connector]
+
+        with (
+            patch.dict(sys.modules, {"psutil": fake_psutil}),
+            patch("os.getpgid", None, create=True),
+            patch("os.killpg", None, create=True),
+            patch("os.kill"),
+        ):
+            cli_module._kill_process_group(100, 15)
+
+        assert order == ["cloudflared.exe", "copilot.exe"]
+
+
 class TestStopServer:
     """`_stop_server` must only ever act on PIDs actually bound to the
     requested port. `find_cpl_processes` is a machine-wide command-line
@@ -281,13 +453,23 @@ class TestStopServer:
     @patch("time.sleep", return_value=None)
     @patch("backend.cli._kill_process_group")
     @patch("os.kill")
+    @patch("os.getpgid", create=True, side_effect=lambda pid: pid)
     @patch("backend.cli._find_pids_on_port")
     def test_escalates_to_sigkill_after_timeout(
-        self, mock_find_pids, _mock_os_kill, mock_kill_group, _mock_sleep, _mock_monotonic, capsys
+        self, mock_find_pids, _mock_getpgid, _mock_os_kill, mock_kill_group, _mock_sleep, _mock_monotonic, capsys
     ) -> None:
         """Preserve existing graceful-then-force behavior for the target
-        PID(s): still bound to the port after the timeout -> escalate."""
+        PID(s): still bound to the port after the timeout -> escalate.
+
+        ``os.getpgid`` is stubbed (it does not exist on Windows, and on POSIX
+        it would raise ``ProcessLookupError`` for the synthetic PID 100 and
+        silently skip the process-group path) so both platforms exercise the
+        same escalation branch. The force signal mirrors production's
+        ``getattr(signal, "SIGKILL", signal.SIGTERM)`` fallback: Windows has
+        no ``SIGKILL``.
+        """
         mock_find_pids.side_effect = [[100], [100], [100], []]
+        force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
 
         result = _stop_server(8080, timeout_seconds=1)
 
@@ -295,7 +477,10 @@ class TestStopServer:
         output = capsys.readouterr().out
         assert "SIGKILL" in output
         assert [c.args for c in _mock_os_kill.call_args_list] == [(100, signal.SIGTERM)]
-        assert [c.args for c in mock_kill_group.call_args_list] == [(100, signal.SIGKILL)]
+        assert [c.args for c in mock_kill_group.call_args_list] == [
+            (100, signal.SIGTERM),
+            (100, force_signal),
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +569,33 @@ class TestRestart:
         args = mock_exec.call_args[0][1]
         assert "--remote" in args
 
+    def test_default_provider_is_not_replayed(self) -> None:
+        """Replaying the default would defeat Cloudflare auto-detection.
+
+        `up` distinguishes "the user asked for devtunnel" from "nobody said
+        anything" via click's parameter source. `restart` has its own
+        `--provider` default, so forwarding it unconditionally made the child
+        see COMMANDLINE and skip auto-detection: `cpl up --remote` started
+        Cloudflare while `cpl restart --remote` started a Dev Tunnel.
+        """
+        runner = CliRunner()
+        with (
+            patch("backend.cli._is_server_running", return_value=(False, [])),
+            patch("os.execv") as mock_exec,
+        ):
+            runner.invoke(cli, ["restart", "--remote"])
+        assert "--provider" not in mock_exec.call_args[0][1]
+
+    def test_explicit_provider_is_forwarded(self) -> None:
+        runner = CliRunner()
+        with (
+            patch("backend.cli._is_server_running", return_value=(False, [])),
+            patch("os.execv") as mock_exec,
+        ):
+            runner.invoke(cli, ["restart", "--remote", "--provider", "cloudflare"])
+        args = mock_exec.call_args[0][1]
+        assert args[args.index("--provider") + 1] == "cloudflare"
+
 
 # ---------------------------------------------------------------------------
 # cpl up — active launch profile publication (Story 1.1)
@@ -397,12 +609,18 @@ async def _fake_startup(self: object, sockets: list[object] | None = None) -> No
     self.started = True  # type: ignore[attr-defined]
 
 
-def _fake_server_run(self: object) -> None:
+def _fake_server_run(self: object, sockets: list[object] | None = None) -> None:
     """Stand-in for ``uvicorn.Server.run`` that drives startup synchronously
-    instead of entering the real (blocking) serve loop."""
+    instead of entering the real (blocking) serve loop.
+
+    Mirrors the real ``uvicorn.Server.run(self, sockets=None)`` signature and
+    forwards ``sockets`` on to ``startup`` exactly as uvicorn does, so that
+    callers passing pre-bound sockets (``cpl up --port 0``) are exercised
+    rather than rejected with a ``TypeError``.
+    """
     import asyncio
 
-    asyncio.run(self.startup())  # type: ignore[attr-defined]
+    asyncio.run(self.startup(sockets=sockets))  # type: ignore[attr-defined]
 
 
 def _invoke_up(args: list[str], *, owning_pids: list[int] | None = None) -> tuple[object, dict[str, object] | None]:
@@ -652,3 +870,137 @@ class TestUpLaunchProfilePublication:
             result, written = _invoke_up(["--no-password"], owning_pids=[999999])
         assert result.exit_code != 0
         assert written is None
+
+
+class TestProviderSelection:
+    """``--provider`` must win over Cloudflare credential auto-detection.
+
+    ``--provider`` defaults to ``devtunnel``, so the auto-detect used to fire
+    on an explicit ``--provider devtunnel`` too: any machine with Cloudflare
+    credentials in ``.env`` silently started a Cloudflare tunnel instead. The
+    restart helper always replays ``--provider`` explicitly, so a recorded
+    devtunnel session could not be reproduced either.
+    """
+
+    _CF_ENV = {
+        "CPL_CLOUDFLARE_TUNNEL_TOKEN": "cf-token-do-not-leak",
+        "CPL_CLOUDFLARE_HOSTNAME": "cpl.example.com",
+    }
+
+    def _run(self, args: list[str], tmp_path: object) -> dict[str, object] | None:
+        from backend.services.sharing.tunnel_service import RemoteProvider, TunnelHandle
+
+        captured: dict[str, object] = {}
+
+        def _fake_start(provider, **kwargs):  # type: ignore[no-untyped-def]
+            captured["provider"] = provider
+            return TunnelHandle(
+                provider=provider,
+                origin="https://example.test",
+                externally_managed=False,
+                name="example",
+            )
+
+        with (
+            patch("backend.config.get_codeplane_dir", return_value=tmp_path),
+            patch("backend.services.sharing.tunnel_service.start_remote_access", side_effect=_fake_start),
+            patch.dict("os.environ", self._CF_ENV),
+        ):
+            result, written = _invoke_up(args)
+        assert result.exit_code == 0, result.output
+        assert captured["provider"] is not RemoteProvider.local
+        return written
+
+    def test_explicit_devtunnel_is_not_overridden_by_cloudflare_credentials(self, tmp_path: object) -> None:
+        written = self._run(["--remote", "--provider", "devtunnel"], tmp_path)
+        assert written is not None
+        assert written["provider"] == "devtunnel"
+
+    def test_omitted_provider_still_auto_detects_cloudflare(self, tmp_path: object) -> None:
+        written = self._run(["--remote"], tmp_path)
+        assert written is not None
+        assert written["provider"] == "cloudflare"
+
+    def test_explicit_provider_without_remote_is_rejected(self) -> None:
+        runner = CliRunner()
+        with patch("backend.services.setup.service.validate_preflight", return_value=True):
+            result = runner.invoke(cli, ["up", "--provider", "devtunnel", "--skip-preflight"])
+        assert result.exit_code == 1
+        assert "--provider requires --remote" in result.output
+
+
+class TestDotenvExport:
+    """`.env` values must reach `os.environ`.
+
+    `backend.lifespan` reads CPL_CLOUDFLARE_TUNNEL_TOKEN from `os.environ` to
+    derive the Cloudflare account ID, and the restart helper replays `cpl up`
+    with `env=dict(os.environ)`. When the loader kept the parsed values in a
+    local mapping only, a `.env`-only setup silently lost both.
+    """
+
+    def test_values_are_exported_to_environ(self, tmp_path) -> None:
+        import os
+
+        from backend.cli import _load_and_export_dotenv
+
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "# comment line\n"
+            "\n"
+            "CPL_CLOUDFLARE_TUNNEL_TOKEN=token-do-not-leak\n"
+            "CPL_CLOUDFLARE_HOSTNAME=cpl.example.com\n"
+            "MALFORMED_LINE\n"
+        )
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("CPL_CLOUDFLARE_TUNNEL_TOKEN", None)
+            os.environ.pop("CPL_CLOUDFLARE_HOSTNAME", None)
+            parsed = _load_and_export_dotenv(env_file)
+
+            assert parsed["CPL_CLOUDFLARE_HOSTNAME"] == "cpl.example.com"
+            assert os.environ["CPL_CLOUDFLARE_TUNNEL_TOKEN"] == "token-do-not-leak"
+            assert os.environ["CPL_CLOUDFLARE_HOSTNAME"] == "cpl.example.com"
+            assert "MALFORMED_LINE" not in parsed
+
+    def test_existing_environment_wins_over_dotenv(self, tmp_path) -> None:
+        import os
+
+        from backend.cli import _load_and_export_dotenv
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("CPL_CLOUDFLARE_HOSTNAME=from-dotenv.example.com\n")
+        with patch.dict("os.environ", {"CPL_CLOUDFLARE_HOSTNAME": "from-shell.example.com"}):
+            parsed = _load_and_export_dotenv(env_file)
+            # The raw file contents are still returned...
+            assert parsed["CPL_CLOUDFLARE_HOSTNAME"] == "from-dotenv.example.com"
+            # ...but an explicitly exported shell value is never overwritten,
+            # and `_env` resolves in the same order, so this process and the
+            # consumers reading `os.environ` agree on one value.
+            assert os.environ["CPL_CLOUDFLARE_HOSTNAME"] == "from-shell.example.com"
+
+    def test_unrelated_keys_are_not_exported(self, tmp_path) -> None:
+        """`.env` entries leak into every subprocess CodePlane spawns.
+
+        `terminal_service` builds its pty environment from `os.environ` and
+        agent CLIs inherit it by default, so exporting the whole file would
+        hand an unrelated developer credential to every interactive terminal
+        opened through the web UI.
+        """
+        import os
+
+        from backend.cli import _load_and_export_dotenv
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("CPL_CLOUDFLARE_HOSTNAME=cpl.example.com\nOPENAI_API_KEY=unrelated-secret-do-not-leak\n")
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("CPL_CLOUDFLARE_HOSTNAME", None)
+            os.environ.pop("OPENAI_API_KEY", None)
+            parsed = _load_and_export_dotenv(env_file)
+
+            assert parsed["OPENAI_API_KEY"] == "unrelated-secret-do-not-leak"
+            assert os.environ["CPL_CLOUDFLARE_HOSTNAME"] == "cpl.example.com"
+            assert "OPENAI_API_KEY" not in os.environ
+
+    def test_missing_file_is_not_an_error(self, tmp_path) -> None:
+        from backend.cli import _load_and_export_dotenv
+
+        assert _load_and_export_dotenv(tmp_path / "absent.env") == {}

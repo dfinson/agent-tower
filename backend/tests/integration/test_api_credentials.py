@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 import pytest
 
 from backend.api.credentials import CreateCredentialRequest
-from backend.services.credentials import encryption
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -25,7 +24,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def _isolated_codeplane_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(encryption, "get_codeplane_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.config.get_codeplane_dir", lambda: tmp_path)
 
 
 class TestListCredentials:

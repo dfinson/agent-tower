@@ -87,9 +87,7 @@ async def list_tracker_links(
         repo = TrackerLinkRepository(session)
         rows = await repo.list_for_project(project_id)
         summaries = await TrackerSummaryRepository(session).list_for_project(project_id)
-    return TrackerLinkListResponse(
-        tracker_links=[_to_response(row, summaries.get(row["id"])) for row in rows]
-    )
+    return TrackerLinkListResponse(tracker_links=[_to_response(row, summaries.get(row["id"])) for row in rows])
 
 
 @router.post("", response_model=TrackerLinkResponse, status_code=201)

@@ -330,7 +330,7 @@ class TestPrTool:
 def _make_task_link(**overrides: object):
     from backend.models.domain import TaskLink
 
-    defaults = dict(
+    defaults: dict[str, object] = dict(
         id="tl-1",
         project_id="proj-1",
         repo_path="/repo",

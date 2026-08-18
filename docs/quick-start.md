@@ -129,6 +129,8 @@ cpl up --phone                               # shortcut for --remote
 
 The UI is fully responsive — monitor jobs, approve actions, and send messages from anywhere.
 
+The tunnel connector runs as a child of the server: `cpl down` stops both, and an existing connector for the same origin is reused rather than duplicated. See [Configuration > Tunnel Lifecycle](configuration.md#tunnel-lifecycle) for details.
+
 CodePlane is a Progressive Web App — on mobile browsers you can "Add to Home Screen" for a native-like experience with push notifications.
 
 ## What's Next

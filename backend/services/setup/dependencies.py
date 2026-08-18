@@ -92,9 +92,51 @@ DEPENDENCIES: list[Dependency] = [
         url="https://aka.ms/devtunnels/cli",
         required=False,
         install_instructions={
-            "linux": "Install from https://aka.ms/devtunnels/cli",
-            "darwin": "Install from https://aka.ms/devtunnels/cli",
-            "windows": "Install from https://aka.ms/devtunnels/cli",
+            "linux": "curl -sL https://aka.ms/DevTunnelCliInstall | bash",
+            "darwin": "brew install --cask devtunnel",
+            "windows": "winget install --id Microsoft.devtunnel",
+        },
+        auto_install_cmd={
+            "darwin": ["brew", "install", "--cask", "devtunnel"],
+            "windows": [
+                "winget",
+                "install",
+                "--id",
+                "Microsoft.devtunnel",
+                "--accept-source-agreements",
+                "--accept-package-agreements",
+                "--silent",
+            ],
+        },
+    ),
+    Dependency(
+        name="Cloudflare Tunnel CLI",
+        command="cloudflared",
+        url="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/",
+        required=False,
+        install_instructions={
+            "linux": (
+                "curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg "
+                "| sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null\n"
+                "echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] "
+                "https://pkg.cloudflare.com/cloudflared any main' "
+                "| sudo tee /etc/apt/sources.list.d/cloudflared.list\n"
+                "sudo apt-get update && sudo apt-get install -y cloudflared"
+            ),
+            "darwin": "brew install cloudflared",
+            "windows": "winget install --id Cloudflare.cloudflared",
+        },
+        auto_install_cmd={
+            "darwin": ["brew", "install", "cloudflared"],
+            "windows": [
+                "winget",
+                "install",
+                "--id",
+                "Cloudflare.cloudflared",
+                "--accept-source-agreements",
+                "--accept-package-agreements",
+                "--silent",
+            ],
         },
     ),
 ]

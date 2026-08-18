@@ -7,6 +7,7 @@ graceful shutdown.  Extracted from main.py to keep concerns separated.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from contextlib import asynccontextmanager
@@ -20,7 +21,8 @@ from dishka import make_async_container
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, get_codeplane_dir, load_config
+from backend import config as backend_config
+from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, load_config
 from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMaxBytes
 from backend.models.events import EventKind, SessionEvent, new_event
 from backend.persistence.database import create_engine, create_session_factory, serialized_write
@@ -305,8 +307,37 @@ async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> Non
         msg="No Cloudflare Access gate detected. Shutting down to prevent unprotected exposure.",
     )
     tunnel_handle.close()
-    # Signal the server to shut down
+    _request_graceful_shutdown()
+
+
+def _request_graceful_shutdown() -> None:
+    """Ask this process to shut down, portably.
+
+    ``os.kill(os.getpid(), signal.SIGTERM)`` is a hard ``TerminateProcess``
+    call on Windows: the process dies immediately, so uvicorn never runs its
+    graceful shutdown and the lifespan shutdown handlers (worktree cleanup,
+    lease release, DB flush) never run at all. Raising the installed SIGTERM
+    handler in-process keeps the same shutdown path on every platform, and
+    ``os.kill`` remains the fallback when no handler is installed.
+    """
     import signal
+
+    handler = signal.getsignal(signal.SIGTERM)
+    if getattr(handler, "codeplane_absorbs_signal", False):
+        # ``cli._neutralize_fatal_termination_signals`` installs a handler that
+        # swallows the signal so cleanup can run; calling it would return
+        # without shutting anything down. Restore the default first so the
+        # ``os.kill`` below is guaranteed to stop this process — this path is
+        # the emergency stop for an unprotected public exposure, where staying
+        # up is the worse outcome.
+        with contextlib.suppress(ValueError, OSError, RuntimeError):
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    elif callable(handler):
+        try:
+            handler(signal.SIGTERM, None)
+            return
+        except Exception:  # noqa: BLE001 - fall through to the hard stop below
+            log.warning("graceful_shutdown_handler_failed", exc_info=True)
 
     os.kill(os.getpid(), signal.SIGTERM)
 
@@ -856,20 +887,55 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     # --- Push notification service ---
-    vapid_keys = get_or_create_vapid_keys(get_codeplane_dir())
+    vapid_keys = get_or_create_vapid_keys(backend_config.get_codeplane_dir())
     push_service = PushService(
         vapid_private_key=vapid_keys["private_key"],
         vapid_public_key=vapid_keys["public_key"],
+        session_factory=session_factory,
     )
+    await push_service.load_from_db()
 
     async def _push_subscriber(event: SessionEvent) -> None:
-        """Send push notifications for approval requests and terminal job states."""
+        """Send push notifications for actionable and terminal job events."""
         if event.kind == EventKind.approval_requested:
             desc = event.payload.get("description", "Action requires your approval")
             await push_service.notify(
                 title="Approval needed",
                 body=str(desc),
                 tag=f"approval-{event.payload.get('approval_id', event.session_id)}",
+                url=f"/jobs/{event.session_id}",
+            )
+        elif event.kind == EventKind.batch_approval_requested:
+            desc = event.payload.get("description", "Batch action requires your approval")
+            await push_service.notify(
+                title="Batch approval needed",
+                body=str(desc),
+                tag=f"batch-approval-{event.session_id}",
+                url=f"/jobs/{event.session_id}",
+            )
+        elif event.kind == EventKind.merge_conflict:
+            files = event.payload.get("conflict_files", [])
+            body = f"{len(files)} conflicting file(s)" if files else "Merge conflict detected"
+            await push_service.notify(
+                title="Merge conflict",
+                body=body,
+                tag=f"conflict-{event.session_id}",
+                url=f"/jobs/{event.session_id}",
+            )
+        elif event.kind == EventKind.job_review:
+            pr_url = event.payload.get("pr_url", "")
+            body = f"PR ready: {pr_url}" if pr_url else "Job ready for review"
+            await push_service.notify(
+                title="Job ready for review",
+                body=body,
+                tag=f"review-{event.session_id}",
+                url=f"/jobs/{event.session_id}",
+            )
+        elif event.kind == EventKind.stall_detected:
+            await push_service.notify(
+                title="Job stalled",
+                body="Agent may be stuck",
+                tag=f"stall-{event.session_id}",
                 url=f"/jobs/{event.session_id}",
             )
         elif event.kind == EventKind.job_completed:
@@ -987,8 +1053,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from backend.services.events.governance_subscriber import GovernanceSubscriber
 
     governance_decider = GovernanceDecider(
-        db_path=get_codeplane_dir() / "governance.db",
-        spend_reader=make_job_spend_reader(get_codeplane_dir() / "data.db"),
+        db_path=backend_config.get_codeplane_dir() / "governance.db",
+        spend_reader=make_job_spend_reader(backend_config.get_codeplane_dir() / "data.db"),
         usd_ceilings=await load_usd_ceilings(session_factory),
     )
     governance_subscriber = GovernanceSubscriber(governance_decider)
@@ -1413,7 +1479,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # --- ModelPricingService (runtime-fetched LLM pricing) ---
     model_pricing_service = ModelPricingService(
-        cache_path=get_codeplane_dir() / "model_pricing_cache.json",
+        cache_path=backend_config.get_codeplane_dir() / "model_pricing_cache.json",
         refresh_interval_hours=config.pricing.refresh_interval_hours,
     )
     await model_pricing_service.refresh()

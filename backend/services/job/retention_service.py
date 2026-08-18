@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from backend.config import get_codeplane_dir
+from backend import config as backend_config
 from backend.persistence.artifact_repo import ArtifactRepository
 from backend.persistence.job_repo import JobRepository
 
@@ -23,7 +23,7 @@ log = structlog.get_logger()
 
 
 def _artifacts_dir() -> Path:
-    return get_codeplane_dir() / "artifacts"
+    return backend_config.get_codeplane_dir() / "artifacts"
 
 
 CLEANUP_INTERVAL_SECONDS = 24 * 60 * 60  # 24 hours

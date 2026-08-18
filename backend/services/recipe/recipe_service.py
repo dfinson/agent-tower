@@ -403,9 +403,7 @@ class RecipeService:
         if gated:
             assert self._approval_service is not None  # narrowed by _is_chain_gated
             pending = await self._approval_service.list_pending()
-            pending_spawn_actions = {
-                a.proposed_action for a in pending if a.proposed_action is not None
-            }
+            pending_spawn_actions = {a.proposed_action for a in pending if a.proposed_action is not None}
 
         spawned: list[Job] = []
         for candidate in project_links:

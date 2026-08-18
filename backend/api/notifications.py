@@ -22,12 +22,12 @@ def get_vapid_key(push_service: FromDishka[PushService]) -> VapidKeyResponse:
 
 
 @router.post("/notifications/subscribe", status_code=204)
-def subscribe(body: SubscriptionRequest, push_service: FromDishka[PushService]) -> None:
+async def subscribe(body: SubscriptionRequest, push_service: FromDishka[PushService]) -> None:
     """Register a Web Push subscription."""
-    push_service.subscribe({"endpoint": body.endpoint, "keys": body.keys})
+    await push_service.subscribe_async({"endpoint": body.endpoint, "keys": body.keys})
 
 
 @router.post("/notifications/unsubscribe", status_code=204)
-def unsubscribe(body: UnsubscribeRequest, push_service: FromDishka[PushService]) -> None:
+async def unsubscribe(body: UnsubscribeRequest, push_service: FromDishka[PushService]) -> None:
     """Remove a Web Push subscription."""
-    push_service.unsubscribe(body.endpoint)
+    await push_service.unsubscribe_async(body.endpoint)

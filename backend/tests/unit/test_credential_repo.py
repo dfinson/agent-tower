@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from backend.models.db import Base, TrackerLinkRow
 from backend.persistence.credential_repo import CredentialReferencedError, CredentialRepository
 from backend.persistence.database import _set_sqlite_pragmas
-from backend.services.credentials import encryption
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -20,7 +19,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def _isolated_codeplane_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(encryption, "get_codeplane_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.config.get_codeplane_dir", lambda: tmp_path)
 
 
 @pytest.fixture

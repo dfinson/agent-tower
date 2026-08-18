@@ -6,9 +6,11 @@ doctor, down, restart) along with tunnel management and startup helpers.
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import multiprocessing
 import signal
+import socket
 import warnings
 from pathlib import Path
 from typing import Any
@@ -32,6 +34,32 @@ from backend.config import load_config  # noqa: E402
 @click.group()
 def cli() -> None:
     """CodePlane — control plane for coding agents."""
+
+
+def _bind_ephemeral_socket(host: str) -> socket.socket:
+    """Bind an OS-assigned port on ``host`` and return the still-open socket.
+
+    Used to resolve ``--port 0`` to a concrete port *before* anything
+    downstream needs it. Binding and then closing the socket to "peek" at the
+    port would race another process for it, so the bound socket is kept and
+    handed to uvicorn via ``server.run(sockets=...)``.
+
+    Mirrors ``uvicorn.Config.bind_socket`` so the socket uvicorn receives is
+    configured the way it would have configured one itself.
+    """
+    family = socket.AF_INET
+    with contextlib.suppress(OSError):
+        socket.inet_pton(socket.AF_INET6, host)
+        family = socket.AF_INET6
+    sock = socket.socket(family=family)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, 0))
+    except OSError:
+        sock.close()
+        raise
+    sock.set_inheritable(True)
+    return sock
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +123,122 @@ def _build_frontend() -> bool:
         click.secho(f"Frontend build failed: {exc}", fg="yellow")
         click.echo("The API will still work, but there will be no web UI.")
         return False
+
+
+#: Location of the repository ``.env``. Module-level so tests can redirect it
+#: to a scratch path instead of silently picking up the developer's real
+#: credentials — which changes provider auto-detection and, since the values
+#: are exported, leaks into ``os.environ`` for the rest of the session.
+DOTENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+
+
+#: ``.env`` keys that are exported into ``os.environ``. Deliberately an
+#: allowlist: consumers outside this module build subprocess environments from
+#: ``os.environ`` (pty terminals in ``terminal_service``, the restart helper,
+#: every agent CLI), so exporting the whole file would push unrelated developer
+#: credentials into every child process CodePlane spawns.
+_EXPORTED_DOTENV_KEYS = frozenset(
+    {
+        "CPL_CLOUDFLARE_TUNNEL_TOKEN",
+        "CPL_CLOUDFLARE_HOSTNAME",
+        "CPL_CF_ACCESS_TEAM",
+        "CPL_CF_ACCESS_AUD",
+        "CPL_DEVTUNNEL_NAME",
+        "CPL_PASSWORD",
+    }
+)
+
+
+def _load_and_export_dotenv(dotenv_path: Path) -> dict[str, str]:
+    """Parse ``.env`` and export its remote-access entries into ``os.environ``.
+
+    Returns the parsed mapping so callers can resolve values themselves.
+
+    The export matters because several consumers read ``os.environ``
+    directly and cannot see a local mapping: ``backend.lifespan``'s
+    Cloudflare Access check derives the account ID from
+    ``CPL_CLOUDFLARE_TUNNEL_TOKEN`` in ``os.environ``, so a ``.env``-only
+    setup silently lost the Zero Trust API verification strategy, and the
+    restart helper replays ``cpl up`` with ``env=dict(os.environ)``, which
+    dropped the tunnel credentials entirely when the replacement process ran
+    outside the repository directory.
+
+    Only :data:`_EXPORTED_DOTENV_KEYS` are exported, and ``setdefault`` keeps
+    an explicit shell export authoritative — which is also the precedence
+    ``_env`` applies, so the CLI, the lifespan hooks and the restart helper all
+    resolve the same value when the two sources disagree.
+    """
+    import os
+
+    dotenv_vars: dict[str, str] = {}
+    if not dotenv_path.is_file():
+        return dotenv_vars
+
+    for raw_line in dotenv_path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        dotenv_vars[key.strip()] = value.strip()
+
+    for key, value in dotenv_vars.items():
+        if key in _EXPORTED_DOTENV_KEYS:
+            os.environ.setdefault(key, value)
+
+    return dotenv_vars
+
+
+def _provider_explicit() -> bool:
+    """Whether ``--provider`` was actually supplied on the command line.
+
+    ``up``'s ``--provider`` has a default of ``devtunnel``, so the parameter
+    value cannot distinguish "the user asked for devtunnel" from "nobody said
+    anything". Click records where each value came from, which is the only
+    reliable signal.
+    """
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return False
+    from click.core import ParameterSource
+
+    return ctx.get_parameter_source("provider") is ParameterSource.COMMANDLINE
+
+
+def _neutralize_fatal_termination_signals() -> None:
+    """Make a re-raised termination signal survivable so cleanup can run.
+
+    ``uvicorn.Server.run`` captures the termination signals for the duration of
+    ``serve()``, then restores whatever handler was installed beforehand and
+    re-raises the signal it caught. When that pre-existing handler is the
+    default one, the re-raise kills the process *instantly*: ``server.run()``
+    never returns, so the ``finally`` block that stops the tunnel connector is
+    skipped and the connector is orphaned. ``SIGINT`` is harmless because
+    Python's default handler merely raises ``KeyboardInterrupt``, which is why
+    Ctrl-C tore down correctly while ``cpl down`` (``SIGTERM``) did not.
+
+    Installing a handler *before* ``server.run()`` means uvicorn restores that
+    one instead, and the re-raise becomes survivable. The handler restores the
+    default as it fires, so the signal is absorbed exactly once: a second
+    ``cpl down`` (or a shutdown-time ``SIGTERM``) still terminates the process
+    rather than being ignored forever.
+    """
+
+    def _absorb_once(signum: int, _frame: Any) -> None:
+        with contextlib.suppress(ValueError, OSError, RuntimeError):
+            signal.signal(signum, signal.SIG_DFL)
+
+    # ``backend.lifespan._request_graceful_shutdown`` treats a callable SIGTERM
+    # handler as proof that someone will act on the signal. This one does the
+    # opposite, so it advertises itself and lets that caller take a hard stop.
+    _absorb_once.codeplane_absorbs_signal = True  # type: ignore[attr-defined]
+
+    for name in ("SIGTERM", "SIGBREAK"):
+        sig = getattr(signal, name, None)
+        if sig is None:
+            continue
+        with contextlib.suppress(ValueError, OSError, RuntimeError):
+            if signal.getsignal(sig) in (signal.SIG_DFL, None):
+                signal.signal(sig, _absorb_once)
 
 
 # ---------------------------------------------------------------------------
@@ -165,8 +309,10 @@ def up(
         remote = True
 
     config = load_config()
-    host = host or config.server.host
-    port = port or config.server.port
+    host = host if host is not None else config.server.host
+    # ``port or config.server.port`` would silently discard an explicit
+    # ``--port 0``, which is a valid request for an OS-assigned ephemeral port.
+    port = port if port is not None else config.server.port
 
     # Run preflight checks before starting
     if not skip_preflight:
@@ -175,7 +321,23 @@ def up(
         if not validate_preflight(port):
             raise SystemExit(1)
 
-    if not remote and provider != "devtunnel":
+    # ``--port 0`` asks the OS to assign an ephemeral port. Resolve it now, by
+    # binding the listening socket ourselves and reading back the assigned
+    # port, so that every downstream consumer agrees on the port the server
+    # actually serves on: the tunnel origin, the banner, the published
+    # ``run.json`` (which ``cpl down``/``cpl restart`` read), and the
+    # listener-ownership check. Done after preflight, which would otherwise
+    # find the port already taken -- by us.
+    ephemeral_socket: socket.socket | None = None
+    if port == 0:
+        try:
+            ephemeral_socket = _bind_ephemeral_socket(host)
+        except OSError as exc:
+            click.secho(f"ERROR: could not bind an ephemeral port on {host}: {exc}", fg="red", err=True)
+            raise SystemExit(1) from exc
+        port = ephemeral_socket.getsockname()[1]
+
+    if not remote and _provider_explicit():
         click.secho(
             f"ERROR: --provider requires --remote (got --provider {provider} without --remote).",
             fg="red",
@@ -183,20 +345,16 @@ def up(
         )
         raise SystemExit(1)
 
-    # Read credentials from .env (takes precedence) then OS environment
+    # Credentials come from the OS environment first, then ``.env``. The order
+    # must match ``_load_and_export_dotenv``'s ``setdefault`` export, otherwise
+    # this process and the consumers that read ``os.environ`` (lifespan, the
+    # restart helper) would resolve different values when the two disagree.
     import os
 
-    dotenv_path = Path(__file__).resolve().parent.parent / ".env"
-    dotenv_vars: dict[str, str] = {}
-    if dotenv_path.is_file():
-        for line in dotenv_path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, _, v = line.partition("=")
-                dotenv_vars[k.strip()] = v.strip()
+    dotenv_vars = _load_and_export_dotenv(DOTENV_PATH)
 
     def _env(key: str) -> str | None:
-        return dotenv_vars.get(key) or os.environ.get(key) or None
+        return os.environ.get(key) or dotenv_vars.get(key) or None
 
     cloudflare_token = _env("CPL_CLOUDFLARE_TUNNEL_TOKEN")
     cloudflare_hostname = _env("CPL_CLOUDFLARE_HOSTNAME")
@@ -205,8 +363,15 @@ def up(
     cf_access_team = _env("CPL_CF_ACCESS_TEAM")
     cf_access_aud = _env("CPL_CF_ACCESS_AUD")
 
-    # Auto-detect Cloudflare when --provider wasn't explicitly set but credentials exist
-    if remote and provider == "devtunnel" and cloudflare_token and cloudflare_hostname:
+    # Auto-detect Cloudflare when --provider wasn't explicitly set but credentials exist.
+    # ``provider`` defaults to "devtunnel", so its value alone cannot tell an
+    # explicit ``--provider devtunnel`` apart from the default; click's
+    # parameter source can. Without this distinction the auto-detect silently
+    # overrode a deliberate devtunnel request on any machine that happens to
+    # have Cloudflare credentials, and the restart helper — which always
+    # replays ``--provider`` explicitly — could not reproduce a recorded
+    # devtunnel session.
+    if remote and provider == "devtunnel" and cloudflare_token and cloudflare_hostname and not _provider_explicit():
         provider = "cloudflare"
 
     remote_provider = RemoteProvider(provider) if remote else RemoteProvider.local
@@ -320,6 +485,12 @@ def up(
         except TunnelStartError as exc:
             click.secho(f"ERROR: {exc}", fg="red", err=True)
             raise SystemExit(1) from exc
+        # Ownership of the connector begins here, but the ``finally`` that
+        # releases it only starts once ``server.run()`` is reached. Anything
+        # that aborts in between (a failed migration, a bad DI wiring) would
+        # otherwise leave a public tunnel pointing at a server that never came
+        # up. ``close()`` is idempotent, so the later explicit calls still win.
+        atexit.register(tunnel_handle.close)
         tunnel_origin = tunnel_handle.origin
 
         if tunnel_handle.externally_managed:
@@ -475,6 +646,8 @@ def up(
 
     server = _LaunchProfileServer(uv_config)
 
+    _neutralize_fatal_termination_signals()
+
     _exit_signal_count = 0
 
     _original_handle_exit = server.handle_exit
@@ -524,7 +697,7 @@ def up(
     # Suppress the KeyboardInterrupt that uvicorn re-raises after shutdown
     # (it restores the default SIGINT handler then calls signal.raise_signal).
     try:
-        server.run()
+        server.run(sockets=[ephemeral_socket] if ephemeral_socket is not None else None)
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
@@ -532,6 +705,10 @@ def up(
             dashboard.stop()
         if tunnel_handle is not None:
             tunnel_handle.close()
+        if ephemeral_socket is not None:
+            # Idempotent: uvicorn also closes sockets handed to it.
+            with contextlib.suppress(OSError):
+                ephemeral_socket.close()
 
 
 # ---------------------------------------------------------------------------
@@ -788,7 +965,22 @@ def _pause_active_sessions(base_url: str) -> None:
 
 
 def _kill_process_group(pid: int, sig: int) -> None:
-    """Send *sig* to the process group led by *pid*, falling back to the process itself."""
+    """Send *sig* to the process group led by *pid*, falling back to the process itself.
+
+    Windows has no process groups to signal, and ``os.kill`` there terminates
+    only the named process. A connector (``cloudflared``/``devtunnel host``)
+    is a child of the server, so signalling just the server left it running
+    and still registered with the relay: ``cpl down`` reported "Server
+    stopped" while the public hostname kept a live host connection. Children
+    are therefore enumerated and terminated explicitly on Windows.
+
+    The Windows path is *not* equivalent to the POSIX one: ``os.kill`` maps to
+    ``TerminateProcess`` for anything but the two console-control events, so
+    the server never runs a signal handler, uvicorn's graceful shutdown and
+    the lifespan shutdown hooks are skipped, and every descendant is hard
+    killed. See ``docs/configuration.md`` ("Tunnel Lifecycle") for what that
+    costs and why it is accepted for now.
+    """
     import os
 
     getpgid = getattr(os, "getpgid", None)
@@ -800,9 +992,51 @@ def _kill_process_group(pid: int, sig: int) -> None:
             return
         except (ProcessLookupError, PermissionError):
             pass
+    else:
+        _kill_windows_process_tree(pid)
     # Process gone or we don't own the group — try the PID directly.
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.kill(pid, sig)
+
+
+#: Connector executables that must die before anything else in the tree: they
+#: hold a public relay registration, so leaving one alive keeps the machine
+#: reachable from the internet after ``cpl down`` claims it stopped.
+_CONNECTOR_PROCESS_NAMES = frozenset({"cloudflared", "cloudflared.exe", "devtunnel", "devtunnel.exe"})
+
+
+def _kill_windows_process_tree(pid: int) -> None:
+    """Hard kill the descendants of *pid* (best effort); the caller kills *pid* itself.
+
+    ``psutil.Process.terminate`` is an alias for ``kill`` on Windows, so this
+    is unconditionally ungraceful for every descendant — agent CLIs and their
+    subprocesses included. Connectors are killed first so that a slow or stuck
+    descendant cannot delay closing the public entrypoint.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return
+    try:
+        children = psutil.Process(pid).children(recursive=True)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return
+
+    def _is_connector(proc: object) -> bool:
+        with contextlib.suppress(Exception):
+            return (proc.name() or "").lower() in _CONNECTOR_PROCESS_NAMES  # type: ignore[attr-defined]
+        return False
+
+    ordered = sorted(children, key=lambda child: not _is_connector(child))
+    for child in ordered:
+        with contextlib.suppress(Exception):
+            child.terminate()
+    with contextlib.suppress(Exception):
+        psutil.wait_procs(children, timeout=5)
+    for child in children:
+        with contextlib.suppress(Exception):
+            if child.is_running():
+                child.kill()
 
 
 def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
@@ -993,6 +1227,19 @@ def restart(
 
     config = load_config()
     host = host or config.server.host
+    # ``restart`` cannot honor ``--port 0`` the way ``up`` can: the down phase
+    # has to target a determinate port to find and stop a listener, and a
+    # restart is only meaningful if the server comes back at the same address.
+    # Reject it rather than silently substituting the configured default.
+    if port == 0:
+        click.secho(
+            "ERROR: --port 0 is not supported by restart (it must target a specific "
+            "port to stop, and would not come back at a predictable address). "
+            "Use 'cpl up --port 0' to start on an OS-assigned port.",
+            fg="red",
+            err=True,
+        )
+        raise SystemExit(1)
     port = port or config.server.port
     base_url = f"http://{host}:{port}"
 
@@ -1013,7 +1260,14 @@ def restart(
     if dev:
         args.append("--dev")
     if remote:
-        args.extend(["--remote", "--provider", provider])
+        args.append("--remote")
+        # Replaying ``--provider`` unconditionally would make the child ``up``
+        # see click's ParameterSource.COMMANDLINE for a value that is merely
+        # ``restart``'s default, suppressing Cloudflare auto-detection — so
+        # ``cpl restart --remote`` would start a Dev Tunnel where ``cpl up
+        # --remote`` starts Cloudflare. Forward it only when the user asked.
+        if _provider_explicit():
+            args.extend(["--provider", provider])
     if password:
         args.extend(["--password", password])
     if no_password:

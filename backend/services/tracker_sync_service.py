@@ -46,9 +46,7 @@ class TrackerSyncService:
         self._session_factory = session_factory
         self._client: httpx.AsyncClient | None = None
         if adapters is None:
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=10.0, read=30.0, write=15.0, pool=5.0)
-            )
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=30.0, write=15.0, pool=5.0))
             adapters = build_tracker_adapters(self._client)
         self._adapters = adapters
         self._wake = asyncio.Event()
@@ -124,9 +122,7 @@ class TrackerSyncService:
                     link_id=link_id,
                 )
                 if target is None:
-                    raise TrackerLinkNotFoundError(
-                        f"TrackerLink '{link_id}' does not exist in Project '{project_id}'"
-                    )
+                    raise TrackerLinkNotFoundError(f"TrackerLink '{link_id}' does not exist in Project '{project_id}'")
                 token = await CredentialRepository(session).resolve_secret(target["credential_id"])
 
             adapter = self._adapters.get(target["provider"])
