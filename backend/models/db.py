@@ -593,7 +593,14 @@ class TaskLinkRow(Base):
     repo_path: Mapped[str] = mapped_column(String, nullable=False)
     story_node_id: Mapped[str | None] = mapped_column(String, nullable=True)
     depends_on: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")  # JSON list
+    state: Mapped[str] = mapped_column(String, nullable=False, default="waiting", server_default="waiting")
     job_id: Mapped[str | None] = mapped_column(String, ForeignKey("jobs.id"), nullable=True)
+    tracker_link_id: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("tracker_links.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     tracker_ticket_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     prompt_override: Mapped[str | None] = mapped_column(Text, nullable=True)
     epic_id: Mapped[str | None] = mapped_column(String, nullable=True)

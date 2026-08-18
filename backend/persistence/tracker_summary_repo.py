@@ -37,6 +37,16 @@ class TrackerSummaryRepository(BaseRepository):
         row = result.one_or_none()
         return _target_to_dict(*row) if row else None
 
+    async def get_target_by_link_id(self, link_id: str) -> dict[str, str] | None:
+        """Resolve provider and credential context for one explicit TrackerLink."""
+        result = await self._session.execute(
+            select(TrackerLinkRow, CredentialRow)
+            .join(CredentialRow, CredentialRow.id == TrackerLinkRow.credential_id)
+            .where(TrackerLinkRow.id == link_id)
+        )
+        row = result.one_or_none()
+        return _target_to_dict(*row) if row else None
+
     async def get(self, tracker_link_id: str) -> dict[str, Any] | None:
         row = await self._session.get(TrackerSummaryRow, tracker_link_id)
         return _summary_to_dict(row) if row else None

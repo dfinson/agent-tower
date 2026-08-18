@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { TaskLinkResponse } from "../../api/types";
 import { TaskLinkCard } from "../TaskLinkCard";
 
@@ -10,7 +11,9 @@ function makeTaskLink(overrides: Partial<TaskLinkResponse> = {}): TaskLinkRespon
     repoPath: "/repos/frontend",
     storyNodeId: "4-4-see-tasklink-cards",
     dependsOn: [],
+    state: "ready",
     jobId: null,
+    trackerLinkId: null,
     trackerTicketRef: null,
     promptOverride: null,
     epicId: "epic-4",
@@ -20,50 +23,61 @@ function makeTaskLink(overrides: Partial<TaskLinkResponse> = {}): TaskLinkRespon
   };
 }
 
+function renderCard(taskLink = makeTaskLink(), onStart = vi.fn()) {
+  return render(
+    <MemoryRouter initialEntries={["/projects/id/proj-1/board"]}>
+      <Routes>
+        <Route path="/projects/id/:projectId/board" element={<TaskLinkCard taskLink={taskLink} onStart={onStart} />} />
+        <Route path="/jobs/:jobId" element={<div>Job detail</div>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
 describe("TaskLinkCard", () => {
-  it("renders the story node id and repo name", () => {
-    render(<TaskLinkCard taskLink={makeTaskLink()} satisfied />);
-    expect(screen.getByText("4-4-see-tasklink-cards")).toBeInTheDocument();
+  it("shows explicit state, source, dependencies, repository, and linked Job", () => {
+    renderCard(makeTaskLink({
+      state: "running",
+      jobId: "job-7",
+      dependsOn: ["/repos/api::api-task"],
+    }));
+
+    expect(screen.getByText("running")).toBeInTheDocument();
+    expect(screen.getByText("Story 4-4-see-tasklink-cards")).toBeInTheDocument();
+    expect(screen.getByText("api-task")).toBeInTheDocument();
+    expect(screen.getByText("job-7")).toBeInTheDocument();
     expect(screen.getByText("frontend")).toBeInTheDocument();
-    expect(screen.getByText("chained")).toBeInTheDocument();
   });
 
-  it("falls back to the tracker ticket ref when there is no story node id", () => {
-    render(
-      <TaskLinkCard
-        taskLink={makeTaskLink({ storyNodeId: null, trackerTicketRef: "JIRA-123" })}
-        satisfied
-      />,
-    );
-    expect(screen.getByText("JIRA-123")).toBeInTheDocument();
+  it.each(["waiting", "ready", "running", "completed", "failed"] as const)(
+    "renders the %s lifecycle state",
+    (state) => {
+      renderCard(makeTaskLink({ state }));
+      expect(screen.getByText(state)).toBeInTheDocument();
+    },
+  );
+
+  it("starts a ready root TaskLink", () => {
+    const onStart = vi.fn();
+    const taskLink = makeTaskLink({ state: "ready", dependsOn: [] });
+    renderCard(taskLink, onStart);
+    fireEvent.click(screen.getByRole("button", { name: "Start task" }));
+    expect(onStart).toHaveBeenCalledWith(taskLink);
   });
 
-  it("renders a satisfied badge and normal styling when dependencies are satisfied", () => {
-    render(<TaskLinkCard taskLink={makeTaskLink()} satisfied />);
-    expect(screen.getByText("deps satisfied")).toBeInTheDocument();
-    expect(screen.getByLabelText(/dependencies satisfied/)).not.toHaveClass("opacity-60");
+  it("navigates a linked card to Job detail", () => {
+    renderCard(makeTaskLink({ state: "running", jobId: "job-7" }));
+    fireEvent.click(screen.getByRole("link", { name: /Task recipe/ }));
+    expect(screen.getByText("Job detail")).toBeInTheDocument();
   });
 
-  it("renders a greyed-out waiting badge naming the blocking dependency when unsatisfied", () => {
-    render(
-      <TaskLinkCard
-        taskLink={makeTaskLink({ dependsOn: ["/repos/frontend::add-sca"] })}
-        satisfied={false}
-        blockingLabel="add-sca"
-      />,
-    );
-    expect(screen.getByText("waiting on add-sca")).toBeInTheDocument();
-    expect(screen.getByLabelText(/waiting on dependencies/)).toHaveClass("opacity-60");
-  });
-
-  it("renders a generic waiting badge when no blocking label is provided", () => {
-    render(
-      <TaskLinkCard
-        taskLink={makeTaskLink({ dependsOn: ["/repos/frontend::add-sca"] })}
-        satisfied={false}
-        blockingLabel={null}
-      />,
-    );
-    expect(screen.getByText("waiting")).toBeInTheDocument();
+  it("preserves explicit tracker-link context for tracker-backed tasks", () => {
+    renderCard(makeTaskLink({
+      storyNodeId: null,
+      trackerTicketRef: "PAY-42",
+      trackerLinkId: "tracker-link-9",
+    }));
+    expect(screen.getByText("Tracker PAY-42")).toBeInTheDocument();
+    expect(screen.getByText("tracker-link-9")).toBeInTheDocument();
   });
 });

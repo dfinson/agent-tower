@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { useStore } from "../../store";
 import type { JobSummary } from "../../store";
@@ -10,9 +10,17 @@ vi.mock("../../api/client", () => ({
   fetchJobs: vi.fn(),
   fetchProject: vi.fn(),
   fetchProjectTaskLinks: vi.fn(),
+  ingestProjectTasks: vi.fn(),
+  startTaskLink: vi.fn(),
 }));
 
-import { fetchJobs, fetchProject, fetchProjectTaskLinks } from "../../api/client";
+import {
+  fetchJobs,
+  fetchProject,
+  fetchProjectTaskLinks,
+  ingestProjectTasks,
+  startTaskLink,
+} from "../../api/client";
 import { RepoBoard } from "../RepoBoard";
 
 vi.mock("../KanbanSkeleton", () => ({
@@ -43,7 +51,9 @@ function makeTaskLink(overrides: Partial<any> = {}) {
     repoPath: "/repos/test",
     storyNodeId: "add-sca",
     dependsOn: [],
+    state: "ready",
     jobId: null,
+    trackerLinkId: null,
     trackerTicketRef: null,
     promptOverride: null,
     epicId: null,
@@ -78,6 +88,8 @@ beforeEach(() => {
   vi.mocked(fetchJobs).mockReset();
   vi.mocked(fetchProject).mockReset();
   vi.mocked(fetchProjectTaskLinks).mockReset();
+  vi.mocked(ingestProjectTasks).mockReset();
+  vi.mocked(startTaskLink).mockReset();
   vi.mocked(fetchProject).mockResolvedValue(makeProject() as any);
   vi.mocked(fetchProjectTaskLinks).mockResolvedValue({ items: [] } as any);
   useStore.setState({
@@ -162,15 +174,15 @@ describe("RepoBoard", () => {
     } as any);
     renderBoard("proj-1");
     await waitFor(() => expect(screen.getByText("add-sca")).toBeInTheDocument());
-    expect(screen.getByText("deps satisfied")).toBeInTheDocument();
+    expect(screen.getByText("ready")).toBeInTheDocument();
   });
 
   it("greys out a TaskLink card whose dependency's linked job has not completed", async () => {
     vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
     vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
       items: [
-        makeTaskLink({ id: "tl-1", storyNodeId: "add-sca", jobId: "job-running" }),
-        makeTaskLink({ id: "tl-2", storyNodeId: "sca-tests", dependsOn: ["/repos/test::add-sca"] }),
+        makeTaskLink({ id: "tl-1", storyNodeId: "add-sca", jobId: "job-running", state: "running" }),
+        makeTaskLink({ id: "tl-2", storyNodeId: "sca-tests", dependsOn: ["/repos/test::add-sca"], state: "waiting" }),
       ],
     } as any);
     useStore.setState({
@@ -178,16 +190,16 @@ describe("RepoBoard", () => {
     });
     renderBoard("proj-1");
     await waitFor(() => expect(screen.getByText("sca-tests")).toBeInTheDocument());
-    expect(screen.getByText("waiting on add-sca")).toBeInTheDocument();
-    expect(screen.getByLabelText(/waiting on dependencies/)).toHaveClass("opacity-60");
+    expect(screen.getByText("waiting")).toBeInTheDocument();
+    expect(screen.getByLabelText(/sca-tests — waiting/)).toHaveClass("opacity-60");
   });
 
   it("renders a TaskLink card as satisfied once its dependency's job has completed", async () => {
     vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
     vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
       items: [
-        makeTaskLink({ id: "tl-1", storyNodeId: "add-sca", jobId: "job-done" }),
-        makeTaskLink({ id: "tl-2", storyNodeId: "sca-tests", dependsOn: ["/repos/test::add-sca"] }),
+        makeTaskLink({ id: "tl-1", storyNodeId: "add-sca", jobId: "job-done", state: "completed" }),
+        makeTaskLink({ id: "tl-2", storyNodeId: "sca-tests", dependsOn: ["/repos/test::add-sca"], state: "ready" }),
       ],
     } as any);
     useStore.setState({
@@ -195,7 +207,8 @@ describe("RepoBoard", () => {
     });
     renderBoard("proj-1");
     await waitFor(() => expect(screen.getByText("sca-tests")).toBeInTheDocument());
-    expect(screen.getAllByText("deps satisfied")).toHaveLength(2);
+    expect(screen.getByText("completed")).toBeInTheDocument();
+    expect(screen.getByText("ready")).toBeInTheDocument();
   });
 
   it("renders TaskLink cards from any of the Project's member repos", async () => {
@@ -210,5 +223,29 @@ describe("RepoBoard", () => {
     renderBoard("proj-1");
     await waitFor(() => expect(screen.getByText("add-sca")).toBeInTheDocument());
     expect(screen.getByText("other-task")).toBeInTheDocument();
+  });
+
+  it("starts a ready root task through the TaskLink API", async () => {
+    const ready = makeTaskLink({ id: "tl-ready", storyNodeId: "root", state: "ready" });
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({ items: [ready] } as any);
+    vi.mocked(startTaskLink).mockResolvedValueOnce({ ...ready, state: "running", jobId: "job-new" } as any);
+    renderBoard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start task" }));
+    await waitFor(() => expect(startTaskLink).toHaveBeenCalledWith("proj-1", "tl-ready"));
+    expect(await screen.findByText("job-new")).toBeInTheDocument();
+  });
+
+  it("ingests the Project task graph from the board", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(ingestProjectTasks).mockResolvedValueOnce({
+      items: [makeTaskLink({ storyNodeId: "ingested-task" })],
+    } as any);
+    renderBoard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Ingest tasks" }));
+    await waitFor(() => expect(ingestProjectTasks).toHaveBeenCalledWith("proj-1"));
+    expect(await screen.findByText("ingested-task")).toBeInTheDocument();
   });
 });

@@ -4,12 +4,12 @@ import { FolderGit2, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { fetchProjects } from "../api/client";
 import type { ProjectResponse } from "../api/types";
-import { useStore } from "../store";
 import { cn } from "../lib/utils";
 import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
 import { matchesNameFilter } from "../lib/nameFilter";
 import { ProjectsOverview } from "./ProjectsOverview";
+import { pathBasename } from "../lib/paths";
 
 
 export function RepoLayout() {
@@ -20,7 +20,6 @@ export function RepoLayout() {
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
-  const repoIndexState = useStore((s) => s.repoIndexState);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -38,15 +37,16 @@ export function RepoLayout() {
   const filteredProjects = projects.filter((project) => matchesNameFilter(project.name, filterQuery));
   const activeProject = projects.find((project) => project.id === projectId);
   const projectUrl = projectId ? `/projects/id/${encodeURIComponent(projectId)}` : "";
-  const activeRepo = repoPath ?? activeProject?.repoPaths[0] ?? "";
-  const repoScopedUrl = activeRepo ? `${projectUrl}/repos/${encodeURIComponent(activeRepo)}` : projectUrl;
   const tabs = [
-    ["Board", `${projectUrl}/board`],
+    ["Overview", projectUrl],
+    ["Agent Runs", `${projectUrl}/board`],
     ["Chats", `${projectUrl}/chats`],
-    ["Health", `${repoScopedUrl}/health`],
-    ["Cost", `${repoScopedUrl}/cost`],
     ["Settings", `${projectUrl}/settings`],
   ] as const;
+  const repoScopedUrl = repoPath
+    ? `${projectUrl}/repos/${encodeURIComponent(repoPath)}`
+    : null;
+  const repoView = location.pathname.match(/\/(jobs|health|cost|settings)$/)?.[1] ?? "jobs";
 
   return (
     <div className="flex h-full min-h-0">
@@ -99,8 +99,6 @@ export function RepoLayout() {
             </p>
           ) : (
             filteredProjects.map((project) => {
-              const targetRepo = project.repoPaths[0];
-              const indexing = targetRepo ? repoIndexState[targetRepo] : undefined;
               return (
                 <Link
                   key={project.id}
@@ -121,9 +119,6 @@ export function RepoLayout() {
                         <span className="text-[10px] text-muted-foreground shrink-0">
                           {project.repoPaths.length} repos
                         </span>
-                      )}
-                      {indexing && (
-                        <span className="text-[10px] text-blue-400 shrink-0">indexing</span>
                       )}
                     </>
                   )}
@@ -154,10 +149,54 @@ export function RepoLayout() {
                   {tabs.map(([label, to]) => (
                     <Link key={label} to={to} className={cn(
                       "px-3 py-2 text-xs transition-colors border-b-2",
-                      location.pathname === to || location.pathname.startsWith(`${to}/`) ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+                      (label === "Overview"
+                        ? location.pathname === to
+                        : location.pathname === to || location.pathname.startsWith(`${to}/`))
+                        ? "border-primary text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground",
                     )}>{label}</Link>
                   ))}
                 </nav>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <label htmlFor="project-repository" className="text-xs text-muted-foreground">
+                    Repository
+                  </label>
+                  <select
+                    id="project-repository"
+                    value={repoPath ?? ""}
+                    onChange={(event) => {
+                      const selectedRepo = event.target.value;
+                      if (!selectedRepo) return;
+                      navigate(`${projectUrl}/repos/${encodeURIComponent(selectedRepo)}/${repoView}`);
+                    }}
+                    className="h-8 min-w-48 rounded-md border border-border bg-background px-2 text-xs"
+                  >
+                    <option value="">Select a repository…</option>
+                    {activeProject.repoPaths.map((path) => (
+                      <option key={path} value={path}>{pathBasename(path) || path}</option>
+                    ))}
+                  </select>
+                  {repoScopedUrl ? (
+                    <nav className="flex gap-1" aria-label="Repository navigation">
+                      {(["jobs", "health", "cost"] as const).map((view) => (
+                        <Link
+                          key={view}
+                          to={`${repoScopedUrl}/${view}`}
+                          className={cn(
+                            "rounded px-2 py-1 text-xs capitalize",
+                            repoView === view ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          {view === "jobs" ? "Jobs" : view}
+                        </Link>
+                      ))}
+                    </nav>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      Select a member repository for Jobs, Health, Cost, and index status.
+                    </span>
+                  )}
+                </div>
               </div>
             )}
             <Outlet />

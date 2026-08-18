@@ -10,12 +10,15 @@ Project existence itself before inserting, using ``ProjectRow`` directly.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from backend.models.db import CredentialRow, ProjectRow, TrackerLinkRow
 from backend.persistence.repository import BaseRepository
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import CursorResult
 
 
 class TrackerLinkCredentialNotFoundError(Exception):
@@ -62,6 +65,21 @@ class TrackerLinkRepository(BaseRepository):
             select(TrackerLinkRow).where(TrackerLinkRow.project_id == project_id).order_by(TrackerLinkRow.created_at)
         )
         return [_row_to_dict(r) for r in result.scalars()]
+
+    async def get(self, tracker_link_id: str) -> dict[str, Any] | None:
+        """Return one TrackerLink by stable ID."""
+        row = await self._session.get(TrackerLinkRow, tracker_link_id)
+        return _row_to_dict(row) if row is not None else None
+
+    async def delete_for_project(self, *, project_id: str, link_id: str) -> bool:
+        """Detach one TrackerLink only when it belongs to the requested Project."""
+        result = await self._session.execute(
+            delete(TrackerLinkRow).where(
+                TrackerLinkRow.id == link_id,
+                TrackerLinkRow.project_id == project_id,
+            )
+        )
+        return cast("CursorResult[Any]", result).rowcount > 0
 
 
 def _row_to_dict(row: TrackerLinkRow) -> dict[str, Any]:

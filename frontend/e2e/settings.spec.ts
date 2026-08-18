@@ -27,7 +27,10 @@ const MOCK_SETTINGS = {
   selfReviewPrompt: "",
 };
 
-const MOCK_REPOS = ["/home/user/project-a", "/home/user/project-b"];
+const MOCK_PROJECTS = [
+  { id: "project-a", name: "Project A", repoPaths: ["/home/user/project-a"], createdAt: "", updatedAt: "" },
+  { id: "project-b", name: "Project B", repoPaths: ["/home/user/project-b"], createdAt: "", updatedAt: "" },
+];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -73,12 +76,12 @@ async function setupSettingsMocks(page: import("@playwright/test").Page) {
     }
   });
 
-  await page.route("**/api/settings/repos", async (route) => {
+  await page.route("**/api/settings/projects", async (route) => {
     if (route.request().method() === "GET") {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ items: MOCK_REPOS }),
+        body: JSON.stringify({ items: MOCK_PROJECTS }),
       });
     } else {
       return route.fallback();
@@ -100,14 +103,13 @@ test.describe("Settings Screen — Rendering", () => {
     await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 5_000 });
   });
 
-  test("displays registered repositories", async ({ page }) => {
+  test("displays Projects and membership links", async ({ page }) => {
     await page.goto("/settings");
 
     // Should show repo count
-    await expect(page.getByText("Repositories (2)")).toBeVisible({ timeout: 5_000 });
-    // Should show repo paths
-    await expect(page.getByText("/home/user/project-a")).toBeVisible();
-    await expect(page.getByText("/home/user/project-b")).toBeVisible();
+    await expect(page.getByText("Projects (2)")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Project A")).toBeVisible();
+    await expect(page.getByText("Project B")).toBeVisible();
   });
 
   test("displays runtime settings with correct values", async ({ page }) => {
@@ -135,11 +137,11 @@ test.describe("Settings Screen — Rendering", () => {
     await expect(page.getByRole("switch", { name: "Push notifications" })).toBeVisible();
   });
 
-  test("shows Add Repository button", async ({ page }) => {
+  test("explains that membership is managed from each Project", async ({ page }) => {
     await page.goto("/settings");
 
-    await expect(page.getByText("Repositories (2)")).toBeVisible({ timeout: 5_000 });
-    await expect(page.locator("button", { hasText: "Add Repository" })).toBeVisible();
+    await expect(page.getByText("Projects (2)")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Manage membership from each Project")).toBeVisible();
   });
 });
 
@@ -234,18 +236,11 @@ test.describe("Settings Screen — Repository Management", () => {
     });
 
     await page.goto("/settings");
-    await expect(page.getByText("/home/user/project-a")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Project A")).toBeVisible({ timeout: 5_000 });
 
     // The delete control is exposed directly via its aria-label.
-    await page.getByRole("button", { name: "Remove repository /home/user/project-a" }).click();
-
-    // Confirm the removal in the dialog
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    await dialog.locator("button", { hasText: "Remove" }).click();
-
-    await page.waitForTimeout(500);
-    expect(unregisterCalled).toBe(true);
+    await expect(page.getByText("Project A")).toBeVisible({ timeout: 5_000 });
+    expect(unregisterCalled).toBe(false);
   });
 
   test("shows 'No repositories registered' when empty", async ({ page }) => {
@@ -279,7 +274,7 @@ test.describe("Settings Screen — Repository Management", () => {
       });
     });
 
-    await page.route("**/api/settings/repos", async (route) => {
+    await page.route("**/api/settings/projects", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -288,6 +283,6 @@ test.describe("Settings Screen — Repository Management", () => {
     });
 
     await page.goto("/settings");
-    await expect(page.getByText("No repositories registered")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("No Projects registered")).toBeVisible({ timeout: 5_000 });
   });
 });

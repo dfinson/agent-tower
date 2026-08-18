@@ -26,6 +26,8 @@ vi.mock("../../api/client", () => ({
   archiveJob: vi.fn(),
   fetchMultiSession: vi.fn().mockResolvedValue(null),
   fetchReviewStory: vi.fn().mockResolvedValue(null),
+  fetchProjects: vi.fn().mockResolvedValue({ items: [] }),
+  fetchProjectTaskLinks: vi.fn().mockResolvedValue({ items: [] }),
 }));
 
 vi.mock("../../hooks/useSSE", () => ({
@@ -70,7 +72,16 @@ vi.mock("../ui/confirm-dialog", () => ({
 }));
 
 import { toast } from "sonner";
-import { fetchArtifacts, fetchJob, fetchJobDiff, resolveJob, rerunJob, resumeJob } from "../../api/client";
+import {
+  fetchArtifacts,
+  fetchJob,
+  fetchJobDiff,
+  fetchProjects,
+  fetchProjectTaskLinks,
+  resolveJob,
+  rerunJob,
+  resumeJob,
+} from "../../api/client";
 import { JobDetailScreen } from "../JobDetailScreen";
 
 function makeJob(overrides: Partial<JobSummary> = {}): JobSummary {
@@ -100,6 +111,8 @@ beforeEach(() => {
   vi.mocked(fetchJobDiff).mockReset();
   vi.mocked(resolveJob).mockReset();
   vi.mocked(fetchArtifacts).mockReset();
+  vi.mocked(fetchProjects).mockReset();
+  vi.mocked(fetchProjectTaskLinks).mockReset();
   vi.mocked(fetchArtifacts).mockResolvedValue({
     items: [],
     collectionStatus: "completed",
@@ -107,6 +120,8 @@ beforeEach(() => {
     collectionUpdatedAt: null,
   });
   vi.mocked(fetchJobDiff).mockResolvedValue([]);
+  vi.mocked(fetchProjects).mockResolvedValue({ items: [] } as any);
+  vi.mocked(fetchProjectTaskLinks).mockResolvedValue({ items: [] } as any);
   useStore.setState({
     jobs: {},
     approvals: {},
@@ -134,6 +149,44 @@ beforeEach(() => {
 });
 
 describe("JobDetailScreen", () => {
+  it("renders Project, repository, Task, and Job breadcrumbs with deep links", async () => {
+    useStore.setState({ jobs: { "job-1": makeJob() } });
+    vi.mocked(fetchJob).mockResolvedValueOnce(makeJob() as any);
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "project-1", name: "Payments", repoPaths: ["/repos/test"] }],
+    } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
+      items: [{
+        id: "task-1",
+        projectId: "project-1",
+        repoPath: "/repos/test",
+        storyNodeId: "5-1-chat",
+        jobId: "job-1",
+      }],
+    } as any);
+
+    render(
+      <MemoryRouter initialEntries={["/jobs/job-1"]}>
+        <Routes>
+          <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("link", { name: "Payments" })).toHaveAttribute(
+      "href",
+      "/projects/id/project-1/board",
+    );
+    expect(screen.getByRole("link", { name: "test" })).toHaveAttribute(
+      "href",
+      "/projects/id/project-1/repos/%2Frepos%2Ftest/jobs",
+    );
+    expect(await screen.findByRole("link", { name: "5-1-chat" })).toHaveAttribute(
+      "href",
+      "/projects/id/project-1/board/task/task-1",
+    );
+  });
+
   it("keeps the Artifacts tab visible and refetches after artifacts.updated", async () => {
     useStore.setState({ jobs: { "job-1": makeJob() } });
     vi.mocked(fetchJob).mockResolvedValueOnce(makeJob() as any);

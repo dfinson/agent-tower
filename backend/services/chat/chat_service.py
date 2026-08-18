@@ -11,16 +11,38 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from backend.models.domain import Chat, ChatChainStatus, ChatMessage, JobSpec, TaskLinkNotFoundError
+import structlog
+
+from backend.models.domain import (
+    Chat,
+    ChatChainStatus,
+    ChatMessage,
+    ChatTurnResult,
+    JobSpec,
+    ProjectNotFoundError,
+    StateConflictError,
+    TaskLinkNotFoundError,
+)
 
 if TYPE_CHECKING:
     from backend.models.domain import Job
     from backend.persistence.chat_repo import ChatRepository
     from backend.persistence.job_repo import JobRepository
+    from backend.persistence.project_repo import ProjectRepository
     from backend.persistence.task_link_repo import TaskLinkRepository
     from backend.services.job.job_service import JobService
+    from backend.services.sidecar.session import SidecarSessionManager
+
+log = structlog.get_logger()
+
+_CHAT_SYSTEM_PROMPT = """\
+You are a conversational coding assistant inside CodePlane. Help the user think
+through software ideas and decisions. This is a discussion-only Chat: do not
+claim to inspect files, run commands, change code, or create a worktree. Keep
+the response concise and useful."""
 
 
 class ChatService:
@@ -31,10 +53,14 @@ class ChatService:
         repo: ChatRepository,
         task_link_repo: TaskLinkRepository | None = None,
         job_repo: JobRepository | None = None,
+        project_repo: ProjectRepository | None = None,
+        completer: SidecarSessionManager | None = None,
     ) -> None:
         self._repo = repo
         self._task_link_repo = task_link_repo
         self._job_repo = job_repo
+        self._project_repo = project_repo
+        self._completer = completer
 
     async def create_chat(self, *, title: str, project_id: str | None = None) -> Chat:
         """Create a new Chat.
@@ -44,6 +70,12 @@ class ChatService:
         from within one, ``None`` from global nav) — and is always
         user-overridable at creation time.
         """
+        if (
+            project_id is not None
+            and self._project_repo is not None
+            and await self._project_repo.get(project_id) is None
+        ):
+            raise ProjectNotFoundError(f"Project '{project_id}' does not exist.")
         now = datetime.now(UTC)
         chat = Chat(
             id=str(uuid.uuid4()),
@@ -59,9 +91,13 @@ class ChatService:
         """Get a single chat by ID."""
         return await self._repo.get(chat_id)
 
-    async def list_chats(self) -> list[Chat]:
+    async def list_chats(self, project_id: str | None = None) -> list[Chat]:
         """List all chats."""
-        return await self._repo.list_all()
+        if project_id is None:
+            return await self._repo.list_all()
+        if self._project_repo is not None and await self._project_repo.get(project_id) is None:
+            raise ProjectNotFoundError(f"Project '{project_id}' does not exist.")
+        return await self._repo.list_by_project(project_id)
 
     async def add_message(self, chat_id: str, *, role: str, content: str) -> ChatMessage | None:
         """Append a message to a Chat's transcript.
@@ -85,6 +121,37 @@ class ChatService:
         if await self._repo.get(chat_id) is None:
             return []
         return await self._repo.list_messages(chat_id)
+
+    async def send_turn(self, chat_id: str, *, content: str) -> ChatTurnResult | None:
+        """Persist a user message and its non-agentic assistant completion."""
+        user_message = await self.add_message(chat_id, role="user", content=content)
+        if user_message is None:
+            return None
+
+        transcript = await self.build_transcript(chat_id)
+        prompt = f"{_CHAT_SYSTEM_PROMPT}\n\nConversation:\n{transcript or ''}\nAssistant:"
+        try:
+            if self._completer is None:
+                raise RuntimeError("Chat completion is unavailable")
+            assistant_content = (await self._completer.complete(prompt)).strip()
+            if not assistant_content:
+                raise RuntimeError("The assistant returned an empty response")
+        except Exception:
+            log.warning("chat_completion_failed", chat_id=chat_id, exc_info=True)
+            return ChatTurnResult(
+                user_message=user_message,
+                assistant_message=None,
+                state="error",
+                error="The assistant could not respond. Your message was saved; try again.",
+            )
+
+        assistant_message = await self.add_message(chat_id, role="assistant", content=assistant_content)
+        assert assistant_message is not None
+        return ChatTurnResult(
+            user_message=user_message,
+            assistant_message=assistant_message,
+            state="assistant",
+        )
 
     async def build_transcript(self, chat_id: str) -> str | None:
         """Concatenate a Chat's messages, role-prefixed, in transcript order.
@@ -130,6 +197,14 @@ class ChatService:
         transcript = await self.build_transcript(chat_id)
         assert transcript is not None  # chat existence already checked above
 
+        owner = None
+        if self._project_repo is not None:
+            owner = await self._project_repo.find_by_repo_path(str(Path(repo).expanduser().resolve()))
+            if owner is None:
+                raise StateConflictError("The selected repository does not belong to a Project.")
+            if chat.project_id is not None and owner.id != chat.project_id:
+                raise StateConflictError("The selected repository belongs to a different Project.")
+
         spec = JobSpec(
             repo=repo,
             prompt=transcript,
@@ -140,8 +215,8 @@ class ChatService:
         )
         job = await job_service.create_job(spec)
 
-        if chat.project_id is None:
-            await self._repo.set_project_id(chat_id, repo)
+        if chat.project_id is None and owner is not None:
+            await self._repo.set_project_id(chat_id, owner.id)
 
         return job
 
@@ -164,6 +239,8 @@ class ChatService:
         task_link = await self._task_link_repo.get(task_link_id)
         if task_link is None:
             raise TaskLinkNotFoundError(f"TaskLink '{task_link_id}' does not exist.")
+        if chat.project_id is not None and chat.project_id != task_link.project_id:
+            raise StateConflictError("The TaskLink belongs to a different Project.")
 
         if chat.project_id is None:
             await self._repo.set_project_id(chat_id, task_link.project_id)

@@ -72,7 +72,11 @@ async def test_resolves_ticket_and_tracker_link_for_jobs_task_link(session: Asyn
     await session.commit()
     await _make_job(session)
     task_link = await TaskLinkRepository(session).create_manual(
-        project_id=project_id, repo_path="/repo/a", tracker_ticket_ref="ABC-123", prompt_override="do it"
+        project_id=project_id,
+        repo_path="/repo/a",
+        tracker_link_id="link-1",
+        tracker_ticket_ref="ABC-123",
+        prompt_override="do it",
     )
     await TaskLinkRepository(session).set_job_id(task_link.id, "job-1")
     await session.commit()
@@ -103,19 +107,72 @@ async def test_raises_when_task_link_has_no_paired_ticket(session: AsyncSession)
     await TaskLinkRepository(session).set_job_id(task_link[0].id, "job-1")
     await session.commit()
 
-    with pytest.raises(TrackerResolutionError, match="no paired tracker ticket"):
+    with pytest.raises(TrackerResolutionError, match="no explicit TrackerLink/ticket pair"):
         await resolve_tracker_for_job(session, "job-1")
 
 
 @pytest.mark.asyncio
 async def test_raises_when_project_has_no_tracker_link(session: AsyncSession) -> None:
     project_id = await _make_project(session)
+    credential_id = await _make_credential(session)
+    tracker_repo = TrackerLinkRepository(session)
+    await tracker_repo.create(
+        link_id="link-1",
+        project_id=project_id,
+        credential_id=credential_id,
+        external_ref="board-1",
+    )
     await _make_job(session)
     task_link = await TaskLinkRepository(session).create_manual(
-        project_id=project_id, repo_path="/repo/a", tracker_ticket_ref="ABC-123", prompt_override="do it"
+        project_id=project_id,
+        repo_path="/repo/a",
+        tracker_link_id="link-1",
+        tracker_ticket_ref="ABC-123",
+        prompt_override="do it",
+    )
+    await TaskLinkRepository(session).set_job_id(task_link.id, "job-1")
+    await session.commit()
+    await tracker_repo.delete_for_project(project_id=project_id, link_id="link-1")
+    await session.commit()
+    session.expire_all()
+
+    with pytest.raises(TrackerResolutionError, match="no explicit TrackerLink/ticket pair"):
+        await resolve_tracker_for_job(session, "job-1")
+
+
+@pytest.mark.asyncio
+async def test_resolves_explicit_link_instead_of_first_project_link(
+    session: AsyncSession,
+) -> None:
+    project_id = await _make_project(session)
+    credential_1 = await _make_credential(session, "cred-1")
+    credential_2 = await _make_credential(session, "cred-2")
+    repo = TrackerLinkRepository(session)
+    await repo.create(
+        link_id="link-first",
+        project_id=project_id,
+        credential_id=credential_1,
+        external_ref="board-1",
+    )
+    await repo.create(
+        link_id="link-target",
+        project_id=project_id,
+        credential_id=credential_2,
+        external_ref="board-2",
+    )
+    await session.commit()
+    await _make_job(session)
+    task_link = await TaskLinkRepository(session).create_manual(
+        project_id=project_id,
+        repo_path="/repo/a",
+        tracker_link_id="link-target",
+        tracker_ticket_ref="ABC-123",
+        prompt_override="do it",
     )
     await TaskLinkRepository(session).set_job_id(task_link.id, "job-1")
     await session.commit()
 
-    with pytest.raises(TrackerResolutionError, match="no TrackerLink attached"):
-        await resolve_tracker_for_job(session, "job-1")
+    resolved = await resolve_tracker_for_job(session, "job-1")
+
+    assert resolved.tracker_link_id == "link-target"
+    assert resolved.credential_id == credential_2

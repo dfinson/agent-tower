@@ -1,71 +1,125 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { MessageSquare, Send } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { AlertCircle, CheckCircle2, MessageSquare, Send } from "lucide-react";
 import { toast } from "sonner";
-import { addChatMessage, createChat, fetchChatMessages, fetchChats } from "../api/client";
-import type { Chat, ChatMessage } from "../api/types";
+import {
+  createChat,
+  fetchChatMessages,
+  fetchChats,
+  fetchProjects,
+  sendChatTurn,
+} from "../api/client";
+import type { Chat, ChatMessage, ProjectResponse } from "../api/types";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Spinner } from "./ui/spinner";
 
+type SendState = "idle" | "sending" | "awaiting-assistant" | "assistant" | "error";
+
 export function ProjectChats() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const { projectId, chatId } = useParams<{ projectId?: string; chatId?: string }>();
+  const navigate = useNavigate();
+  const [projects, setProjects] = useState<ProjectResponse[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
   const [selected, setSelected] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [newChatProjectId, setNewChatProjectId] = useState(projectId ?? "");
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [sendState, setSendState] = useState<SendState>("idle");
+  const [sendError, setSendError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!projectId) return;
-    let ignore = false;
-    setLoading(true);
-    fetchChats()
-      .then((res) => {
-        if (ignore) return;
-        setChats(res.items.filter((chat) => chat.projectId === projectId));
-      })
-      .catch(() => { if (!ignore) toast.error("Failed to load chats"); })
-      .finally(() => { if (!ignore) setLoading(false); });
-    return () => { ignore = true; };
-  }, [projectId]);
+  useEffect(() => setNewChatProjectId(projectId ?? ""), [projectId]);
 
-  async function selectChat(chat: Chat) {
+  const selectChat = useCallback(async (chat: Chat) => {
     setSelected(chat);
+    setSendState("idle");
+    setSendError(null);
     try {
       setMessages(await fetchChatMessages(chat.id));
     } catch (error) {
       setMessages([]);
       toast.error(String(error));
     }
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+    setLoading(true);
+    Promise.all([fetchChats(projectId), fetchProjects()])
+      .then(([chatResponse, projectResponse]) => {
+        if (ignore) return;
+        setChats(chatResponse.items);
+        setProjects(projectResponse.items);
+        if (chatId) {
+          const deepLinked = chatResponse.items.find((chat) => chat.id === chatId);
+          if (deepLinked) void selectChat(deepLinked);
+        }
+      })
+      .catch(() => { if (!ignore) toast.error("Failed to load chats"); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, [chatId, projectId, selectChat]);
+
+  function chatUrl(chat: Chat): string {
+    return chat.projectId
+      ? `/projects/id/${encodeURIComponent(chat.projectId)}/chats/${encodeURIComponent(chat.id)}`
+      : `/chats/${encodeURIComponent(chat.id)}`;
   }
 
   async function startChat() {
     if (!title.trim()) return;
-    if (!projectId) {
-      toast.error("No Project selected. Chats must belong to a Project.");
-      return;
-    }
     try {
-      const chat = await createChat({ title: title.trim(), projectId });
+      const chat = await createChat({
+        title: title.trim(),
+        projectId: newChatProjectId || null,
+      });
       setChats((items) => [chat, ...items]);
-      await selectChat(chat);
       setTitle("");
+      navigate(chatUrl(chat));
+      await selectChat(chat);
     } catch (error) {
       toast.error(String(error));
     }
   }
 
   async function sendMessage() {
-    if (!selected || !message.trim()) return;
+    const content = message.trim();
+    if (!selected || !content || sendState === "sending" || sendState === "awaiting-assistant") return;
+
+    const optimisticId = `sending-${Date.now()}`;
+    const optimistic: ChatMessage = {
+      id: optimisticId,
+      chatId: selected.id,
+      role: "user",
+      content,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((items) => [...items, optimistic]);
+    setSendState("sending");
+    setSendError(null);
+    await Promise.resolve();
+    setSendState("awaiting-assistant");
+
     try {
-      const added = await addChatMessage(selected.id, message.trim());
-      setMessages((items) => [...items, added]);
+      const turn = await sendChatTurn(selected.id, content);
+      setMessages((items) => [
+        ...items.filter((item) => item.id !== optimisticId),
+        turn.userMessage,
+        ...(turn.assistantMessage ? [turn.assistantMessage] : []),
+      ]);
+      if (turn.state === "error") {
+        setSendState("error");
+        setSendError(turn.error ?? "The assistant could not respond.");
+        return;
+      }
       setMessage("");
-      toast.success("Message added");
+      setSendState("assistant");
     } catch (error) {
-      toast.error(String(error));
+      setMessages((items) => items.filter((item) => item.id !== optimisticId));
+      setSendState("error");
+      setSendError(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -75,25 +129,59 @@ export function ProjectChats() {
     <div className="max-w-4xl mx-auto space-y-4">
       <div className="flex items-center gap-2">
         <MessageSquare size={18} />
-        <h1 className="text-xl font-semibold">Chats</h1>
+        <h1 className="text-xl font-semibold">{projectId ? "Project Chats" : "Chats"}</h1>
       </div>
-      <div className="flex gap-2">
-        <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="New chat title" onKeyDown={(event) => event.key === "Enter" && startChat()} />
-        <Button onClick={startChat}>Start</Button>
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(10rem,14rem)_auto]">
+        <Input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="New chat title"
+          onKeyDown={(event) => event.key === "Enter" && void startChat()}
+        />
+        <select
+          value={newChatProjectId}
+          onChange={(event) => setNewChatProjectId(event.target.value)}
+          aria-label="Chat Project"
+          className="h-9 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+        >
+          <option value="">Unscoped</option>
+          {projects.map((project) => (
+            <option key={project.id} value={project.id}>{project.name}</option>
+          ))}
+        </select>
+        <Button onClick={() => void startChat()}>Start</Button>
       </div>
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
         <div className="rounded-lg border border-border bg-card p-2 space-y-1">
           {chats.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No chats yet</p> : chats.map((chat) => (
-            <button key={chat.id} type="button" onClick={() => selectChat(chat)} className={`w-full text-left rounded-md px-3 py-2 text-sm ${selected?.id === chat.id ? "bg-accent" : "hover:bg-accent/50"}`}>
+            <Link
+              key={chat.id}
+              to={chatUrl(chat)}
+              onClick={() => void selectChat(chat)}
+              className={`block w-full text-left rounded-md px-3 py-2 text-sm ${selected?.id === chat.id ? "bg-accent" : "hover:bg-accent/50"}`}
+            >
               <span className="block truncate">{chat.title}</span>
               <span className="text-xs text-muted-foreground">{new Date(chat.lastMessageAt).toLocaleString()}</span>
-            </button>
+            </Link>
           ))}
         </div>
         <div className="rounded-lg border border-border bg-card p-4 min-h-40">
           {selected ? (
             <>
-              <h2 className="font-semibold">{selected.title}</h2>
+              <div className="flex items-baseline justify-between gap-2">
+                <h2 className="font-semibold">{selected.title}</h2>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>{projects.find((project) => project.id === selected.projectId)?.name ?? "Unscoped"}</span>
+                  {selected.projectId && selected.taskLinkId && (
+                    <Link
+                      to={`/projects/id/${encodeURIComponent(selected.projectId)}/board/task/${encodeURIComponent(selected.taskLinkId)}`}
+                      className="hover:text-foreground"
+                    >
+                      Supervising chain
+                    </Link>
+                  )}
+                </div>
+              </div>
               <div className="mt-4 space-y-2 max-h-80 overflow-y-auto" aria-live="polite">
                 {messages.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No messages yet.</p>
@@ -105,8 +193,31 @@ export function ProjectChats() {
                 ))}
               </div>
               <div className="flex gap-2 mt-6">
-                <Input value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Write a message…" onKeyDown={(event) => event.key === "Enter" && sendMessage()} />
-                <Button size="sm" onClick={sendMessage} aria-label="Send message"><Send size={14} /></Button>
+                <Input
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  placeholder="Write a message…"
+                  disabled={sendState === "sending" || sendState === "awaiting-assistant"}
+                  onKeyDown={(event) => event.key === "Enter" && void sendMessage()}
+                />
+                <Button
+                  size="sm"
+                  onClick={() => void sendMessage()}
+                  disabled={sendState === "sending" || sendState === "awaiting-assistant"}
+                  aria-label="Send message"
+                >
+                  <Send size={14} />
+                </Button>
+              </div>
+              <div className="mt-2 min-h-5 text-xs" aria-live="polite">
+                {sendState === "sending" && <span className="text-muted-foreground">Sending…</span>}
+                {sendState === "awaiting-assistant" && <span className="text-muted-foreground">Waiting for assistant…</span>}
+                {sendState === "assistant" && (
+                  <span className="inline-flex items-center gap-1 text-green-500"><CheckCircle2 size={12} /> Assistant replied</span>
+                )}
+                {sendState === "error" && (
+                  <span className="inline-flex items-center gap-1 text-red-500"><AlertCircle size={12} /> {sendError}</span>
+                )}
               </div>
             </>
           ) : <p className="text-sm text-muted-foreground">Select a chat to view it.</p>}

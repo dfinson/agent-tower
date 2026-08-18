@@ -29,6 +29,22 @@ test.describe("Job Creation — Form Rendering", () => {
       });
     });
 
+    await page.route("**/api/settings/projects", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [{
+            id: "project-1",
+            name: "Test Project",
+            repoPaths: ["/tmp/test-repo"],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }],
+        }),
+      });
+    });
+
     // Mock suggest-names endpoint
     await page.route("**/api/jobs/suggest-names*", async (route) => {
       await route.fulfill({
@@ -95,6 +111,22 @@ test.describe("Job Creation — Validation", () => {
           path: "/tmp/test-repo",
           defaultBranch: "main",
           currentBranch: "main",
+        }),
+      });
+    });
+
+    await page.route("**/api/settings/projects", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [{
+            id: "project-1",
+            name: "Test Project",
+            repoPaths: ["/tmp/test-repo"],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }],
         }),
       });
     });

@@ -243,15 +243,20 @@ export function App() {
               <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
               <Route path="/history" element={<HistoryScreen />} />
               <Route path="/analytics" element={<AnalyticsScreen />} />
+              <Route path="/chats" element={<ProjectChats />} />
+              <Route path="/chats/:chatId" element={<ProjectChats />} />
               <Route path="/projects" element={<RepoLayout />}>
                 <Route index element={<RepoOverview />} />
                 <Route path="id/:projectId" element={<RepoOverview />} />
                 <Route path="id/:projectId/board" element={<RepoBoard />} />
+                <Route path="id/:projectId/board/task/:taskLinkId" element={<RepoBoard />} />
                 <Route path="id/:projectId/chats" element={<ProjectChats />} />
+                <Route path="id/:projectId/chats/:chatId" element={<ProjectChats />} />
                 <Route path="id/:projectId/settings" element={<RepoSettings />} />
                 <Route path="id/:projectId/repos/:repoPath/jobs" element={<RepoJobs />} />
                 <Route path="id/:projectId/repos/:repoPath/health" element={<RepoHealth />} />
                 <Route path="id/:projectId/repos/:repoPath/cost" element={<RepoCost />} />
+                <Route path="id/:projectId/repos/:repoPath/settings" element={<RepoSettings />} />
                 {/* Legacy repo-path-keyed URLs (pre project-id routing). Not stable/shareable
                     across a Project's member-repo edits, but old bookmarks/links must still
                     resolve — redirect to the canonical project-id URL instead of 404ing. */}

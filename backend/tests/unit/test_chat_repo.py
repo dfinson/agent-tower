@@ -96,7 +96,6 @@ class TestGetAttachedOpenChatForProject:
         found = await repo.get_attached_open_chat_for_project(project_id)
 
         assert found is None
-
     @pytest.mark.asyncio
     async def test_returns_none_when_attached_chat_not_open(self, session: AsyncSession) -> None:
         project_id = await _make_project(session)
@@ -107,6 +106,7 @@ class TestGetAttachedOpenChatForProject:
         found = await repo.get_attached_open_chat_for_project(project_id)
 
         assert found is None
+
 
     @pytest.mark.asyncio
     async def test_returns_none_for_different_project(self, session: AsyncSession) -> None:
@@ -126,3 +126,20 @@ class TestGetAttachedOpenChatForProject:
         found = await repo.get_attached_open_chat_for_project("no-such-project")
 
         assert found is None
+
+
+class TestGetAttachedOpenChatForTaskLink:
+    @pytest.mark.asyncio
+    async def test_gating_is_scoped_to_the_exact_attached_chain(self, session: AsyncSession) -> None:
+        project_id = await _make_project(session)
+        attached = await _make_task_link(session, project_id, "1-1-task")
+        unrelated = await _make_task_link(session, project_id, "2-1-task")
+        chat = await _make_chat(session, project_id=project_id, task_link_id=attached)
+        repo = ChatRepository(session)
+
+        found = await repo.get_attached_open_chat_for_task_link(attached)
+        not_found = await repo.get_attached_open_chat_for_task_link(unrelated)
+
+        assert found is not None
+        assert found.id == chat.id
+        assert not_found is None

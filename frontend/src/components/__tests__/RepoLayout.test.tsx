@@ -17,10 +17,11 @@ beforeEach(() => {
   vi.mocked(fetchProjectsSummary).mockResolvedValue({ items: [] } as any);
 });
 
-function renderLayout() {
+function renderLayout(route = "/projects") {
   return render(
-    <MemoryRouter initialEntries={["/projects"]}>
+    <MemoryRouter initialEntries={[route]}>
       <Routes>
+        <Route path="/projects/id/:projectId/*" element={<RepoLayout />} />
         <Route path="/projects/*" element={<RepoLayout />} />
       </Routes>
     </MemoryRouter>,
@@ -73,5 +74,21 @@ describe("RepoLayout project sidebar", () => {
 
     await waitFor(() => expect(screen.getByText("No Projects")).toBeInTheDocument());
     expect(screen.queryByLabelText("Filter Projects by name")).not.toBeInTheDocument();
+  });
+
+  it("does not silently select the first member repository", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{
+        id: "multi",
+        name: "multi-project",
+        repoPaths: ["/repos/api", "/repos/web"],
+      }],
+    } as any);
+
+    renderLayout("/projects/id/multi");
+
+    const selector = await screen.findByLabelText("Repository");
+    expect(selector).toHaveValue("");
+    expect(screen.getByText("Select a member repository for Jobs, Health, Cost, and index status.")).toBeInTheDocument();
   });
 });

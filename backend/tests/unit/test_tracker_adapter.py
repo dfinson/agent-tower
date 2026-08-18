@@ -173,3 +173,78 @@ async def test_adapter_wraps_http_errors_without_exposing_token() -> None:
             )
 
     assert "secret" not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_github_comment_performs_one_provider_write() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(201, json={"id": 1})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await GitHubProjectsTrackerAdapter(client).write(
+            base_url="https://api.github.com",
+            external_ref="acme/7",
+            token="secret",
+            ticket_ref="acme/shop#42",
+            action="comment",
+            value="Ready for review",
+        )
+
+    assert len(requests) == 1
+    assert requests[0].method == "POST"
+    assert requests[0].url.path == "/repos/acme/shop/issues/42/comments"
+    assert json.loads(requests[0].content) == {"body": "Ready for review"}
+
+
+@pytest.mark.asyncio
+async def test_jira_transition_reads_options_then_performs_one_write() -> None:
+    methods: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        methods.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={"transitions": [{"id": "31", "name": "Done"}]},
+            )
+        return httpx.Response(204)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await JiraTrackerAdapter(client).write(
+            base_url="https://acme.atlassian.net",
+            external_ref="PAY",
+            token="secret",
+            ticket_ref="PAY-42",
+            action="transition",
+            value="Done",
+        )
+
+    assert methods == ["GET", "POST"]
+
+
+@pytest.mark.asyncio
+async def test_azure_transition_performs_one_provider_write() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await AzureDevOpsTrackerAdapter(client).write(
+            base_url="https://dev.azure.com/acme",
+            external_ref="Payments",
+            token="secret",
+            ticket_ref="42",
+            action="transition",
+            value="Closed",
+        )
+
+    assert len(requests) == 1
+    assert requests[0].method == "PATCH"
+    assert json.loads(requests[0].content) == [
+        {"op": "add", "path": "/fields/System.State", "value": "Closed"}
+    ]

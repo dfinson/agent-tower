@@ -17,6 +17,7 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from starlette.responses import Response
 
 from backend.models.schemas.base import CamelModel
 from backend.persistence.tracker_link_repo import (
@@ -27,6 +28,7 @@ from backend.persistence.tracker_link_repo import (
 from backend.persistence.tracker_summary_repo import TrackerSummaryRepository
 from backend.services.tracker_sync_service import (
     TrackerLinkNotFoundError,
+    TrackerLinkValidationError,
     TrackerSyncError,
     TrackerSyncService,
 )
@@ -93,6 +95,7 @@ async def create_tracker_link(
     project_id: str,
     body: CreateTrackerLinkRequest,
     sf: FromDishka[async_sessionmaker[AsyncSession]],
+    tracker_sync_service: FromDishka[TrackerSyncService],
 ) -> TrackerLinkResponse:
     link_id = str(uuid.uuid4())
     async with sf() as session:
@@ -108,9 +111,43 @@ async def create_tracker_link(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except TrackerLinkCredentialNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        try:
+            await tracker_sync_service.test_link(
+                credential_id=body.credential_id,
+                external_ref=body.external_ref,
+            )
+        except TrackerLinkValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except TrackerSyncError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         await session.commit()
     log.info("tracker_link.created", tracker_link_id=link_id, project_id=project_id, credential_id=body.credential_id)
     return _to_response(result)
+
+
+@router.delete(
+    "/{link_id}",
+    status_code=204,
+    response_class=Response,
+    response_model=None,
+)
+async def detach_tracker_link(
+    project_id: str,
+    link_id: str,
+    sf: FromDishka[async_sessionmaker[AsyncSession]],
+) -> None:
+    async with sf() as session:
+        deleted = await TrackerLinkRepository(session).delete_for_project(
+            project_id=project_id,
+            link_id=link_id,
+        )
+        if not deleted:
+            raise HTTPException(
+                status_code=404,
+                detail=f"TrackerLink '{link_id}' does not exist in Project '{project_id}'",
+            )
+        await session.commit()
+    log.info("tracker_link.detached", tracker_link_id=link_id, project_id=project_id)
 
 
 @router.post(

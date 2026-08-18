@@ -271,7 +271,7 @@ test.describe("Nonexistent Job", () => {
     // Should show not found message
     await expect(page.getByText("Job not found")).toBeVisible({ timeout: 5_000 });
     // Should have a back button
-    await expect(page.locator("button", { hasText: "Back to Dashboard" })).toBeVisible();
+    await expect(page.locator("button", { hasText: "Back to Projects" })).toBeVisible();
   });
 });
 

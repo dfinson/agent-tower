@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select, update
 
 from backend.models.db import TaskLinkRow
-from backend.models.domain import TaskLink
+from backend.models.domain import TaskLink, TaskLinkState
 from backend.persistence.repository import BaseRepository
 
 
@@ -31,7 +31,9 @@ class TaskLinkRepository(BaseRepository):
             repo_path=row.repo_path,
             story_node_id=row.story_node_id,
             depends_on=json.loads(row.depends_on) if row.depends_on else [],
+            state=TaskLinkState(row.state),
             job_id=row.job_id,
+            tracker_link_id=row.tracker_link_id,
             tracker_ticket_ref=row.tracker_ticket_ref,
             prompt_override=row.prompt_override,
             epic_id=row.epic_id,
@@ -44,6 +46,7 @@ class TaskLinkRepository(BaseRepository):
         *,
         project_id: str,
         repo_path: str,
+        tracker_link_id: str | None = None,
         tracker_ticket_ref: str,
         prompt_override: str,
     ) -> TaskLink:
@@ -55,7 +58,9 @@ class TaskLinkRepository(BaseRepository):
             repo_path=repo_path,
             story_node_id=None,
             depends_on="[]",
+            state=TaskLinkState.ready,
             job_id=None,
+            tracker_link_id=tracker_link_id,
             tracker_ticket_ref=tracker_ticket_ref,
             prompt_override=prompt_override,
             epic_id=None,
@@ -103,6 +108,7 @@ class TaskLinkRepository(BaseRepository):
                     repo_path=repo_path,
                     story_node_id=story_node_id,
                     depends_on=json.dumps(depends_on),
+                    state=TaskLinkState.ready if not depends_on else TaskLinkState.waiting,
                     epic_id=epic_id,
                     created_at=now,
                     updated_at=now,
@@ -111,6 +117,11 @@ class TaskLinkRepository(BaseRepository):
             else:
                 row.depends_on = json.dumps(depends_on)
                 row.epic_id = epic_id
+                if row.job_id is None and row.state in {
+                    TaskLinkState.waiting,
+                    TaskLinkState.ready,
+                }:
+                    row.state = TaskLinkState.ready if not depends_on else TaskLinkState.waiting
                 row.updated_at = now
 
             await self._session.flush()
@@ -160,3 +171,56 @@ class TaskLinkRepository(BaseRepository):
         fetched = await self._session.execute(fetch_stmt)
         row = fetched.scalar_one_or_none()
         return self._to_domain(row) if row is not None else None
+
+    async def claim_ready(self, task_link_id: str) -> TaskLink | None:
+        """Atomically claim a ready, unlinked TaskLink before creating its Job."""
+        stmt = (
+            update(TaskLinkRow)
+            .where(
+                TaskLinkRow.id == task_link_id,
+                TaskLinkRow.state == TaskLinkState.ready,
+                TaskLinkRow.job_id.is_(None),
+            )
+            .values(state=TaskLinkState.running, updated_at=datetime.now(UTC))
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        if result.rowcount == 0:  # type: ignore[attr-defined]
+            return None
+        return await self.get(task_link_id)
+
+    async def attach_claimed_job(
+        self,
+        task_link_id: str,
+        job_id: str,
+        *,
+        state: TaskLinkState = TaskLinkState.running,
+    ) -> TaskLink | None:
+        """Attach a Job only to the caller's already-claimed TaskLink."""
+        stmt = (
+            update(TaskLinkRow)
+            .where(
+                TaskLinkRow.id == task_link_id,
+                TaskLinkRow.state == TaskLinkState.running,
+                TaskLinkRow.job_id.is_(None),
+            )
+            .values(job_id=job_id, state=state, updated_at=datetime.now(UTC))
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        if result.rowcount == 0:  # type: ignore[attr-defined]
+            return None
+        return await self.get(task_link_id)
+
+    async def set_state(self, task_link_id: str, state: TaskLinkState) -> TaskLink | None:
+        """Persist one explicit TaskLink lifecycle transition."""
+        stmt = (
+            update(TaskLinkRow)
+            .where(TaskLinkRow.id == task_link_id)
+            .values(state=state, updated_at=datetime.now(UTC))
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        if result.rowcount == 0:  # type: ignore[attr-defined]
+            return None
+        return await self.get(task_link_id)

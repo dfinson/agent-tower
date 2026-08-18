@@ -8,6 +8,7 @@ vi.mock("../../api/client", () => ({
   createProject: vi.fn(),
   registerRepo: vi.fn(),
   createRepo: vi.fn(),
+  unregisterRepo: vi.fn(),
   browseDirectories: vi.fn(),
 }));
 

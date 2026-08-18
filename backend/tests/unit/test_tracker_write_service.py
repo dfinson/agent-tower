@@ -16,6 +16,7 @@ from backend.services.tracker_write_service import (
     TrackerWriteAction,
     TrackerWriteRequest,
     TrackerWriteService,
+    TrackerWriteState,
 )
 
 if TYPE_CHECKING:
@@ -88,7 +89,7 @@ async def test_rejected_write_uses_existing_approval_and_is_never_dispatched(
 
     await approval_service.resolve(approval.id, "rejected")
 
-    assert await execution is False
+    assert (await execution).state == TrackerWriteState.rejected
     dispatch.assert_not_awaited()
 
 
@@ -109,7 +110,7 @@ async def test_approved_write_is_dispatched_once(
     approval = await _pending_approval(approval_service)
     await approval_service.resolve(approval.id, "approved")
 
-    assert await execution is True
+    assert (await execution).state == TrackerWriteState.applied
     dispatch.assert_awaited_once_with(request)
 
 
@@ -133,5 +134,31 @@ async def test_blanket_job_trust_cannot_auto_approve_tracker_write(
     assert not execution.done()
 
     await approval_service.resolve(approval.id, "rejected")
-    assert await execution is False
+    assert (await execution).state == TrackerWriteState.rejected
     dispatch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_is_reported_as_failed(
+    approval_service: ApprovalService,
+    tracker_write_service: TrackerWriteService,
+) -> None:
+    request = TrackerWriteRequest(
+        tracker_link_id="link-1",
+        ticket_ref="ABC-123",
+        action=TrackerWriteAction.comment,
+        value="Ready for review",
+    )
+    dispatch = AsyncMock(side_effect=RuntimeError("provider unavailable"))
+
+    execution = asyncio.create_task(
+        tracker_write_service.execute("job-1", request, dispatch)
+    )
+    approval = await _pending_approval(approval_service)
+    await approval_service.resolve(approval.id, "approved")
+
+    outcome = await execution
+    assert outcome.state == TrackerWriteState.failed
+    assert outcome.applied is False
+    assert outcome.error == "provider unavailable"
+    dispatch.assert_awaited_once_with(request)

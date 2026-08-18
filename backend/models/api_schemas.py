@@ -182,16 +182,18 @@ class CreateProjectRequest(CamelModel):
 class UpdateProjectRequest(CamelModel):
     name: str | None = Field(None, min_length=1, max_length=200)
     repo_paths: list[str] | None = Field(None, min_length=1)
+    confirm_repo_removal: bool = False
 
 
 class CreateManualTaskLinkRequest(CamelModel):
     """Create a TaskLink directly from an existing tracker ticket (Story 4.3)."""
 
     repo_path: str = Field(min_length=1)
+    tracker_link_id: str = Field(min_length=1)
     tracker_ticket_ref: str = Field(min_length=1)
     prompt_override: str = Field(min_length=1)
 
-    @field_validator("repo_path", "tracker_ticket_ref", "prompt_override")
+    @field_validator("repo_path", "tracker_link_id", "tracker_ticket_ref", "prompt_override")
     @classmethod
     def _strip_required_text(cls, value: str) -> str:
         stripped = value.strip()
@@ -512,7 +514,9 @@ class TaskLinkResponse(CamelModel):
     repo_path: str
     story_node_id: str | None
     depends_on: list[str]
+    state: Literal["waiting", "ready", "running", "completed", "failed"]
     job_id: str | None
+    tracker_link_id: str | None
     tracker_ticket_ref: str | None
     prompt_override: str | None
     epic_id: str | None
@@ -1622,7 +1626,7 @@ class ChatListResponse(CamelModel):
 class AddChatMessageRequest(CamelModel):
     """Append a message to a Chat's transcript."""
 
-    role: str = Field(min_length=1, max_length=50)
+    role: Literal["user"] = "user"
     content: str = Field(min_length=1, max_length=50_000)
 
 
@@ -1632,6 +1636,15 @@ class ChatMessageResponse(CamelModel):
     role: str
     content: str
     created_at: datetime
+
+
+class ChatTurnResponse(CamelModel):
+    """One user message plus its assistant completion or explicit failure."""
+
+    user_message: ChatMessageResponse
+    assistant_message: ChatMessageResponse | None = None
+    state: Literal["assistant", "error"]
+    error: str | None = None
 
 
 class LaunchJobFromChatRequest(CamelModel):

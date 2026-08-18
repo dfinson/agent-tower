@@ -7,7 +7,13 @@ from unittest.mock import AsyncMock
 import pytest
 
 from backend.config import CPLConfig
-from backend.models.domain import Project, ProjectNotFoundError, RepoAlreadyAssignedError
+from backend.models.domain import (
+    Project,
+    ProjectMembershipImpact,
+    ProjectNotFoundError,
+    RepoAlreadyAssignedError,
+    StateConflictError,
+)
 from backend.services.project.project_service import ProjectService
 
 
@@ -30,7 +36,16 @@ def mock_repo() -> AsyncMock:
 
 class TestProjectServiceCreate:
     @pytest.mark.asyncio
-    async def test_create_does_not_populate_legacy_repo_allowlist(self, mock_repo: AsyncMock, config: CPLConfig) -> None:
+    async def test_create_rejects_zero_repositories(self, mock_repo: AsyncMock, config: CPLConfig) -> None:
+        with pytest.raises(StateConflictError):
+            await ProjectService(mock_repo, config).create("Empty", [])
+
+        mock_repo.create.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_create_does_not_populate_legacy_repo_allowlist(
+        self, mock_repo: AsyncMock, config: CPLConfig
+    ) -> None:
         mock_repo.list_all_repo_paths.return_value = {}
         mock_repo.create.return_value = _make_project("proj-1", "Test", ["/repo/a", "/repo/b"])
         service = ProjectService(mock_repo, config)
@@ -57,6 +72,54 @@ class TestProjectServiceCreate:
 
 class TestProjectServiceUpdate:
     @pytest.mark.asyncio
+    async def test_removal_requires_confirmation_and_reports_consequences(
+        self, mock_repo: AsyncMock, config: CPLConfig
+    ) -> None:
+        existing = _make_project("proj-1", "Test", ["/repo/a", "/repo/b"])
+        mock_repo.get.return_value = existing
+        mock_repo.list_all_repo_paths.return_value = {}
+        mock_repo.membership_impact.return_value = ProjectMembershipImpact(historical_job_count=3)
+
+        with pytest.raises(StateConflictError, match="3 historical jobs"):
+            await ProjectService(mock_repo, config).update("proj-1", repo_paths=["/repo/a"])
+
+        mock_repo.update.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_confirmed_removal_is_blocked_by_active_work(
+        self, mock_repo: AsyncMock, config: CPLConfig
+    ) -> None:
+        mock_repo.get.return_value = _make_project("proj-1", "Test", ["/repo/a", "/repo/b"])
+        mock_repo.list_all_repo_paths.return_value = {}
+        mock_repo.membership_impact.return_value = ProjectMembershipImpact(active_job_count=1)
+
+        with pytest.raises(StateConflictError, match="blocked while active jobs"):
+            await ProjectService(mock_repo, config).update(
+                "proj-1", repo_paths=["/repo/a"], confirm_repo_removal=True
+            )
+
+    @pytest.mark.asyncio
+    async def test_confirmed_safe_removal_updates_membership(
+        self, mock_repo: AsyncMock, config: CPLConfig
+    ) -> None:
+        existing = _make_project("proj-1", "Test", ["/repo/a", "/repo/b"])
+        mock_repo.get.return_value = existing
+        mock_repo.list_all_repo_paths.return_value = {}
+        mock_repo.membership_impact.return_value = ProjectMembershipImpact(historical_job_count=2)
+        mock_repo.update.return_value = _make_project("proj-1", "Test", ["/repo/a"])
+
+        result = await ProjectService(mock_repo, config).update(
+            "proj-1", repo_paths=["/repo/a"], confirm_repo_removal=True
+        )
+
+        assert result.repo_paths == ["/repo/a"]
+        mock_repo.update.assert_awaited_once_with(
+            "proj-1",
+            name=None,
+            repo_paths=[ProjectService._resolve("/repo/a")],
+        )
+
+    @pytest.mark.asyncio
     async def test_update_name_does_not_touch_repo_paths(self, mock_repo: AsyncMock, config: CPLConfig) -> None:
         existing = _make_project("proj-1", "Old", ["/repo/a"])
         mock_repo.get.return_value = existing
@@ -69,7 +132,9 @@ class TestProjectServiceUpdate:
         mock_repo.update.assert_awaited_once_with("proj-1", name="New", repo_paths=None)
 
     @pytest.mark.asyncio
-    async def test_update_adds_new_repo_path_without_registering_it(self, mock_repo: AsyncMock, config: CPLConfig) -> None:
+    async def test_update_adds_new_repo_path_without_registering_it(
+        self, mock_repo: AsyncMock, config: CPLConfig
+    ) -> None:
         import backend.services.project.project_service as mod
 
         existing_path = mod.ProjectService._resolve("/repo/a")

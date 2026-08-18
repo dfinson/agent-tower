@@ -12,18 +12,31 @@ across re-runs.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
 
-from backend.models.domain import JobSpec, RepoNotAllowedError, SDKModelMismatchError
+from backend.models.domain import (
+    JobSpec,
+    JobState,
+    RepoNotAllowedError,
+    SDKModelMismatchError,
+    StateConflictError,
+    TaskLinkNotFoundError,
+    TaskLinkState,
+)
 from backend.services.recipe.parsers import (
     ParsedTask,
     parse_bmad_stories,
     parse_spec_kit_tasks,
 )
-from backend.services.tracker_write_service import TrackerWriteAction, TrackerWriteRequest
+from backend.services.tracker_write_service import (
+    TrackerWriteAction,
+    TrackerWriteOutcome,
+    TrackerWriteRequest,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
@@ -39,23 +52,6 @@ if TYPE_CHECKING:
     from backend.services.tracker_write_service import TrackerWriteService
 
 log = structlog.get_logger()
-
-
-async def _log_only_tracker_write_dispatch(request: TrackerWriteRequest) -> None:
-    """Placeholder dispatcher for an approved recipe tracker write (Story 4.6).
-
-    No real tracker adapter (Jira/GitHub Issues/Azure DevOps client) exists in
-    this codebase yet — building one is out of this story's scope, which is
-    only to route the write through the existing approval gate (Story 3.4).
-    Once such an adapter exists, this stub should be replaced with a real
-    dispatch call; until then the write is logged only after approval.
-    """
-    log.info(
-        "tracker_write_dispatch_stub",
-        ticket_ref=request.ticket_ref,
-        action=request.action.value,
-        value=request.value,
-    )
 
 
 # Resolutions that count as a job "completing successfully" for the purpose of
@@ -112,7 +108,9 @@ class RecipeService:
         # `pending_tracker_writes` and schedule each coroutine through the
         # module-level `_fire_and_forget` helper, whose `_ephemeral_tasks` set
         # has app-lifetime scope — the same fix used for Story 5.4/PR #70.
-        self.pending_tracker_writes: list[Coroutine[None, None, bool]] = []
+        self.pending_tracker_writes: list[
+            Coroutine[None, None, TrackerWriteOutcome]
+        ] = []
 
     @staticmethod
     def _resolve_dependency(raw: str, *, current_repo_path: str, repo_path_by_folder: dict[str, str]) -> str:
@@ -176,6 +174,7 @@ class RecipeService:
         *,
         project_id: str,
         repo_path: str,
+        tracker_link_id: str | None = None,
         tracker_ticket_ref: str,
         prompt_override: str,
     ) -> TaskLink:
@@ -184,9 +183,25 @@ class RecipeService:
         resolved_repo_path = str(Path(repo_path).expanduser().resolve())
         if resolved_repo_path not in project.repo_paths:
             raise RepoNotAllowedError(f"Repo path '{resolved_repo_path}' does not belong to Project '{project_id}'.")
+        if tracker_link_id is not None:
+            if self._tracker_link_repo is None:
+                raise StateConflictError("TrackerLink validation is unavailable.")
+            tracker_link = await self._tracker_link_repo.get(tracker_link_id)
+            if tracker_link is None or tracker_link["project_id"] != project_id:
+                raise StateConflictError(
+                    f"TrackerLink '{tracker_link_id}' does not belong to Project '{project_id}'."
+                )
+        if tracker_link_id is None:
+            return await self._task_link_repo.create_manual(
+                project_id=project_id,
+                repo_path=resolved_repo_path,
+                tracker_ticket_ref=tracker_ticket_ref,
+                prompt_override=prompt_override,
+            )
         return await self._task_link_repo.create_manual(
             project_id=project_id,
             repo_path=resolved_repo_path,
+            tracker_link_id=tracker_link_id,
             tracker_ticket_ref=tracker_ticket_ref,
             prompt_override=prompt_override,
         )
@@ -195,7 +210,8 @@ class RecipeService:
         """List every TaskLink currently persisted for a Project."""
         # Ensure the Project exists (raises ProjectNotFoundError otherwise).
         await self._project_service.get(project_id)
-        return await self._task_link_repo.list_by_project(project_id)
+        links = await self._task_link_repo.list_by_project(project_id)
+        return await self._refresh_states(links)
 
     @staticmethod
     def _composite_key(task_link: TaskLink) -> str | None:
@@ -239,6 +255,85 @@ class RecipeService:
             return False
         return str(job.state) == "completed" and str(job.resolution or "") in _SUCCESSFUL_RESOLUTIONS
 
+    async def _refresh_states(self, links: list[TaskLink]) -> list[TaskLink]:
+        """Reconcile persisted TaskLink states with dependency and Job truth."""
+        if self._job_repo is None:
+            return links
+        links_by_key = {key: link for link in links if (key := self._composite_key(link)) is not None}
+        refreshed: list[TaskLink] = []
+        for link in links:
+            if link.job_id is not None:
+                job = await self._job_repo.get(link.job_id)
+                if job is None:
+                    desired = TaskLinkState.failed
+                elif job.state == JobState.completed:
+                    desired = (
+                        TaskLinkState.completed
+                        if str(job.resolution or "") in _SUCCESSFUL_RESOLUTIONS
+                        else TaskLinkState.failed
+                    )
+                elif job.state in {JobState.failed, JobState.canceled}:
+                    desired = TaskLinkState.failed
+                else:
+                    desired = TaskLinkState.running
+            else:
+                satisfied = all([await self._is_satisfied(dep, links_by_key) for dep in link.depends_on])
+                desired = TaskLinkState.ready if satisfied else TaskLinkState.waiting
+            if link.state != desired:
+                updated = await self._task_link_repo.set_state(link.id, desired)
+                link = updated or link
+            refreshed.append(link)
+        return refreshed
+
+    async def _start_ready_task_link(
+        self,
+        task_link: TaskLink,
+        *,
+        parent_job_id: str | None,
+    ) -> tuple[TaskLink, Job] | None:
+        """Claim before Job creation, then attach both records in one transaction."""
+        if self._job_service is None:
+            raise StateConflictError("Job creation is unavailable.")
+        claimed = await self._task_link_repo.claim_ready(task_link.id)
+        if claimed is None:
+            return None
+        try:
+            new_job = await self._job_service.create_job(
+                JobSpec(
+                    repo=claimed.repo_path,
+                    prompt=self._derive_prompt(claimed),
+                    parent_job_id=parent_job_id,
+                )
+            )
+        except Exception:
+            await self._task_link_repo.set_state(claimed.id, TaskLinkState.ready)
+            raise
+        attached = await self._task_link_repo.attach_claimed_job(
+            claimed.id,
+            new_job.id,
+            state=TaskLinkState.failed if new_job.state == JobState.failed else TaskLinkState.running,
+        )
+        if attached is None:
+            raise StateConflictError(f"TaskLink '{claimed.id}' lost its start claim.")
+        return attached, new_job
+
+    async def start_task_link(self, project_id: str, task_link_id: str) -> tuple[TaskLink, Job]:
+        """Start a ready root or dependency-satisfied TaskLink exactly once."""
+        await self._project_service.get(project_id)
+        task_link = await self._task_link_repo.get(task_link_id)
+        if task_link is None or task_link.project_id != project_id:
+            raise TaskLinkNotFoundError(f"TaskLink '{task_link_id}' does not exist in Project '{project_id}'.")
+        links = await self._refresh_states(await self._task_link_repo.list_by_project(project_id))
+        task_link = next(link for link in links if link.id == task_link_id)
+        if task_link.state != TaskLinkState.ready:
+            raise StateConflictError(
+                f"TaskLink '{task_link_id}' is {task_link.state.value}; only ready TaskLinks can start."
+            )
+        started = await self._start_ready_task_link(task_link, parent_job_id=None)
+        if started is None:
+            raise StateConflictError(f"TaskLink '{task_link_id}' was already claimed.")
+        return started
+
     async def handle_job_completed(self, job_id: str, *, resolution: str | None) -> list[Job]:
         """React to a Job reaching ``JobState.completed`` (Story 4.5 AC #1-#3; Story 5.4 AC #1-#2).
 
@@ -266,11 +361,15 @@ class RecipeService:
         if self._job_service is None or self._job_repo is None:
             return []
 
-        if resolution not in _SUCCESSFUL_RESOLUTIONS:
-            return []
-
         completed_link = await self._task_link_repo.get_by_job_id(job_id)
         if completed_link is None:
+            return []
+
+        terminal_state = (
+            TaskLinkState.completed if resolution in _SUCCESSFUL_RESOLUTIONS else TaskLinkState.failed
+        )
+        await self._task_link_repo.set_state(completed_link.id, terminal_state)
+        if resolution not in _SUCCESSFUL_RESOLUTIONS:
             return []
 
         await self._maybe_route_tracker_write(completed_link, job_id)
@@ -303,6 +402,10 @@ class RecipeService:
             if not satisfied:
                 continue
 
+            if await self._task_link_repo.set_state(candidate.id, TaskLinkState.ready) is None:
+                continue
+            ready_candidate = replace(candidate, state=TaskLinkState.ready)
+
             if gated:
                 assert self._approval_service is not None  # narrowed by _is_chain_gated
                 assert pending_spawn_actions is not None
@@ -323,11 +426,8 @@ class RecipeService:
                 )
                 continue
 
-            prompt = self._derive_prompt(candidate)
             try:
-                new_job = await self._job_service.create_job(
-                    JobSpec(repo=candidate.repo_path, prompt=prompt, parent_job_id=job_id)
-                )
+                started = await self._start_ready_task_link(ready_candidate, parent_job_id=job_id)
             except (RepoNotAllowedError, SDKModelMismatchError) as exc:
                 log.warning(
                     "task_link_spawn_failed",
@@ -336,9 +436,8 @@ class RecipeService:
                     error=str(exc),
                 )
                 continue
-
-            updated = await self._task_link_repo.set_job_id(candidate.id, new_job.id)
-            if updated is not None:
+            if started is not None:
+                _, new_job = started
                 spawned.append(new_job)
 
         return spawned
@@ -387,8 +486,7 @@ class RecipeService:
         if not task_link.tracker_ticket_ref:
             return
 
-        tracker_links = await self._tracker_link_repo.list_for_project(task_link.project_id)
-        if not tracker_links:
+        if not task_link.tracker_link_id:
             log.warning(
                 "tracker_write_skipped_no_tracker_link",
                 task_link_id=task_link.id,
@@ -396,16 +494,24 @@ class RecipeService:
                 ticket_ref=task_link.tracker_ticket_ref,
             )
             return
+        tracker_link = await self._tracker_link_repo.get(task_link.tracker_link_id)
+        if tracker_link is None or tracker_link["project_id"] != task_link.project_id:
+            log.warning(
+                "tracker_write_skipped_invalid_tracker_link",
+                task_link_id=task_link.id,
+                tracker_link_id=task_link.tracker_link_id,
+            )
+            return
 
         request = TrackerWriteRequest(
-            tracker_link_id=tracker_links[0]["id"],
+            tracker_link_id=task_link.tracker_link_id,
             ticket_ref=task_link.tracker_ticket_ref,
             action=TrackerWriteAction.comment,
             value=f"Task '{task_link.story_node_id or task_link.id}' completed.",
         )
 
         self.pending_tracker_writes.append(
-            self._tracker_write_service.execute(job_id, request, _log_only_tracker_write_dispatch)
+            self._tracker_write_service.execute(job_id, request)
         )
 
     async def spawn_approved_task_link(self, task_link_id: str, *, parent_job_id: str | None) -> Job | None:
@@ -423,10 +529,16 @@ class RecipeService:
         if task_link is None or task_link.job_id is not None:
             return None
 
-        prompt = self._derive_prompt(task_link)
+        project_links = await self._refresh_states(
+            await self._task_link_repo.list_by_project(task_link.project_id)
+        )
+        task_link = next(link for link in project_links if link.id == task_link_id)
+        if task_link.state != TaskLinkState.ready:
+            return None
         try:
-            new_job = await self._job_service.create_job(
-                JobSpec(repo=task_link.repo_path, prompt=prompt, parent_job_id=parent_job_id)
+            started = await self._start_ready_task_link(
+                task_link,
+                parent_job_id=parent_job_id,
             )
         except (RepoNotAllowedError, SDKModelMismatchError) as exc:
             log.warning(
@@ -436,6 +548,10 @@ class RecipeService:
                 error=str(exc),
             )
             return None
+        return started[1] if started is not None else None
 
-        updated = await self._task_link_repo.set_job_id(task_link.id, new_job.id)
-        return new_job if updated is not None else None
+    async def handle_job_failed(self, job_id: str) -> None:
+        """Project a failed/canceled terminal Job onto its linked TaskLink."""
+        task_link = await self._task_link_repo.get_by_job_id(job_id)
+        if task_link is not None:
+            await self._task_link_repo.set_state(task_link.id, TaskLinkState.failed)

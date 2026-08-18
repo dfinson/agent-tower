@@ -167,6 +167,16 @@ class TaskLinkNotFoundError(CodePlaneError):
     """Raised when a TaskLink ID does not exist (Story 5.3)."""
 
 
+class TaskLinkState(StrEnum):
+    """Lifecycle state for a persisted TaskLink."""
+
+    waiting = "waiting"
+    ready = "ready"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
 class AgentSDK(StrEnum):
     """Supported agent SDK backends."""
 
@@ -306,6 +316,16 @@ class ChatMessage:
     role: str
     content: str
     created_at: datetime
+
+
+@dataclass
+class ChatTurnResult:
+    """Persisted result of one conversational Chat turn."""
+
+    user_message: ChatMessage
+    assistant_message: ChatMessage | None
+    state: Literal["assistant", "error"]
+    error: str | None = None
 
 
 @dataclass
@@ -729,6 +749,16 @@ class ProjectSummary:
 
 
 @dataclass
+class ProjectMembershipImpact:
+    """Consequences of removing repositories from a Project."""
+
+    active_job_count: int = 0
+    historical_job_count: int = 0
+    task_link_count: int = 0
+    tracker_link_count: int = 0
+
+
+@dataclass
 class TaskLink:
     """Domain representation of a TaskLink (Story 4.2, AD-9).
 
@@ -750,6 +780,8 @@ class TaskLink:
     epic_id: str | None
     created_at: datetime
     updated_at: datetime
+    state: TaskLinkState = TaskLinkState.waiting
+    tracker_link_id: str | None = None
 
 
 @dataclass

@@ -6,16 +6,19 @@ vi.mock("../../api/client", () => ({
   createProject: vi.fn(),
   registerRepo: vi.fn(),
   createRepo: vi.fn(),
+  unregisterRepo: vi.fn(),
   browseDirectories: vi.fn(),
 }));
 
-import { createProject, registerRepo, createRepo, browseDirectories } from "../../api/client";
+import { createProject, registerRepo, createRepo, browseDirectories, unregisterRepo } from "../../api/client";
 import { CreateProjectDialog } from "../CreateProjectDialog";
 
 beforeEach(() => {
   vi.mocked(createProject).mockReset();
   vi.mocked(registerRepo).mockReset();
   vi.mocked(createRepo).mockReset();
+  vi.mocked(unregisterRepo).mockReset();
+  vi.mocked(unregisterRepo).mockResolvedValue(undefined);
   vi.mocked(browseDirectories).mockReset();
   vi.mocked(browseDirectories).mockResolvedValue({
     current: "/home/user",
@@ -117,7 +120,31 @@ describe("CreateProjectDialog", () => {
     fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "My Project" } });
     fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
 
-    expect(await screen.findByText("boom")).toBeInTheDocument();
+    expect(await screen.findByText(/boom/)).toBeInTheDocument();
     expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it("rolls back staged registration when creation fails and reports retained files", async () => {
+    vi.mocked(registerRepo).mockResolvedValueOnce({
+      path: "/home/user/cloned-repo",
+      source: "https://example.com/repo.git",
+      cloned: true,
+    });
+    vi.mocked(createProject).mockRejectedValueOnce(new Error("Project save failed"));
+    render(<CreateProjectDialog open onClose={() => {}} onCreated={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clone / register" }));
+    fireEvent.change(screen.getByPlaceholderText("Local path or git clone URL"), {
+      target: { value: "https://example.com/repo.git" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Register repository" }));
+    await screen.findByText("/home/user/cloned-repo");
+    fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "My Project" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
+
+    await waitFor(() => expect(unregisterRepo).toHaveBeenCalledWith("/home/user/cloned-repo"));
+    expect(
+      await screen.findByText(/Repository files and any completed index remain at: \/home\/user\/cloned-repo/),
+    ).toBeInTheDocument();
   });
 });

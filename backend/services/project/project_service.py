@@ -6,7 +6,13 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from backend.models.domain import Project, ProjectNotFoundError, ProjectSummary, RepoAlreadyAssignedError
+from backend.models.domain import (
+    Project,
+    ProjectNotFoundError,
+    ProjectSummary,
+    RepoAlreadyAssignedError,
+    StateConflictError,
+)
 
 if TYPE_CHECKING:
     import builtins
@@ -39,6 +45,8 @@ class ProjectService:
     async def create(self, name: str, repo_paths: builtins.list[str]) -> Project:
         """Create a new Project, registering each repo path via the existing clone/register logic."""
         resolved = [self._resolve(p) for p in repo_paths]
+        if not resolved:
+            raise StateConflictError("A Project must contain at least one repository.")
         await self._assert_repo_paths_available(resolved, exclude_project_id=None)
 
         project_id = str(uuid.uuid4())
@@ -58,6 +66,7 @@ class ProjectService:
         project_id: str,
         name: str | None = None,
         repo_paths: builtins.list[str] | None = None,
+        confirm_repo_removal: bool = False,
     ) -> Project:
         """Rename a Project and/or replace its repo membership.
 
@@ -70,7 +79,24 @@ class ProjectService:
         resolved_repo_paths: list[str] | None = None
         if repo_paths is not None:
             resolved_repo_paths = [self._resolve(p) for p in repo_paths]
+            if not resolved_repo_paths:
+                raise StateConflictError("A Project must contain at least one repository.")
             await self._assert_repo_paths_available(resolved_repo_paths, exclude_project_id=project_id)
+            removed = sorted(set(existing.repo_paths) - set(resolved_repo_paths))
+            if removed:
+                impact = await self._project_repo.membership_impact(project_id, removed)
+                consequence = (
+                    f"Removal affects {impact.active_job_count} active jobs, "
+                    f"{impact.historical_job_count} historical jobs, {impact.task_link_count} TaskLinks, "
+                    f"and {impact.tracker_link_count} Project TrackerLinks. Historical jobs and TrackerLinks "
+                    "are preserved."
+                )
+                if not confirm_repo_removal:
+                    raise StateConflictError(f"Repository removal requires confirmation. {consequence}")
+                if impact.active_job_count:
+                    raise StateConflictError(f"Repository removal is blocked while active jobs exist. {consequence}")
+                if impact.task_link_count:
+                    raise StateConflictError(f"Repository removal is blocked while TaskLinks exist. {consequence}")
         updated = await self._project_repo.update(project_id, name=name, repo_paths=resolved_repo_paths)
         if updated is None:
             raise ProjectNotFoundError(f"Project '{project_id}' does not exist.")

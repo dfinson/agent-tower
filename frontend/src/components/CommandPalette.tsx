@@ -14,6 +14,7 @@ import {
   BarChart3,
   Columns3,
   FolderGit2,
+  MessageSquare,
 } from "lucide-react";
 
 interface PaletteItem {
@@ -89,6 +90,14 @@ export function CommandPalette() {
         icon: <BarChart3 className="h-4 w-4" />,
         action: () => navigate("/analytics"),
         keywords: ["metrics", "telemetry", "cost", "usage", "dashboard", "stats"],
+      },
+      {
+        id: "chats",
+        label: "Chats",
+        description: "Discuss ideas without creating a worktree",
+        icon: <MessageSquare className="h-4 w-4" />,
+        action: () => navigate("/chats"),
+        keywords: ["chat", "conversation", "discuss"],
       },
       {
         id: "projects",

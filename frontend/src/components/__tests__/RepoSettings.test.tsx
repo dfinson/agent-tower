@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import type {
+  ProjectResponse,
+  RepoDetailResponse,
+  TrackerLinkListResponse,
+  TrackerLinkResponse,
+} from "../../api/types";
 
 vi.mock("../../api/client", () => ({
   request: vi.fn().mockResolvedValue({}),
@@ -38,7 +44,7 @@ describe("RepoSettings", () => {
       repoPaths: ["/repo/app", "/repo/shared"],
       createdAt: "2024-01-01T00:00:00Z",
       updatedAt: "2024-01-02T00:00:00Z",
-    } as any);
+    } as unknown as ProjectResponse);
 
     vi.mocked(fetchRepoDetail).mockResolvedValue({
       path: "/repo/app",
@@ -48,7 +54,7 @@ describe("RepoSettings", () => {
       platform: "github",
       activeJobCount: 2,
       recentJobs: [],
-    } as any);
+    } as unknown as RepoDetailResponse);
 
     vi.mocked(fetchCredentials).mockResolvedValue({
       credentials: [{
@@ -58,7 +64,7 @@ describe("RepoSettings", () => {
         baseUrl: "https://api.github.com",
         createdAt: "2024-01-01T00:00:00Z",
       }],
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof fetchCredentials>>);
 
     vi.mocked(fetchTrackerLinks).mockResolvedValue({
       trackerLinks: [{
@@ -69,7 +75,7 @@ describe("RepoSettings", () => {
         createdAt: "2024-01-01T00:00:00Z",
         summary: null,
       }],
-    } as any);
+    } as unknown as TrackerLinkListResponse);
 
     vi.mocked(createTrackerLink).mockResolvedValue({
       id: "link-2",
@@ -78,7 +84,7 @@ describe("RepoSettings", () => {
       externalRef: "Alpha board",
       createdAt: "2024-01-01T00:00:00Z",
       summary: null,
-    } as any);
+    } as unknown as TrackerLinkResponse);
 
     vi.mocked(updateProject).mockResolvedValue({
       id: "project-1",
@@ -86,7 +92,7 @@ describe("RepoSettings", () => {
       repoPaths: ["/repo/app", "/repo/shared", "/repo/new-tool"],
       createdAt: "2024-01-01T00:00:00Z",
       updatedAt: "2024-01-03T00:00:00Z",
-    } as any);
+    } as unknown as ProjectResponse);
 
     render(
       <MemoryRouter initialEntries={["/projects/id/project-1"]}>
@@ -128,7 +134,14 @@ describe("RepoSettings", () => {
       expect(updateProject).toHaveBeenCalledWith("project-1", {
         name: "Alpha project v2",
         repoPaths: ["/repo/app", "/repo/shared", "/repo/new-tool"],
+        confirmRepoRemoval: false,
       });
     });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove /repo/shared" }));
+    fireEvent.click(screen.getByRole("button", { name: /save project/i }));
+
+    expect(await screen.findByText("Remove repositories from this Project?")).toBeInTheDocument();
+    expect(screen.getByText(/Historical Jobs remain in Job History/)).toBeInTheDocument();
   });
 });

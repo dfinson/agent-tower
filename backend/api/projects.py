@@ -9,7 +9,7 @@ is durably registered going forward.
 from __future__ import annotations
 
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 
 from backend.models.api_schemas import (
     CreateManualTaskLinkRequest,
@@ -26,6 +26,7 @@ from backend.models.api_schemas import (
 from backend.models.domain import Project, ProjectSummary, TaskLink
 from backend.services.project.project_service import ProjectService
 from backend.services.recipe.recipe_service import RecipeService
+from backend.services.runtime import RuntimeService
 
 router = APIRouter(tags=["projects"], route_class=DishkaRoute)
 
@@ -59,7 +60,9 @@ def _task_link_to_response(task_link: TaskLink) -> TaskLinkResponse:
         repo_path=task_link.repo_path,
         story_node_id=task_link.story_node_id,
         depends_on=task_link.depends_on,
+        state=task_link.state,
         job_id=task_link.job_id,
+        tracker_link_id=task_link.tracker_link_id,
         tracker_ticket_ref=task_link.tracker_ticket_ref,
         prompt_override=task_link.prompt_override,
         epic_id=task_link.epic_id,
@@ -120,7 +123,12 @@ async def update_project(
     project_service: FromDishka[ProjectService],
 ) -> ProjectResponse:
     """Rename a Project and/or replace its repo membership."""
-    project = await project_service.update(project_id, name=body.name, repo_paths=body.repo_paths)
+    project = await project_service.update(
+        project_id,
+        name=body.name,
+        repo_paths=body.repo_paths,
+        confirm_repo_removal=body.confirm_repo_removal,
+    )
     return _to_response(project)
 
 
@@ -166,7 +174,25 @@ async def create_manual_task_link(
     task_link = await recipe_service.create_manual_task_link(
         project_id=project_id,
         repo_path=body.repo_path,
+        tracker_link_id=body.tracker_link_id,
         tracker_ticket_ref=body.tracker_ticket_ref,
         prompt_override=body.prompt_override,
     )
+    return _task_link_to_response(task_link)
+
+
+@router.post(
+    "/settings/projects/{project_id}/task-links/{task_link_id}/start",
+    response_model=TaskLinkResponse,
+)
+async def start_task_link(
+    project_id: str,
+    task_link_id: str,
+    background_tasks: BackgroundTasks,
+    recipe_service: FromDishka[RecipeService],
+    runtime_service: FromDishka[RuntimeService],
+) -> TaskLinkResponse:
+    """Atomically claim and start one ready TaskLink."""
+    task_link, job = await recipe_service.start_task_link(project_id, task_link_id)
+    background_tasks.add_task(runtime_service.setup_and_start, job)
     return _task_link_to_response(task_link)

@@ -10,7 +10,7 @@ from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.models.db import Base, JobRow
-from backend.models.domain import JobState
+from backend.models.domain import JobState, TaskLinkState
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.project_repo import ProjectRepository
 from backend.persistence.task_link_repo import TaskLinkRepository
@@ -293,3 +293,48 @@ class TestSetJobIdAndGetByJobId:
     async def test_get_by_job_id_returns_none_when_absent(self, session: AsyncSession) -> None:
         repo = TaskLinkRepository(session)
         assert await repo.get_by_job_id("does-not-exist") is None
+
+
+class TestTaskLinkLifecycle:
+    @pytest.mark.asyncio
+    async def test_ingestion_assigns_ready_and_waiting_states(self, session: AsyncSession) -> None:
+        project_id = await _make_project(session)
+        repo = TaskLinkRepository(session)
+        links = await repo.upsert_many(
+            project_id,
+            [
+                {"repo_path": "/repo/a", "story_node_id": "root", "depends_on": [], "epic_id": None},
+                {
+                    "repo_path": "/repo/a",
+                    "story_node_id": "dependent",
+                    "depends_on": ["/repo/a::root"],
+                    "epic_id": None,
+                },
+            ],
+        )
+        assert [link.state for link in links] == [TaskLinkState.ready, TaskLinkState.waiting]
+
+    @pytest.mark.asyncio
+    async def test_claim_precedes_job_attachment_and_only_one_claim_wins(
+        self,
+        session: AsyncSession,
+    ) -> None:
+        project_id = await _make_project(session)
+        repo = TaskLinkRepository(session)
+        task_link = (
+            await repo.upsert_many(
+                project_id,
+                [{"repo_path": "/repo/a", "story_node_id": "root", "depends_on": [], "epic_id": None}],
+            )
+        )[0]
+
+        claimed = await repo.claim_ready(task_link.id)
+        duplicate_claim = await repo.claim_ready(task_link.id)
+        assert claimed is not None and claimed.state == TaskLinkState.running
+        assert duplicate_claim is None
+
+        await _make_job(session, "job-claimed")
+        attached = await repo.attach_claimed_job(task_link.id, "job-claimed")
+        assert attached is not None
+        assert attached.job_id == "job-claimed"
+        assert attached.state == TaskLinkState.running

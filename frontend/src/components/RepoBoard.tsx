@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, LayoutGrid } from "lucide-react";
+import { ArrowLeft, Download, LayoutGrid } from "lucide-react";
+import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import {
   useStore,
@@ -10,46 +11,13 @@ import {
   selectAttentionJobsForProject,
 } from "../store";
 import type { JobSummary } from "../store";
-import { fetchJobs, fetchProject, fetchProjectTaskLinks } from "../api/client";
+import { fetchJobs, fetchProject, fetchProjectTaskLinks, ingestProjectTasks, startTaskLink } from "../api/client";
 import type { ProjectResponse, TaskLinkResponse } from "../api/types";
 import { KanbanColumn } from "./KanbanColumn";
 import { KanbanSkeleton } from "./KanbanSkeleton";
 import { TaskLinkCard } from "./TaskLinkCard";
+import { Button } from "./ui/button";
 import { KANBAN_COLUMNS } from "../constants/kanban";
-
-/**
- * Determine whether a TaskLink's `dependsOn` list is fully satisfied (Story 4.4 / CAP-10).
- *
- * A composite `"{repoPath}::{storyNodeId}"` entry is satisfied when its target
- * TaskLink is found within the full Project TaskLink set (so cross-repo
- * dependencies resolve) and that target has a `jobId` whose Job has reached
- * the `completed` state. An unresolvable target, or one whose Job hasn't
- * completed, is unsatisfied. Empty `dependsOn` is trivially satisfied. This is
- * read-only render logic — it never triggers a spawn (Story 4.5's concern).
- */
-function computeSatisfaction(
-  taskLink: TaskLinkResponse,
-  allTaskLinks: TaskLinkResponse[],
-  jobs: Record<string, JobSummary>,
-): { satisfied: boolean; blockingLabel: string | null } {
-  if (taskLink.dependsOn.length === 0) return { satisfied: true, blockingLabel: null };
-
-  const byKey = new Map<string, TaskLinkResponse>();
-  for (const t of allTaskLinks) {
-    if (t.storyNodeId) byKey.set(`${t.repoPath}::${t.storyNodeId}`, t);
-  }
-
-  for (const dep of taskLink.dependsOn) {
-    const target = byKey.get(dep);
-    const targetJob = target?.jobId ? jobs[target.jobId] : undefined;
-    const depSatisfied = !!target && !!targetJob && targetJob.state === "completed";
-    if (!depSatisfied) {
-      const label = target?.storyNodeId ?? dep.split("::").pop() ?? dep;
-      return { satisfied: false, blockingLabel: label };
-    }
-  }
-  return { satisfied: true, blockingLabel: null };
-}
 
 /**
  * Project-scoped Kanban board (Story 2.3 / CAP-1). Child route of the
@@ -72,8 +40,9 @@ export function RepoBoard() {
   const [loading, setLoading] = useState(true);
   const [project, setProject] = useState<ProjectResponse | null>(null);
   const [taskLinks, setTaskLinks] = useState<TaskLinkResponse[]>([]);
+  const [ingesting, setIngesting] = useState(false);
+  const [startingId, setStartingId] = useState<string | null>(null);
   const hasJobs = useStore((state) => Object.keys(state.jobs).length > 0);
-  const jobs = useStore((state) => state.jobs);
 
   const repoPaths = project?.repoPaths ?? [];
   const activeJobs = useStore(useShallow(selectActiveJobsForProject(repoPaths)));
@@ -122,6 +91,34 @@ export function RepoBoard() {
 
   if (loading && !hasJobs) return <KanbanSkeleton />;
 
+  const handleIngest = async () => {
+    if (!projectId) return;
+    setIngesting(true);
+    try {
+      const result = await ingestProjectTasks(projectId);
+      setTaskLinks(result.items);
+      toast.success(`Ingested ${result.items.length} tasks.`);
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setIngesting(false);
+    }
+  };
+
+  const handleStart = async (taskLink: TaskLinkResponse) => {
+    if (!projectId) return;
+    setStartingId(taskLink.id);
+    try {
+      const updated = await startTaskLink(projectId, taskLink.id);
+      setTaskLinks((current) => current.map((item) => item.id === updated.id ? updated : item));
+      toast.success(`Started ${updated.storyNodeId ?? updated.trackerTicketRef ?? "task"}.`);
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setStartingId(null);
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center gap-3 mb-4">
@@ -139,6 +136,10 @@ export function RepoBoard() {
           </h1>
           <p className="text-sm text-muted-foreground truncate">{project?.name ?? ""}</p>
         </div>
+        <Button variant="outline" size="sm" disabled={ingesting} onClick={() => void handleIngest()}>
+          <Download size={14} className={ingesting ? "animate-pulse" : ""} />
+          {ingesting ? "Ingesting…" : "Ingest tasks"}
+        </Button>
       </div>
 
       <div className="grid grid-cols-3 gap-3 h-[calc(100dvh-200px)] max-lg:grid-cols-2 max-sm:grid-cols-1">
@@ -149,13 +150,12 @@ export function RepoBoard() {
             taskLinks.length > 0 ? (
               <>
                 {taskLinks.map((taskLink) => {
-                  const { satisfied, blockingLabel } = computeSatisfaction(taskLink, taskLinks, jobs);
                   return (
                     <TaskLinkCard
                       key={taskLink.id}
                       taskLink={taskLink}
-                      satisfied={satisfied}
-                      blockingLabel={blockingLabel}
+                      starting={startingId === taskLink.id}
+                      onStart={(link) => void handleStart(link)}
                     />
                   );
                 })}

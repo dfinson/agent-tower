@@ -16,9 +16,10 @@ import { RepoIndexIndicator } from "./RepoIndexIndicator";
 import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { ConfirmDialog } from "./ui/confirm-dialog";
 
 export function RepoSettings() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const { projectId, repoPath } = useParams<{ projectId: string; repoPath?: string }>();
 
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<RepoDetailResponse | null>(null);
@@ -32,6 +33,7 @@ export function RepoSettings() {
   const [newRepoPath, setNewRepoPath] = useState("");
   const [saving, setSaving] = useState(false);
   const [attachingTracker, setAttachingTracker] = useState(false);
+  const [removalConfirmOpen, setRemovalConfirmOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -47,9 +49,8 @@ export function RepoSettings() {
       setProject(proj);
       setProjectName(proj.name);
       setRepoPaths(proj.repoPaths);
-      const primaryRepo = proj.repoPaths[0];
-      if (primaryRepo) {
-        setDetail(await fetchRepoDetail(primaryRepo));
+      if (repoPath && proj.repoPaths.includes(repoPath)) {
+        setDetail(await fetchRepoDetail(repoPath));
       } else {
         setDetail(null);
       }
@@ -60,19 +61,23 @@ export function RepoSettings() {
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, repoPath]);
 
   useEffect(() => { load(); }, [load]);
 
-  const saveProject = useCallback(async () => {
+  const persistProject = useCallback(async (confirmRepoRemoval: boolean) => {
     if (!project) return;
     setSaving(true);
     try {
       const trimmedName = projectName.trim();
       const uniquePaths = [...new Set(repoPaths.filter((path) => path.trim()))].map((path) => path.trim());
+      if (uniquePaths.length === 0) {
+        throw new Error("A Project must contain at least one repository.");
+      }
       const updated = await updateProject(project.id, {
         name: trimmedName || project.name,
         repoPaths: uniquePaths,
+        confirmRepoRemoval,
       });
       setProject(updated);
       setProjectName(updated.name);
@@ -80,10 +85,21 @@ export function RepoSettings() {
       toast.success("Project updated");
     } catch (error) {
       toast.error(String(error));
+      if (confirmRepoRemoval) throw error;
     } finally {
       setSaving(false);
     }
   }, [project, projectName, repoPaths]);
+
+  const saveProject = useCallback(async () => {
+    if (!project) return;
+    const removed = project.repoPaths.filter((path) => !repoPaths.includes(path));
+    if (removed.length > 0) {
+      setRemovalConfirmOpen(true);
+      return;
+    }
+    await persistProject(false);
+  }, [persistProject, project, repoPaths]);
 
   const credentialMap = Object.fromEntries(credentials.map((credential) => [credential.id, credential]));
 
@@ -163,11 +179,19 @@ export function RepoSettings() {
                   <p className="text-xs text-muted-foreground">No member repositories yet.</p>
                 ) : repoPaths.map((path) => (
                   <div key={path} className="flex items-center gap-1 rounded-full bg-muted px-2 py-1 text-[10px] font-mono">
-                    <span className="truncate max-w-[16rem]">{path}</span>
+                    <Link
+                      to={`/projects/id/${encodeURIComponent(project.id)}/repos/${encodeURIComponent(path)}/settings`}
+                      className="truncate max-w-[16rem] hover:underline"
+                      title="Open repository details"
+                    >
+                      {path}
+                    </Link>
                     <button
                       type="button"
                       aria-label={`Remove ${path}`}
                       className="text-muted-foreground hover:text-foreground"
+                      disabled={repoPaths.length === 1}
+                      title={repoPaths.length === 1 ? "A Project must retain at least one repository" : undefined}
                       onClick={() => setRepoPaths((items) => items.filter((item) => item !== path))}
                     >
                       <Trash2 size={10} />
@@ -264,7 +288,7 @@ export function RepoSettings() {
             )}
           </div>
 
-          {detail && (
+          {detail && repoPath && (
             <div className="rounded-lg border border-border bg-card p-5 space-y-4">
               <h3 className="text-sm font-semibold">Repository Information</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
@@ -306,17 +330,35 @@ export function RepoSettings() {
             </div>
           )}
 
-          {project.repoPaths[0] && (
+          {detail && repoPath && (
             <div className="rounded-lg border border-border bg-card p-5 space-y-3">
               <h3 className="text-sm font-semibold">Index Status</h3>
               <div className="flex items-center gap-3">
-                <RepoIndexIndicator repo={project.repoPaths[0]} />
+                <RepoIndexIndicator repo={repoPath} />
                 <span className="text-sm text-muted-foreground">
                   {detail?.activeJobCount ?? 0} active jobs using this repository
                 </span>
               </div>
             </div>
           )}
+          <ConfirmDialog
+            open={removalConfirmOpen}
+            onClose={() => setRemovalConfirmOpen(false)}
+            onConfirm={() => persistProject(true)}
+            title="Remove repositories from this Project?"
+            description="Removal is blocked while active Jobs or TaskLinks depend on a repository."
+            confirmLabel="Remove repositories"
+          >
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>Historical Jobs remain in Job History and are never deleted.</p>
+              <p>Project TrackerLinks remain attached. Repository indexing and detail views stop appearing here.</p>
+              <ul className="list-disc pl-5 font-mono text-xs">
+                {project?.repoPaths.filter((path) => !repoPaths.includes(path)).map((path) => (
+                  <li key={path}>{path}</li>
+                ))}
+              </ul>
+            </div>
+          </ConfirmDialog>
         </div>
       )}
     </div>

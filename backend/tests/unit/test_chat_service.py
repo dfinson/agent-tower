@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.models.domain import Chat
+from backend.models.domain import Chat, Project, StateConflictError
 from backend.services.chat import chat_service as chat_service_module
 from backend.services.chat.chat_service import ChatService
 
@@ -204,6 +204,64 @@ class TestChatServiceMessages:
 
         assert transcript == ""
 
+    @pytest.mark.asyncio
+    async def test_send_turn_persists_user_and_assistant_messages(self):
+        repo = _mock_repo()
+        chat = Chat(
+            id="c1",
+            project_id=None,
+            title="Hi",
+            created_at=None,  # type: ignore[arg-type]
+            last_message_at=None,  # type: ignore[arg-type]
+        )
+        repo.get.return_value = chat
+        persisted = []
+
+        async def add(message):
+            persisted.append(message)
+            return message
+
+        repo.add_message.side_effect = add
+        repo.list_messages.side_effect = lambda _chat_id: persisted
+        completer = AsyncMock()
+        completer.complete.return_value = "A useful response"
+
+        result = await ChatService(repo, completer=completer).send_turn("c1", content="Help me decide")
+
+        assert result is not None
+        assert result.state == "assistant"
+        assert [message.role for message in persisted] == ["user", "assistant"]
+        assert result.assistant_message is not None
+        assert result.assistant_message.content == "A useful response"
+
+    @pytest.mark.asyncio
+    async def test_send_turn_persists_user_and_returns_error_when_completion_fails(self):
+        repo = _mock_repo()
+        repo.get.return_value = Chat(
+            id="c1",
+            project_id=None,
+            title="Hi",
+            created_at=None,  # type: ignore[arg-type]
+            last_message_at=None,  # type: ignore[arg-type]
+        )
+        persisted = []
+
+        async def add(message):
+            persisted.append(message)
+            return message
+
+        repo.add_message.side_effect = add
+        repo.list_messages.side_effect = lambda _chat_id: persisted
+        completer = AsyncMock()
+        completer.complete.side_effect = RuntimeError("offline")
+
+        result = await ChatService(repo, completer=completer).send_turn("c1", content="Hello")
+
+        assert result is not None
+        assert result.state == "error"
+        assert result.assistant_message is None
+        assert [message.role for message in persisted] == ["user"]
+
 
 class TestChatServiceLaunchJob:
     @pytest.mark.asyncio
@@ -259,13 +317,49 @@ class TestChatServiceLaunchJob:
             status="open",
         )
         repo.list_messages.return_value = []
-        service = ChatService(repo)
+        project_repo = AsyncMock()
+        project_repo.find_by_repo_path.return_value = Project(
+            id="proj-1",
+            name="Owned",
+            repo_paths=["/repos/test"],
+            created_at=None,  # type: ignore[arg-type]
+            updated_at=None,  # type: ignore[arg-type]
+        )
+        service = ChatService(repo, project_repo=project_repo)
         job_service = AsyncMock()
         job_service.create_job.return_value = object()
 
         await service.launch_job("c1", job_service, repo="/repos/test")
 
-        repo.set_project_id.assert_awaited_once_with("c1", "/repos/test")
+        repo.set_project_id.assert_awaited_once_with("c1", "proj-1")
+
+    @pytest.mark.asyncio
+    async def test_launch_job_rejects_repo_owned_by_different_project(self):
+        repo = _mock_repo()
+        repo.get.return_value = Chat(
+            id="c1",
+            project_id="proj-a",
+            title="Hi",
+            created_at=None,  # type: ignore[arg-type]
+            last_message_at=None,  # type: ignore[arg-type]
+        )
+        repo.list_messages.return_value = []
+        project_repo = AsyncMock()
+        project_repo.find_by_repo_path.return_value = Project(
+            id="proj-b",
+            name="Other",
+            repo_paths=["/repos/test"],
+            created_at=None,  # type: ignore[arg-type]
+            updated_at=None,  # type: ignore[arg-type]
+        )
+        job_service = AsyncMock()
+
+        with pytest.raises(StateConflictError):
+            await ChatService(repo, project_repo=project_repo).launch_job(
+                "c1", job_service, repo="/repos/test"
+            )
+
+        job_service.create_job.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_launch_job_does_not_resettle_existing_project_id(self):
@@ -346,6 +440,38 @@ class TestChatServiceAttachToChain:
 
         assert result is None
         task_link_repo.get.assert_not_awaited()
+        repo.attach_to_chain.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_attach_rejects_task_link_from_different_project(self):
+        from backend.models.domain import TaskLink
+
+        repo = _mock_repo()
+        repo.get.return_value = Chat(
+            id="c1",
+            project_id="proj-a",
+            title="Hi",
+            created_at=None,  # type: ignore[arg-type]
+            last_message_at=None,  # type: ignore[arg-type]
+        )
+        task_link_repo = AsyncMock()
+        task_link_repo.get.return_value = TaskLink(
+            id="tl-1",
+            project_id="proj-b",
+            repo_path="/repos/b",
+            story_node_id="1-1",
+            depends_on=[],
+            job_id=None,
+            tracker_ticket_ref=None,
+            prompt_override=None,
+            epic_id=None,
+            created_at=None,  # type: ignore[arg-type]
+            updated_at=None,  # type: ignore[arg-type]
+        )
+
+        with pytest.raises(StateConflictError):
+            await ChatService(repo, task_link_repo=task_link_repo).attach_to_chain("c1", "tl-1")
+
         repo.attach_to_chain.assert_not_awaited()
 
     @pytest.mark.asyncio

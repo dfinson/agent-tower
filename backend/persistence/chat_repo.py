@@ -57,6 +57,16 @@ class ChatRepository(BaseRepository):
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]
 
+    async def list_by_project(self, project_id: str) -> list[Chat]:
+        """List chats owned by one Project, most recently active first."""
+        stmt = (
+            select(ChatRow)
+            .where(ChatRow.project_id == project_id)
+            .order_by(ChatRow.last_message_at.desc())
+        )
+        result = await self._session.execute(stmt)
+        return [self._to_domain(row) for row in result.scalars().all()]
+
     async def set_project_id(self, chat_id: str, project_id: str) -> None:
         """Settle a Chat's ``project_id`` (e.g. on first Job launch/chain attach)."""
         stmt = select(ChatRow).where(ChatRow.id == chat_id)
@@ -92,6 +102,16 @@ class ChatRepository(BaseRepository):
         stmt = select(ChatRow).where(
             ChatRow.project_id == project_id,
             ChatRow.task_link_id.is_not(None),
+            ChatRow.status == "open",
+        )
+        result = await self._session.execute(stmt)
+        row = result.scalars().first()
+        return self._to_domain(row) if row is not None else None
+
+    async def get_attached_open_chat_for_task_link(self, task_link_id: str) -> Chat | None:
+        """Find the open Chat that gates this exact TaskLink chain."""
+        stmt = select(ChatRow).where(
+            ChatRow.task_link_id == task_link_id,
             ChatRow.status == "open",
         )
         result = await self._session.execute(stmt)

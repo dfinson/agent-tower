@@ -458,29 +458,18 @@ def _register_tracker_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
             value=value,
         )
 
-        async def _dispatch(dispatch_request: TrackerWriteRequest) -> None:
-            # Resolve the Credential's PAT server-side only, on the approved
-            # write's behalf — the agent never sees it, at any point, before
-            # or after approval. Per-provider tracker API calls themselves
-            # are tracked separately (outside this story's scope); this
-            # proves the PAT never crosses the MCP tool boundary.
-            from backend.persistence.credential_repo import CredentialRepository
-
-            async with sf() as dispatch_session:
-                secret = await CredentialRepository(dispatch_session).resolve_secret(resolved.credential_id)
-            if secret is None:
-                log.warning(
-                    "tracker_write.missing_credential_secret",
-                    tracker_link_id=dispatch_request.tracker_link_id,
-                    job_id=job_id,
-                )
-
-        service = TrackerWriteService(mcp_state.approval_service)
-        dispatched = await service.execute(job_id, request, _dispatch)
+        service = TrackerWriteService(
+            mcp_state.approval_service,
+            session_factory=sf,
+        )
+        outcome = await service.execute(job_id, request)
 
         return {
-            "dispatched": dispatched,
+            "applied": outcome.applied,
+            "state": outcome.state.value,
+            "error": outcome.error,
             "ticketRef": resolved.ticket_ref,
+            "trackerLinkId": resolved.tracker_link_id,
             "action": tracker_action.value,
         }
 

@@ -434,7 +434,10 @@ export function createProject(body: { name: string; repoPaths: string[] }): Prom
   });
 }
 
-export function updateProject(projectId: string, body: { name?: string; repoPaths?: string[] }): Promise<ProjectResponse> {
+export function updateProject(
+  projectId: string,
+  body: { name?: string; repoPaths?: string[]; confirmRepoRemoval?: boolean },
+): Promise<ProjectResponse> {
   return request(`/settings/projects/${encodeURIComponent(projectId)}`, {
     method: "PATCH",
     body: JSON.stringify(body),
@@ -446,8 +449,35 @@ export function fetchProjectTaskLinks(projectId: string): Promise<TaskLinkListRe
   return request(`/settings/projects/${encodeURIComponent(projectId)}/task-links`);
 }
 
-export function fetchChats(): Promise<ChatListResponse> {
-  return request("/chats");
+export function ingestProjectTasks(projectId: string): Promise<TaskLinkListResponse> {
+  return request(`/settings/projects/${encodeURIComponent(projectId)}/ingest-tasks`, {
+    method: "POST",
+  });
+}
+
+export function createManualTaskLink(
+  projectId: string,
+  body: import("./types").CreateManualTaskLinkRequest,
+): Promise<import("./types").TaskLinkResponse> {
+  return request(`/settings/projects/${encodeURIComponent(projectId)}/task-links`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function startTaskLink(
+  projectId: string,
+  taskLinkId: string,
+): Promise<import("./types").TaskLinkResponse> {
+  return request(
+    `/settings/projects/${encodeURIComponent(projectId)}/task-links/${encodeURIComponent(taskLinkId)}/start`,
+    { method: "POST" },
+  );
+}
+
+export function fetchChats(projectId?: string): Promise<ChatListResponse> {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return request(`/chats${query}`);
 }
 
 export function createChat(body: CreateChatRequest): Promise<Chat> {
@@ -462,6 +492,13 @@ export function addChatMessage(chatId: string, content: string): Promise<ChatMes
   return request(`/chats/${encodeURIComponent(chatId)}/messages`, {
     method: "POST",
     body: JSON.stringify({ content }),
+  });
+}
+
+export function sendChatTurn(chatId: string, content: string): Promise<import("./types").ChatTurnResponse> {
+  return request(`/chats/${encodeURIComponent(chatId)}/turns`, {
+    method: "POST",
+    body: JSON.stringify({ role: "user", content }),
   });
 }
 

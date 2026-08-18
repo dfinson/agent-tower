@@ -239,9 +239,15 @@ class TestUpdateProject:
         )
         project_id = created.json()["id"]
 
-        resp = await client.patch(
+        unconfirmed = await client.patch(
             f"/api/settings/projects/{project_id}",
             json={"repoPaths": ["/test/shrink-a"]},
+        )
+        assert unconfirmed.status_code == 409
+
+        resp = await client.patch(
+            f"/api/settings/projects/{project_id}",
+            json={"repoPaths": ["/test/shrink-a"], "confirmRepoRemoval": True},
         )
         assert resp.status_code == 200
         assert resp.json()["repoPaths"] == [_resolved("/test/shrink-a")]

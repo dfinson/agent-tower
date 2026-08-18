@@ -25,13 +25,17 @@ export type ProjectListResponse = components["schemas"]["ProjectListResponse"];
 export type Chat = components["schemas"]["ChatResponse"];
 export type ChatListResponse = components["schemas"]["ChatListResponse"];
 export type ChatMessage = components["schemas"]["ChatMessageResponse"];
+export type ChatTurnResponse = components["schemas"]["ChatTurnResponse"];
 export type CreateChatRequest = components["schemas"]["CreateChatRequest"];
 export type TaskLinkResponse = components["schemas"]["TaskLinkResponse"];
 export type TaskLinkListResponse = components["schemas"]["TaskLinkListResponse"];
+export type CreateManualTaskLinkRequest = components["schemas"]["CreateManualTaskLinkRequest"];
 export type TrackerTicketResponse = components["schemas"]["TrackerTicketResponse"];
 export type TrackerSummaryResponse = components["schemas"]["TrackerSummaryResponse"];
 export type TrackerLinkResponse = components["schemas"]["TrackerLinkResponse"];
 export type TrackerLinkListResponse = components["schemas"]["TrackerLinkListResponse"];
+export type CredentialResponse = components["schemas"]["CredentialResponse"];
+export type CredentialListResponse = components["schemas"]["CredentialListResponse"];
 export type CompletionStrategy = "auto_merge" | "pr_only" | "manual";
 
 // Sidecar template types

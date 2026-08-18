@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { FolderGit2, FolderOpen, GitBranch, Plus, Trash2 } from "lucide-react";
-import { createProject, registerRepo, createRepo, browseDirectories } from "../api/client";
+import { toast } from "sonner";
+import {
+  browseDirectories,
+  createProject,
+  createRepo,
+  registerRepo,
+  unregisterRepo,
+} from "../api/client";
 import type { ProjectResponse } from "../api/types";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -31,6 +38,7 @@ interface BrowseEntry {
 export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectDialogProps) {
   const [name, setName] = useState("");
   const [repoPaths, setRepoPaths] = useState<string[]>([]);
+  const [stagedRepoPaths, setStagedRepoPaths] = useState<string[]>([]);
   const [mode, setMode] = useState<AddRepoMode>("browse");
 
   // Directory browser state
@@ -54,6 +62,7 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
   const resetState = useCallback(() => {
     setName("");
     setRepoPaths([]);
+    setStagedRepoPaths([]);
     setMode("browse");
     setBrowsePath(null);
     setBrowseError(null);
@@ -97,8 +106,19 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
     setRepoPaths((items) => (items.includes(trimmed) ? items : [...items, trimmed]));
   }
 
+  async function compensateRegistrations(paths: string[]) {
+    const results = await Promise.allSettled(paths.map((path) => unregisterRepo(path)));
+    return paths.filter((_, index) => results[index]?.status === "rejected");
+  }
+
   function removeRepoPath(path: string) {
     setRepoPaths((items) => items.filter((item) => item !== path));
+    if (stagedRepoPaths.includes(path)) {
+      setStagedRepoPaths((items) => items.filter((item) => item !== path));
+      void compensateRegistrations([path]).then((failed) => {
+        if (failed.length > 0) toast.error(`Could not undo repository registration for ${path}.`);
+      });
+    }
   }
 
   const handleAddViaClone = useCallback(async () => {
@@ -111,6 +131,7 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
     try {
       const res = await registerRepo(cloneSource.trim(), cloneTo.trim() || undefined);
       addRepoPath(res.path);
+      setStagedRepoPaths((items) => (items.includes(res.path) ? items : [...items, res.path]));
       setCloneSource("");
       setCloneTo("");
     } catch (err) {
@@ -130,6 +151,7 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
     try {
       const res = await createRepo(initPath.trim(), initName.trim() || undefined);
       addRepoPath(res.path);
+      setStagedRepoPaths((items) => (items.includes(res.path) ? items : [...items, res.path]));
       setInitPath("");
       setInitName("");
     } catch (err) {
@@ -153,17 +175,44 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
     setError(null);
     try {
       const project = await createProject({ name: trimmedName, repoPaths });
+      const cleanupFailures = await compensateRegistrations(stagedRepoPaths);
+      if (cleanupFailures.length > 0) {
+        toast.error(
+          `Project saved, but legacy registration remains for: ${cleanupFailures.join(", ")}`,
+        );
+      }
+      setStagedRepoPaths([]);
       onCreated(project);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create Project");
+      const failed = await compensateRegistrations(stagedRepoPaths);
+      setStagedRepoPaths([]);
+      const reason = err instanceof Error ? err.message : "Failed to create Project";
+      const retained = stagedRepoPaths.length > 0
+        ? ` Repository files and any completed index remain at: ${stagedRepoPaths.join(", ")}. Remove them manually if unwanted.`
+        : "";
+      const rollback = failed.length > 0
+        ? ` Registration rollback also failed for: ${failed.join(", ")}.`
+        : "";
+      setError(`${reason}.${retained}${rollback}`);
     } finally {
       setCreating(false);
     }
-  }, [name, repoPaths, onCreated, onClose]);
+  }, [name, repoPaths, stagedRepoPaths, onCreated, onClose]);
+
+  const handleClose = useCallback(async () => {
+    if (stagedRepoPaths.length > 0) {
+      const failed = await compensateRegistrations(stagedRepoPaths);
+      if (failed.length > 0) {
+        toast.error(`Could not undo repository registration for: ${failed.join(", ")}`);
+      }
+      toast.info(`Repository files and any completed index remain at: ${stagedRepoPaths.join(", ")}`);
+    }
+    onClose();
+  }, [onClose, stagedRepoPaths]);
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && !creating && onClose()}>
+    <Dialog open={open} onOpenChange={(o) => !o && !creating && !addingRepo && void handleClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -357,7 +406,7 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
         </DialogBody>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={creating}>
+          <Button variant="ghost" onClick={() => void handleClose()} disabled={creating || addingRepo}>
             Cancel
           </Button>
           <Button onClick={handleCreate} loading={creating}>
