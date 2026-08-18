@@ -7,7 +7,7 @@ paradigm: 'layered (route-scoped feature slice inside an existing thin-route/ser
 scope: 'Repo/Project-scoped Kanban board (CAP-1) and cross-project overview with attention rollup, filter, Project registry, external-tracker sync, Task Recipe chaining/ingestion, and a persistent Chat that can launch Jobs and/or gate a recipe chain (CAP-2/CAP-3/CAP-4/CAP-5/CAP-6/CAP-7/CAP-8/CAP-9/CAP-10/CAP-11/CAP-12) for CodePlane'
 status: final
 created: '2026-08-06'
-updated: '2026-08-07'
+updated: '2026-08-17'
 binds: ["CAP-1", "CAP-2", "CAP-3", "CAP-4", "CAP-5", "CAP-6", "CAP-7", "CAP-8", "CAP-9", "CAP-10", "CAP-11", "CAP-12", "CAP-13", "CAP-14"]
 sources: ["_bmad-output/specs/spec-project-boards/SPEC.md"]
 companions: []
@@ -17,7 +17,7 @@ companions: []
 
 ## Design Paradigm
 
-Route-scoped feature slice inside CodePlane's existing layering: FastAPI routes stay thin and delegate to services/repositories (backend), React components read the Zustand store via named selectors (frontend). This feature adds no new paradigm — it extends the existing `/repos/:repoPath/*` per-repo shell (`RepoLayout` + child routes) and the existing settings-repo service path, rather than introducing a parallel navigation or state model.
+Route-scoped feature slice inside CodePlane's existing layering: FastAPI routes stay thin and delegate to services/repositories (backend), React components read the Zustand store via named selectors (frontend). Project ID is the canonical navigation identity; repository paths remain member data and explicit repository-analytics scope.
 
 ## Invariants & Rules
 
@@ -27,11 +27,11 @@ Route-scoped feature slice inside CodePlane's existing layering: FastAPI routes 
 - **Prevents:** The frontend board and the backend-computed overview counts disagreeing on what counts as "awaiting input" vs "failed" vs "in progress".
 - **Rule:** Status bucketing (in-progress / awaiting-input / failed) is defined once per layer and reused, never re-implemented at the call site: frontend reuses `selectActiveJobs` / `selectSignoffJobs` / `selectAttentionJobs` (`store/selectors.ts`) for both `KanbanBoard` and any board filtered by repo; backend reuses the same job-count query path `get_repo_summary` (`backend/api/settings.py`) already uses, extended in place rather than duplicated into a new query.
 
-### AD-2 — Repo scoping travels via the URL route param, never a parallel selection scheme
+### AD-2 — Project identity travels via a stable URL parameter
 
-- **Binds:** CAP-1
-- **Prevents:** Two competing patterns for "which repo am I looking at" (a URL param here, a query string or client-only state there) inside the same app.
-- **Rule:** The repo-scoped board is a child route of the existing `/repos/:repoPath` shell (e.g. `/repos/:repoPath/board`), reading `repoPath` via `useParams`, exactly like `RepoJobs`/`RepoHealth`/`RepoCost` already do. No new top-level route owns repo selection.
+- **Binds:** CAP-1, CAP-2, CAP-6
+- **Prevents:** URLs becoming invalid or ambiguous when a Project contains multiple repositories or membership changes.
+- **Rule:** Project routes use `/projects/id/:projectId/*` and read `projectId` from `useParams`. Legacy repository-path links may resolve once through a membership lookup and redirect to the canonical Project-ID route, but no new UI emits repository-path routes. Repository analytics use a required member-repository selector nested under the Project route; no view silently defaults to the first repository.
 
 ### AD-3 — Overview data is one batch call, never N per-repo calls
 
@@ -57,7 +57,7 @@ flowchart TD
     end
     subgraph Backend
         API1 --> SVC[settings.py service path]
-        API2[GET /settings/repos/{repo}/summary] --> SVC
+        API2[GET /settings/projects/{id}/summary] --> SVC
         SVC --> DB2[(jobs table)]
         SVC --> DB3[(ProjectRow)]
         SVC --> DB5[(CredentialRow / TrackerLinkRow)]
@@ -89,7 +89,7 @@ flowchart TD
 
 - **Binds:** CAP-7
 - **Prevents:** The sync engine bypassing the existing approval gate, and tracker data corrupting the job-status pipeline (AD-1) it must stay independent of.
-- **Rule:** A new backend poller service (shaped like existing background job supervision) calls each connected provider through a shared `TrackerAdapterInterface` (mirrors `AgentAdapterInterface`'s existing isolation of one volatile external SDK — same rationale extends to three volatile external REST APIs) on a configurable interval, once per `TrackerLinkRow`, writing results into a new `TrackerSummaryRow` read model (keyed by `tracker_link_id`) kept separate from `JobRow`. Any outbound action (ticket transition, comment) is created as a new `ApprovalRow` via the existing approval service — the poller itself never calls a provider's write endpoint directly.
+- **Rule:** A new backend poller service (shaped like existing background job supervision) calls each connected provider through a shared `TrackerAdapterInterface` (mirrors `AgentAdapterInterface`'s existing isolation of one volatile external SDK — same rationale extends to three volatile external REST APIs) every 60 seconds, once per `TrackerLinkRow`, writing results into a new `TrackerSummaryRow` read model (keyed by `tracker_link_id`) kept separate from `JobRow`. A manual refresh runs the same path immediately. Any outbound action (ticket transition, comment) is created as a new `ApprovalRow` via the existing approval service; approval execution invokes the selected adapter exactly once.
 
 ### AD-8 — Recipe schema widening lives inside the existing sidecar validation function; no new table for the schema itself
 
@@ -101,7 +101,7 @@ flowchart TD
 
 - **Binds:** CAP-9
 - **Prevents:** A heavyweight parallel "Task" execution entity; a filesystem watcher silently re-ingesting on every save (surprising, hard to reason about, and unnecessary since re-ingestion is explicitly user-triggered per CAP-9's success criterion).
-- **Rule:** A new `TaskLinkRow` (`id`, `project_id`, `repo_path`, `story_node_id: nullable`, `depends_on: list[str]`, `job_id: nullable`, `tracker_ticket_ref: nullable`, `prompt_override: nullable`, `epic_id: nullable`) is owned by a new `recipe_service.py`, following the existing repository-owns-DB-access convention. It is populated by two independent creation paths, neither required nor coerced to resemble the other: (1) **ingestion** — a stateless function invoked on demand (a settings action, not a poller or watcher): given a `project_id`, it iterates every repo in `project.repo_paths` (AD-5's `ProjectRow.repo_paths`), parses each repo's BMAD stories or spec-kit `tasks.md` independently, and upserts `TaskLinkRow`s keyed by `(project_id, repo_path, story_node_id)` — so `depends_on` can validly reference a `story_node_id` in a sibling member repo of the same Project without any cross-Project reference ever being possible; when the source is a BMAD story with identifiable Epic membership, `epic_id` is captured as a purely cosmetic grouping value, never inferred or guessed when absent/ambiguous; (2) **manual assignment** — `recipe_service.py` also exposes a create path that targets an existing external ticket already visible via a Project's TrackerLink (AD-6/AD-7), setting `tracker_ticket_ref` + `prompt_override` with `story_node_id` and `epic_id` left null; many `TaskLinkRow`s may share one `tracker_ticket_ref` (one external ticket, several recipe tasks). Either path's row may later have the other's field populated (an ingested row paired with a ticket after the fact, or vice versa is structurally possible but not a defined flow) — `story_node_id` and `tracker_ticket_ref` are independently nullable, and exactly one of them is guaranteed non-null at creation (never neither). `epic_id` carries no functional behavior on its own (no epic-level dependency gating, no epic-level rollup counts) — it exists solely as board-label/grouping data consumed by AD-12's Chat-card labeling rule.
+- **Rule:** A new `TaskLinkRow` (`id`, `project_id`, `repo_path`, `story_node_id: nullable`, `depends_on: list[str]`, `job_id: nullable`, `tracker_link_id: nullable`, `tracker_ticket_ref: nullable`, `prompt_override: nullable`, `epic_id: nullable`) is owned by a new `recipe_service.py`, following the existing repository-owns-DB-access convention. It is populated by two independent creation paths, neither required nor coerced to resemble the other: (1) ingestion parses each member repo on demand and upserts by `(project_id, repo_path, story_node_id)`; (2) manual assignment targets an existing ticket from an explicitly selected Project TrackerLink, setting `tracker_link_id` + `tracker_ticket_ref` + `prompt_override`. Many TaskLinks may share one ticket, but every tracker-backed row retains its owning link. `story_node_id` and `tracker_ticket_ref` are independently nullable, and exactly one is guaranteed non-null at creation. `epic_id` is cosmetic only.
 
 ### AD-10 — `spawn_task` reuses the existing job-creation service function directly; no second execution pipeline
 
@@ -119,9 +119,9 @@ flowchart TD
 
 - **Binds:** CAP-12
 - **Prevents:** A second execution engine growing up beside `Job`/`GitService`; a Chat accidentally gaining git capability through shared code paths with Job; a redundant second scheduler/entity (an "Orchestrator") duplicating what a Chat already models; `project_id` being forced non-null and creating friction for a Chat with no natural Project yet.
-- **Rule:** A new `ChatRow` (`id`, `project_id` **nullable**, `title`, `created_at`, `last_message_at`, `status`) is owned by a new `chat_service.py`, which has no dependency on `GitService` at all — not "unused," structurally absent, so a Chat cannot provision a worktree or branch by construction. Read-only repo context (if used) goes through the existing workspace read tools, never a git write path. `project_id` defaults at creation from UI context (`RepoBoard` → that Project's id; global nav → `null`), user-overridable in the creation dialog. Two independent, repeatable actions are available from within an open Chat, neither of which consumes or replaces it:
+**Rule:** A new `ChatRow` (`id`, `project_id` **nullable**, `title`, `created_at`, `last_message_at`, `status`) is owned by a new `chat_service.py`, which has no dependency on `GitService` at all — not "unused," structurally absent, so a Chat cannot provision a worktree or branch by construction. Read-only repo context (if used) goes through the existing workspace read tools, never a git write path. `project_id` defaults at creation from UI context (`RepoBoard` → that Project's id; global nav → `null`), user-overridable in the creation dialog. Messages use `{role, content}` and expose assistant-response and failure states. Two independent, repeatable actions are available from within an open Chat, neither of which consumes or replaces it:
   - **Launch a Job** (`POST /settings/chats/{id}/launch-job`) calls the same job-creation service function AD-10 established for `spawn_task`, passing the chat transcript as the new Job's seed prompt/context, and provisions a worktree/branch for the first time at that call. If `project_id` is still null, the user is prompted to pick a Project/repo at this call, and the result is written back onto the `ChatRow`. The Chat itself is untouched by this beyond that write-back — it remains open and can launch further Jobs later.
-  - **Attach to a chain** (`POST /settings/chats/{id}/attach-chain`) links the `ChatRow` to a specific `task_link_id` (owned by `recipe_service.py` alongside `TaskLinkRow`, AD-9) in gating mode. If `project_id` is still null, it is settled from the chain's Project at this call. CAP-10's `spawn_task` dispatch checks for an active, gated Chat attached to the completing `TaskLink`'s chain before firing: if none exists, behavior is exactly AD-10's existing ungated auto-spawn; if one exists, `spawn_task` creates a `codeplane_approval` entry (the same mechanism AD-7/CAP-11 already use) instead of calling the job-creation service directly, and only calls it once that approval is granted. Narration in this mode is read-only status text derived from polling the chain's `TaskLinkRow`/Job states — it never calls `GitService` or the job-creation function on its own. **Board label:** the frontend resolves every `TaskLinkRow` transitively reachable via `depends_on` from the attached `task_link_id` (the chain), and labels the Chat's card with that chain's `epic_id` only if every resolved `TaskLinkRow` shares the same non-null `epic_id`; otherwise the card renders as a generic "chain" label — a pure display computation, no new field on `ChatRow` itself and no backend enforcement, since it changes nothing about gating/narration behavior.
+  - **Attach to a chain** (`POST /settings/chats/{id}/attach-chain`) links the `ChatRow` to a specific `task_link_id` (owned by `recipe_service.py` alongside `TaskLinkRow`, AD-9) in gating mode. If `project_id` is still null, it is settled from the chain's Project at this call. CAP-10's `spawn_task` dispatch checks for an active, gated Chat attached to that exact chain before firing: if none exists, behavior is exactly AD-10's ungated auto-spawn; if one exists, `spawn_task` creates a `codeplane_approval` entry instead of calling the job-creation service directly, and only calls it once that approval is granted. Narration is read-only status text derived from that chain's TaskLink/Job states. The frontend labels the Chat with a shared Epic only when every resolved TaskLink shares one non-null `epic_id`; otherwise it renders a generic "chain."
 
 ### AD-13 — `codeplane_tracker` is a second caller of the existing approval gate, not a second write mechanism
 
@@ -134,6 +134,30 @@ flowchart TD
 - **Binds:** CAP-14
 - **Prevents:** A second, divergent PR-creation code path growing up beside `merge_service._create_pr`; duplicate PRs from calling both the agent tool and the automatic completion path for the same Job.
 - **Rule:** A new `codeplane_pr` MCP tool, callable mid-job, invokes `merge_service._create_pr` directly (the same function the existing completion/merge-strategy path calls) rather than a parallel implementation. `_create_pr` becomes idempotent per Job (checks for an existing PR on the Job before creating one) so a Job that calls `codeplane_pr` and then completes normally does not get a second PR from the automatic path, and vice versa.
+
+### AD-15 — Project and repository membership changes are transactional and explicit
+
+- **Binds:** CAP-6
+- **Prevents:** Cancelled or failed Project creation leaving cloned/registered repositories behind, and membership edits silently orphaning active work or integration state.
+- **Rule:** Project creation stages repository side effects and commits them with Project persistence; cancellation/failure rolls back newly-created side effects or presents an explicit recovery action. Membership removal requires confirmation, rejects unsafe removal while active Jobs or dependent TaskLinks exist unless the user chooses a documented disposition, and never deletes historical Job records implicitly. A Project always retains at least one repository.
+
+### AD-16 — Tracker actions target an explicit link and report provider truth
+
+- **Binds:** CAP-7, CAP-11, CAP-13
+- **Prevents:** Selecting the first TrackerLink by insertion order, claiming a write was dispatched when no provider call occurred, and accepting invalid provider references that only fail during polling.
+- **Rule:** Attach uses provider-specific reference fields plus a provider validation/test operation. Every outbound action stores `tracker_link_id` and, when applicable, `tracker_ticket_ref`; approval execution invokes that adapter exactly once and persists pending/applied/rejected/failed state. TrackerLinks support detach, and Credential deletion remains blocked only while links exist. Polling uses a fixed 60-second cadence plus manual refresh.
+
+### AD-17 — TaskLink lifecycle is visible and atomically claimed
+
+- **Binds:** CAP-9, CAP-10, CAP-11
+- **Prevents:** Inert task cards, misleading dependency readiness, orphan Jobs from concurrent spawns, and tracker writes routed to an ambiguous Project default.
+- **Rule:** TaskLinks expose waiting/ready/running/completed/failed state, source and linked-Job context, and a start action for ready roots. Dependency satisfaction accepts only the terminal success states defined by the Job state machine. A repository transaction claims a ready TaskLink before creating its Job; duplicate claims return the existing Job. Recipe writes use the TaskLink's explicit TrackerLink/ticket pair.
+
+### AD-18 — Chat is a real conversation with explicit execution boundaries
+
+- **Binds:** CAP-12
+- **Prevents:** A Chat UI that can create messages but cannot produce or surface a response, request-shape mismatches, and loss of Project context after launching a Job.
+- **Rule:** Chat messages use the `{role, content}` contract and expose sending, assistant-response, and failure states. Chat remains git-free; Launch Job is an explicit transition to the shared Job-creation service. Chat, Job, TaskLink, and Project views preserve breadcrumbs and stable deep links.
 
 ## Consistency Conventions
 
@@ -158,21 +182,21 @@ flowchart TD
 ```text
 frontend/src/
   components/
-    RepoLayout.tsx        # EXISTING — per-project sidebar shell, owns /repos/:repoPath/*, gains filter input (CAP-5)
-    RepoBoard.tsx          # NEW — CAP-1, child route "/repos/:repoPath/board", reuses KanbanColumn, scoped to project.repo_paths; also fetches TaskLinks (CAP-10/AD-11), rendered in the same grid as job cards
-    ProjectsOverview.tsx   # NEW — CAP-2/CAP-3/CAP-5, renders at bare "/repos" index (replaces auto-redirect), filter box, tracker chip
+    RepoLayout.tsx        # EXISTING — Project sidebar shell, owns /projects/id/:projectId/*, gains filter input and repo selector
+    RepoBoard.tsx          # NEW — CAP-1, child route "/projects/id/:projectId/board", reuses KanbanColumn, scoped to project.repo_paths; also fetches TaskLinks
+    ProjectsOverview.tsx   # NEW — CAP-2/CAP-3/CAP-5, renders at "/projects" index, filter box, integration summary
     ProjectSettings.tsx    # NEW — CAP-6, create/edit Project, assign repos, attach existing TrackerLinks; trigger CAP-9 ingestion action
     IntegrationsSettings.tsx # NEW — CAP-7, global Credential CRUD (Settings > Integrations), independent of any Project
     ChatPanel.tsx           # NEW — CAP-12, persistent Chat: conversation view, "Launch Job" and "Attach to chain" actions, nullable Project context
     KanbanColumn.tsx       # EXISTING — reused unchanged by RepoBoard (CAP-1)
-    ~~KanbanBoard.tsx / DashboardScreen~~ # RETIRED (CAP-1-4) — flat cross-repo view removed, /repos is now the only entry point
+    ~~KanbanBoard.tsx / DashboardScreen~~ # RETIRED (CAP-1-4) — flat cross-repo view removed, /projects is now the only entry point
   store/
     selectors.ts           # EXISTING — status-bucket selectors reused by RepoBoard (AD-1)
 
 backend/
   api/
-    settings.py             # EXISTING — get_repo_summary retired in favor of get_projects_summary (AD-3/AD-5); register_repo/create_repo/unregister_repo endpoints retired as standalone actions, logic called from project_service.py instead
-    projects.py              # NEW — Project CRUD (CAP-6), tracker connect/disconnect (CAP-7), task-links endpoint (AD-11)
+    settings.py             # EXISTING — project summary is the overview source; repository analytics remain explicitly member-repository scoped
+    projects.py              # NEW — Project CRUD (CAP-6), tracker connect/disconnect (CAP-7), task-links/list/start endpoints (AD-11/AD-17)
     chats.py                 # NEW — Chat CRUD, launch-job endpoint, attach-chain endpoint (CAP-12/AD-12)
   models/
     api_schemas.py           # EXISTING — RepoSummaryResponse extended with 2 fields (AD-4) + optional trackerSummary
@@ -193,18 +217,18 @@ backend/
 
 | Capability / Area | Lives in | Governed by |
 | --- | --- | --- |
-| CAP-1 Project-scoped board | `RepoBoard.tsx`, route `/repos/:repoPath/board` | AD-1, AD-2, AD-5 |
-| CAP-2 Projects overview | `ProjectsOverview.tsx`, route `/repos` (index) | AD-3, AD-4, AD-5 |
+| CAP-1 Project-scoped Agent Runs | `RepoBoard.tsx`, route `/projects/id/:projectId/board` | AD-1, AD-2, AD-5, AD-17 |
+| CAP-2 Projects overview | `ProjectsOverview.tsx`, route `/projects` (index) | AD-3, AD-4, AD-5 |
 | CAP-3 Cross-project attention rollup | `ProjectsOverview.tsx` (badge, sums batch response) | AD-3, AD-4 |
 | CAP-4 Registry-driven empty states | `ProjectsOverview.tsx` + `RepoLayout.tsx` (both already read `fetchRepos`) | AD-3 (batch endpoint iterates the full registry, not just repos with jobs), AD-5 |
 | CAP-5 Filter/search | `RepoLayout.tsx` sidebar, `ProjectsOverview.tsx` card grid | none new — client-side filter over existing fetched data |
-| CAP-6 Project registry CRUD | `ProjectSettings.tsx`, `backend/api/projects.py`, `project_service.py` | AD-5 |
-| CAP-7 External tracker sync | `IntegrationsSettings.tsx` (global Credential CRUD), `ProjectSettings.tsx` (attach TrackerLink), `credential_service.py`, `tracker_adapter.py`, `tracker_sync_service.py` | AD-6, AD-7 |
+| CAP-6 Project registry CRUD | `ProjectSettings.tsx`, `backend/api/projects.py`, `project_service.py` | AD-5, AD-15 |
+| CAP-7 External tracker sync | `IntegrationsSettings.tsx` (global Credential CRUD), `ProjectSettings.tsx` (attach/detach TrackerLink), `credential_service.py`, `tracker_adapter.py`, `tracker_sync_service.py` | AD-6, AD-7, AD-16 |
 | CAP-8 Widen recipe vocabulary | `sidecar/template_service.py` (existing validation function) | AD-8 |
 | CAP-9 Project-scoped BMAD/spec-kit ingestion | `ProjectSettings.tsx` (trigger), `recipe_service.py` | AD-9 |
-| CAP-10 Chained TaskLink cards on the board | `RepoBoard.tsx` (renders alongside job cards), `backend/api/projects.py` (task-links endpoint), `recipe_service.py` (spawn_task) | AD-10, AD-11 |
-| CAP-11 tracker_write reuses CAP-7's approval gate | `recipe_service.py` → existing approval service | AD-7, AD-10 |
-| CAP-12 Persistent Chat: launch Jobs and/or gate a recipe chain | `ChatPanel.tsx`, `backend/api/chats.py`, `chat_service.py`, `recipe_service.py` (gate check), existing approval service | AD-12 |
+| CAP-10 Chained TaskLink cards on the board | `RepoBoard.tsx` (renders alongside job cards), `backend/api/projects.py` (task-links endpoint), `recipe_service.py` (atomic spawn) | AD-10, AD-11, AD-17 |
+| CAP-11 tracker_write reuses CAP-7's approval gate | `recipe_service.py` → existing approval service | AD-7, AD-10, AD-16, AD-17 |
+| CAP-12 Persistent Chat: launch Jobs and/or gate a recipe chain | `ChatPanel.tsx`, `backend/api/chats.py`, `chat_service.py`, `recipe_service.py` (gate check), existing approval service | AD-12, AD-18 |
 | CAP-13 Agent-facing `codeplane_tracker` MCP tool | `mcp/server.py` (new tool), `tracker_adapter.py`, existing approval service | AD-13, AD-7 |
 | CAP-14 Agent-facing `codeplane_pr` MCP tool | `mcp/server.py` (new tool), `merge_service/_service.py` (`_create_pr`, made idempotent per Job) | AD-14 |
 

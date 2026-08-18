@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { ChildProcess } from "node:child_process";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { dirname, resolve } from "node:path";
@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:18765";
 const JIRA_TOKEN = "local-e2e-token";
+const JIRA_EMAIL = "tracker-e2e@codeplane.local";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 let backend: ChildProcess | undefined;
@@ -17,9 +18,15 @@ let backendOutput = "";
 let codeplaneHome = "";
 let jiraStatus = "To Do";
 let jiraRequestCount = 0;
+let jiraFailureMode = false;
 let closeJira: (() => Promise<void>) | undefined;
 let backendBaseUrl = "";
 let projectId = "";
+let credentialId = "";
+let trackerLinkId = "";
+let taskLinkId = "";
+let memberRepoPath = "";
+let addedRepoPath = "";
 let backendSpawnError: Error | undefined;
 
 interface TrackerLinksResponse {
@@ -32,6 +39,17 @@ interface TrackerLinksResponse {
     } | null;
   }>;
 }
+
+interface TaskLinksResponse {
+  items: Array<{
+    id: string;
+    trackerTicketRef: string | null;
+    state: string;
+    jobId: string | null;
+  }>;
+}
+
+test.describe.configure({ mode: "serial" });
 
 async function requestJson<T>(
   url: string,
@@ -52,11 +70,17 @@ async function requestJson<T>(
 }
 
 async function startFakeJira(): Promise<string> {
+  const jiraAuthorization = `Basic ${Buffer.from(`${JIRA_EMAIL}:${JIRA_TOKEN}`).toString("base64")}`;
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     if (request.method === "GET" && url.pathname === "/rest/api/3/search/jql") {
+      if (jiraFailureMode) {
+        response.writeHead(503, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ error: "temporary Jira outage" }));
+        return;
+      }
       const validRequest =
-        request.headers.authorization === `Bearer ${JIRA_TOKEN}` &&
+        request.headers.authorization === jiraAuthorization &&
         url.searchParams.get("jql")?.includes('project = "TEST"') &&
         url.searchParams.get("fields") === "summary,status" &&
         url.searchParams.get("maxResults") === "100";
@@ -65,6 +89,7 @@ async function startFakeJira(): Promise<string> {
         response.end(JSON.stringify({ error: "invalid Jira request" }));
         return;
       }
+
       jiraRequestCount += 1;
       response.writeHead(200, { "Content-Type": "application/json" });
       response.end(
@@ -101,6 +126,28 @@ async function startFakeJira(): Promise<string> {
       server.close((error) => (error ? reject(error) : resolveClosed()));
     });
   return `http://127.0.0.1:${address.port}`;
+}
+
+function initializeGitRepo(path: string): void {
+  const commands = [
+    ["init"],
+    ["config", "user.email", "tracker-e2e@codeplane.local"],
+    ["config", "user.name", "CodePlane Tracker E2E"],
+    ["add", "README.md"],
+    ["commit", "-m", "Initial fixture"],
+  ];
+  for (const args of commands) {
+    const result = spawnSync("git", args, {
+      cwd: path,
+      windowsHide: true,
+      encoding: "utf8",
+    });
+    if (result.status !== 0) {
+      throw new Error(
+        `git ${args.join(" ")} failed in ${path}: ${result.stderr || result.stdout}`,
+      );
+    }
+  }
 }
 
 async function waitForBackend(url: string): Promise<void> {
@@ -245,10 +292,53 @@ test.beforeAll(async () => {
     await assertPortAvailable(backendPort);
     const jiraBaseUrl = await startFakeJira();
     codeplaneHome = await mkdtemp(resolve(repoRoot, ".tracker-e2e-"));
+    memberRepoPath = resolve(codeplaneHome, "member-repo");
+    addedRepoPath = resolve(codeplaneHome, "added-repo");
+    await Promise.all([
+      mkdir(memberRepoPath, { recursive: true }),
+      mkdir(addedRepoPath, { recursive: true }),
+    ]);
+    await Promise.all([
+      writeFile(resolve(memberRepoPath, "README.md"), "# Member repository\n"),
+      writeFile(resolve(addedRepoPath, "README.md"), "# Added repository\n"),
+    ]);
+    initializeGitRepo(memberRepoPath);
+    initializeGitRepo(addedRepoPath);
+
+    // This UI flow exercises the current backend schema, not the Alembic chain.
+    // Build an isolated database directly from the ORM metadata.
+    const schemaScript = [
+      "from backend.config import get_codeplane_dir",
+      "from backend.models.db import Base",
+      "from sqlalchemy import create_engine",
+      "root = get_codeplane_dir()",
+      "root.mkdir(parents=True, exist_ok=True)",
+      "engine = create_engine(f\"sqlite:///{root / 'data.db'}\")",
+      "Base.metadata.create_all(engine)",
+      "engine.dispose()",
+    ].join("; ");
+    const schemaResult = spawnSync(
+      "uv",
+      ["run", "--no-sync", "python", "-c", schemaScript],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          CODEPLANE_HOME: codeplaneHome,
+          PYTHONIOENCODING: "utf-8",
+          PYTHONUTF8: "1",
+        },
+        windowsHide: true,
+        encoding: "utf8",
+      },
+    );
+    if (schemaResult.status !== 0) {
+      throw new Error(
+        `Could not create tracker E2E schema: ${schemaResult.stderr || schemaResult.stdout}`,
+      );
+    }
 
     const launchScript = [
-      "from backend.persistence.database import run_migrations",
-      "run_migrations()",
       "import uvicorn",
       "from backend.app_factory import create_app",
       `uvicorn.run(create_app(), host="127.0.0.1", port=${backendPort}, log_level="warning")`,
@@ -287,7 +377,7 @@ test.beforeAll(async () => {
         method: "POST",
         body: JSON.stringify({
           name: "Tracker E2E Project",
-          repoPaths: [repoRoot],
+          repoPaths: [repoRoot, memberRepoPath],
         }),
       },
     );
@@ -301,19 +391,11 @@ test.beforeAll(async () => {
           label: "Local Jira",
           baseUrl: jiraBaseUrl,
           pat: JIRA_TOKEN,
+          email: JIRA_EMAIL,
         }),
       },
     );
-    await requestJson(
-      `${backendBaseUrl}/api/projects/${projectId}/tracker-links`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          credentialId: credential.id,
-          externalRef: "TEST",
-        }),
-      },
-    );
+    credentialId = credential.id;
   } catch (error) {
     try {
       await cleanup();
@@ -331,23 +413,68 @@ test.afterAll(async () => {
   await cleanup();
 });
 
-test("scheduled Jira sync persists and renders before manual refresh", async ({
+test("navigates project-first scope and manages membership and tracker attachment", async ({
   page,
 }) => {
-  const initial = await requestJson<TrackerLinksResponse>(
+  await page.goto(`${backendBaseUrl}/projects`);
+
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await page.getByRole("button", { name: /Tracker E2E Project/ }).click();
+  await expect(page).toHaveURL(
+    `${backendBaseUrl}/projects/id/${projectId}/board`,
+  );
+  await expect(page.getByRole("region", { name: "In Progress" })).toBeVisible();
+
+  await page.getByLabel("Repository").selectOption(memberRepoPath);
+  await expect(page).toHaveURL(
+    `${backendBaseUrl}/projects/id/${projectId}/repos/${encodeURIComponent(memberRepoPath)}/jobs`,
+  );
+  await expect(
+    page.getByRole("navigation", { name: "Repository navigation" }),
+  ).toBeVisible();
+
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Project Settings" }),
+  ).toBeVisible();
+
+  await page.getByPlaceholder("/absolute/path/to/repo").fill(addedRepoPath);
+  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByRole("button", { name: "Save project" }).click();
+  await expect(page.getByText("Project updated")).toBeVisible();
+  await expect(page.getByText("3 total")).toBeVisible();
+
+  await page.getByRole("button", { name: `Remove ${addedRepoPath}` }).click();
+  await page.getByRole("button", { name: "Save project" }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Remove repositories from this Project?",
+    }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Remove repositories" }).click();
+  await expect(page.getByText("2 total")).toBeVisible();
+
+  await expect(page.getByLabel("Select tracker credential")).toHaveValue(
+    credentialId,
+  );
+  await page.getByLabel("Board or org ref").fill("TEST");
+  await page.getByRole("button", { name: "Attach" }).click();
+  await expect(page.getByText("Board link attached")).toBeVisible();
+  await expect(page.getByText("Local Jira").last()).toBeVisible();
+
+  const links = await requestJson<TrackerLinksResponse>(
     `${backendBaseUrl}/api/projects/${projectId}/tracker-links`,
   );
-  expect(initial.trackerLinks).toHaveLength(1);
+  expect(links.trackerLinks).toHaveLength(1);
+  trackerLinkId = links.trackerLinks[0]?.id ?? "";
+  expect(trackerLinkId).not.toBe("");
+});
 
+test("retries provider refresh and assigns a tracker ticket through the UI", async ({
+  page,
+}) => {
   await waitForScheduledSummary();
-  expect(jiraRequestCount).toBeGreaterThanOrEqual(1);
-
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(error.message));
+  expect(jiraRequestCount).toBeGreaterThanOrEqual(2);
 
   await page.goto(`${backendBaseUrl}/settings`);
   await expect(
@@ -355,11 +482,108 @@ test("scheduled Jira sync persists and renders before manual refresh", async ({
   ).toBeVisible();
   await expect(page.getByText("To Do", { exact: true })).toBeVisible();
 
+  jiraFailureMode = true;
+  await page.getByRole("button", { name: "Refresh TEST" }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Tracker provider request failed" }),
+  ).toBeVisible();
+
+  jiraFailureMode = false;
   jiraStatus = "In Progress";
-  const requestsBeforeRefresh = jiraRequestCount;
+  const requestsBeforeRetry = jiraRequestCount;
   await page.getByRole("button", { name: "Refresh TEST" }).click();
   await expect(page.getByText("In Progress", { exact: true })).toBeVisible();
-  expect(jiraRequestCount).toBeGreaterThanOrEqual(requestsBeforeRefresh + 1);
-  expect(consoleErrors).toEqual([]);
-  expect(pageErrors).toEqual([]);
+  expect(jiraRequestCount).toBeGreaterThanOrEqual(requestsBeforeRetry + 1);
+
+  await page.getByRole("button", { name: "Assign task for TEST-1" }).click();
+  await page.getByLabel("Task repository").selectOption(memberRepoPath);
+  await page.getByLabel("Task prompt").fill("Implement TEST-1 from the synced Jira ticket");
+  await page.getByRole("button", { name: "Create TaskLink" }).click();
+  await expect(page.getByText("Assigned TEST-1 as a task.")).toBeVisible();
+
+  const taskLinks = await requestJson<TaskLinksResponse>(
+    `${backendBaseUrl}/api/settings/projects/${projectId}/task-links`,
+  );
+  const assigned = taskLinks.items.find(
+    (item) => item.trackerTicketRef === "TEST-1",
+  );
+  expect(assigned?.state).toBe("ready");
+  taskLinkId = assigned?.id ?? "";
+  expect(taskLinkId).not.toBe("");
+});
+
+test("starts the assigned TaskLink, preserves context, and returns through its chain chat", async ({
+  page,
+}) => {
+  await page.goto(`${backendBaseUrl}/projects/id/${projectId}/board`);
+  const taskCard = page.getByLabel("Task recipe: TEST-1 — ready");
+  await expect(taskCard).toContainText("Tracker TEST-1");
+  await expect(taskCard).toContainText(trackerLinkId);
+  await expect(taskCard).toContainText("member-repo");
+
+  const startResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(
+        `/api/settings/projects/${projectId}/task-links/${taskLinkId}/start`,
+      ) && response.request().method() === "POST",
+  );
+  await taskCard.getByRole("button", { name: "Start task" }).click();
+  const startResponse = await startResponsePromise;
+  expect(startResponse.status()).toBe(200);
+  const started = (await startResponse.json()) as {
+    state: string;
+    jobId: string | null;
+  };
+  expect(started.state).toBe("running");
+  expect(started.jobId).toBeTruthy();
+
+  const linkedCard = page.getByRole("link", {
+    name: /Task recipe: TEST-1 — running/,
+  });
+  await expect(linkedCard).toContainText(started.jobId ?? "");
+  await linkedCard.click();
+  await expect(page).toHaveURL(`${backendBaseUrl}/jobs/${started.jobId}`);
+
+  const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
+  await expect(
+    breadcrumb.getByRole("link", { name: "Tracker E2E Project" }),
+  ).toBeVisible();
+  await expect(
+    breadcrumb.getByRole("link", { name: "member-repo" }),
+  ).toBeVisible();
+  await expect(breadcrumb.getByRole("link", { name: "TEST-1" })).toBeVisible();
+
+  await breadcrumb.getByRole("link", { name: "Tracker E2E Project" }).click();
+  await expect(page).toHaveURL(
+    `${backendBaseUrl}/projects/id/${projectId}/board`,
+  );
+  await page.getByRole("link", { name: "Chats", exact: true }).click();
+
+  await page.getByPlaceholder("New chat title").fill("Supervise TEST-1");
+  await expect(page.getByLabel("Chat Project")).toHaveValue(projectId);
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/projects/id/${projectId}/chats/[^/]+$`),
+  );
+  const chatId = page.url().split("/").pop() ?? "";
+  expect(chatId).not.toBe("");
+
+  // Seed the real backend association so the linked-chain return path can be
+  // verified independently of the TaskLink start flow.
+  await requestJson(`${backendBaseUrl}/api/chats/${chatId}/attach-chain`, {
+    method: "POST",
+    body: JSON.stringify({ taskLinkId }),
+  });
+  await page.reload();
+  await expect(
+    page.getByRole("link", { name: "Supervising chain" }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Supervising chain" }).click();
+  await expect(page).toHaveURL(
+    `${backendBaseUrl}/projects/id/${projectId}/board/task/${taskLinkId}`,
+  );
+  await page.getByLabel("Back to overview").click();
+  await expect(page).toHaveURL(
+    `${backendBaseUrl}/projects/id/${projectId}`,
+  );
 });

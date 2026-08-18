@@ -1,13 +1,18 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 vi.mock("../../api/client", () => ({
   fetchProjectsSummary: vi.fn(),
+  createProject: vi.fn(),
+  registerRepo: vi.fn(),
+  createRepo: vi.fn(),
+  unregisterRepo: vi.fn(),
+  browseDirectories: vi.fn(),
 }));
 
-import { fetchProjectsSummary } from "../../api/client";
+import { fetchProjectsSummary, createProject, browseDirectories } from "../../api/client";
 import { ProjectsOverview } from "../ProjectsOverview";
 
 function makeSummary(overrides: Partial<any> = {}) {
@@ -25,6 +30,13 @@ function makeSummary(overrides: Partial<any> = {}) {
 
 beforeEach(() => {
   vi.mocked(fetchProjectsSummary).mockReset();
+  vi.mocked(createProject).mockReset();
+  vi.mocked(browseDirectories).mockReset();
+  vi.mocked(browseDirectories).mockResolvedValue({
+    current: "/home/user",
+    parent: null,
+    items: [{ name: "new-repo", path: "/home/user/new-repo", isGitRepo: true }],
+  });
 });
 
 describe("ProjectsOverview", () => {
@@ -64,6 +76,24 @@ describe("ProjectsOverview", () => {
     expect(screen.getByText("3 failed")).toBeInTheDocument();
   });
 
+  it("opens a Project card on its board", async () => {
+    vi.mocked(fetchProjectsSummary).mockResolvedValueOnce({
+      items: [makeSummary()],
+    } as any);
+
+    render(
+      <MemoryRouter initialEntries={["/projects"]}>
+        <Routes>
+          <Route path="/projects" element={<ProjectsOverview />} />
+          <Route path="/projects/id/:projectId/board" element={<div>Project board</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /My Project/i }));
+    expect(await screen.findByText("Project board")).toBeInTheDocument();
+  });
+
   it("fetches the summary exactly once on mount, not per project (batch call)", async () => {
     vi.mocked(fetchProjectsSummary).mockResolvedValueOnce({
       items: [makeSummary({ id: "proj-1" }), makeSummary({ id: "proj-2" }), makeSummary({ id: "proj-3" })],
@@ -88,6 +118,54 @@ describe("ProjectsOverview", () => {
     );
 
     await waitFor(() => expect(screen.getByText("No Projects registered")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /New Project/i })).toBeInTheDocument();
+  });
+
+  it("opens the Create Project dialog and creates a project from the empty-state CTA", async () => {
+    vi.mocked(fetchProjectsSummary)
+      .mockResolvedValueOnce({ items: [] } as any)
+      .mockResolvedValueOnce({ items: [makeSummary({ id: "proj-1", name: "New Project" })] } as any);
+    vi.mocked(createProject).mockResolvedValueOnce({
+      id: "proj-1",
+      name: "New Project",
+      repoPaths: ["/home/user/new-repo"],
+    } as any);
+
+    render(
+      <MemoryRouter>
+        <ProjectsOverview />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText("No Projects registered")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /New Project/i }));
+
+    await waitFor(() => expect(screen.getByText("new-repo")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "New Project" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
+
+    await waitFor(() =>
+      expect(createProject).toHaveBeenCalledWith({
+        name: "New Project",
+        repoPaths: ["/home/user/new-repo"],
+      }),
+    );
+  });
+
+  it("shows a persistent New Project action in the header when projects already exist", async () => {
+    vi.mocked(fetchProjectsSummary).mockResolvedValueOnce({
+      items: [makeSummary({ id: "proj-1", name: "Alpha" })],
+    } as any);
+
+    render(
+      <MemoryRouter>
+        <ProjectsOverview />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /New Project/i })).toBeInTheDocument();
   });
 
   it("filters cards by a partial, case-insensitive name match", async () => {

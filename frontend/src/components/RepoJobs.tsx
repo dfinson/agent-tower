@@ -53,8 +53,8 @@ interface JobRow {
 }
 
 export function RepoJobs() {
-  const { repoPath } = useParams<{ repoPath: string }>();
-  const decoded = repoPath ? decodeURIComponent(repoPath) : "";
+  const { projectId, repoPath } = useParams<{ projectId: string; repoPath: string }>();
+  const decoded = repoPath ?? "";
   const repoName = pathBasename(decoded) || decoded;
 
   const [loading, setLoading] = useState(true);
@@ -76,7 +76,7 @@ export function RepoJobs() {
     <div className="max-w-4xl mx-auto space-y-5">
       <div className="flex items-center gap-3">
         <Link
-          to={`/repos/${encodeURIComponent(decoded)}`}
+          to={`/projects/id/${encodeURIComponent(projectId ?? "")}`}
           className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
           aria-label="Back to overview"
         >

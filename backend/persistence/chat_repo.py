@@ -7,9 +7,9 @@ Chat is structurally incapable of a git operation.
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from backend.models.db import ChatMessageRow, ChatRow
+from backend.models.db import ChatMessageRow, ChatRow, TaskLinkRow
 from backend.models.domain import Chat, ChatMessage
 from backend.persistence.repository import BaseRepository
 
@@ -57,6 +57,12 @@ class ChatRepository(BaseRepository):
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]
 
+    async def list_by_project(self, project_id: str) -> list[Chat]:
+        """List chats owned by one Project, most recently active first."""
+        stmt = select(ChatRow).where(ChatRow.project_id == project_id).order_by(ChatRow.last_message_at.desc())
+        result = await self._session.execute(stmt)
+        return [self._to_domain(row) for row in result.scalars().all()]
+
     async def set_project_id(self, chat_id: str, project_id: str) -> None:
         """Settle a Chat's ``project_id`` (e.g. on first Job launch/chain attach)."""
         stmt = select(ChatRow).where(ChatRow.id == chat_id)
@@ -93,6 +99,27 @@ class ChatRepository(BaseRepository):
             ChatRow.project_id == project_id,
             ChatRow.task_link_id.is_not(None),
             ChatRow.status == "open",
+        )
+        result = await self._session.execute(stmt)
+        row = result.scalars().first()
+        return self._to_domain(row) if row is not None else None
+
+    async def get_attached_open_chat_for_chain(self, chain_root_id: str) -> Chat | None:
+        """Find an open Chat attached anywhere in the requested chain."""
+        attached_chain_id = func.coalesce(
+            func.nullif(TaskLinkRow.chain_root_id, ""),
+            TaskLinkRow.id,
+        )
+        stmt = (
+            select(ChatRow)
+            .join(
+                TaskLinkRow,
+                TaskLinkRow.id == ChatRow.task_link_id,
+            )
+            .where(
+                attached_chain_id == chain_root_id,
+                ChatRow.status == "open",
+            )
         )
         result = await self._session.execute(stmt)
         row = result.scalars().first()

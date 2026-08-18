@@ -1,36 +1,85 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import {
+  MemoryRouter,
+  Routes,
+  Route,
+  useNavigate,
+  useOutletContext,
+} from "react-router-dom";
 
 vi.mock("../../api/client", () => ({
-  fetchRepos: vi.fn(),
+  fetchProjects: vi.fn(),
   fetchProjectsSummary: vi.fn(),
 }));
 
-import { fetchRepos, fetchProjectsSummary } from "../../api/client";
+import { fetchProjects, fetchProjectsSummary } from "../../api/client";
 import { RepoLayout } from "../RepoLayout";
+import type { RepoLayoutOutletContext } from "../RepoLayout";
 
 beforeEach(() => {
-  vi.mocked(fetchRepos).mockReset();
+  vi.mocked(fetchProjects).mockReset();
   vi.mocked(fetchProjectsSummary).mockReset();
   vi.mocked(fetchProjectsSummary).mockResolvedValue({ items: [] } as any);
 });
 
-function renderLayout() {
+function renderLayout(route = "/projects") {
   return render(
-    <MemoryRouter initialEntries={["/repos"]}>
+    <MemoryRouter initialEntries={[route]}>
       <Routes>
-        <Route path="/repos/*" element={<RepoLayout />} />
+        <Route path="/projects/id/:projectId/board" element={<div>Project board</div>} />
+        <Route path="/projects/id/:projectId/repos/:repoPath/*" element={<RepoLayout />} />
+        <Route path="/projects/id/:projectId/*" element={<RepoLayout />} />
+        <Route path="/projects/*" element={<RepoLayout />} />
       </Routes>
     </MemoryRouter>,
   );
 }
 
-describe("RepoLayout sidebar filter", () => {
-  it("filters the repo list by a partial, case-insensitive name match", async () => {
-    vi.mocked(fetchRepos).mockResolvedValueOnce({
-      items: ["/repos/alpha-project", "/repos/beta-project"],
+function MembershipUpdater() {
+  const { onProjectUpdated } = useOutletContext<RepoLayoutOutletContext>();
+  return (
+    <button
+      onClick={() => onProjectUpdated({
+        id: "multi",
+        name: "multi-project",
+        repoPaths: ["/repos/keep", "/repos/new"],
+        createdAt: "",
+        updatedAt: "",
+      })}
+    >
+      Apply membership
+    </button>
+  );
+}
+
+function ProjectCreator() {
+  const { onProjectCreated } = useOutletContext<RepoLayoutOutletContext>();
+  const navigate = useNavigate();
+  return (
+    <button onClick={() => {
+      onProjectCreated({
+        id: "created",
+        name: "created-project",
+        repoPaths: ["/repos/created"],
+        createdAt: "",
+        updatedAt: "",
+      });
+      navigate("/projects/id/created/settings");
+    }}>
+      Create and open
+    </button>
+  );
+}
+
+describe("RepoLayout project sidebar", () => {
+  it("filters Projects by a partial, case-insensitive name match", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [
+        { id: "alpha", name: "alpha-project", repoPaths: ["/repos/alpha-project"] },
+        { id: "beta", name: "beta-project", repoPaths: ["/repos/beta-project"] },
+      ],
     } as any);
 
     renderLayout();
@@ -38,7 +87,7 @@ describe("RepoLayout sidebar filter", () => {
     await waitFor(() => expect(screen.getByText("alpha-project")).toBeInTheDocument());
     expect(screen.getByText("beta-project")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Filter repositories by name"), {
+    fireEvent.change(screen.getByLabelText("Filter Projects by name"), {
       target: { value: "ALPHA" },
     });
 
@@ -47,15 +96,15 @@ describe("RepoLayout sidebar filter", () => {
   });
 
   it("shows a no-matches state when the filter matches nothing", async () => {
-    vi.mocked(fetchRepos).mockResolvedValueOnce({
-      items: ["/repos/alpha-project"],
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "alpha", name: "alpha-project", repoPaths: ["/repos/alpha-project"] }],
     } as any);
 
     renderLayout();
 
     await waitFor(() => expect(screen.getByText("alpha-project")).toBeInTheDocument());
 
-    fireEvent.change(screen.getByLabelText("Filter repositories by name"), {
+    fireEvent.change(screen.getByLabelText("Filter Projects by name"), {
       target: { value: "zzz" },
     });
 
@@ -63,12 +112,116 @@ describe("RepoLayout sidebar filter", () => {
     expect(screen.getByText("No matches")).toBeInTheDocument();
   });
 
-  it("does not render a filter box when there are no repositories", async () => {
-    vi.mocked(fetchRepos).mockResolvedValueOnce({ items: [] } as any);
+  it("does not render a filter box when there are no Projects", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({ items: [] } as any);
 
     renderLayout();
 
-    await waitFor(() => expect(screen.getByText("No repositories")).toBeInTheDocument());
-    expect(screen.queryByLabelText("Filter repositories by name")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("No Projects")).toBeInTheDocument());
+    expect(screen.queryByLabelText("Filter Projects by name")).not.toBeInTheDocument();
+  });
+
+  it("does not silently select the first member repository", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{
+        id: "multi",
+        name: "multi-project",
+        repoPaths: ["/repos/api", "/repos/web"],
+      }],
+    } as any);
+
+    renderLayout("/projects/id/multi");
+
+    const selector = await screen.findByLabelText("Repository");
+    expect(selector).toHaveValue("");
+    expect(screen.getByText("Select a member repository for Jobs, Health, Cost, and index status.")).toBeInTheDocument();
+  });
+
+  it("redirects a repository path that is not a member of the active Project", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{
+        id: "multi",
+        name: "multi-project",
+        repoPaths: ["/repos/api"],
+      }],
+    } as any);
+
+    renderLayout("/projects/id/multi/repos/%2Frepos%2Fother/jobs");
+
+    expect(await screen.findByText("Project board")).toBeInTheDocument();
+  });
+
+  it("updates repository navigation from a nested membership save without reloading", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{
+        id: "multi",
+        name: "multi-project",
+        repoPaths: ["/repos/old", "/repos/keep"],
+      }],
+    } as any);
+
+    render(
+      <MemoryRouter initialEntries={["/projects/id/multi/settings"]}>
+        <Routes>
+          <Route path="/projects" element={<RepoLayout />}>
+            <Route path="id/:projectId/settings" element={<MembershipUpdater />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("option", { name: "old" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Apply membership" }));
+
+    expect(screen.queryByRole("option", { name: "old" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "new" })).toBeInTheDocument();
+  });
+
+  it("lets direct project routes mount while the sidebar list resolves project membership", async () => {
+    let resolveProjects!: (value: { items: never[] }) => void;
+    vi.mocked(fetchProjects).mockReturnValueOnce(new Promise((resolve) => {
+      resolveProjects = resolve;
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/projects/id/missing/settings"]}>
+        <Routes>
+          <Route path="/projects" element={<RepoLayout />}>
+            <Route path="id/:projectId/settings" element={<div>Unknown child content</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Unknown child content")).not.toBeInTheDocument();
+    resolveProjects({ items: [] });
+    expect(await screen.findByText("No Projects")).toBeInTheDocument();
+    expect(screen.getByText("Unknown child content")).toBeInTheDocument();
+  });
+
+  it("adds a newly created Project to the shell before navigating to its child", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{
+        id: "seed",
+        name: "seed-project",
+        repoPaths: ["/repos/seed"],
+      }],
+    } as any);
+
+    render(
+      <MemoryRouter initialEntries={["/projects/id/seed/create-test"]}>
+        <Routes>
+          <Route path="/projects" element={<RepoLayout />}>
+            <Route path="id/:projectId/create-test" element={<ProjectCreator />} />
+            <Route path="id/:projectId/settings" element={<div>Created project page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create and open" }));
+
+    expect(await screen.findByText("Created project page")).toBeInTheDocument();
+    expect(screen.getAllByText("created-project")).toHaveLength(2);
   });
 });

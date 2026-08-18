@@ -13,6 +13,7 @@ from backend.persistence.tracker_summary_repo import TrackerSummaryRepository
 from backend.services.tracker_adapter import (
     TrackerAdapterError,
     TrackerAdapterInterface,
+    TrackerReferenceError,
     build_tracker_adapters,
 )
 
@@ -29,6 +30,10 @@ class TrackerLinkNotFoundError(Exception):
 
 class TrackerSyncError(Exception):
     """Raised when a requested TrackerLink cannot be synchronized."""
+
+
+class TrackerLinkValidationError(TrackerSyncError):
+    """Raised when a provider rejects an external reference before attachment."""
 
 
 class TrackerSyncService:
@@ -80,6 +85,30 @@ class TrackerSyncService:
                     project_id=target["project_id"],
                 )
 
+    async def test_link(self, *, credential_id: str, external_ref: str) -> None:
+        """Validate provider-specific reference syntax and connectivity before save."""
+        async with self._session_factory() as session:
+            credential = await CredentialRepository(session).get(credential_id)
+            token = await CredentialRepository(session).resolve_secret(credential_id)
+        if credential is None or token is None:
+            raise TrackerSyncError(f"Credential '{credential_id}' could not be resolved")
+        adapter = self._adapters.get(credential["provider"])
+        if adapter is None:
+            raise TrackerSyncError(f"Unsupported tracker provider: {credential['provider']}")
+        try:
+            await adapter.test_connection(
+                base_url=credential["base_url"],
+                external_ref=external_ref,
+                token=token,
+                email=credential["email"],
+            )
+        except TrackerReferenceError as exc:
+            raise TrackerLinkValidationError(str(exc)) from exc
+        except TrackerAdapterError as exc:
+            raise TrackerSyncError(str(exc)) from exc
+        except Exception as exc:
+            raise TrackerSyncError("Tracker provider request failed") from exc
+
     async def refresh_link(self, *, project_id: str, link_id: str) -> dict[str, Any]:
         lock = self._link_locks.setdefault(link_id, asyncio.Lock())
         async with lock:
@@ -103,6 +132,7 @@ class TrackerSyncService:
                     base_url=target["base_url"],
                     external_ref=target["external_ref"],
                     token=token,
+                    email=target["email"],
                 )
             except TrackerAdapterError as exc:
                 return await self._fail(link_id, str(exc))

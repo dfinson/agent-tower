@@ -1,49 +1,77 @@
 import { useEffect, useState, useCallback } from "react";
-import { Outlet, useParams, useNavigate, Link } from "react-router-dom";
-import { FolderGit2, Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import { Link, Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import { FolderGit2, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
-import { fetchRepos } from "../api/client";
-import { useStore } from "../store";
+import { fetchProjects } from "../api/client";
+import type { ProjectResponse } from "../api/types";
 import { cn } from "../lib/utils";
 import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
-import { pathBasename } from "../lib/paths";
 import { matchesNameFilter } from "../lib/nameFilter";
 import { ProjectsOverview } from "./ProjectsOverview";
+import { pathBasename } from "../lib/paths";
 
+export interface RepoLayoutOutletContext {
+  onProjectUpdated: (project: ProjectResponse) => void;
+  onProjectCreated: (project: ProjectResponse) => void;
+}
 
 export function RepoLayout() {
-  const { repoPath } = useParams<{ repoPath: string }>();
+  const { projectId, repoPath } = useParams<{ projectId: string; repoPath?: string }>();
   const navigate = useNavigate();
-  const decoded = repoPath ? decodeURIComponent(repoPath) : "";
-  const [repos, setRepos] = useState<string[]>([]);
+  const location = useLocation();
+  const [projects, setProjects] = useState<ProjectResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
-  const repoIndexState = useStore((s) => s.repoIndexState);
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  const loadRepos = useCallback(async () => {
+  const loadProjects = useCallback(async () => {
     try {
-      const res = await fetchRepos();
-      setRepos(res.items);
+      const res = await fetchProjects();
+      setProjects(res.items);
+      setLoadFailed(false);
     } catch {
-      toast.error("Failed to load repositories");
+      setLoadFailed(true);
+      toast.error("Failed to load Projects");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadRepos(); }, [loadRepos]);
+  useEffect(() => { loadProjects(); }, [loadProjects]);
 
-  function repoBasename(path: string) {
-    return pathBasename(path) || path;
+  const onProjectUpdated = useCallback((updated: ProjectResponse) => {
+    setProjects((current) => current.map((project) => project.id === updated.id ? updated : project));
+  }, []);
+
+  const onProjectCreated = useCallback((created: ProjectResponse) => {
+    setProjects((current) => current.some((project) => project.id === created.id)
+      ? current.map((project) => project.id === created.id ? created : project)
+      : [...current, created]);
+  }, []);
+
+  const filteredProjects = projects.filter((project) => matchesNameFilter(project.name, filterQuery));
+  const activeProject = projects.find((project) => project.id === projectId);
+  const projectUrl = projectId ? `/projects/id/${encodeURIComponent(projectId)}` : "";
+  const tabs = [
+    ["Overview", projectUrl],
+    ["Agent Runs", `${projectUrl}/board`],
+    ["Chats", `${projectUrl}/chats`],
+    ["Settings", `${projectUrl}/settings`],
+  ] as const;
+  const repoScopedUrl = repoPath
+    ? `${projectUrl}/repos/${encodeURIComponent(repoPath)}`
+    : null;
+  const repoView = location.pathname.match(/\/(jobs|health|cost|settings)$/)?.[1] ?? "jobs";
+
+  if (!loading && activeProject && repoPath && !activeProject.repoPaths.includes(repoPath)) {
+    return <Navigate to={`${projectUrl}/board`} replace />;
   }
-
-  function isActive(path: string) {
-    return decoded === path;
-  }
-
-  const filteredRepos = repos.filter((r) => matchesNameFilter(repoBasename(r), filterQuery));
+  // Direct project-id routes are the canonical shell and can resolve their own
+  // Project context by ID, even before the sidebar list is hydrated. Redirecting
+  // here breaks the stable project route on fresh loads and when a Project is
+  // returned from a direct fetch but not yet present in the global list.
 
   return (
     <div className="flex h-full min-h-0">
@@ -57,7 +85,7 @@ export function RepoLayout() {
         <div className="flex items-center justify-between px-3 py-3 border-b border-border">
           {!collapsed && (
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Repos
+              Projects
             </span>
           )}
           <button
@@ -69,15 +97,15 @@ export function RepoLayout() {
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-1" aria-label="Repository list">
-          {!collapsed && !loading && repos.length > 0 && (
+        <nav className="flex-1 overflow-y-auto py-1" aria-label="Project list">
+          {!collapsed && !loading && projects.length > 0 && (
             <div className="px-2 pb-2">
               <input
                 type="text"
                 value={filterQuery}
                 onChange={(e) => setFilterQuery(e.target.value)}
                 placeholder="Filter..."
-                aria-label="Filter repositories by name"
+                aria-label="Filter Projects by name"
                 className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </div>
@@ -86,26 +114,24 @@ export function RepoLayout() {
             <div className="flex justify-center py-4">
               <Spinner className="w-4 h-4" />
             </div>
-          ) : repos.length === 0 ? (
+          ) : projects.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-4 px-2">
-              No repositories
+              No Projects
             </p>
-          ) : filteredRepos.length === 0 ? (
+          ) : filteredProjects.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-4 px-2">
               No matches
             </p>
           ) : (
-            filteredRepos.map((r) => {
-              const name = repoBasename(r);
-              const indexing = repoIndexState[r];
+            filteredProjects.map((project) => {
               return (
                 <Link
-                  key={r}
-                  to={`/repos/${encodeURIComponent(r)}`}
-                  title={r}
+                  key={project.id}
+                  to={`/projects/id/${encodeURIComponent(project.id)}/board`}
+                  title={project.repoPaths.join(", ")}
                   className={cn(
                     "flex items-center gap-2 px-3 py-2 text-sm transition-colors",
-                    isActive(r)
+                    project.id === projectId
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
                   )}
@@ -113,9 +139,11 @@ export function RepoLayout() {
                   <FolderGit2 size={14} className="shrink-0" />
                   {!collapsed && (
                     <>
-                      <span className="flex-1 truncate">{name}</span>
-                      {indexing && (
-                        <span className="text-[10px] text-blue-400 shrink-0">indexing</span>
+                      <span className="flex-1 truncate">{project.name}</span>
+                      {project.repoPaths.length > 1 && (
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                          {project.repoPaths.length} repos
+                        </span>
                       )}
                     </>
                   )}
@@ -125,24 +153,88 @@ export function RepoLayout() {
           )}
         </nav>
 
-        {!collapsed && (
-          <div className="border-t border-border p-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start text-xs"
-              onClick={() => navigate("/settings")}
-            >
-              <Plus size={12} />
-              Add repo
-            </Button>
-          </div>
-        )}
       </aside>
 
       {/* Main content area */}
       <div className="flex-1 min-w-0 overflow-y-auto p-4 md:p-6">
-        {!repoPath ? <ProjectsOverview /> : <Outlet />}
+        {!projectId ? <ProjectsOverview /> : (
+          <>
+            {activeProject && (
+              <div className="max-w-4xl mx-auto mb-5">
+                <div className="flex items-baseline justify-between gap-3 mb-3">
+                  <div>
+                    <h1 className="text-xl font-semibold">{activeProject.name}</h1>
+                    <p className="text-xs text-muted-foreground">
+                      {activeProject.repoPaths.length} {activeProject.repoPaths.length === 1 ? "repository" : "repositories"} in this Project
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => navigate("/settings")}>Manage Projects</Button>
+                </div>
+                <nav className="flex gap-1 border-b border-border" aria-label="Project navigation">
+                  {tabs.map(([label, to]) => (
+                    <Link key={label} to={to} className={cn(
+                      "px-3 py-2 text-xs transition-colors border-b-2",
+                      (label === "Overview"
+                        ? location.pathname === to
+                        : location.pathname === to || location.pathname.startsWith(`${to}/`))
+                        ? "border-primary text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground",
+                    )}>{label}</Link>
+                  ))}
+                </nav>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <label htmlFor="project-repository" className="text-xs text-muted-foreground">
+                    Repository
+                  </label>
+                  <select
+                    id="project-repository"
+                    value={repoPath ?? ""}
+                    onChange={(event) => {
+                      const selectedRepo = event.target.value;
+                      if (!selectedRepo) return;
+                      navigate(`${projectUrl}/repos/${encodeURIComponent(selectedRepo)}/${repoView}`);
+                    }}
+                    className="h-8 min-w-48 rounded-md border border-border bg-background px-2 text-xs"
+                  >
+                    <option value="">Select a repository…</option>
+                    {activeProject.repoPaths.map((path) => (
+                      <option key={path} value={path}>{pathBasename(path) || path}</option>
+                    ))}
+                  </select>
+                  {repoScopedUrl ? (
+                    <nav className="flex gap-1" aria-label="Repository navigation">
+                      {(["jobs", "health", "cost"] as const).map((view) => (
+                        <Link
+                          key={view}
+                          to={`${repoScopedUrl}/${view}`}
+                          className={cn(
+                            "rounded px-2 py-1 text-xs capitalize",
+                            repoView === view ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          {view === "jobs" ? "Jobs" : view}
+                        </Link>
+                      ))}
+                    </nav>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      Select a member repository for Jobs, Health, Cost, and index status.
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+            {loading ? (
+              <div className="flex justify-center py-16"><Spinner /></div>
+            ) : loadFailed ? (
+              <div role="alert" className="rounded-lg border border-red-500/40 bg-card p-8 text-center">
+                Project navigation could not be loaded.
+              </div>
+            ) : (
+              <Outlet context={{ onProjectUpdated, onProjectCreated } satisfies RepoLayoutOutletContext} />
+            )}
+          </>
+        )}
       </div>
     </div>
   );

@@ -18,10 +18,17 @@ import type {
   JobListResponse,
   RepoDetailResponse,
   RepoListResponse,
+  RegisterRepoResponse,
   ProjectListSummaryResponse,
   ProjectListResponse,
+  ProjectResponse,
+  Chat,
+  ChatListResponse,
+  ChatMessage,
+  CreateChatRequest,
   TaskLinkListResponse,
   TrackerLinkListResponse,
+  TrackerLinkResponse,
   TrackerSummaryResponse,
   SDKListResponse,
   Settings,
@@ -417,16 +424,120 @@ export function fetchProjects(): Promise<ProjectListResponse> {
   return request("/settings/projects");
 }
 
+export function fetchProject(projectId: string): Promise<ProjectResponse> {
+  return request(`/settings/projects/${encodeURIComponent(projectId)}`);
+}
+
+export function createProject(body: { name: string; repoPaths: string[] }): Promise<ProjectResponse> {
+  return request("/settings/projects", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateProject(
+  projectId: string,
+  body: { name?: string; repoPaths?: string[]; confirmRepoRemoval?: boolean },
+): Promise<ProjectResponse> {
+  return request(`/settings/projects/${encodeURIComponent(projectId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
 /** List a Project's currently persisted TaskLinks (Story 4.2 / CAP-9). */
 export function fetchProjectTaskLinks(projectId: string): Promise<TaskLinkListResponse> {
   return request(`/settings/projects/${encodeURIComponent(projectId)}/task-links`);
+}
+
+export function ingestProjectTasks(projectId: string): Promise<TaskLinkListResponse> {
+  return request(`/settings/projects/${encodeURIComponent(projectId)}/ingest-tasks`, {
+    method: "POST",
+  });
+}
+
+export function createManualTaskLink(
+  projectId: string,
+  body: import("./types").CreateManualTaskLinkRequest,
+): Promise<import("./types").TaskLinkResponse> {
+  return request(`/settings/projects/${encodeURIComponent(projectId)}/task-links`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function startTaskLink(
+  projectId: string,
+  taskLinkId: string,
+): Promise<import("./types").TaskLinkResponse> {
+  return request(
+    `/settings/projects/${encodeURIComponent(projectId)}/task-links/${encodeURIComponent(taskLinkId)}/start`,
+    { method: "POST" },
+  );
+}
+
+export function fetchChats(projectId?: string): Promise<ChatListResponse> {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return request(`/chats${query}`);
+}
+
+export function createChat(body: CreateChatRequest): Promise<Chat> {
+  return request("/chats", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function fetchChat(chatId: string): Promise<Chat> {
+  return request(`/chats/${encodeURIComponent(chatId)}`);
+}
+
+export function addChatMessage(chatId: string, content: string): Promise<ChatMessage> {
+  return request(`/chats/${encodeURIComponent(chatId)}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export function sendChatTurn(chatId: string, content: string): Promise<import("./types").ChatTurnResponse> {
+  return request(`/chats/${encodeURIComponent(chatId)}/turns`, {
+    method: "POST",
+    body: JSON.stringify({ role: "user", content }),
+  });
+}
+
+export function fetchChatMessages(chatId: string): Promise<ChatMessage[]> {
+  return request(`/chats/${encodeURIComponent(chatId)}/messages`);
+}
+
+export function launchJobFromChat(
+  chatId: string,
+  body: import("./types").LaunchJobFromChatRequest,
+): Promise<import("./types").CreateJobResponse> {
+  return request(`/chats/${encodeURIComponent(chatId)}/launch-job`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function attachChatToChain(
+  chatId: string,
+  taskLinkId: string,
+): Promise<Chat> {
+  return request(`/chats/${encodeURIComponent(chatId)}/attach-chain`, {
+    method: "POST",
+    body: JSON.stringify({ taskLinkId }),
+  });
+}
+
+export function detachChatFromChain(chatId: string): Promise<Chat> {
+  return request(`/chats/${encodeURIComponent(chatId)}/detach-chain`, {
+    method: "POST",
+  });
 }
 
 export function fetchRepoDetail(repoPath: string): Promise<RepoDetailResponse> {
   return request(`/settings/repos/${encodeURIComponent(repoPath)}`);
 }
 
-export function registerRepo(source: string, cloneTo?: string): Promise<{ path: string; source: string; cloned: boolean }> {
+export function registerRepo(source: string, cloneTo?: string): Promise<RegisterRepoResponse> {
   return request("/settings/repos", {
     method: "POST",
     body: JSON.stringify({ source, clone_to: cloneTo }),
@@ -613,6 +724,8 @@ export interface Credential {
   provider: CredentialProvider;
   label: string;
   baseUrl: string;
+  email: string | null;
+  requiresEmailUpdate: boolean;
   createdAt: string;
 }
 
@@ -621,6 +734,7 @@ export interface CreateCredentialRequest {
   label: string;
   baseUrl: string;
   pat: string;
+  email?: string | null;
 }
 
 export function fetchCredentials(): Promise<{ credentials: Credential[] }> {
@@ -644,10 +758,34 @@ export function deleteCredential(credentialId: string): Promise<void> {
   });
 }
 
+export function updateJiraCredentialEmail(credentialId: string, email: string): Promise<Credential> {
+  return request(`/settings/credentials/${encodeURIComponent(credentialId)}/jira-email`, {
+    method: "PATCH",
+    body: JSON.stringify({ email }),
+  });
+}
+
 // --- Project tracker state (Story 3.3) ---
 
 export function fetchTrackerLinks(projectId: string): Promise<TrackerLinkListResponse> {
   return request(`/projects/${encodeURIComponent(projectId)}/tracker-links`);
+}
+
+export function createTrackerLink(
+  projectId: string,
+  body: { credentialId: string; externalRef: string },
+): Promise<TrackerLinkResponse> {
+  return request(`/projects/${encodeURIComponent(projectId)}/tracker-links`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function detachTrackerLink(projectId: string, linkId: string): Promise<void> {
+  return request(
+    `/projects/${encodeURIComponent(projectId)}/tracker-links/${encodeURIComponent(linkId)}`,
+    { method: "DELETE" },
+  );
 }
 
 export function refreshTrackerLink(projectId: string, linkId: string): Promise<TrackerSummaryResponse> {

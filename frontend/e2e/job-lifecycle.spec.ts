@@ -105,6 +105,39 @@ async function setupBaseMocks(page: import("@playwright/test").Page, jobs: unkno
     });
   });
 
+  // Project board is scoped under a Project (AD-2) — mock the owning Project
+  // so RepoLayout/RepoBoard resolve "/tmp/test-repo" to a real project route.
+  await page.route("**/api/settings/projects", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [{ id: "project-1", name: "test-repo", repoPaths: ["/tmp/test-repo"] }],
+      }),
+    });
+  });
+
+  // Board is keyed by project id (not repo path); mock the single-project
+  // fetch and its task-links so RepoBoard resolves cleanly.
+  await page.route("**/api/settings/projects/project-1", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "project-1",
+        name: "test-repo",
+        repoPaths: ["/tmp/test-repo"],
+        createdAt: NOW,
+        updatedAt: NOW,
+      }),
+    });
+  });
+  await page.route("**/api/settings/projects/project-1/task-links", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+
   await page.route("**/api/sdks", async (route) => {
     await route.fulfill({
       status: 200,
@@ -189,6 +222,8 @@ test.describe("Job Creation", () => {
     // Fill prompt
     const textarea = page.locator("textarea").first();
     await expect(textarea).toBeVisible();
+    await page.getByRole("button", { name: "Select a repository…" }).click();
+    await page.getByText("test-repo · test-repo").click();
     await textarea.fill("Fix the bug in auth module");
 
     // Submit
@@ -201,21 +236,21 @@ test.describe("Job Creation", () => {
   });
 });
 
-test.describe("Dashboard SSE Integration", () => {
-  test("job appears on dashboard via SSE snapshot event", async ({ page }) => {
+test.describe("Project board SSE Integration", () => {
+  test("job appears on project board via SSE snapshot event", async ({ page }) => {
     await setupBaseMocks(page, [MOCK_JOB]);
 
-    await page.goto("/");
+    await page.goto("/projects/id/project-1/board");
 
     // Job should appear in the kanban — use .first() for strict mode
     await expect(page.getByRole("button", { name: /Job: job-1/i })).toBeVisible({ timeout: 8_000 });
   });
 
-  test("SSE job_state_changed updates job card on dashboard", async ({ page }) => {
+  test("SSE job_state_changed updates job card on project board", async ({ page }) => {
     // Start with a running job
     await setupBaseMocks(page, [MOCK_JOB]);
 
-    await page.goto("/");
+    await page.goto("/projects/id/project-1/board");
     await expect(page.getByRole("button", { name: /Job: job-1/i })).toBeVisible({ timeout: 8_000 });
 
     // The job card should show "running" state initially — verified by its presence

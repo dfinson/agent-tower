@@ -221,7 +221,7 @@ async def create_job(
         # Fire-and-forget background task: fill in the real title/description
         # via the naming LLM (job creation itself never waits on this).
         if job.title is None:
-            resolved_repo = svc.validate_repo(body.repo)
+            resolved_repo = await svc.validate_repo_async(body.repo)
 
             async def _enrich_naming() -> None:
                 try:

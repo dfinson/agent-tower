@@ -1226,7 +1226,7 @@ export interface paths {
         };
         /**
          * List Repos
-         * @description List registered repository paths.
+         * @description List every Project-owned or legacy-registered repository path.
          */
         get: operations["list_repos_api_settings_repos_get"];
         put?: never;
@@ -1336,7 +1336,7 @@ export interface paths {
         put?: never;
         /**
          * Cleanup Worktrees
-         * @description Clean up completed job worktrees for all registered repos.
+         * @description Clean up completed job worktrees for all managed repositories.
          */
         post: operations["cleanup_worktrees_api_settings_cleanup_worktrees_post"];
         delete?: never;
@@ -2172,33 +2172,33 @@ export interface paths {
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        get: operations["preview_proxy_api_preview__port___path__patch"];
+        get: operations["preview_proxy_api_preview__port___path__put"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        put: operations["preview_proxy_api_preview__port___path__patch"];
+        put: operations["preview_proxy_api_preview__port___path__put"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        post: operations["preview_proxy_api_preview__port___path__patch"];
+        post: operations["preview_proxy_api_preview__port___path__put"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        delete: operations["preview_proxy_api_preview__port___path__patch"];
+        delete: operations["preview_proxy_api_preview__port___path__put"];
         options?: never;
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        head: operations["preview_proxy_api_preview__port___path__patch"];
+        head: operations["preview_proxy_api_preview__port___path__put"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        patch: operations["preview_proxy_api_preview__port___path__patch"];
+        patch: operations["preview_proxy_api_preview__port___path__put"];
         trace?: never;
     };
     "/api/jobs/{job_id}/share": {
@@ -2535,6 +2535,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/credentials/{credential_id}/jira-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Jira Credential Email
+         * @description Remediate a legacy Jira credential without reading or replacing its token.
+         */
+        patch: operations["update_jira_credential_email_api_settings_credentials__credential_id__jira_email_patch"];
+        trace?: never;
+    };
     "/api/metrics/chat": {
         parameters: {
             query?: never;
@@ -2786,13 +2806,37 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List Chat Messages
+         * @description Return the append-only transcript for a Chat.
+         */
+        get: operations["list_chat_messages_api_chats__chat_id__messages_get"];
         put?: never;
         /**
          * Add Chat Message
          * @description Append a message to a Chat's transcript.
          */
         post: operations["add_chat_message_api_chats__chat_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chats/{chat_id}/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Chat Turn
+         * @description Persist a user message and return its assistant completion or failure state.
+         */
+        post: operations["send_chat_turn_api_chats__chat_id__turns_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3014,6 +3058,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/projects/{project_id}/task-links/{task_link_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Task Link
+         * @description Atomically claim and start one ready TaskLink.
+         */
+        post: operations["start_task_link_api_settings_projects__project_id__task_links__task_link_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/tracker-links": {
         parameters: {
             query?: never;
@@ -3027,6 +3091,23 @@ export interface paths {
         /** Create Tracker Link */
         post: operations["create_tracker_link_api_projects__project_id__tracker_links_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/tracker-links/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Detach Tracker Link */
+        delete: operations["detach_tracker_link_api_projects__project_id__tracker_links__link_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3139,8 +3220,12 @@ export interface components {
          * @description Append a message to a Chat's transcript.
          */
         AddChatMessageRequest: {
-            /** Role */
-            role: string;
+            /**
+             * Role
+             * @default user
+             * @constant
+             */
+            role: "user";
             /** Content */
             content: string;
         };
@@ -3566,6 +3651,21 @@ export interface components {
             /** Tasklinkid */
             taskLinkId?: string | null;
         };
+        /**
+         * ChatTurnResponse
+         * @description One user message plus its assistant completion or explicit failure.
+         */
+        ChatTurnResponse: {
+            userMessage: components["schemas"]["ChatMessageResponse"];
+            assistantMessage?: components["schemas"]["ChatMessageResponse"] | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "assistant" | "error";
+            /** Error */
+            error?: string | null;
+        };
         /** CleanupWorktreesResponse */
         CleanupWorktreesResponse: {
             /** Removed */
@@ -3806,6 +3906,8 @@ export interface components {
             baseUrl: string;
             /** Pat */
             pat: string;
+            /** Email */
+            email?: string | null;
         };
         /** CreateJobRequest */
         CreateJobRequest: {
@@ -3875,10 +3977,14 @@ export interface components {
         CreateManualTaskLinkRequest: {
             /** Repopath */
             repoPath: string;
+            /** Trackerlinkid */
+            trackerLinkId: string;
             /** Trackerticketref */
             trackerTicketRef: string;
             /** Promptoverride */
             promptOverride: string;
+            /** Outputroutes */
+            outputRoutes?: "tracker_write"[];
         };
         /** CreateProjectRequest */
         CreateProjectRequest: {
@@ -3956,6 +4062,10 @@ export interface components {
             label: string;
             /** Baseurl */
             baseUrl: string;
+            /** Email */
+            email: string | null;
+            /** Requiresemailupdate */
+            requiresEmailUpdate: boolean;
             /** Createdat */
             createdAt: string;
         };
@@ -6047,6 +6157,8 @@ export interface components {
             source: string;
             /** Cloned */
             cloned: boolean;
+            /** Registered */
+            registered: boolean;
         };
         /**
          * RepoCostSummary
@@ -7206,14 +7318,25 @@ export interface components {
             storyNodeId: string | null;
             /** Dependson */
             dependsOn: string[];
+            /** Chainrootid */
+            chainRootId: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "waiting" | "ready" | "starting" | "running" | "completed" | "failed";
             /** Jobid */
             jobId: string | null;
+            /** Trackerlinkid */
+            trackerLinkId: string | null;
             /** Trackerticketref */
             trackerTicketRef: string | null;
             /** Promptoverride */
             promptOverride: string | null;
             /** Epicid */
             epicId: string | null;
+            /** Outputroutes */
+            outputRoutes: string[];
             /**
              * Createdat
              * Format: date-time
@@ -8154,6 +8277,11 @@ export interface components {
             /** Batchwindowseconds */
             batchWindowSeconds?: number | null;
         };
+        /** UpdateJiraCredentialRequest */
+        UpdateJiraCredentialRequest: {
+            /** Email */
+            email: string;
+        };
         /** UpdateMetricRequest */
         UpdateMetricRequest: {
             /** Name */
@@ -8188,6 +8316,11 @@ export interface components {
             name?: string | null;
             /** Repopaths */
             repoPaths?: string[] | null;
+            /**
+             * Confirmreporemoval
+             * @default false
+             */
+            confirmRepoRemoval: boolean;
         };
         /**
          * UpdateSettingsRequest
@@ -11653,7 +11786,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__patch: {
+    preview_proxy_api_preview__port___path__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -11683,7 +11816,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__patch: {
+    preview_proxy_api_preview__port___path__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -11713,7 +11846,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__patch: {
+    preview_proxy_api_preview__port___path__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -11743,7 +11876,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__patch: {
+    preview_proxy_api_preview__port___path__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -11773,7 +11906,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__patch: {
+    preview_proxy_api_preview__port___path__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -11803,7 +11936,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__patch: {
+    preview_proxy_api_preview__port___path__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -12479,6 +12612,41 @@ export interface operations {
             };
         };
     };
+    update_jira_credential_email_api_settings_credentials__credential_id__jira_email_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateJiraCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     chat_ask_api_metrics_chat_post: {
         parameters: {
             query?: never;
@@ -12899,7 +13067,9 @@ export interface operations {
     };
     list_chats_api_chats_get: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -12913,6 +13083,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -12981,6 +13160,37 @@ export interface operations {
             };
         };
     };
+    list_chat_messages_api_chats__chat_id__messages_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatMessageResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     add_chat_message_api_chats__chat_id__messages_post: {
         parameters: {
             query?: never;
@@ -13003,6 +13213,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatMessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_chat_turn_api_chats__chat_id__turns_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddChatMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatTurnResponse"];
                 };
             };
             /** @description Validation Error */
@@ -13384,6 +13629,38 @@ export interface operations {
             };
         };
     };
+    start_task_link_api_settings_projects__project_id__task_links__task_link_id__start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                task_link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskLinkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_tracker_links_api_projects__project_id__tracker_links_get: {
         parameters: {
             query?: never;
@@ -13438,6 +13715,36 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TrackerLinkResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detach_tracker_link_api_projects__project_id__tracker_links__link_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

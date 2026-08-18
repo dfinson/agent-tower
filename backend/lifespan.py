@@ -1123,10 +1123,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     os.environ["CODERECON__FEATURES__CROSS_ENCODER"] = str(config.coderecon.cross_encoder).lower()
     await coderecon_service.start()
 
-    # Index all registered repos in the background (non-blocking)
-    if config.repos and coderecon_service.available:
+    # Index all Project-owned and legacy repositories in the background.
+    async with session_factory() as session:
+        from backend.persistence.project_repo import ProjectRepository
+        from backend.services.project.repo_membership import list_managed_repo_paths
+
+        startup_repo_paths = await list_managed_repo_paths(config, ProjectRepository(session))
+    if startup_repo_paths and coderecon_service.available:
         _fire_and_forget(
-            coderecon_service.index_repos(config.repos),
+            coderecon_service.index_repos(startup_repo_paths),
             name="coderecon-startup-index",
         )
 
@@ -1386,7 +1391,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # agent, mirroring the `codeplane_job create` MCP handler's own
     # setup/start pattern.
     async def _spawn_dependent_task_links(event: SessionEvent) -> None:
-        if event.kind != EventKind.job_completed:
+        if event.kind not in {
+            EventKind.job_completed,
+            EventKind.job_failed,
+            EventKind.job_canceled,
+        }:
             return
         job_id = event.session_id
         if not job_id:
@@ -1415,7 +1424,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     # Story 4.6: routes a completed TaskLink's `tracker_write` output
                     # route through the same approval gate as any other tracker
                     # write-back (Story 3.4) — see RecipeService._maybe_route_tracker_write.
-                    tracker_write_service = TrackerWriteService(services.approval_service)
+                    tracker_write_service = TrackerWriteService(
+                        services.approval_service,
+                        session_factory=session_factory,
+                    )
                     recipe_service = RecipeService(
                         task_link_repo,
                         project_service,
@@ -1426,7 +1438,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         tracker_link_repo=tracker_link_repo,
                         tracker_write_service=tracker_write_service,
                     )
-                    spawned_jobs = await recipe_service.handle_job_completed(job_id, resolution=resolution)
+                    if event.kind == EventKind.job_completed:
+                        spawned_jobs = await recipe_service.handle_job_completed(job_id, resolution=resolution)
+                    else:
+                        await recipe_service.handle_job_failed(job_id)
+                        spawned_jobs = []
                     # Story 4.6: schedule any tracker-write coroutines built during
                     # handle_job_completed through the module-level _fire_and_forget
                     # helper (whose _ephemeral_tasks set has app-lifetime scope),

@@ -20,6 +20,7 @@ from backend.models.api_schemas import (
     ChatListResponse,
     ChatMessageResponse,
     ChatResponse,
+    ChatTurnResponse,
     CreateChatRequest,
     CreateJobResponse,
     LaunchJobFromChatRequest,
@@ -83,9 +84,10 @@ async def create_chat(
 @router.get("/chats", response_model=ChatListResponse)
 async def list_chats(
     service: FromDishka[ChatService],
+    project_id: str | None = None,
 ) -> ChatListResponse:
     """List all chats."""
-    chats = await service.list_chats()
+    chats = await service.list_chats(project_id=project_id)
     return ChatListResponse(items=[_to_response(c) for c in chats])
 
 
@@ -114,6 +116,46 @@ async def add_chat_message(
         raise HTTPException(status_code=404, detail="Chat not found")
     await session.commit()
     return _message_to_response(message)
+
+
+@router.get("/chats/{chat_id}/messages", response_model=list[ChatMessageResponse])
+async def list_chat_messages(
+    chat_id: str,
+    service: FromDishka[ChatService],
+) -> list[ChatMessageResponse]:
+    """Return the append-only transcript for a Chat."""
+    if await service.get_chat(chat_id) is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    messages = await service.list_messages(chat_id)
+    return [_message_to_response(message) for message in messages]
+
+
+@router.post("/chats/{chat_id}/turns", response_model=ChatTurnResponse)
+async def send_chat_turn(
+    chat_id: str,
+    body: AddChatMessageRequest,
+    service: FromDishka[ChatService],
+    session: FromDishka[AsyncSession],
+) -> ChatTurnResponse:
+    """Persist a user message and return its assistant completion or failure state."""
+    user_message = await service.begin_turn(chat_id, content=body.content)
+    if user_message is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    # The provider may take an arbitrary amount of time or fail. Make the
+    # user's message durable and visible to other sessions before awaiting it.
+    await session.commit()
+    result = await service.complete_turn(chat_id, user_message=user_message)
+    if result.assistant_message is not None:
+        await session.commit()
+    return ChatTurnResponse(
+        user_message=_message_to_response(result.user_message),
+        assistant_message=(
+            _message_to_response(result.assistant_message) if result.assistant_message is not None else None
+        ),
+        state=result.state,
+        error=result.error,
+    )
 
 
 @router.post("/chats/{chat_id}/launch-job", response_model=CreateJobResponse, status_code=201)

@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from backend.models.db import CredentialRow, TrackerLinkRow
 from backend.persistence.repository import BaseRepository
@@ -37,12 +37,22 @@ class CredentialRepository(BaseRepository):
         row = result.scalar_one_or_none()
         return _row_to_dict(row) if row else None
 
-    async def create(self, *, credential_id: str, provider: str, label: str, base_url: str, pat: str) -> dict[str, Any]:
+    async def create(
+        self,
+        *,
+        credential_id: str,
+        provider: str,
+        label: str,
+        base_url: str,
+        pat: str,
+        email: str | None = None,
+    ) -> dict[str, Any]:
         row = CredentialRow(
             id=credential_id,
             provider=provider,
             label=label,
             base_url=base_url,
+            email=email,
             encrypted_secret=encrypt_secret(pat),
             created_at=datetime.now(UTC).isoformat(),
         )
@@ -62,6 +72,18 @@ class CredentialRepository(BaseRepository):
         result = await self._session.execute(delete(CredentialRow).where(CredentialRow.id == credential_id))
         return cast("CursorResult[Any]", result).rowcount > 0
 
+    async def update_email(self, credential_id: str, email: str) -> dict[str, Any] | None:
+        """Update Jira account identity without touching the encrypted token."""
+        result = await self._session.execute(
+            update(CredentialRow)
+            .where(CredentialRow.id == credential_id, CredentialRow.provider == "jira")
+            .values(email=email)
+        )
+        if cast("CursorResult[Any]", result).rowcount == 0:
+            return None
+        await self._session.flush()
+        return await self.get(credential_id)
+
     async def resolve_secret(self, credential_id: str) -> str | None:
         """Decrypt and return the PAT for server-side use only (never for API responses)."""
         result = await self._session.execute(select(CredentialRow).where(CredentialRow.id == credential_id))
@@ -77,5 +99,6 @@ def _row_to_dict(row: CredentialRow) -> dict[str, Any]:
         "provider": row.provider,
         "label": row.label,
         "base_url": row.base_url,
+        "email": row.email,
         "created_at": row.created_at,
     }

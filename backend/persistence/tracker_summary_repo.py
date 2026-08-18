@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 class TrackerSummaryRepository(BaseRepository):
-    async def list_targets(self) -> list[dict[str, str]]:
+    async def list_targets(self) -> list[dict[str, Any]]:
         result = await self._session.execute(
             select(TrackerLinkRow, CredentialRow)
             .join(CredentialRow, CredentialRow.id == TrackerLinkRow.credential_id)
@@ -25,7 +25,7 @@ class TrackerSummaryRepository(BaseRepository):
         )
         return [_target_to_dict(link, credential) for link, credential in result.all()]
 
-    async def get_target(self, *, project_id: str, link_id: str) -> dict[str, str] | None:
+    async def get_target(self, *, project_id: str, link_id: str) -> dict[str, Any] | None:
         result = await self._session.execute(
             select(TrackerLinkRow, CredentialRow)
             .join(CredentialRow, CredentialRow.id == TrackerLinkRow.credential_id)
@@ -33,6 +33,16 @@ class TrackerSummaryRepository(BaseRepository):
                 TrackerLinkRow.id == link_id,
                 TrackerLinkRow.project_id == project_id,
             )
+        )
+        row = result.one_or_none()
+        return _target_to_dict(*row) if row else None
+
+    async def get_target_by_link_id(self, link_id: str) -> dict[str, Any] | None:
+        """Resolve provider and credential context for one explicit TrackerLink."""
+        result = await self._session.execute(
+            select(TrackerLinkRow, CredentialRow)
+            .join(CredentialRow, CredentialRow.id == TrackerLinkRow.credential_id)
+            .where(TrackerLinkRow.id == link_id)
         )
         row = result.one_or_none()
         return _target_to_dict(*row) if row else None
@@ -80,7 +90,7 @@ class TrackerSummaryRepository(BaseRepository):
         return row
 
 
-def _target_to_dict(link: TrackerLinkRow, credential: CredentialRow) -> dict[str, str]:
+def _target_to_dict(link: TrackerLinkRow, credential: CredentialRow) -> dict[str, Any]:
     return {
         "link_id": link.id,
         "project_id": link.project_id,
@@ -88,6 +98,7 @@ def _target_to_dict(link: TrackerLinkRow, credential: CredentialRow) -> dict[str
         "external_ref": link.external_ref,
         "provider": credential.provider,
         "base_url": credential.base_url,
+        "email": credential.email,
     }
 
 

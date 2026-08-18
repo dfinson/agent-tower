@@ -337,6 +337,7 @@ def _make_task_link(**overrides: object):
         story_node_id=None,
         depends_on=[],
         job_id="job-123",
+        tracker_link_id="link-1",
         tracker_ticket_ref="ABC-123",
         prompt_override=None,
         epic_id=None,
@@ -379,17 +380,21 @@ class TestTrackerTool:
 
         with (
             patch("backend.mcp.server.resolve_tracker_for_job", AsyncMock(return_value=resolved)),
-            patch("backend.persistence.credential_repo.CredentialRepository") as mock_cred_cls,
+            patch(
+                "backend.services.tracker_resolution.dispatch_tracker_write",
+                AsyncMock(),
+            ) as dispatch,
         ):
-            mock_cred_cls.return_value.resolve_secret = AsyncMock(return_value="secret-pat")
-
             result = await _tool(mcp_server, "codeplane_tracker")(
                 action="comment", job_id="job-123", value="Ready for review"
             )
 
-        assert result["dispatched"] is True
+        assert result["applied"] is True
+        assert result["state"] == "applied"
         assert result["ticketRef"] == "ABC-123"
+        assert result["trackerLinkId"] == "link-1"
         assert result["action"] == "comment"
+        dispatch.assert_awaited_once()
         mock_approval.create_request.assert_awaited_once()
         _, kwargs = mock_approval.create_request.call_args
         assert kwargs["requires_explicit_approval"] is True
@@ -405,14 +410,50 @@ class TestTrackerTool:
 
         with (
             patch("backend.mcp.server.resolve_tracker_for_job", AsyncMock(return_value=resolved)),
-            patch("backend.persistence.credential_repo.CredentialRepository") as mock_cred_cls,
+            patch(
+                "backend.services.tracker_resolution.dispatch_tracker_write",
+                AsyncMock(),
+            ) as dispatch,
         ):
-            mock_cred_cls.return_value.resolve_secret = AsyncMock(return_value="secret-pat")
-
             result = await _tool(mcp_server, "codeplane_tracker")(action="transition", job_id="job-123", value="Done")
 
-        assert result["dispatched"] is False
-        mock_cred_cls.return_value.resolve_secret.assert_not_called()
+        assert result["applied"] is False
+        assert result["state"] == "rejected"
+        dispatch.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_provider_failure_reports_failed(self, mcp_server, mock_approval) -> None:
+        from backend.models.domain import ApprovalResolution
+        from backend.services.tracker_resolution import ResolvedTracker
+
+        resolved = ResolvedTracker(
+            tracker_link_id="link-1",
+            credential_id="cred-1",
+            ticket_ref="ABC-123",
+        )
+        mock_approval.create_request = AsyncMock(return_value=_make_approval(id="apr-1"))
+        mock_approval.wait_for_resolution = AsyncMock(return_value=ApprovalResolution.approved)
+
+        with (
+            patch(
+                "backend.mcp.server.resolve_tracker_for_job",
+                AsyncMock(return_value=resolved),
+            ),
+            patch(
+                "backend.services.tracker_resolution.dispatch_tracker_write",
+                AsyncMock(side_effect=RuntimeError("provider unavailable")),
+            ) as dispatch,
+        ):
+            result = await _tool(mcp_server, "codeplane_tracker")(
+                action="comment",
+                job_id="job-123",
+                value="Ready for review",
+            )
+
+        assert result["applied"] is False
+        assert result["state"] == "failed"
+        assert result["error"] == "provider unavailable"
+        dispatch.assert_awaited_once()
 
 
 # ── Approval tool ────────────────────────────────────────────────────
@@ -649,55 +690,81 @@ class TestRepoTool:
         assert "error" in result
 
     @pytest.mark.asyncio
-    async def test_register_local(self, mcp_server, tmp_path) -> None:
-        repo_dir = tmp_path / "myrepo"
-        repo_dir.mkdir()
+    async def test_register_requires_project_lifecycle(self, mcp_server) -> None:
         with patch("backend.mcp.server.load_config") as mock_cfg:
             cfg = MagicMock()
             cfg.server.host = "127.0.0.1"
             cfg.server.port = 8080
             mock_cfg.return_value = cfg
 
-            mock_response = MagicMock()
-            mock_response.status_code = 201
-            mock_response.json.return_value = {"path": str(repo_dir), "source": str(repo_dir), "cloned": False}
-
             with patch("httpx.AsyncClient") as mock_client_cls:
                 client = AsyncMock()
-                client.post = AsyncMock(return_value=mock_response)
                 client.__aenter__ = AsyncMock(return_value=client)
                 client.__aexit__ = AsyncMock(return_value=False)
                 mock_client_cls.return_value = client
 
-                result = await _tool(mcp_server, "codeplane_repo")(action="register", source=str(repo_dir))
-                assert result["cloned"] is False
+                result = await _tool(mcp_server, "codeplane_repo")(action="register", source="/test/repo")
+                assert "codeplane_project" in result["error"]
+                client.post.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_remove(self, mcp_server) -> None:
+    async def test_remove_requires_project_lifecycle(self, mcp_server) -> None:
         with patch("backend.mcp.server.load_config") as mock_cfg:
             cfg = MagicMock()
             cfg.server.host = "127.0.0.1"
             cfg.server.port = 8080
             mock_cfg.return_value = cfg
 
-            mock_response = MagicMock()
-            mock_response.status_code = 204
-            mock_response.raise_for_status = MagicMock()
-
             with patch("httpx.AsyncClient") as mock_client_cls:
                 client = AsyncMock()
-                client.delete = AsyncMock(return_value=mock_response)
                 client.__aenter__ = AsyncMock(return_value=client)
                 client.__aexit__ = AsyncMock(return_value=False)
                 mock_client_cls.return_value = client
 
                 result = await _tool(mcp_server, "codeplane_repo")(action="remove", repo_path="/test/repo")
-                assert result["status"] == "removed"
+                assert "codeplane_project" in result["error"]
+                client.delete.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_remove_missing_path(self, mcp_server) -> None:
         result = await _tool(mcp_server, "codeplane_repo")(action="remove", repo_path=None)
-        assert "error" in result
+        assert "codeplane_project" in result["error"]
+
+
+# ── Project tool ─────────────────────────────────────────────────────
+
+
+class TestProjectTool:
+    @pytest.mark.asyncio
+    async def test_update_forwards_repo_removal_confirmation(self, mcp_server) -> None:
+        with patch("backend.mcp.server.load_config") as mock_cfg:
+            cfg = MagicMock()
+            cfg.server.host = "127.0.0.1"
+            cfg.server.port = 8080
+            mock_cfg.return_value = cfg
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = {"id": "proj-1"}
+
+            with patch("httpx.AsyncClient") as mock_client_cls:
+                client = AsyncMock()
+                client.patch = AsyncMock(return_value=response)
+                client.__aenter__ = AsyncMock(return_value=client)
+                client.__aexit__ = AsyncMock(return_value=False)
+                mock_client_cls.return_value = client
+
+                result = await _tool(mcp_server, "codeplane_project")(
+                    action="update",
+                    project_id="proj-1",
+                    repo_paths=["/test/repo"],
+                    confirm_repo_removal=True,
+                )
+
+        assert result == {"id": "proj-1"}
+        client.patch.assert_awaited_once_with(
+            "http://127.0.0.1:8080/api/settings/projects/proj-1",
+            json={"repoPaths": ["/test/repo"], "confirmRepoRemoval": True},
+        )
 
 
 # ── Health tool ──────────────────────────────────────────────────────
@@ -725,6 +792,10 @@ class TestHealthTool:
         with (
             patch("backend.mcp.server.GitService") as mock_git_cls,
             patch("backend.mcp.server.load_config") as mock_cfg,
+            patch(
+                "backend.persistence.project_repo.ProjectRepository.list_all_repo_paths",
+                new=AsyncMock(return_value={"/test/project-only": "proj-1"}),
+            ),
         ):
             cfg = MagicMock()
             cfg.repos = ["/test/repo"]
@@ -734,4 +805,6 @@ class TestHealthTool:
             mock_git_cls.return_value = git
 
             result = await _tool(mcp_server, "codeplane_health")(action="cleanup")
-            assert result["removed"] == 3
+            assert result["removed"] == 6
+            cleaned = {call.args[0] for call in git.cleanup_worktrees.await_args_list}
+            assert cleaned == {"/test/repo", "/test/project-only"}

@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, Navigate } from "react-router-dom";
 import {
-  GitBranch, Globe, Activity, DollarSign, Boxes,
+  Activity, DollarSign, Boxes,
   AlertTriangle, Briefcase, LayoutGrid,
 } from "lucide-react";
 import { toast } from "sonner";
-import { fetchRepoSummary } from "../api/client";
+import { fetchRepoSummary, fetchProject } from "../api/client";
 import type { RepoSummaryResponse } from "../api/client";
+import type { ProjectResponse } from "../api/types";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
 import { pathBasename } from "../lib/paths";
@@ -60,26 +61,88 @@ function timeAgo(dateStr: string): string {
   return `${days}d ago`;
 }
 
+/** Stable Project overview aggregated across every member repository. */
 export function RepoOverview() {
-  const { repoPath } = useParams<{ repoPath: string }>();
-  const decoded = repoPath ? decodeURIComponent(repoPath) : "";
-  const repoName = pathBasename(decoded) || decoded;
+  const { projectId } = useParams<{ projectId: string }>();
 
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<RepoSummaryResponse | null>(null);
+  const [project, setProject] = useState<ProjectResponse | null>(null);
   const [error, setError] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [failedRepoCount, setFailedRepoCount] = useState(0);
 
   useEffect(() => {
-    if (!decoded) return;
+    if (!projectId) return;
     let ignore = false;
     setLoading(true);
     setError(false);
-    fetchRepoSummary(decoded)
-      .then((res) => { if (!ignore) setSummary(res); })
-      .catch(() => { if (!ignore) { setError(true); toast.error("Failed to load repository summary"); } })
-      .finally(() => { if (!ignore) setLoading(false); });
+    setNotFound(false);
+    fetchProject(projectId)
+      .then((proj) => {
+        if (ignore) return;
+        setProject(proj);
+        return Promise.allSettled(proj.repoPaths.map((repoPath) => fetchRepoSummary(repoPath)))
+          .then((results) => {
+            if (ignore) return;
+            const summaries = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+            const failures = results.length - summaries.length;
+            setFailedRepoCount(failures);
+            if (summaries.length === 0) {
+              setError(true);
+              toast.error("Failed to load repository summaries");
+              return;
+            }
+            const health = summaries.flatMap((item) => item.health ? [item.health] : []);
+            setSummary({
+              path: proj.id,
+              originUrl: null,
+              baseBranch: null,
+              currentBranch: null,
+              platform: null,
+              recentJobs: summaries
+                .flatMap((item) => item.recentJobs)
+                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                .slice(0, 10),
+              activeJobCount: summaries.reduce((total, item) => total + item.activeJobCount, 0),
+              cost: {
+                totalCostUsd: summaries.reduce((total, item) => total + item.cost.totalCostUsd, 0),
+                totalJobs: summaries.reduce((total, item) => total + item.cost.totalJobs, 0),
+                totalTokens: summaries.reduce((total, item) => total + item.cost.totalTokens, 0),
+              },
+              health: health.length === 0 ? null : {
+                repo: proj.id,
+                available: health.some((item) => item.available),
+                indexStatus: health.some((item) => item.indexStatus === "error") ? "error" : "ready",
+                symbolCount: health.reduce((total, item) => total + item.symbolCount, 0),
+                fileCount: health.reduce((total, item) => total + item.fileCount, 0),
+                lastIndexedSha: null,
+                communityCount: health.reduce((total, item) => total + item.communityCount, 0),
+                cycleCount: health.reduce((total, item) => total + item.cycleCount, 0),
+                stale: health.some((item) => item.stale),
+              },
+            });
+            if (failures > 0) toast.error(`${failures} repository summaries could not be loaded`);
+          })
+          .finally(() => { if (!ignore) setLoading(false); });
+      })
+      .catch((err: unknown) => {
+        if (ignore) return;
+        const status = (err as { status?: number } | null)?.status;
+        if (status === 404) {
+          setNotFound(true);
+        } else {
+          setError(true);
+          toast.error("Failed to load Project");
+        }
+        setLoading(false);
+      });
     return () => { ignore = true; };
-  }, [decoded]);
+  }, [projectId]);
+
+  if (notFound) {
+    return <Navigate to="/projects" replace />;
+  }
 
   if (loading) {
     return (
@@ -89,10 +152,10 @@ export function RepoOverview() {
     );
   }
 
-  if (error || !summary) {
+  if (error || !project) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
-        <p>{error ? "Failed to load repository" : "Repository not found"}</p>
+        <p>{error ? "Failed to load Project" : "Project not found"}</p>
       </div>
     );
   }
@@ -102,43 +165,39 @@ export function RepoOverview() {
       {/* Header */}
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-foreground">{repoName}</h1>
+          <h1 className="text-xl font-semibold text-foreground">{project.name}</h1>
+          <p className="text-xs text-muted-foreground">{project.repoPaths.length} member repositories</p>
           <Link
-            to={`/repos/${encodeURIComponent(decoded)}/board`}
+            to={`/projects/id/${encodeURIComponent(project.id)}/board`}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0"
           >
             <LayoutGrid size={12} />
             Board
           </Link>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          {summary.originUrl && (
-            <span className="flex items-center gap-1">
-              <Globe size={12} />
-              <span className="truncate max-w-[20rem]">{summary.originUrl}</span>
-            </span>
-          )}
-          {summary.currentBranch && (
-            <span className="flex items-center gap-1">
-              <GitBranch size={12} />
-              {summary.currentBranch}
-            </span>
-          )}
-          {summary.activeJobCount > 0 && (
-            <span className="flex items-center gap-1 text-blue-400">
-              <Activity size={12} />
-              {summary.activeJobCount} active
-            </span>
-          )}
-          {summary.platform && (
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wider">
-              {summary.platform}
-            </span>
-          )}
+        {summary && (
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            {summary.activeJobCount > 0 && (
+              <span className="flex items-center gap-1 text-blue-400">
+                <Activity size={12} />
+                {summary.activeJobCount} active
+              </span>
+            )}
+            {failedRepoCount > 0 && <span className="text-amber-500">{failedRepoCount} unavailable</span>}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-1.5 pt-2">
+          {project.repoPaths.map((path) => (
+            <span key={path} className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-mono">{pathBasename(path) || path}</span>
+          ))}
         </div>
       </div>
 
-      {/* Cards grid */}
+      {!summary ? (
+        <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground text-sm">
+          No member repository available for this Project yet.
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* Recent Jobs */}
@@ -149,7 +208,7 @@ export function RepoOverview() {
               Recent Jobs
             </span>
             <Link
-              to={`/repos/${encodeURIComponent(decoded)}/jobs`}
+              to={`/projects/id/${encodeURIComponent(project.id)}/board`}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               View all →
@@ -199,12 +258,7 @@ export function RepoOverview() {
               <DollarSign size={14} className="text-muted-foreground" />
               Cost (7d)
             </span>
-            <Link
-              to={`/repos/${encodeURIComponent(decoded)}/cost`}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Details →
-            </Link>
+            <span className="text-xs text-muted-foreground">Select a repository above for details</span>
           </div>
           <div className="space-y-2">
             <div className="text-2xl font-bold text-foreground">
@@ -224,12 +278,7 @@ export function RepoOverview() {
               <Boxes size={14} className="text-muted-foreground" />
               Structural Health
             </span>
-            <Link
-              to={`/repos/${encodeURIComponent(decoded)}/health`}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Details →
-            </Link>
+            <span className="text-xs text-muted-foreground">Select a repository above for details</span>
           </div>
           {!summary.health ? (
             <p className="text-xs text-muted-foreground py-3 text-center">
@@ -262,6 +311,7 @@ export function RepoOverview() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

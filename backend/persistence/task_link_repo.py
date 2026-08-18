@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select, update
 
 from backend.models.db import TaskLinkRow
-from backend.models.domain import TaskLink
+from backend.models.domain import TaskLink, TaskLinkState
 from backend.persistence.repository import BaseRepository
 
 
@@ -31,10 +31,14 @@ class TaskLinkRepository(BaseRepository):
             repo_path=row.repo_path,
             story_node_id=row.story_node_id,
             depends_on=json.loads(row.depends_on) if row.depends_on else [],
+            chain_root_id=row.chain_root_id or row.id,
+            state=TaskLinkState(row.state),
             job_id=row.job_id,
+            tracker_link_id=row.tracker_link_id,
             tracker_ticket_ref=row.tracker_ticket_ref,
             prompt_override=row.prompt_override,
             epic_id=row.epic_id,
+            output_routes=json.loads(row.output_routes or "[]"),
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -44,8 +48,10 @@ class TaskLinkRepository(BaseRepository):
         *,
         project_id: str,
         repo_path: str,
+        tracker_link_id: str | None = None,
         tracker_ticket_ref: str,
         prompt_override: str,
+        output_routes: list[str] | None = None,
     ) -> TaskLink:
         """Insert a fresh manually-assigned TaskLink without story backing."""
         now = datetime.now(UTC)
@@ -55,13 +61,18 @@ class TaskLinkRepository(BaseRepository):
             repo_path=repo_path,
             story_node_id=None,
             depends_on="[]",
+            chain_root_id="",
+            state=TaskLinkState.ready,
             job_id=None,
+            tracker_link_id=tracker_link_id,
             tracker_ticket_ref=tracker_ticket_ref,
             prompt_override=prompt_override,
             epic_id=None,
+            output_routes=json.dumps(output_routes or []),
             created_at=now,
             updated_at=now,
         )
+        row.chain_root_id = row.id
         self._session.add(row)
         await self._session.flush()
         return self._to_domain(row)
@@ -87,6 +98,8 @@ class TaskLinkRepository(BaseRepository):
             depends_on = entry.get("depends_on", [])
             raw_epic_id = entry.get("epic_id")
             epic_id = str(raw_epic_id) if raw_epic_id is not None else None
+            raw_output_routes = entry.get("output_routes", [])
+            output_routes = [str(route) for route in raw_output_routes] if isinstance(raw_output_routes, list) else []
 
             stmt = select(TaskLinkRow).where(
                 TaskLinkRow.project_id == project_id,
@@ -103,19 +116,73 @@ class TaskLinkRepository(BaseRepository):
                     repo_path=repo_path,
                     story_node_id=story_node_id,
                     depends_on=json.dumps(depends_on),
+                    chain_root_id="",
+                    state=TaskLinkState.ready if not depends_on else TaskLinkState.waiting,
                     epic_id=epic_id,
+                    output_routes=json.dumps(output_routes),
                     created_at=now,
                     updated_at=now,
                 )
+                row.chain_root_id = row.id
                 self._session.add(row)
             else:
                 row.depends_on = json.dumps(depends_on)
                 row.epic_id = epic_id
+                row.output_routes = json.dumps(output_routes)
+                if row.job_id is None and row.state in {
+                    TaskLinkState.waiting,
+                    TaskLinkState.ready,
+                }:
+                    row.state = TaskLinkState.ready if not depends_on else TaskLinkState.waiting
                 row.updated_at = now
 
             await self._session.flush()
             results.append(self._to_domain(row))
-        return results
+
+        # A chain is the connected component formed by dependency edges. Use
+        # the earliest root node's persisted ID as a stable identity shared by
+        # every branch and successor in that component.
+        all_result = await self._session.execute(select(TaskLinkRow).where(TaskLinkRow.project_id == project_id))
+        all_rows = list(all_result.scalars().all())
+        by_key = {f"{row.repo_path}::{row.story_node_id}": row for row in all_rows if row.story_node_id is not None}
+        adjacency: dict[str, set[str]] = {row.id: set() for row in all_rows}
+        by_id = {row.id: row for row in all_rows}
+        for row in all_rows:
+            for dep_key in json.loads(row.depends_on or "[]"):
+                dependency = by_key.get(dep_key)
+                if dependency is not None:
+                    adjacency[row.id].add(dependency.id)
+                    adjacency[dependency.id].add(row.id)
+
+        visited: set[str] = set()
+        for row in all_rows:
+            if row.id in visited:
+                continue
+            stack = [row.id]
+            component: list[TaskLinkRow] = []
+            while stack:
+                current_id = stack.pop()
+                if current_id in visited:
+                    continue
+                visited.add(current_id)
+                component.append(by_id[current_id])
+                stack.extend(adjacency[current_id] - visited)
+            component_ids = {item.id for item in component}
+            roots = [
+                item
+                for item in component
+                if not any(
+                    (dependency := by_key.get(dep_key)) is not None and dependency.id in component_ids
+                    for dep_key in json.loads(item.depends_on or "[]")
+                )
+            ]
+            chain_root_id = min(item.id for item in roots or component)
+            for item in component:
+                item.chain_root_id = chain_root_id
+        await self._session.flush()
+
+        refreshed_by_id = {row.id: self._to_domain(row) for row in all_rows}
+        return [refreshed_by_id[result.id] for result in results]
 
     async def list_by_project(self, project_id: str) -> list[TaskLink]:
         """List every TaskLink for a Project, ordered by creation time."""
@@ -160,3 +227,76 @@ class TaskLinkRepository(BaseRepository):
         fetched = await self._session.execute(fetch_stmt)
         row = fetched.scalar_one_or_none()
         return self._to_domain(row) if row is not None else None
+
+    async def claim_ready(self, task_link_id: str) -> TaskLink | None:
+        """Atomically claim a ready, unlinked TaskLink before creating its Job."""
+        stmt = (
+            update(TaskLinkRow)
+            .where(
+                TaskLinkRow.id == task_link_id,
+                TaskLinkRow.state == TaskLinkState.ready,
+                TaskLinkRow.job_id.is_(None),
+            )
+            .values(state=TaskLinkState.starting, updated_at=datetime.now(UTC))
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        if result.rowcount == 0:  # type: ignore[attr-defined]
+            return None
+        return await self.get(task_link_id)
+
+    async def claim_ready_and_commit(self, task_link_id: str) -> TaskLink | None:
+        """Persist a short atomic claim before any Git-backed Job preparation."""
+        claimed = await self.claim_ready(task_link_id)
+        await self._session.commit()
+        return claimed
+
+    async def recover_start_claim(self, task_link_id: str) -> TaskLink | None:
+        """Discard a failed Job insert and make this caller's start claim retryable."""
+        await self._session.rollback()
+        stmt = (
+            update(TaskLinkRow)
+            .where(
+                TaskLinkRow.id == task_link_id,
+                TaskLinkRow.state == TaskLinkState.starting,
+                TaskLinkRow.job_id.is_(None),
+            )
+            .values(state=TaskLinkState.ready, updated_at=datetime.now(UTC))
+        )
+        await self._session.execute(stmt)
+        await self._session.commit()
+        return await self.get(task_link_id)
+
+    async def attach_claimed_job(
+        self,
+        task_link_id: str,
+        job_id: str,
+        *,
+        state: TaskLinkState = TaskLinkState.running,
+    ) -> TaskLink | None:
+        """Attach a Job only to the caller's already-claimed TaskLink."""
+        stmt = (
+            update(TaskLinkRow)
+            .where(
+                TaskLinkRow.id == task_link_id,
+                TaskLinkRow.state == TaskLinkState.starting,
+                TaskLinkRow.job_id.is_(None),
+            )
+            .values(job_id=job_id, state=state, updated_at=datetime.now(UTC))
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        if result.rowcount == 0:  # type: ignore[attr-defined]
+            return None
+        return await self.get(task_link_id)
+
+    async def set_state(self, task_link_id: str, state: TaskLinkState) -> TaskLink | None:
+        """Persist one explicit TaskLink lifecycle transition."""
+        stmt = (
+            update(TaskLinkRow).where(TaskLinkRow.id == task_link_id).values(state=state, updated_at=datetime.now(UTC))
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        if result.rowcount == 0:  # type: ignore[attr-defined]
+            return None
+        return await self.get(task_link_id)

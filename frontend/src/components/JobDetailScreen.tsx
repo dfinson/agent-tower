@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component, type ReactNode } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, PanelLeftClose } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
 import { formatJobTerminalLabel } from "../lib/terminalLabels";
-import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot } from "../api/client";
+import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot, fetchProjects, fetchProjectTaskLinks } from "../api/client";
 import { CuratedFeed } from "./CuratedFeed";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { lazyRetry } from "../lib/lazyRetry";
@@ -24,6 +24,8 @@ import { ActivityPanel } from "./ActivityPanel";
 import { ViewTabBar } from "./ViewTabBar";
 import { StructuralWarningBanner } from "./StructuralWarningBanner";
 import { mergeTranscriptEntries } from "../lib/transcriptIdentity";
+import type { ProjectResponse, TaskLinkResponse } from "../api/types";
+import { pathBasename } from "../lib/paths";
 
 import { JobHeaderCard } from "./JobHeaderCard";
 import { MobileBottomNav, MobileFooterActions } from "./JobDetailMobile";
@@ -82,6 +84,8 @@ export function JobDetailScreen() {
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
   const [searchActive, setSearchActive] = useState(false);
   const [visibleTurnId, setVisibleTurnId] = useState<string | null>(null);
+  const [owningProject, setOwningProject] = useState<ProjectResponse | null>(null);
+  const [taskLink, setTaskLink] = useState<TaskLinkResponse | null>(null);
   // Reset selectedTurnId when navigating to a different job
   useEffect(() => { setSelectedTurnId(null); setSearchActive(false); setVisibleTurnId(null); }, [jobId]);
   // Update document title to show job identity in browser tabs
@@ -100,6 +104,39 @@ export function JobDetailScreen() {
   const hasArtifacts = true;
   const [artifactCount, setArtifactCount] = useState(0);
   const artifactVersion = useStore((s) => jobId ? (s.artifactVersions[jobId] ?? 0) : 0);
+  const projectBoardUrl = owningProject
+    ? `/projects/id/${encodeURIComponent(owningProject.id)}/board`
+    : "/projects";
+
+  useEffect(() => {
+    if (!job?.repo) {
+      setOwningProject(null);
+      return;
+    }
+    let ignore = false;
+    fetchProjects()
+      .then((response) => {
+        if (!ignore) {
+          setOwningProject(response.items.find((project) => project.repoPaths.includes(job.repo)) ?? null);
+        }
+      })
+      .catch(() => { if (!ignore) setOwningProject(null); });
+    return () => { ignore = true; };
+  }, [job?.repo]);
+
+  useEffect(() => {
+    if (!owningProject || !jobId) {
+      setTaskLink(null);
+      return;
+    }
+    let ignore = false;
+    fetchProjectTaskLinks(owningProject.id)
+      .then((response) => {
+        if (!ignore) setTaskLink(response.items.find((item) => item.jobId === jobId) ?? null);
+      })
+      .catch(() => { if (!ignore) setTaskLink(null); });
+    return () => { ignore = true; };
+  }, [jobId, owningProject]);
 
   // Map a transcript turnId to the nearest activity-timeline step turnId.
   // Many transcript turns have no corresponding step in the activity timeline;
@@ -371,9 +408,9 @@ export function JobDetailScreen() {
         jobs: { ...s.jobs, [updated.id]: { ...updated, archivedAt: new Date().toISOString() } },
       }));
       toast.success("Job canceled and cleaned up");
-      navigate("/");
+      navigate(projectBoardUrl);
     } catch (e) { toast.error(String(e)); }
-  }, [jobId, navigate]);
+  }, [jobId, navigate, projectBoardUrl]);
 
   const handleResume = useCallback(async () => {
     if (!jobId) return;
@@ -416,9 +453,9 @@ export function JobDetailScreen() {
         return { jobs: { ...s.jobs, [jobId]: { ...existing, resolution: "discarded", archivedAt: new Date().toISOString() } } };
       });
       toast.success(toastMsg);
-      navigate("/");
+      navigate(projectBoardUrl);
     } catch (e) { toast.error(String(e)); }
-  }, [jobId, navigate]);
+  }, [jobId, navigate, projectBoardUrl]);
 
   const handleResolve = useCallback(async (action: "merge" | "smart_merge" | "create_pr" | "agent_merge", opts?: { confirmLowConfidence?: boolean }) => {
     if (!jobId) return;
@@ -508,9 +545,9 @@ export function JobDetailScreen() {
     return (
       <div className="flex flex-col items-center gap-3 py-16">
         <p className="text-muted-foreground">Job not found</p>
-        <Button variant="ghost" onClick={() => navigate("/")}>
+        <Button variant="ghost" onClick={() => navigate("/projects")}>
           <ArrowLeft size={16} />
-          Back to Dashboard
+          Back to Projects
         </Button>
       </div>
     );
@@ -538,12 +575,44 @@ export function JobDetailScreen() {
 
   return (
     <div className="px-0 md:flex md:flex-col md:h-full md:min-h-0 md:pb-2">
+      <nav className="hidden md:flex items-center gap-1.5 px-4 py-2 text-xs text-muted-foreground" aria-label="Breadcrumb">
+        {owningProject ? (
+          <>
+            <Link to={projectBoardUrl} className="hover:text-foreground">{owningProject.name}</Link>
+            <span>/</span>
+            <Link
+              to={`/projects/id/${encodeURIComponent(owningProject.id)}/repos/${encodeURIComponent(job.repo)}/jobs`}
+              className="hover:text-foreground"
+            >
+              {pathBasename(job.repo) || job.repo}
+            </Link>
+            <span>/</span>
+            {taskLink && (
+              <>
+                <Link
+                  to={`/projects/id/${encodeURIComponent(owningProject.id)}/board/task/${encodeURIComponent(taskLink.id)}`}
+                  className="hover:text-foreground"
+                >
+                  {taskLink.storyNodeId || taskLink.trackerTicketRef || "Task"}
+                </Link>
+                <span>/</span>
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            <Link to="/projects" className="hover:text-foreground">Projects</Link>
+            <span>/</span>
+          </>
+        )}
+        <span className="truncate text-foreground">{job.title || job.id}</span>
+      </nav>
       {/* ── Collapsible job header card (all viewports) ── */}
       <JobHeaderCard
         job={job}
         isPreparing={isPreparing}
         hasMergeConflict={hasMergeConflict}
-        onNavigateHome={() => navigate("/")}
+        onNavigateHome={() => navigate(projectBoardUrl)}
         onCostClick={() => handleTabChange("metrics")}
         actionProps={{
           canCancel,
@@ -579,7 +648,7 @@ export function JobDetailScreen() {
       />
 
       {completeOpen && job && (
-        <CompleteJobDialog job={job} open onClose={() => setCompleteOpen(false)} onArchived={() => navigate("/")} />
+        <CompleteJobDialog job={job} open onClose={() => setCompleteOpen(false)} onArchived={() => navigate(projectBoardUrl)} />
       )}
 
       {/* Tab content — activity sidebar is scoped to Live tab only */}

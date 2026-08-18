@@ -6,10 +6,10 @@ import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from backend.models.db import JobRow, ProjectRow
-from backend.models.domain import Project
+from backend.models.db import JobRow, ProjectRow, TaskLinkRow, TrackerLinkRow
+from backend.models.domain import Project, ProjectMembershipImpact
 from backend.persistence.repository import BaseRepository
 
 if TYPE_CHECKING:
@@ -73,6 +73,13 @@ class ProjectRepository(BaseRepository):
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]
 
+    async def find_by_repo_path(self, repo_path: str) -> Project | None:
+        """Return the Project that owns ``repo_path``, if any."""
+        for project in await self.list():
+            if repo_path in project.repo_paths:
+                return project
+        return None
+
     async def list_all_repo_paths(self, exclude_project_id: str | None = None) -> dict[str, str]:
         """Return a mapping of ``repo_path -> project_id`` across all Projects.
 
@@ -110,6 +117,40 @@ class ProjectRepository(BaseRepository):
         row.updated_at = datetime.now(UTC)
         await self._session.flush()
         return self._to_domain(row)
+
+    async def membership_impact(
+        self,
+        project_id: str,
+        removed_repo_paths: builtins.list[str],
+    ) -> ProjectMembershipImpact:
+        """Count work that would be affected by removing member repositories."""
+        if not removed_repo_paths:
+            return ProjectMembershipImpact()
+
+        active_states = ("preparing", "queued", "running", "waiting_for_approval", "review")
+        active_jobs = await self._session.scalar(
+            select(func.count())
+            .select_from(JobRow)
+            .where(JobRow.repo.in_(removed_repo_paths), JobRow.state.in_(active_states))
+        )
+        all_jobs = await self._session.scalar(
+            select(func.count()).select_from(JobRow).where(JobRow.repo.in_(removed_repo_paths))
+        )
+        task_links = await self._session.scalar(
+            select(func.count())
+            .select_from(TaskLinkRow)
+            .where(TaskLinkRow.project_id == project_id, TaskLinkRow.repo_path.in_(removed_repo_paths))
+        )
+        tracker_links = await self._session.scalar(
+            select(func.count()).select_from(TrackerLinkRow).where(TrackerLinkRow.project_id == project_id)
+        )
+        active_count = int(active_jobs or 0)
+        return ProjectMembershipImpact(
+            active_job_count=active_count,
+            historical_job_count=max(0, int(all_jobs or 0) - active_count),
+            task_link_count=int(task_links or 0),
+            tracker_link_count=int(tracker_links or 0),
+        )
 
     async def job_counts_by_repo(self, repo_paths: builtins.list[str]) -> dict[str, RepoJobCounts]:
         """Bucket job status counts + last-activity per repo path, in a single query.

@@ -109,6 +109,22 @@ export async function setupBaseMocks(page: Page, jobs: unknown[] = []) {
       contentType: "application/json",
       body: JSON.stringify({ items: ["/tmp/test-repo"] }),
     });
+
+    await page.route("**/api/settings/projects", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [{
+            id: "project-1",
+            name: "Test Project",
+            repoPaths: ["/tmp/test-repo"],
+            createdAt: NOW,
+            updatedAt: NOW,
+          }],
+        }),
+      });
+    });
   });
 
   await page.route("**/api/sdks", async (route) => {

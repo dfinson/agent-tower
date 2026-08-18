@@ -244,7 +244,10 @@ class ClaudeSessionStateWatcher(TraceForgeIngestBase):
     async def _discovery_loop(self) -> None:
         while self._running:
             try:
-                for session_id, jsonl_path, repo_path in await asyncio.to_thread(self._scan_for_new_sessions):
+                managed_paths = await self._managed_repo_paths()
+                for session_id, jsonl_path, repo_path in await asyncio.to_thread(
+                    self._scan_for_new_sessions, managed_paths
+                ):
                     if session_id in self._tracked_sessions:
                         continue
                     self._tracked_sessions.add(session_id)
@@ -255,11 +258,19 @@ class ClaudeSessionStateWatcher(TraceForgeIngestBase):
                 log.debug("claude_watcher_discovery_error", exc_info=True)
             await asyncio.sleep(_DISCOVERY_POLL_S)
 
-    def _scan_for_new_sessions(self) -> list[tuple[str, Path, str]]:
-        if not _CLAUDE_PROJECTS_DIR.exists() or not self._config.repos:
+    async def _managed_repo_paths(self) -> list[str]:
+        from backend.services.project.repo_membership import (
+            list_managed_repo_paths_from_factory,
+        )
+
+        return await list_managed_repo_paths_from_factory(self._config, self._session_factory)
+
+    def _scan_for_new_sessions(self, managed_repo_paths: list[str] | None = None) -> list[tuple[str, Path, str]]:
+        repo_paths = self._config.repos if managed_repo_paths is None else managed_repo_paths
+        if not _CLAUDE_PROJECTS_DIR.exists() or not repo_paths:
             return []
         results: list[tuple[str, Path, str]] = []
-        for repo_path in set(self._config.repos):
+        for repo_path in set(repo_paths):
             project_dir = _CLAUDE_PROJECTS_DIR / _encode_cwd(repo_path)
             if not project_dir.is_dir():
                 continue

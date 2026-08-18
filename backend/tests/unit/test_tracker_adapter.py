@@ -35,6 +35,7 @@ async def test_github_projects_normalizes_issue_and_draft_items() -> None:
                                             "number": 12,
                                             "title": "Fix checkout",
                                             "url": "https://github.com/acme/shop/issues/12",
+                                            "repository": {"nameWithOwner": "acme/shop"},
                                         },
                                         "status": {"name": "In progress"},
                                     },
@@ -61,7 +62,7 @@ async def test_github_projects_normalizes_issue_and_draft_items() -> None:
 
     assert tickets == [
         TrackerTicket(
-            id="12",
+            id="acme/shop#12",
             title="Fix checkout",
             status="In progress",
             url="https://github.com/acme/shop/issues/12",
@@ -85,7 +86,7 @@ async def test_github_projects_rejects_invalid_external_ref() -> None:
 async def test_jira_normalizes_issue_search_response() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/rest/api/3/search/jql"
-        assert request.headers["authorization"] == "Bearer secret"
+        assert request.headers["authorization"] == "Basic ZGV2QGFjbWUudGVzdDpzZWNyZXQ="
         assert 'project = "PAY"' in request.url.params["jql"]
         return httpx.Response(
             200,
@@ -107,6 +108,7 @@ async def test_jira_normalizes_issue_search_response() -> None:
             base_url="https://acme.atlassian.net/",
             external_ref="PAY",
             token="secret",
+            email="dev@acme.test",
         )
 
     assert tickets == [
@@ -170,6 +172,85 @@ async def test_adapter_wraps_http_errors_without_exposing_token() -> None:
                 base_url="https://acme.atlassian.net",
                 external_ref="PAY",
                 token="secret",
+                email="dev@acme.test",
             )
 
     assert "secret" not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_github_comment_performs_one_provider_write() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(201, json={"id": 1})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await GitHubProjectsTrackerAdapter(client).write(
+            base_url="https://api.github.com",
+            external_ref="acme/7",
+            token="secret",
+            ticket_ref="acme/shop#42",
+            action="comment",
+            value="Ready for review",
+        )
+
+    assert len(requests) == 1
+    assert requests[0].method == "POST"
+    assert requests[0].url.path == "/repos/acme/shop/issues/42/comments"
+    assert requests[0].headers["authorization"] == "Bearer secret"
+    assert json.loads(requests[0].content) == {"body": "Ready for review"}
+
+
+@pytest.mark.asyncio
+async def test_jira_transition_reads_options_then_performs_one_write() -> None:
+    methods: list[str] = []
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        methods.append(request.method)
+        requests.append(request)
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={"transitions": [{"id": "31", "name": "Done"}]},
+            )
+        return httpx.Response(204)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await JiraTrackerAdapter(client).write(
+            base_url="https://acme.atlassian.net",
+            external_ref="PAY",
+            token="secret",
+            ticket_ref="PAY-42",
+            action="transition",
+            value="Done",
+            email="dev@acme.test",
+        )
+
+    assert methods == ["GET", "POST"]
+    assert all(request.headers["authorization"] == "Basic ZGV2QGFjbWUudGVzdDpzZWNyZXQ=" for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_azure_transition_performs_one_provider_write() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await AzureDevOpsTrackerAdapter(client).write(
+            base_url="https://dev.azure.com/acme",
+            external_ref="Payments",
+            token="secret",
+            ticket_ref="42",
+            action="transition",
+            value="Closed",
+        )
+
+    assert len(requests) == 1
+    assert requests[0].method == "PATCH"
+    assert json.loads(requests[0].content) == [{"op": "add", "path": "/fields/System.State", "value": "Closed"}]

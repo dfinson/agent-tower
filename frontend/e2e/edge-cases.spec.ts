@@ -184,7 +184,7 @@ test.describe("SSE Connection Resilience", () => {
     await page.goto("/");
 
     // Dashboard should still render despite SSE failure
-    await expect(page.getByRole("heading", { name: "Jobs" })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible({ timeout: 5_000 });
   });
 });
 

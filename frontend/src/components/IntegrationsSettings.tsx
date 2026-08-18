@@ -6,6 +6,7 @@ import {
   fetchCredentialGuidance,
   createCredential,
   deleteCredential,
+  updateJiraCredentialEmail,
 } from "../api/client";
 import type { Credential, CredentialProvider } from "../api/client";
 import { Button } from "./ui/button";
@@ -37,10 +38,13 @@ export function IntegrationsSettings() {
   const [provider, setProvider] = useState<CredentialProvider>("github");
   const [label, setLabel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [email, setEmail] = useState("");
   const [pat, setPat] = useState("");
   const [creating, setCreating] = useState(false);
 
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [remediationEmails, setRemediationEmails] = useState<Record<string, string>>({});
+  const [remediatingId, setRemediatingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,15 +64,22 @@ export function IntegrationsSettings() {
   }, [load]);
 
   const handleCreate = async () => {
-    if (!label.trim() || !baseUrl.trim() || !pat.trim()) {
-      toast.error("Provider, label, base URL, and PAT are all required.");
+    if (!label.trim() || !baseUrl.trim() || !pat.trim() || (provider === "jira" && !email.trim())) {
+      toast.error("Provider, label, base URL, token, and Jira account email (for Jira) are required.");
       return;
     }
     setCreating(true);
     try {
-      await createCredential({ provider, label: label.trim(), baseUrl: baseUrl.trim(), pat: pat.trim() });
+      await createCredential({
+        provider,
+        label: label.trim(),
+        baseUrl: baseUrl.trim(),
+        pat: pat.trim(),
+        email: provider === "jira" ? email.trim() : null,
+      });
       setLabel("");
       setBaseUrl("");
+      setEmail("");
       setPat("");
       toast.success("Credential registered.");
       await load();
@@ -87,6 +98,29 @@ export function IntegrationsSettings() {
     } catch (e) {
       // Delete is blocked (409) while any TrackerLink still references this Credential.
       toast.error(String(e));
+    }
+  };
+
+  const handleJiraRemediation = async (credential: Credential) => {
+    const remediationEmail = remediationEmails[credential.id]?.trim() ?? "";
+    if (!remediationEmail) {
+      toast.error("Enter the Jira account email used to create this API token.");
+      return;
+    }
+    setRemediatingId(credential.id);
+    try {
+      const updated = await updateJiraCredentialEmail(credential.id, remediationEmail);
+      setCredentials((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setRemediationEmails((current) => {
+        const next = { ...current };
+        delete next[credential.id];
+        return next;
+      });
+      toast.success("Jira credential updated.");
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setRemediatingId(null);
     }
   };
 
@@ -119,23 +153,51 @@ export function IntegrationsSettings() {
         {credentials.map((cred) => (
           <div
             key={cred.id}
-            className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-xs"
+            className="rounded-md border border-border px-3 py-2 text-xs"
           >
-            <div>
-              <span className="font-medium">{cred.label}</span>
-              <span className="text-muted-foreground ml-2 capitalize">
-                {cred.provider.replace("_", " ")}
-              </span>
-              <p className="text-muted-foreground">{cred.baseUrl}</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="font-medium">{cred.label}</span>
+                <span className="text-muted-foreground ml-2 capitalize">
+                  {cred.provider.replace("_", " ")}
+                </span>
+                <p className="text-muted-foreground">{cred.baseUrl}</p>
+                {cred.email && <p className="text-muted-foreground">{cred.email}</p>}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Delete ${cred.label}`}
+                onClick={() => setPendingDeleteId(cred.id)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={`Delete ${cred.label}`}
-              onClick={() => setPendingDeleteId(cred.id)}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            {cred.requiresEmailUpdate && (
+              <div role="alert" className="mt-2 space-y-2 rounded border border-amber-500/40 bg-amber-500/5 p-2">
+                <p>Action required: add the Jira account email before this credential can authenticate.</p>
+                <div className="flex gap-2">
+                  <Input
+                    type="email"
+                    aria-label={`Jira account email for ${cred.label}`}
+                    value={remediationEmails[cred.id] ?? ""}
+                    onChange={(event) => setRemediationEmails((current) => ({
+                      ...current,
+                      [cred.id]: event.target.value,
+                    }))}
+                    placeholder="you@example.com"
+                  />
+                  <Button
+                    size="sm"
+                    disabled={remediatingId === cred.id}
+                    onClick={() => void handleJiraRemediation(cred)}
+                  >
+                    {remediatingId === cred.id ? "Updating…" : "Update email"}
+                  </Button>
+                </div>
+                <p className="text-muted-foreground">The existing encrypted API token is retained and never displayed.</p>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -180,6 +242,18 @@ export function IntegrationsSettings() {
             placeholder="https://api.github.com"
           />
         </div>
+        {provider === "jira" && (
+          <div className="space-y-1.5">
+            <Label htmlFor="credential-email">Jira account email</Label>
+            <Input
+              id="credential-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+            />
+          </div>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor="credential-pat">Personal Access Token</Label>
           <Input

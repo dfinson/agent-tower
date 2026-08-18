@@ -14,7 +14,7 @@ from typing import Any
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
-from pydantic import Field
+from pydantic import Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.models.schemas.base import CamelModel
@@ -54,6 +54,8 @@ class CredentialResponse(CamelModel):
     provider: str
     label: str
     base_url: str
+    email: str | None
+    requires_email_update: bool
     created_at: str
 
 
@@ -66,6 +68,28 @@ class CreateCredentialRequest(CamelModel):
     label: str = Field(min_length=1)
     base_url: str = Field(min_length=1)
     pat: str = Field(min_length=1)
+    email: str | None = None
+
+    @model_validator(mode="after")
+    def validate_jira_email(self) -> CreateCredentialRequest:
+        if self.email is not None:
+            self.email = self.email.strip() or None
+        if self.provider == "jira" and (
+            self.email is None or "@" not in self.email or self.email.startswith("@") or self.email.endswith("@")
+        ):
+            raise ValueError("Jira credentials require the account email used to create the API token")
+        return self
+
+
+class UpdateJiraCredentialRequest(CamelModel):
+    email: str = Field(min_length=3)
+
+    @model_validator(mode="after")
+    def validate_email(self) -> UpdateJiraCredentialRequest:
+        self.email = self.email.strip()
+        if "@" not in self.email or self.email.startswith("@") or self.email.endswith("@"):
+            raise ValueError("Enter the Jira account email used to create the API token")
+        return self
 
 
 class ProviderGuidanceResponse(CamelModel):
@@ -73,7 +97,10 @@ class ProviderGuidanceResponse(CamelModel):
 
 
 def _to_response(data: dict[str, Any]) -> CredentialResponse:
-    return CredentialResponse(**data)
+    return CredentialResponse(
+        **data,
+        requires_email_update=data["provider"] == "jira" and not data["email"],
+    )
 
 
 @router.get("", response_model=CredentialListResponse)
@@ -104,6 +131,7 @@ async def create_credential(
             label=body.label,
             base_url=body.base_url,
             pat=body.pat,
+            email=body.email,
         )
         await session.commit()
     # Never log the PAT itself — only non-secret identifying fields (NFR1).
@@ -126,3 +154,24 @@ async def delete_credential(
             raise HTTPException(status_code=404, detail="Credential not found")
         await session.commit()
     log.info("credential.deleted", credential_id=credential_id)
+
+
+@router.patch("/{credential_id}/jira-email", response_model=CredentialResponse)
+async def update_jira_credential_email(
+    credential_id: str,
+    body: UpdateJiraCredentialRequest,
+    sf: FromDishka[async_sessionmaker[AsyncSession]],
+) -> CredentialResponse:
+    """Remediate a legacy Jira credential without reading or replacing its token."""
+    async with sf() as session:
+        repo = CredentialRepository(session)
+        credential = await repo.get(credential_id)
+        if credential is None:
+            raise HTTPException(status_code=404, detail="Credential not found")
+        if credential["provider"] != "jira":
+            raise HTTPException(status_code=409, detail="Only Jira credentials have an account email")
+        updated = await repo.update_email(credential_id, body.email)
+        await session.commit()
+    assert updated is not None
+    log.info("credential.jira_email_updated", credential_id=credential_id)
+    return _to_response(updated)

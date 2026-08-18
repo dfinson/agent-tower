@@ -4,7 +4,13 @@ stepsCompleted: [1, 2, 3, 4, 5]
 
 # Implementation Readiness Assessment Report
 
-**Date:** 2026-08-10
+> **Superseded by the 2026-08-17 design revision.** This historical assessment
+> predates the stable Project-ID routing decision and the implementation/UX audit.
+> Its "READY" conclusion must not be used as evidence that the current design is
+> internally consistent. The canonical contract is the revised SPEC, UI flows, and
+> Architecture Spine.
+
+**Date:** 2026-08-10 (historical)
 **Project:** codeplane
 
 ## Document Inventory
@@ -174,7 +180,7 @@ Brownfield project (existing CodePlane codebase) — no starter-template require
 
 ### Overall Readiness Status
 
-**READY**
+**SUPERSEDED — REASSESS AFTER DESIGN REVISION**
 
 ### Critical Issues Requiring Immediate Action
 
@@ -191,7 +197,6 @@ None. Zero critical or major violations across document discovery, FR/NFR extrac
 This assessment found 1 issue (a Minor Concern, non-blocking) across 4 validation categories (document discovery, FR/NFR coverage, UX alignment, epic quality). All 14 FRs and 9 NFRs trace to specific stories with testable acceptance criteria; no epic requires a later epic to function; no technical-milestone epics exist; database/entity creation is deferred to first need throughout. The spec/architecture/UX/epics artifact set is ready for implementation as-is; the one Minor Concern may be fixed opportunistically but does not block starting Epic 2.
 
 **Assessed:** 2026-08-10, via `bmad-check-implementation-readiness` steps 1-6, against `_bmad-output/specs/spec-project-boards/SPEC.md`, `_bmad-output/planning-artifacts/architecture/architecture-codeplane-2026-08-10/ARCHITECTURE-SPINE.md`, `_bmad-output/specs/spec-project-boards/ui-flows.md`, and `_bmad-output/planning-artifacts/epics.md`.
-
 
 
 

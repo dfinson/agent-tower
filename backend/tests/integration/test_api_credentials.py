@@ -89,7 +89,7 @@ class TestProviderGuidance:
         """Story 3.5 AC3/NFR3: the create-Credential schema is PAT-only."""
         field_names = set(CreateCredentialRequest.model_fields)
         assert not any("oauth" in name.lower() for name in field_names)
-        assert field_names == {"provider", "label", "base_url", "pat"}
+        assert field_names == {"provider", "label", "base_url", "pat", "email"}
 
 
 class TestCreateCredential:
@@ -120,13 +120,34 @@ class TestCreateCredential:
     async def test_created_credential_appears_in_list(self, client: AsyncClient) -> None:
         await client.post(
             "/api/settings/credentials",
-            json={"provider": "jira", "label": "Jira", "baseUrl": "https://x.atlassian.net", "pat": "tok"},
+            json={
+                "provider": "jira",
+                "label": "Jira",
+                "baseUrl": "https://x.atlassian.net",
+                "pat": "tok",
+                "email": "dev@example.com",
+            },
         )
         resp = await client.get("/api/settings/credentials")
         creds = resp.json()["credentials"]
         assert len(creds) == 1
         assert creds[0]["provider"] == "jira"
+        assert creds[0]["email"] == "dev@example.com"
         assert "pat" not in creds[0]
+
+    @pytest.mark.asyncio
+    async def test_jira_requires_account_email(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/api/settings/credentials",
+            json={
+                "provider": "jira",
+                "label": "Jira",
+                "baseUrl": "https://x.atlassian.net",
+                "pat": "tok",
+            },
+        )
+
+        assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_rejects_unknown_provider(self, client: AsyncClient) -> None:
@@ -135,6 +156,69 @@ class TestCreateCredential:
             json={"provider": "bitbucket", "label": "x", "baseUrl": "https://x", "pat": "p"},
         )
         assert resp.status_code == 422
+
+
+class TestRemediateLegacyJiraCredential:
+    @pytest.mark.asyncio
+    async def test_lists_remediation_and_updates_email_without_replacing_token(
+        self, client: AsyncClient, session_factory: object
+    ) -> None:
+        from backend.persistence.credential_repo import CredentialRepository
+
+        async with session_factory() as session:  # type: ignore[operator]
+            repo = CredentialRepository(session)
+            await repo.create(
+                credential_id="legacy-jira",
+                provider="jira",
+                label="Legacy Jira",
+                base_url="https://x.atlassian.net",
+                pat="existing-token",
+                email=None,
+            )
+            await session.commit()
+
+        listed = (await client.get("/api/settings/credentials")).json()["credentials"]
+        assert listed[0]["requiresEmailUpdate"] is True
+        assert listed[0]["email"] is None
+        assert "pat" not in listed[0]
+
+        updated = await client.patch(
+            "/api/settings/credentials/legacy-jira/jira-email",
+            json={"email": "dev@example.com"},
+        )
+
+        assert updated.status_code == 200
+        assert updated.json()["email"] == "dev@example.com"
+        assert updated.json()["requiresEmailUpdate"] is False
+        assert "pat" not in updated.json()
+        async with session_factory() as session:  # type: ignore[operator]
+            assert await CredentialRepository(session).resolve_secret("legacy-jira") == "existing-token"
+
+    @pytest.mark.asyncio
+    async def test_remediation_rejects_non_jira_and_invalid_email(self, client: AsyncClient) -> None:
+        created = (
+            await client.post(
+                "/api/settings/credentials",
+                json={
+                    "provider": "github",
+                    "label": "GitHub",
+                    "baseUrl": "https://api.github.com",
+                    "pat": "token",
+                },
+            )
+        ).json()
+
+        non_jira = await client.patch(
+            f"/api/settings/credentials/{created['id']}/jira-email",
+            json={"email": "dev@example.com"},
+        )
+        invalid = await client.patch(
+            "/api/settings/credentials/missing/jira-email",
+            json={"email": "not-an-email"},
+        )
+
+        assert non_jira.status_code == 409
+        assert invalid.status_code == 422
 
     @pytest.mark.asyncio
     async def test_rejects_empty_pat(self, client: AsyncClient) -> None:

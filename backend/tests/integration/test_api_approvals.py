@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from httpx import AsyncClient
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from backend.models.domain import Job
     from backend.services.job.approval_service import ApprovalService
 
     from .conftest import SeedJobFn
@@ -249,6 +250,17 @@ class TestResolveApproval:
         )
 
         monkeypatch.setattr("backend.services.job.job_service.load_config", lambda: CPLConfig(repos=[repo_path]))
+        runtime_started = asyncio.Event()
+        persisted_at_runtime_start: dict[str, bool] = {}
+
+        async def observe_persisted_spawn(job: Job) -> None:
+            async with session_factory() as session:
+                persisted_at_runtime_start["job"] = await session.get(JobRow, job.id) is not None
+                linked = await TaskLinkRepository(session).get(dependent_link.id)
+                persisted_at_runtime_start["task_link"] = linked is not None and linked.job_id == job.id
+            runtime_started.set()
+
+        mock_runtime_service.setup_and_start.side_effect = observe_persisted_spawn
 
         resp = await client.post(
             f"/api/approvals/{approval.id}/resolve",
@@ -256,10 +268,8 @@ class TestResolveApproval:
         )
         assert resp.status_code == 200
         assert resp.json()["resolution"] == "approved"
-
-        # The spawn + start happen on a fire-and-forget task — give the loop a
-        # tick to let it run before asserting.
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(runtime_started.wait(), timeout=1)
+        assert persisted_at_runtime_start == {"job": True, "task_link": True}
 
         async with session_factory() as session:
             refreshed = await TaskLinkRepository(session).get(dependent_link.id)

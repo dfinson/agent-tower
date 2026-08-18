@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 // Mock API client
 vi.mock("../../api/client", () => ({
   createJob: vi.fn(),
-  fetchRepos: vi.fn(),
+  fetchProjects: vi.fn(),
   fetchModels: vi.fn(),
   fetchSDKs: vi.fn(),
   fetchSettings: vi.fn(),
@@ -31,11 +31,6 @@ vi.mock("../VoiceButton", () => ({
       onChange={(e) => onChange(e.target.value)}
     />
   ),
-}));
-
-// Mock AddRepoModal
-vi.mock("../AddRepoModal", () => ({
-  AddRepoModal: () => null,
 }));
 
 vi.mock("../ui/tooltip", () => ({
@@ -65,7 +60,7 @@ import {
   createJob,
   fetchModels,
   fetchRepoDetail,
-  fetchRepos,
+  fetchProjects,
   fetchSDKs,
   fetchSettings,
   fetchPolicySettings,
@@ -87,7 +82,13 @@ async function renderScreen() {
 
   await waitFor(() => {
     expect(fetchPolicySettings).toHaveBeenCalled();
-    expect(fetchRepos).toHaveBeenCalled();
+    expect(fetchProjects).toHaveBeenCalled();
+  });
+}
+
+function selectRepository() {
+  fireEvent.change(screen.getByTestId("combo-Repository"), {
+    target: { value: "/repos/my-app" },
   });
 }
 
@@ -99,7 +100,7 @@ vi.mock("react-router-dom", async () => {
 
 beforeEach(() => {
   vi.mocked(createJob).mockReset();
-  vi.mocked(fetchRepos).mockResolvedValue({ items: ["/repos/my-app"] } as any);
+  vi.mocked(fetchProjects).mockResolvedValue({ items: [{ id: "p1", name: "My Project", repoPaths: ["/repos/my-app"] }] } as any);
   vi.mocked(fetchModels).mockResolvedValue([
     { id: "gpt-5.4-mini", name: "GPT-5.4 Mini" },
     { id: "gpt-5.4", name: "GPT-5.4", default: true },
@@ -149,19 +150,30 @@ describe("JobCreationScreen", () => {
     expect(screen.getByText("Repository")).toBeInTheDocument();
   });
 
+  it("requires an explicit repository selection", async () => {
+    await renderScreen();
+
+    expect(screen.getByTestId("combo-Repository")).toHaveValue("");
+    expect(screen.getByText(/will not select one automatically/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create Job" })).toBeDisabled();
+  });
+
   it("renders Create Job button", async () => {
     await renderScreen();
+    selectRepository();
     expect(screen.getByText("Create Job")).toBeInTheDocument();
   });
 
   it("renders permission mode buttons", async () => {
     await renderScreen();
+    selectRepository();
     expect(screen.getByText("Autonomous")).toBeInTheDocument();
     expect(screen.getByText("Supervised")).toBeInTheDocument();
   });
 
   it("renders model selection in the main form", async () => {
     await renderScreen();
+    selectRepository();
     expect(screen.getByText("Model")).toBeInTheDocument();
     expect(screen.queryByText("Advanced options")).toBeInTheDocument();
   });
@@ -169,6 +181,7 @@ describe("JobCreationScreen", () => {
   it("submits a job", async () => {
     vi.mocked(createJob).mockResolvedValueOnce({ id: "j-new" } as any);
     await renderScreen();
+    selectRepository();
 
     const textarea = screen.getByTestId("prompt-input");
     fireEvent.change(textarea, { target: { value: "Fix the bug" } });
@@ -184,6 +197,7 @@ describe("JobCreationScreen", () => {
     vi.mocked(createJob).mockResolvedValueOnce({ id: "j-auto" } as any);
 
     await renderScreen();
+    selectRepository();
 
     fireEvent.change(screen.getByTestId("prompt-input"), { target: { value: "Ship it" } });
     fireEvent.click(screen.getByText("Create Job"));
@@ -199,6 +213,7 @@ describe("JobCreationScreen", () => {
     vi.mocked(createJob).mockResolvedValueOnce({ id: "j-model" } as any);
 
     await renderScreen();
+    selectRepository();
 
     expect(screen.getByTestId("combo-Model")).toHaveValue("gpt-5.4");
 

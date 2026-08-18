@@ -13,6 +13,7 @@ import pytest
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from unittest.mock import AsyncMock
 
     from httpx import AsyncClient
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -22,6 +23,25 @@ def _write_bmad_story(repo_root: Path, filename: str, body: str = "# S\n") -> No
     stories_dir = repo_root / "_bmad-output" / "implementation-artifacts"
     stories_dir.mkdir(parents=True, exist_ok=True)
     (stories_dir / filename).write_text(body, encoding="utf-8")
+
+
+async def _attach_tracker_link(client: AsyncClient, project_id: str) -> str:
+    credential = await client.post(
+        "/api/settings/credentials",
+        json={
+            "provider": "github",
+            "label": f"Credential {project_id}",
+            "baseUrl": "https://api.github.com",
+            "pat": "test-token",
+        },
+    )
+    assert credential.status_code == 201
+    tracker_link = await client.post(
+        f"/api/projects/{project_id}/tracker-links",
+        json={"credentialId": credential.json()["id"], "externalRef": "ORG/board"},
+    )
+    assert tracker_link.status_code == 201
+    return str(tracker_link.json()["id"])
 
 
 class TestIngestTasks:
@@ -141,24 +161,30 @@ class TestCreateManualTaskLink:
             json={"name": "Manual Tasks", "repoPaths": [str(repo_path)]},
         )
         project_id = created_project.json()["id"]
+        tracker_link_id = await _attach_tracker_link(client, project_id)
 
         created = await client.post(
             f"/api/settings/projects/{project_id}/task-links",
             json={
                 "repoPath": str(repo_path),
+                "trackerLinkId": tracker_link_id,
                 "trackerTicketRef": "JIRA-123",
                 "promptOverride": "Implement the ticket",
+                "outputRoutes": ["tracker_write"],
             },
         )
 
         assert created.status_code == 201
         body = created.json()
         assert body["trackerTicketRef"] == "JIRA-123"
+        assert body["trackerLinkId"] == tracker_link_id
+        assert body["state"] == "ready"
         assert body["promptOverride"] == "Implement the ticket"
         assert body["storyNodeId"] is None
         assert body["dependsOn"] == []
         assert body["jobId"] is None
         assert body["epicId"] is None
+        assert body["outputRoutes"] == ["tracker_write"]
 
         listed = await client.get(f"/api/settings/projects/{project_id}/task-links")
         assert listed.status_code == 200
@@ -178,12 +204,14 @@ class TestCreateManualTaskLink:
             json={"name": "Multiple Tasks", "repoPaths": [str(repo_path)]},
         )
         project_id = created_project.json()["id"]
+        tracker_link_id = await _attach_tracker_link(client, project_id)
         endpoint = f"/api/settings/projects/{project_id}/task-links"
 
         first = await client.post(
             endpoint,
             json={
                 "repoPath": str(repo_path),
+                "trackerLinkId": tracker_link_id,
                 "trackerTicketRef": "JIRA-123",
                 "promptOverride": "Implement part one",
             },
@@ -192,6 +220,7 @@ class TestCreateManualTaskLink:
             endpoint,
             json={
                 "repoPath": str(repo_path),
+                "trackerLinkId": tracker_link_id,
                 "trackerTicketRef": "JIRA-123",
                 "promptOverride": "Implement part two",
             },
@@ -223,8 +252,10 @@ class TestCreateManualTaskLink:
             json={"name": "Validation", "repoPaths": [str(repo_path)]},
         )
         project_id = created_project.json()["id"]
+        tracker_link_id = await _attach_tracker_link(client, project_id)
         payload = {
             "repoPath": str(repo_path),
+            "trackerLinkId": tracker_link_id,
             "trackerTicketRef": "JIRA-123",
             "promptOverride": "Implement this",
         }
@@ -248,11 +279,13 @@ class TestCreateManualTaskLink:
             json={"name": "Scoped Tasks", "repoPaths": [str(member_repo)]},
         )
         project_id = created_project.json()["id"]
+        tracker_link_id = await _attach_tracker_link(client, project_id)
 
         response = await client.post(
             f"/api/settings/projects/{project_id}/task-links",
             json={
                 "repoPath": str(other_repo),
+                "trackerLinkId": tracker_link_id,
                 "trackerTicketRef": "JIRA-123",
                 "promptOverride": "Implement this",
             },
@@ -266,9 +299,62 @@ class TestCreateManualTaskLink:
             "/api/settings/projects/does-not-exist/task-links",
             json={
                 "repoPath": "/repo/a",
+                "trackerLinkId": "tracker-link-missing",
                 "trackerTicketRef": "JIRA-123",
                 "promptOverride": "Implement this",
             },
         )
 
         assert response.status_code == 404
+
+
+class TestStartTaskLink:
+    @pytest.mark.asyncio
+    async def test_ready_root_starts_once_and_returns_linked_job(
+        self,
+        client: AsyncClient,
+        tmp_path: Path,
+        session_factory: async_sessionmaker[AsyncSession],
+        mock_runtime_service: AsyncMock,
+    ) -> None:
+        from sqlalchemy import select
+
+        from backend.models.db import JobRow
+
+        repo_path = tmp_path / "start-repo"
+        repo_path.mkdir()
+        project = await client.post(
+            "/api/settings/projects",
+            json={"name": "Start Tasks", "repoPaths": [str(repo_path)]},
+        )
+        project_id = project.json()["id"]
+        tracker_link_id = await _attach_tracker_link(client, project_id)
+        created = await client.post(
+            f"/api/settings/projects/{project_id}/task-links",
+            json={
+                "repoPath": str(repo_path),
+                "trackerLinkId": tracker_link_id,
+                "trackerTicketRef": "PAY-42",
+                "promptOverride": "Implement PAY-42",
+            },
+        )
+        task_link_id = created.json()["id"]
+
+        async def assert_job_is_committed(job: object) -> None:
+            async with session_factory() as session:
+                persisted = await session.get(JobRow, job.id)
+            assert persisted is not None
+
+        mock_runtime_service.setup_and_start.side_effect = assert_job_is_committed
+
+        started = await client.post(f"/api/settings/projects/{project_id}/task-links/{task_link_id}/start")
+        assert started.status_code == 200
+        assert started.json()["state"] == "running"
+        assert started.json()["jobId"]
+        mock_runtime_service.setup_and_start.assert_awaited_once()
+
+        duplicate = await client.post(f"/api/settings/projects/{project_id}/task-links/{task_link_id}/start")
+        assert duplicate.status_code == 409
+        async with session_factory() as session:
+            job_ids = (await session.execute(select(JobRow.id))).scalars().all()
+        assert job_ids == [started.json()["jobId"]]

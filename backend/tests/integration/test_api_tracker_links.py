@@ -52,8 +52,38 @@ async def _create_credential(client: AsyncClient) -> str:
 
 class TestCreateTrackerLink:
     @pytest.mark.asyncio
+    async def test_validates_before_starting_insert_transaction(
+        self,
+        client: AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+        mock_tracker_sync_service: AsyncMock,
+    ) -> None:
+        from sqlalchemy import func, select
+
+        from backend.models.db import TrackerLinkRow
+
+        await _seed_project(session_factory)
+        credential_id = await _create_credential(client)
+
+        async def assert_no_pending_insert(**_: str) -> None:
+            async with session_factory() as session:
+                count = await session.scalar(select(func.count()).select_from(TrackerLinkRow))
+            assert count == 0
+
+        mock_tracker_sync_service.test_link.side_effect = assert_no_pending_insert
+        resp = await client.post(
+            "/api/projects/proj-1/tracker-links",
+            json={"credentialId": credential_id, "externalRef": "ORG/board-1"},
+        )
+
+        assert resp.status_code == 201
+
+    @pytest.mark.asyncio
     async def test_attach_credential_to_project_creates_tracker_link(
-        self, client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+        self,
+        client: AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+        mock_tracker_sync_service: AsyncMock,
     ) -> None:
         await _seed_project(session_factory)
         credential_id = await _create_credential(client)
@@ -69,6 +99,10 @@ class TestCreateTrackerLink:
         assert body["externalRef"] == "ORG/board-1"
         assert "id" in body
         assert "createdAt" in body
+        mock_tracker_sync_service.test_link.assert_awaited_once_with(
+            credential_id=credential_id,
+            external_ref="ORG/board-1",
+        )
 
     @pytest.mark.asyncio
     async def test_project_can_have_more_than_one_tracker_link(
@@ -78,7 +112,13 @@ class TestCreateTrackerLink:
         cred_1 = await _create_credential(client)
         cred_2_resp = await client.post(
             "/api/settings/credentials",
-            json={"provider": "jira", "label": "Jira", "baseUrl": "https://x.atlassian.net", "pat": "tok"},
+            json={
+                "provider": "jira",
+                "label": "Jira",
+                "baseUrl": "https://x.atlassian.net",
+                "pat": "tok",
+                "email": "jira@example.com",
+            },
         )
         cred_2 = cred_2_resp.json()["id"]
 
@@ -144,6 +184,77 @@ class TestCreateTrackerLink:
             "/api/projects/proj-1/tracker-links", json={"credentialId": credential_id, "externalRef": ""}
         )
         assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_provider_validation_failure_does_not_save_link(
+        self,
+        client: AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+        mock_tracker_sync_service: AsyncMock,
+    ) -> None:
+        from backend.services.tracker_sync_service import TrackerLinkValidationError
+
+        await _seed_project(session_factory)
+        credential_id = await _create_credential(client)
+        mock_tracker_sync_service.test_link.side_effect = TrackerLinkValidationError(
+            "GitHub external ref must use owner/project-number"
+        )
+
+        resp = await client.post(
+            "/api/projects/proj-1/tracker-links",
+            json={"credentialId": credential_id, "externalRef": "invalid"},
+        )
+
+        assert resp.status_code == 422
+        listed = await client.get("/api/projects/proj-1/tracker-links")
+        assert listed.json() == {"trackerLinks": []}
+
+
+class TestDetachTrackerLink:
+    @pytest.mark.asyncio
+    async def test_detach_removes_only_explicit_project_link(
+        self,
+        client: AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        await _seed_project(session_factory, "proj-1")
+        await _seed_project(session_factory, "proj-2")
+        credential_id = await _create_credential(client)
+        first = await client.post(
+            "/api/projects/proj-1/tracker-links",
+            json={"credentialId": credential_id, "externalRef": "acme/1"},
+        )
+        second = await client.post(
+            "/api/projects/proj-2/tracker-links",
+            json={"credentialId": credential_id, "externalRef": "acme/2"},
+        )
+
+        response = await client.delete(f"/api/projects/proj-1/tracker-links/{first.json()['id']}")
+
+        assert response.status_code == 204
+        assert (await client.get("/api/projects/proj-1/tracker-links")).json() == {"trackerLinks": []}
+        project_two = await client.get("/api/projects/proj-2/tracker-links")
+        assert project_two.json()["trackerLinks"][0]["id"] == second.json()["id"]
+
+    @pytest.mark.asyncio
+    async def test_detach_rejects_link_owned_by_another_project(
+        self,
+        client: AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        await _seed_project(session_factory, "proj-1")
+        await _seed_project(session_factory, "proj-2")
+        credential_id = await _create_credential(client)
+        created = await client.post(
+            "/api/projects/proj-2/tracker-links",
+            json={"credentialId": credential_id, "externalRef": "acme/2"},
+        )
+
+        response = await client.delete(f"/api/projects/proj-1/tracker-links/{created.json()['id']}")
+
+        assert response.status_code == 404
+        project_two = await client.get("/api/projects/proj-2/tracker-links")
+        assert len(project_two.json()["trackerLinks"]) == 1
 
 
 class TestListTrackerLinks:

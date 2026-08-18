@@ -1,66 +1,42 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, LayoutGrid } from "lucide-react";
+import { ArrowLeft, Download, LayoutGrid } from "lucide-react";
+import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import {
   useStore,
   enrichJob,
-  selectActiveJobsForRepo,
-  selectSignoffJobsForRepo,
-  selectAttentionJobsForRepo,
+  selectActiveJobsForProject,
+  selectSignoffJobsForProject,
+  selectAttentionJobsForProject,
 } from "../store";
 import type { JobSummary } from "../store";
-import { fetchJobs, fetchProjects, fetchProjectTaskLinks } from "../api/client";
-import type { TaskLinkResponse } from "../api/types";
+import { fetchJobs, fetchProject, fetchProjectTaskLinks, ingestProjectTasks, startTaskLink } from "../api/client";
+import type { ProjectResponse, TaskLinkResponse } from "../api/types";
 import { KanbanColumn } from "./KanbanColumn";
 import { KanbanSkeleton } from "./KanbanSkeleton";
 import { TaskLinkCard } from "./TaskLinkCard";
+import { Button } from "./ui/button";
 import { KANBAN_COLUMNS } from "../constants/kanban";
-import { pathBasename } from "../lib/paths";
 
-/**
- * Determine whether a TaskLink's `dependsOn` list is fully satisfied (Story 4.4 / CAP-10).
- *
- * A composite `"{repoPath}::{storyNodeId}"` entry is satisfied when its target
- * TaskLink is found within the full Project TaskLink set (so cross-repo
- * dependencies resolve) and that target has a `jobId` whose Job has reached
- * the `completed` state. An unresolvable target, or one whose Job hasn't
- * completed, is unsatisfied. Empty `dependsOn` is trivially satisfied. This is
- * read-only render logic — it never triggers a spawn (Story 4.5's concern).
- */
-function computeSatisfaction(
-  taskLink: TaskLinkResponse,
-  allTaskLinks: TaskLinkResponse[],
-  jobs: Record<string, JobSummary>,
-): { satisfied: boolean; blockingLabel: string | null } {
-  if (taskLink.dependsOn.length === 0) return { satisfied: true, blockingLabel: null };
-
-  const byKey = new Map<string, TaskLinkResponse>();
-  for (const t of allTaskLinks) {
-    if (t.storyNodeId) byKey.set(`${t.repoPath}::${t.storyNodeId}`, t);
-  }
-
-  for (const dep of taskLink.dependsOn) {
-    const target = byKey.get(dep);
-    const targetJob = target?.jobId ? jobs[target.jobId] : undefined;
-    const depSatisfied = !!target && !!targetJob && targetJob.state === "completed";
-    if (!depSatisfied) {
-      const label = target?.storyNodeId ?? dep.split("::").pop() ?? dep;
-      return { satisfied: false, blockingLabel: label };
-    }
-  }
-  return { satisfied: true, blockingLabel: null };
+function lifecycleSignature(jobs: Record<string, JobSummary>, repoPaths: string[]): string {
+  const memberRepos = new Set(repoPaths);
+  return Object.values(jobs)
+    .filter((job) => memberRepos.has(job.repo))
+    .map((job) => `${job.id}:${job.state}`)
+    .sort()
+    .join("|");
 }
 
 /**
- * Project-scoped Kanban board (Story 2.3 / CAP-1). Child route of the existing
- * `/repos/:repoPath` shell (AD-2) — `repoPath` is read from the URL, not client-only
- * state, so a refresh or shared link resolves to the same scoped board.
+ * Project-scoped Kanban board (Story 2.3 / CAP-1). Child route of the
+ * project-identity-keyed `/projects/id/:projectId` shell — `projectId` is
+ * read from the URL, not client-only state, so a refresh or shared link
+ * resolves to the same scoped board even after a Project's member repos change.
  *
- * A single-repo Project reduces to `job.repo === repoPath` (see Dev Notes on the
- * story file); once Story 2.2 wires multi-repo Project membership into the
- * frontend, only the repo-scoped selectors' filter needs to widen — this route and
- * component shape are unaffected.
+ * Aggregates jobs across ALL of the Project's member repos (not just the
+ * first), via the project-scoped selectors — a genuinely multi-repo Project's
+ * board shows every member repo's jobs on one board.
  *
  * Story 4.4 / CAP-10: also fetches the owning Project's TaskLinks (a second,
  * independent call — `GET /settings/projects/:id/task-links`, AD-11) and renders
@@ -68,65 +44,149 @@ function computeSatisfaction(
  * in this same rendering pass.
  */
 export function RepoBoard() {
-  const { repoPath } = useParams<{ repoPath: string }>();
-  const decoded = repoPath ? decodeURIComponent(repoPath) : "";
-  const repoName = pathBasename(decoded) || decoded;
+  const { projectId } = useParams<{ projectId: string }>();
 
   const [loading, setLoading] = useState(true);
+  const [project, setProject] = useState<ProjectResponse | null>(null);
   const [taskLinks, setTaskLinks] = useState<TaskLinkResponse[]>([]);
+  const [ingesting, setIngesting] = useState(false);
+  const [startingId, setStartingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const currentProject = project?.id === projectId ? project : null;
+  const repoPaths = currentProject?.repoPaths ?? [];
   const hasJobs = useStore((state) => Object.keys(state.jobs).length > 0);
-  const jobs = useStore((state) => state.jobs);
+  const jobLifecycleSignature = useStore((state) => lifecycleSignature(state.jobs, repoPaths));
+  const reconciledLifecycleSignature = useRef<string | null>(null);
 
-  const activeJobs = useStore(useShallow(selectActiveJobsForRepo(decoded)));
-  const signoffJobs = useStore(useShallow(selectSignoffJobsForRepo(decoded)));
-  const attentionJobs = useStore(useShallow(selectAttentionJobsForRepo(decoded)));
+  const activeJobs = useStore(useShallow(selectActiveJobsForProject(repoPaths)));
+  const signoffJobs = useStore(useShallow(selectSignoffJobsForProject(repoPaths)));
+  const attentionJobs = useStore(useShallow(selectAttentionJobsForProject(repoPaths)));
 
   useEffect(() => {
-    if (!decoded) return;
     let cancelled = false;
-    fetchJobs({ limit: 100, archived: false })
-      .then((result) => {
+    setProject(null);
+    setTaskLinks([]);
+    setLoadError(null);
+    setLoading(true);
+    reconciledLifecycleSignature.current = null;
+
+    if (!projectId) {
+      setLoadError("No Project was selected.");
+      setLoading(false);
+      return () => { cancelled = true; };
+    }
+
+    const fetchEveryJob = async () => {
+      const items: JobSummary[] = [];
+      const seenCursors = new Set<string>();
+      let cursor: string | undefined;
+      do {
+        const params: { limit: number; archived: boolean; cursor?: string } = {
+          limit: 100,
+          archived: false,
+        };
+        if (cursor) params.cursor = cursor;
+        const page = await fetchJobs(params);
+        items.push(...(page.items as JobSummary[]));
+        const nextCursor = page.hasMore ? page.cursor ?? undefined : undefined;
+        if (nextCursor && seenCursors.has(nextCursor)) {
+          throw new Error("Job pagination returned a repeated cursor.");
+        }
+        if (nextCursor) seenCursors.add(nextCursor);
+        cursor = nextCursor;
+      } while (cursor);
+      return items;
+    };
+
+    Promise.all([
+      fetchProject(projectId),
+      fetchEveryJob(),
+      fetchProjectTaskLinks(projectId),
+    ])
+      .then(([nextProject, jobs, taskLinkResponse]) => {
         if (cancelled) return;
+        setProject(nextProject);
+        setTaskLinks(taskLinkResponse.items);
         useStore.setState((state) => {
           const updated = { ...state.jobs };
-          for (const job of result.items) updated[job.id] = enrichJob(job as JobSummary);
+          for (const job of jobs) updated[job.id] = enrichJob(job);
           return { jobs: updated };
         });
       })
       .catch((err) => {
-        if (!cancelled) console.error("Failed to fetch jobs", err);
+        if (cancelled) return;
+        setProject(null);
+        setTaskLinks([]);
+        setLoadError(err instanceof Error ? err.message : "Failed to load the Project board.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [decoded]);
+  }, [projectId]);
 
   useEffect(() => {
-    if (!decoded) return;
+    if (!projectId || project?.id !== projectId) return;
+    if (reconciledLifecycleSignature.current === jobLifecycleSignature) return;
     let cancelled = false;
-    fetchProjects()
-      .then(async ({ items }) => {
-        const owningProject = items.find((p) => p.repoPaths.includes(decoded));
-        if (!owningProject) return;
-        const { items: links } = await fetchProjectTaskLinks(owningProject.id);
-        if (!cancelled) setTaskLinks(links);
+    reconciledLifecycleSignature.current = jobLifecycleSignature;
+
+    fetchProjectTaskLinks(projectId)
+      .then((response) => {
+        if (!cancelled) setTaskLinks(response.items);
       })
-      .catch((err) => {
-        if (!cancelled) console.error("Failed to fetch TaskLinks", err);
+      .catch(() => {
+        // Keep the last authoritative snapshot; a later lifecycle event retries.
       });
+
     return () => { cancelled = true; };
-  }, [decoded]);
+  }, [jobLifecycleSignature, project?.id, projectId]);
 
-  if (loading && !hasJobs) return <KanbanSkeleton />;
+  if ((loading && !hasJobs) || (!loadError && project !== null && !currentProject)) {
+    return <KanbanSkeleton />;
+  }
+  if (loadError) {
+    return (
+      <div role="alert" className="rounded-lg border border-red-500/40 bg-card p-8 text-center">
+        <h1 className="text-lg font-semibold">Unable to load Project board</h1>
+        <p className="mt-2 text-sm text-muted-foreground">{loadError}</p>
+      </div>
+    );
+  }
 
-  const boardTaskLinks = taskLinks.filter((t) => t.repoPath === decoded);
+  const handleIngest = async () => {
+    if (!projectId) return;
+    setIngesting(true);
+    try {
+      const result = await ingestProjectTasks(projectId);
+      setTaskLinks(result.items);
+      toast.success(`Ingested ${result.items.length} tasks.`);
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setIngesting(false);
+    }
+  };
+
+  const handleStart = async (taskLink: TaskLinkResponse) => {
+    if (!projectId) return;
+    setStartingId(taskLink.id);
+    try {
+      const updated = await startTaskLink(projectId, taskLink.id);
+      setTaskLinks((current) => current.map((item) => item.id === updated.id ? updated : item));
+      toast.success(`Started ${updated.storyNodeId ?? updated.trackerTicketRef ?? "task"}.`);
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setStartingId(null);
+    }
+  };
 
   return (
     <div>
       <div className="flex items-center gap-3 mb-4">
         <Link
-          to={`/repos/${encodeURIComponent(decoded)}`}
+          to={`/projects/id/${encodeURIComponent(projectId ?? "")}`}
           className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
           aria-label="Back to overview"
         >
@@ -137,8 +197,12 @@ export function RepoBoard() {
             <LayoutGrid size={16} className="text-muted-foreground" />
             Board
           </h1>
-          <p className="text-sm text-muted-foreground truncate">{repoName}</p>
+          <p className="text-sm text-muted-foreground truncate">{currentProject?.name ?? ""}</p>
         </div>
+        <Button variant="outline" size="sm" disabled={ingesting} onClick={() => void handleIngest()}>
+          <Download size={14} className={ingesting ? "animate-pulse" : ""} />
+          {ingesting ? "Ingesting…" : "Ingest tasks"}
+        </Button>
       </div>
 
       <div className="grid grid-cols-3 gap-3 h-[calc(100dvh-200px)] max-lg:grid-cols-2 max-sm:grid-cols-1">
@@ -146,16 +210,15 @@ export function RepoBoard() {
           title={KANBAN_COLUMNS.IN_PROGRESS}
           jobs={activeJobs}
           extraCards={
-            boardTaskLinks.length > 0 ? (
+            taskLinks.length > 0 ? (
               <>
-                {boardTaskLinks.map((taskLink) => {
-                  const { satisfied, blockingLabel } = computeSatisfaction(taskLink, taskLinks, jobs);
+                {taskLinks.map((taskLink) => {
                   return (
                     <TaskLinkCard
                       key={taskLink.id}
                       taskLink={taskLink}
-                      satisfied={satisfied}
-                      blockingLabel={blockingLabel}
+                      starting={startingId === taskLink.id}
+                      onStart={(link) => void handleStart(link)}
                     />
                   );
                 })}
@@ -169,4 +232,3 @@ export function RepoBoard() {
     </div>
   );
 }
-

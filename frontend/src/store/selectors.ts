@@ -131,6 +131,19 @@ export const selectSignoffJobsForRepo = (repoPath: string) => (state: AppState):
 export const selectAttentionJobsForRepo = (repoPath: string) => (state: AppState): JobSummary[] =>
   sortByUpdatedDesc(Object.values(state.jobs).filter((j) => j.repo === repoPath && isAttentionJob(j)));
 
+// Project-scoped variants — true multi-repo aggregation across every member
+// repo of a Project (not just a single reduced repo path). Used by the
+// project-identity-routed board so a multi-repo Project's board genuinely
+// shows jobs from all its member repos, not only the first one.
+export const selectActiveJobsForProject = (repoPaths: string[]) => (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => repoPaths.includes(j.repo) && isActiveJob(j)));
+
+export const selectSignoffJobsForProject = (repoPaths: string[]) => (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => repoPaths.includes(j.repo) && isSignoffJob(j)));
+
+export const selectAttentionJobsForProject = (repoPaths: string[]) => (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => repoPaths.includes(j.repo) && isAttentionJob(j)));
+
 /** Archived jobs loaded into the store (for the history browser). */
 export const selectArchivedJobs = (state: AppState): JobSummary[] =>
   sortByUpdatedDesc(

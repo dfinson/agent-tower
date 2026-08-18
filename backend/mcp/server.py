@@ -115,6 +115,7 @@ def _make_job_service(
     git: bool = True,
 ) -> JobService:
     from backend.persistence.job_repo import JobRepository
+    from backend.persistence.project_repo import ProjectRepository
     from backend.services.completers.naming_service import NamingService
 
     naming: NamingService | None = None
@@ -125,6 +126,7 @@ def _make_job_service(
         git_service=GitService(config) if git else None,
         config=config,
         naming_service=naming,
+        project_repo=ProjectRepository(session),
     )
 
 
@@ -456,29 +458,18 @@ def _register_tracker_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
             value=value,
         )
 
-        async def _dispatch(dispatch_request: TrackerWriteRequest) -> None:
-            # Resolve the Credential's PAT server-side only, on the approved
-            # write's behalf — the agent never sees it, at any point, before
-            # or after approval. Per-provider tracker API calls themselves
-            # are tracked separately (outside this story's scope); this
-            # proves the PAT never crosses the MCP tool boundary.
-            from backend.persistence.credential_repo import CredentialRepository
-
-            async with sf() as dispatch_session:
-                secret = await CredentialRepository(dispatch_session).resolve_secret(resolved.credential_id)
-            if secret is None:
-                log.warning(
-                    "tracker_write.missing_credential_secret",
-                    tracker_link_id=dispatch_request.tracker_link_id,
-                    job_id=job_id,
-                )
-
-        service = TrackerWriteService(mcp_state.approval_service)
-        dispatched = await service.execute(job_id, request, _dispatch)
+        service = TrackerWriteService(
+            mcp_state.approval_service,
+            session_factory=sf,
+        )
+        outcome = await service.execute(job_id, request)
 
         return {
-            "dispatched": dispatched,
+            "applied": outcome.applied,
+            "state": outcome.state.value,
+            "error": outcome.error,
             "ticketRef": resolved.ticket_ref,
+            "trackerLinkId": resolved.tracker_link_id,
             "action": tracker_action.value,
         }
 
@@ -825,12 +816,11 @@ def _register_repo_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
         title="Manage Repositories",
         annotations=ToolAnnotations(title="Manage Repositories", destructiveHint=True, openWorldHint=True),
         description=(
-            "Manage registered repositories. Actions: list, get, register, remove."
+            "Inspect repositories managed by Projects. Actions: list, get. "
+            "Create and update repository membership through codeplane_project."
             "\n\n"
             "- list: no extra params"
             "\n- get: repo_path (required)"
-            "\n- register: source (required, local path or URL), clone_to (required if URL)"
-            "\n- remove: repo_path (required)"
         ),
     )
     async def codeplane_repo(
@@ -865,27 +855,13 @@ def _register_repo_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                 return result
 
             if action == "register":
-                if not source:
-                    return {"error": "source is required for register"}
-                body: dict[str, Any] = {"source": source}
-                if clone_to:
-                    body["cloneTo"] = clone_to
-                resp = await client.post(f"{base_url}/settings/repos", json=body)
-                if resp.status_code >= 400:
-                    detail = resp.json().get("detail", resp.text)
-                    return {"error": str(detail)}
-                result = resp.json()
-                return result
+                return {
+                    "error": "Standalone repository registration is unavailable; "
+                    "use codeplane_project create or update."
+                }
 
             if action == "remove":
-                if not repo_path:
-                    return {"error": "repo_path is required for remove"}
-                encoded = urllib.parse.quote(repo_path, safe="")
-                resp = await client.delete(f"{base_url}/settings/repos/{encoded}")
-                if resp.status_code == 404:
-                    return {"error": f"Repository '{repo_path}' not found in allowlist"}
-                resp.raise_for_status()
-                return {"status": "removed", "path": repo_path}
+                return {"error": "Standalone repository removal is unavailable; use codeplane_project update."}
 
 
 # ---------------------------------------------------------------------------
@@ -906,7 +882,7 @@ def _register_project_tool(mcp: FastMCP) -> None:
             "\n- get: project_id (required)"
             "\n- create: name (required), repo_paths (required, list of one or more repo paths)"
             "\n- update: project_id (required); name and/or repo_paths (optional, repo_paths replaces "
-            "the full membership list)"
+            "the full membership list); confirm_repo_removal confirms destructive membership removal"
             "\n- ingest_tasks: project_id (required) — parses BMAD stories/spec-kit tasks.md across "
             "every member repo (read-only, stateless) and upserts the Project's TaskLink set"
             "\n- list_task_links: project_id (required) — lists the Project's currently persisted TaskLinks"
@@ -917,6 +893,7 @@ def _register_project_tool(mcp: FastMCP) -> None:
         project_id: str | None = None,
         name: str | None = None,
         repo_paths: list[str] | None = None,
+        confirm_repo_removal: bool = False,
     ) -> McpToolResult:
         import httpx
 
@@ -961,6 +938,8 @@ def _register_project_tool(mcp: FastMCP) -> None:
                     body["name"] = name
                 if repo_paths is not None:
                     body["repoPaths"] = repo_paths
+                if confirm_repo_removal:
+                    body["confirmRepoRemoval"] = True
                 resp = await client.patch(f"{base_url}/settings/projects/{project_id}", json=body)
                 if resp.status_code == 404:
                     return {"error": f"Project '{project_id}' does not exist."}
@@ -1029,8 +1008,13 @@ def _register_health_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
 
         if action == "cleanup":
             git = GitService(config)
+            from backend.persistence.project_repo import ProjectRepository
+            from backend.services.project.repo_membership import list_managed_repo_paths
+
+            async with mcp_state.session_factory() as session:
+                repo_paths = await list_managed_repo_paths(config, ProjectRepository(session))
             total = 0
-            for repo in config.repos:
+            for repo in repo_paths:
                 try:
                     count = await git.cleanup_worktrees(repo)
                     total += count

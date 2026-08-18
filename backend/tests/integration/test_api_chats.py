@@ -17,8 +17,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from sqlalchemy import select
 
-from backend.models.db import ProjectRow, TaskLinkRow
+from backend.models.db import ChatMessageRow, ProjectRow, TaskLinkRow
 
 if TYPE_CHECKING:
     from unittest.mock import AsyncMock
@@ -45,13 +46,25 @@ class TestCreateChat:
 
     @pytest.mark.asyncio
     async def test_create_with_project_id(self, client: AsyncClient, app: FastAPI) -> None:
+        project = await client.post(
+            "/api/settings/projects",
+            json={"name": "Chat Project", "repoPaths": ["/test/chat-project"]},
+        )
         resp = await client.post(
             "/api/chats",
-            json={"title": "Project-scoped chat", "projectId": "proj-123"},
+            json={"title": "Project-scoped chat", "projectId": project.json()["id"]},
         )
         assert resp.status_code == 201
         data = resp.json()
-        assert data["projectId"] == "proj-123"
+        assert data["projectId"] == project.json()["id"]
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_unknown_project(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/chats",
+            json={"title": "Project-scoped chat", "projectId": "missing"},
+        )
+        assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_create_requires_title(self, client: AsyncClient, app: FastAPI) -> None:
@@ -84,6 +97,23 @@ class TestListChats:
         assert len(items) == 2
         titles = {item["title"] for item in items}
         assert titles == {"First", "Second"}
+
+    @pytest.mark.asyncio
+    async def test_list_can_be_scoped_to_project(self, client: AsyncClient) -> None:
+        first = await client.post(
+            "/api/settings/projects",
+            json={"name": "First", "repoPaths": ["/test/chat-a"]},
+        )
+        second = await client.post(
+            "/api/settings/projects",
+            json={"name": "Second", "repoPaths": ["/test/chat-b"]},
+        )
+        await client.post("/api/chats", json={"title": "A", "projectId": first.json()["id"]})
+        await client.post("/api/chats", json={"title": "B", "projectId": second.json()["id"]})
+
+        response = await client.get(f"/api/chats?project_id={first.json()['id']}")
+
+        assert [item["title"] for item in response.json()["items"]] == ["A"]
 
 
 class TestGetChat:
@@ -142,8 +172,91 @@ class TestAddChatMessage:
         assert resp.status_code == 422
 
 
+class TestSendChatTurn:
+    @pytest.mark.asyncio
+    async def test_user_message_is_committed_before_provider_completion(
+        self,
+        client: AsyncClient,
+        mock_utility_session: AsyncMock,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        chat_id = (await client.post("/api/chats", json={"title": "Thinking"})).json()["id"]
+
+        async def complete(_prompt: str) -> str:
+            async with session_factory() as observer:
+                rows = (
+                    (await observer.execute(select(ChatMessageRow).where(ChatMessageRow.chat_id == chat_id)))
+                    .scalars()
+                    .all()
+                )
+            assert [(row.role, row.content) for row in rows] == [("user", "Persist this first")]
+            return "Now reply"
+
+        mock_utility_session.complete.side_effect = complete
+
+        response = await client.post(
+            f"/api/chats/{chat_id}/turns",
+            json={"content": "Persist this first"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["assistantMessage"]["content"] == "Now reply"
+
+    @pytest.mark.asyncio
+    async def test_turn_returns_and_persists_assistant_response(
+        self,
+        client: AsyncClient,
+        mock_utility_session: AsyncMock,
+    ) -> None:
+        mock_utility_session.complete.return_value = "Let's compare the tradeoffs."
+        chat_id = (await client.post("/api/chats", json={"title": "Thinking"})).json()["id"]
+
+        response = await client.post(
+            f"/api/chats/{chat_id}/turns",
+            json={"role": "user", "content": "Should we cache this?"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["state"] == "assistant"
+        assert response.json()["userMessage"]["role"] == "user"
+        assert response.json()["assistantMessage"]["role"] == "assistant"
+        transcript = (await client.get(f"/api/chats/{chat_id}/messages")).json()
+        assert [message["role"] for message in transcript] == ["user", "assistant"]
+
+    @pytest.mark.asyncio
+    async def test_turn_returns_explicit_error_while_preserving_user_message(
+        self,
+        client: AsyncClient,
+        mock_utility_session: AsyncMock,
+    ) -> None:
+        mock_utility_session.complete.side_effect = RuntimeError("offline")
+        chat_id = (await client.post("/api/chats", json={"title": "Thinking"})).json()["id"]
+
+        response = await client.post(
+            f"/api/chats/{chat_id}/turns",
+            json={"content": "Hello"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["state"] == "error"
+        assert response.json()["assistantMessage"] is None
+        transcript = (await client.get(f"/api/chats/{chat_id}/messages")).json()
+        assert [message["role"] for message in transcript] == ["user"]
+
+
 class TestLaunchJobFromChat:
     """POST /api/chats/{id}/launch-job"""
+
+    project_id: str
+
+    @pytest.fixture(autouse=True)
+    async def _seed_launch_project(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/api/settings/projects",
+            json={"name": "Launch Project", "repoPaths": ["/test/repo"]},
+        )
+        assert response.status_code == 201
+        self.project_id = response.json()["id"]
 
     @pytest.fixture(autouse=True)
     def _patch_git_for_launch(self, monkeypatch: pytest.MonkeyPatch, mock_git_service: AsyncMock) -> None:
@@ -207,7 +320,7 @@ class TestLaunchJobFromChat:
         await client.post(f"/api/chats/{chat_id}/launch-job", json={"repo": "/test/repo"})
 
         get_resp = await client.get(f"/api/chats/{chat_id}")
-        assert get_resp.json()["projectId"] == "/test/repo"
+        assert get_resp.json()["projectId"] == self.project_id
 
     @pytest.mark.asyncio
     async def test_launch_job_from_missing_chat_returns_404(self, client: AsyncClient, app: FastAPI) -> None:

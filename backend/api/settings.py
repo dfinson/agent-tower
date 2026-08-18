@@ -10,7 +10,7 @@ from pathlib import Path
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.config import (
@@ -44,11 +44,19 @@ from backend.models.api_schemas import (
     UpdateSettingsRequest,
 )
 from backend.models.db import JobRow
+from backend.models.domain import ACTIVE_STATES
+from backend.persistence.project_repo import ProjectRepository
 from backend.services.adapters.platform_adapter import PlatformRegistry, detect_platform
 from backend.services.coderecon.coderecon_service import CodeReconService
 from backend.services.git.git_service import GitError, GitService
+from backend.services.project.repo_membership import list_managed_repo_paths
 
 router = APIRouter(tags=["settings"], route_class=DishkaRoute)
+
+
+async def _is_project_member(repo_path: str, project_repo: ProjectRepository) -> bool:
+    resolved = str(Path(repo_path).expanduser().resolve())
+    return any(resolved in project.repo_paths for project in await project_repo.list())
 
 
 def _config_to_response(config: CPLConfig) -> SettingsResponse:
@@ -127,23 +135,25 @@ async def update_settings(
 
 
 @router.get("/settings/repos", response_model=RepoListResponse)
-def list_repos(
+async def list_repos(
     config: FromDishka[CPLConfig],
+    project_repo: FromDishka[ProjectRepository],
 ) -> RepoListResponse:
-    """List registered repository paths."""
-    return RepoListResponse(items=config.repos)
+    """List every Project-owned or legacy-registered repository path."""
+    return RepoListResponse(items=await list_managed_repo_paths(config, project_repo))
 
 
 @router.get("/settings/repos/{repo_path:path}/health", response_model=RepoHealthResponse)
 async def get_repo_health(
     repo_path: str,
     config: FromDishka[CPLConfig],
+    project_repo: FromDishka[ProjectRepository],
     coderecon: FromDishka[CodeReconService],
 ) -> RepoHealthResponse:
     """Structural health status for a repository (§6.2)."""
     log = structlog.get_logger()
     resolved = str(Path(repo_path).expanduser().resolve())
-    if resolved not in config.repos:
+    if resolved not in config.repos and not await _is_project_member(resolved, project_repo):
         raise HTTPException(status_code=404, detail=f"Repository '{repo_path}' is not registered.")
 
     if not coderecon.available:
@@ -202,6 +212,7 @@ async def get_repo_health(
 async def get_repo_summary(
     repo_path: str,
     config: FromDishka[CPLConfig],
+    project_repo: FromDishka[ProjectRepository],
     git_service: FromDishka[GitService],
     coderecon: FromDishka[CodeReconService],
     sf: FromDishka[async_sessionmaker[AsyncSession]],
@@ -210,7 +221,7 @@ async def get_repo_summary(
     log = structlog.get_logger()
 
     resolved = str(Path(repo_path).expanduser().resolve())
-    if resolved not in config.repos:
+    if resolved not in config.repos and not await _is_project_member(resolved, project_repo):
         raise HTTPException(status_code=404, detail=f"Repository '{repo_path}' is not registered.")
 
     # --- Git info ---
@@ -362,11 +373,13 @@ async def get_repo_summary(
 async def get_repo_detail(
     repo_path: str,
     config: FromDishka[CPLConfig],
+    project_repo: FromDishka[ProjectRepository],
     git_service: FromDishka[GitService],
+    sf: FromDishka[async_sessionmaker[AsyncSession]],
 ) -> RepoDetailResponse:
     """Get detailed config for a single registered repository."""
     resolved = str(Path(repo_path).expanduser().resolve())
-    if resolved not in config.repos:
+    if resolved not in config.repos and not await _is_project_member(resolved, project_repo):
         raise HTTPException(status_code=404, detail=f"Repository '{repo_path}' is not registered.")
 
     origin_url: str | None = None
@@ -381,11 +394,25 @@ async def get_repo_detail(
     with contextlib.suppress(GitError):
         current_branch = await git_service.get_current_branch(cwd=resolved)
 
+    async with sf() as session:
+        active_job_count = int(
+            await session.scalar(
+                select(func.count())
+                .select_from(JobRow)
+                .where(
+                    JobRow.repo == resolved,
+                    JobRow.state.in_(tuple(state.value for state in ACTIVE_STATES)),
+                )
+            )
+            or 0
+        )
+
     return RepoDetailResponse(
         path=resolved,
         origin_url=origin_url,
         base_branch=base_branch,
         current_branch=current_branch,
+        active_job_count=active_job_count,
         platform=detect_platform(origin_url),
     )
 
@@ -420,7 +447,7 @@ async def register_repo_endpoint(
         register_repo(config, cloned_path)
         if coderecon.available:
             asyncio.create_task(coderecon.ensure_repo_indexed(cloned_path))
-        return RegisterRepoResponse(path=cloned_path, source=source, cloned=True)
+        return RegisterRepoResponse(path=cloned_path, source=source, cloned=True, registered=True)
 
     # Local path
     resolved = str(Path(source).expanduser().resolve())
@@ -430,10 +457,16 @@ async def register_repo_endpoint(
             status_code=400,
             detail=f"Not a valid git repository: {source}",
         )
+    newly_registered = resolved not in config.repos
     register_repo(config, resolved)
     if coderecon.available:
         asyncio.create_task(coderecon.ensure_repo_indexed(resolved))
-    return RegisterRepoResponse(path=resolved, source=source, cloned=False)
+    return RegisterRepoResponse(
+        path=resolved,
+        source=source,
+        cloned=False,
+        registered=newly_registered,
+    )
 
 
 @router.post("/settings/repos/create", response_model=CreateRepoResponse, status_code=201)
@@ -478,11 +511,12 @@ def unregister_repo_endpoint(
 @router.post("/settings/cleanup-worktrees", response_model=CleanupWorktreesResponse)
 async def cleanup_worktrees(
     config: FromDishka[CPLConfig],
+    project_repo: FromDishka[ProjectRepository],
     git_service: FromDishka[GitService],
 ) -> CleanupWorktreesResponse:
-    """Clean up completed job worktrees for all registered repos."""
+    """Clean up completed job worktrees for all managed repositories."""
     total = 0
-    for repo in config.repos:
+    for repo in await list_managed_repo_paths(config, project_repo):
         try:
             count = await git_service.cleanup_worktrees(repo)
             total += count

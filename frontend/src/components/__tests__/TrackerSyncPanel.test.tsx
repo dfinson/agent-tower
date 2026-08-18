@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("../../api/client", () => ({
+  createManualTaskLink: vi.fn(),
   fetchProjects: vi.fn(),
   fetchCredentials: vi.fn(),
   fetchTrackerLinks: vi.fn(),
@@ -13,6 +14,7 @@ vi.mock("sonner", () => ({
 }));
 
 import {
+  createManualTaskLink,
   fetchCredentials,
   fetchProjects,
   fetchTrackerLinks,
@@ -39,6 +41,8 @@ beforeEach(() => {
         provider: "jira",
         label: "Acme Jira",
         baseUrl: "https://acme.atlassian.net",
+        email: "dev@example.com",
+        requiresEmailUpdate: false,
         createdAt: "2026-08-10T12:00:00Z",
       },
     ],
@@ -68,6 +72,7 @@ beforeEach(() => {
     ],
   });
   vi.mocked(refreshTrackerLink).mockReset();
+  vi.mocked(createManualTaskLink).mockReset();
 });
 
 describe("TrackerSyncPanel", () => {
@@ -138,5 +143,55 @@ describe("TrackerSyncPanel", () => {
     render(<TrackerSyncPanel />);
 
     expect(await screen.findByText("No tracker links attached yet.")).toBeInTheDocument();
+  });
+
+  it("assigns a synced ticket with its explicit TrackerLink", async () => {
+    vi.mocked(createManualTaskLink).mockResolvedValue({ id: "task-1" } as never);
+    render(<TrackerSyncPanel />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Assign task for PAY-42" }));
+    const createButton = screen.getByRole("button", { name: "Create TaskLink" });
+    expect(createButton).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Task repository"), {
+      target: { value: "/repos/payments" },
+    });
+    fireEvent.change(screen.getByLabelText("Task prompt"), {
+      target: { value: "Implement payment retry" },
+    });
+    fireEvent.click(createButton);
+
+    await waitFor(() => {
+      expect(createManualTaskLink).toHaveBeenCalledWith("project-1", {
+        repoPath: "/repos/payments",
+        trackerLinkId: "link-1",
+        trackerTicketRef: "PAY-42",
+        promptOverride: "Implement payment retry",
+        outputRoutes: [],
+      });
+    });
+  });
+
+  it("persists the explicit tracker-write output route when selected", async () => {
+    vi.mocked(createManualTaskLink).mockResolvedValue({ id: "task-1" } as never);
+    render(<TrackerSyncPanel />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Assign task for PAY-42" }));
+    fireEvent.change(screen.getByLabelText("Task repository"), {
+      target: { value: "/repos/payments" },
+    });
+    fireEvent.change(screen.getByLabelText("Task prompt"), {
+      target: { value: "Implement payment retry" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: /approved tracker comment/i,
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Create TaskLink" }));
+
+    await waitFor(() => {
+      expect(createManualTaskLink).toHaveBeenCalledWith(
+        "project-1",
+        expect.objectContaining({ outputRoutes: ["tracker_write"] }),
+      );
+    });
   });
 });

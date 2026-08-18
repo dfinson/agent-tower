@@ -126,6 +126,41 @@ async def test_refresh_link_is_project_scoped(
 
 
 @pytest.mark.asyncio
+async def test_test_link_calls_provider_before_attachment(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _seed_link(
+        session_factory,
+        project_id="proj-1",
+        link_id="link-1",
+        external_ref="acme/1",
+    )
+    monkeypatch.setattr(
+        CredentialRepository,
+        "resolve_secret",
+        AsyncMock(return_value="token"),
+    )
+    adapter = AsyncMock()
+    service = TrackerSyncService(
+        session_factory=session_factory,
+        adapters={"github": adapter},
+    )
+
+    await service.test_link(
+        credential_id="cred-link-1",
+        external_ref="acme/7",
+    )
+
+    adapter.test_connection.assert_awaited_once_with(
+        base_url="https://api.github.com",
+        external_ref="acme/7",
+        token="token",
+        email=None,
+    )
+
+
+@pytest.mark.asyncio
 async def test_refresh_all_isolates_link_failures(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,

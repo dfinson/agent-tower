@@ -28,6 +28,7 @@ from backend.persistence.step_repo import StepRepository
 from backend.persistence.task_link_repo import TaskLinkRepository
 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+from backend.persistence.tracker_link_repo import TrackerLinkRepository
 from backend.services.adapters.platform_adapter import PlatformRegistry
 from backend.services.analytics.analytics_service import AnalyticsService
 from backend.services.analytics.model_pricing import ModelPricingService
@@ -104,8 +105,12 @@ class AppProvider(Provider):
         return GitService(config)
 
     @provide
-    def tracker_write_service(self, approval_service: ApprovalService) -> TrackerWriteService:
-        return TrackerWriteService(approval_service)
+    def tracker_write_service(
+        self,
+        approval_service: ApprovalService,
+        sf: async_sessionmaker[AsyncSession],
+    ) -> TrackerWriteService:
+        return TrackerWriteService(approval_service, session_factory=sf)
 
     @provide
     def diff_service(self, git_service: GitService, event_bus: EventBus, coderecon: CodeReconService) -> DiffService:
@@ -203,8 +208,16 @@ class RequestProvider(Provider):
         repo: ChatRepository,
         task_link_repo: TaskLinkRepository,
         job_repo: JobRepository,
+        project_repo: ProjectRepository,
+        sidecar_sessions: SidecarSessionManager,
     ) -> ChatService:
-        return ChatService(repo=repo, task_link_repo=task_link_repo, job_repo=job_repo)
+        return ChatService(
+            repo=repo,
+            task_link_repo=task_link_repo,
+            job_repo=job_repo,
+            project_repo=project_repo,
+            completer=sidecar_sessions,
+        )
 
     @provide
     def job_service(
@@ -212,10 +225,12 @@ class RequestProvider(Provider):
         session: AsyncSession,
         config: CPLConfig,
         naming_service: NamingService,
+        git_service: GitService,
     ) -> JobService:
         return JobService.from_session(
             session,
             config,
+            git_service=git_service,
             naming_service=naming_service,
         )
 
@@ -256,12 +271,21 @@ class RequestProvider(Provider):
         return ProjectRepository(session)
 
     @provide
-    def project_service(self, project_repo: ProjectRepository, config: CPLConfig) -> ProjectService:
-        return ProjectService(project_repo, config)
+    def project_service(
+        self,
+        project_repo: ProjectRepository,
+        config: CPLConfig,
+        git_service: GitService,
+    ) -> ProjectService:
+        return ProjectService(project_repo, config, git_service)
 
     @provide
     def task_link_repo(self, session: AsyncSession) -> TaskLinkRepository:
         return TaskLinkRepository(session)
+
+    @provide
+    def tracker_link_repo(self, session: AsyncSession) -> TrackerLinkRepository:
+        return TrackerLinkRepository(session)
 
     @provide
     def recipe_service(
@@ -272,6 +296,7 @@ class RequestProvider(Provider):
         job_repo: JobRepository,
         chat_repo: ChatRepository,
         approval_service: ApprovalService,
+        tracker_link_repo: TrackerLinkRepository,
     ) -> RecipeService:
         return RecipeService(
             task_link_repo,
@@ -280,6 +305,7 @@ class RequestProvider(Provider):
             job_repo=job_repo,
             chat_repo=chat_repo,
             approval_service=approval_service,
+            tracker_link_repo=tracker_link_repo,
         )
 
     @provide

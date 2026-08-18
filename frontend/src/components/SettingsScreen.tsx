@@ -1,25 +1,22 @@
 import { useEffect, useId, useState, useCallback } from "react";
-import { Trash2, Plus, Save, Bell } from "lucide-react";
+import { Save, Bell } from "lucide-react";
 import { toast } from "sonner";
-import { Link } from "react-router-dom";
 import {
   fetchSettings, updateSettings,
-  fetchRepos, unregisterRepo,
+  fetchProjects,
   fetchVapidKey, subscribePush, unsubscribePush,
 } from "../api/client";
 import type { Settings } from "../api/types";
-import { AddRepoModal } from "./AddRepoModal";
+import type { ProjectResponse } from "../api/types";
+import { Link } from "react-router-dom";
 import { PolicySettingsPanel } from "./PolicySettingsPanel";
 import { IntegrationsSettings } from "./IntegrationsSettings";
 import { TrackerSyncPanel } from "./TrackerSyncPanel";
-import { RepoIndexIndicator } from "./RepoIndexIndicator";
 import { SidecarLibraryPanel } from "./SidecarLibraryPanel";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Tooltip } from "./ui/tooltip";
 import { Spinner } from "./ui/spinner";
-import { ConfirmDialog } from "./ui/confirm-dialog";
 
 function NumberField({ label, value, onChange, min, max, description, placeholder }: {
   label: string;
@@ -80,23 +77,21 @@ function NumberField({ label, value, onChange, min, max, description, placeholde
 
 export function SettingsScreen() {
   const [loading, setLoading] = useState(true);
-  const [repos, setRepos] = useState<string[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [projects, setProjects] = useState<ProjectResponse[]>([]);
   const [saved, setSaved] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
-  const [addRepoOpen, setAddRepoOpen] = useState(false);
-  const [removeRepoTarget, setRemoveRepoTarget] = useState<string | null>(null);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
 
   const pushSupported = "serviceWorker" in navigator && "PushManager" in window;
 
   useEffect(() => {
-    Promise.all([fetchSettings(), fetchRepos()])
-      .then(([s, reposRes]) => {
+    Promise.all([fetchSettings(), fetchProjects()])
+      .then(([s, projectsRes]) => {
         setSettings(s);
         setSaved(s);
-        setRepos(reposRes.items);
+        setProjects(projectsRes.items);
       })
       .catch(() => toast.error("Failed to load settings"))
       .finally(() => setLoading(false));
@@ -193,20 +188,6 @@ export function SettingsScreen() {
     setSettings((prev) => prev ? { ...prev, ...partial } : prev);
   }, []);
 
-  const handleRepoAdded = useCallback((path: string) => {
-    setRepos((prev) => (prev.includes(path) ? prev : [...prev, path]));
-  }, []);
-
-  const handleRemoveRepo = useCallback(async (path: string) => {
-    try {
-      await unregisterRepo(path);
-      setRepos((prev) => prev.filter((r) => r !== path));
-      toast.success("Repository removed");
-    } catch (e) {
-      toast.error(String(e));
-    }
-  }, []);
-
   if (loading || !settings) {
     return (
       <div className="flex justify-center py-20">
@@ -227,57 +208,24 @@ export function SettingsScreen() {
               Save
             </Button>
           </div>
+
         )}
       </div>
 
-      {/* Repositories */}
       <div className="rounded-lg border border-border bg-card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-sm font-semibold">Repositories ({repos.length})</span>
-          <Button size="sm" onClick={() => setAddRepoOpen(true)}>
-            <Plus size={14} />
-            Add Repository
-          </Button>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-semibold">Projects ({projects.length})</span>
+          <span className="text-xs text-muted-foreground">Manage membership from each Project</span>
         </div>
-
-        <AddRepoModal
-          opened={addRepoOpen}
-          onClose={() => setAddRepoOpen(false)}
-          onAdded={handleRepoAdded}
-        />
-
-        {repos.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">No repositories registered</p>
+        {projects.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-3">No Projects registered</p>
         ) : (
-          <div className="flex flex-col gap-1">
-            {repos.map((r) => (
-              <div
-                key={r}
-                className="flex items-center justify-between px-3 py-2 rounded-md hover:bg-accent group"
-              >
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <Link
-                  to={`/repos/${encodeURIComponent(r)}`}
-                  className="text-sm font-mono text-muted-foreground hover:text-foreground truncate transition-colors"
-                  title={r}
-                >
-                  {r}
-                </Link>
-                <RepoIndexIndicator repo={r} />
-              </div>
-                <div className="flex items-center gap-1">
-                  <Tooltip content="Remove this repository from CodePlane">
-                    <button
-                      type="button"
-                      onClick={() => setRemoveRepoTarget(r)}
-                      aria-label={`Remove repository ${r}`}
-                      className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-1 rounded text-red-400 hover:text-red-300 hover:bg-red-400/10"
-                    >
-                      <Trash2 size={14} aria-hidden="true" />
-                    </button>
-                  </Tooltip>
-                </div>
-              </div>
+          <div className="space-y-1">
+            {projects.map((project) => (
+              <Link key={project.id} to={`/projects/id/${encodeURIComponent(project.id)}/settings`} className="flex items-center justify-between rounded-md px-3 py-2 hover:bg-accent">
+                <span className="text-sm">{project.name}</span>
+                <span className="text-xs text-muted-foreground">{project.repoPaths.length} repos</span>
+              </Link>
             ))}
           </div>
         )}
@@ -383,18 +331,6 @@ export function SettingsScreen() {
       <div className="rounded-lg border border-border bg-card p-5">
         <SidecarLibraryPanel />
       </div>
-
-      <ConfirmDialog
-        open={!!removeRepoTarget}
-        onClose={() => setRemoveRepoTarget(null)}
-        onConfirm={async () => {
-          if (removeRepoTarget) await handleRemoveRepo(removeRepoTarget);
-          setRemoveRepoTarget(null);
-        }}
-        title="Remove Repository?"
-        description={removeRepoTarget ? `${removeRepoTarget} will be unregistered from CodePlane. The repository itself won't be deleted.` : ""}
-        confirmLabel="Remove"
-      />
 
     </div>
   );

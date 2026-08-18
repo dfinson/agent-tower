@@ -4,6 +4,10 @@ import { MemoryRouter, Outlet } from "react-router-dom";
 import { useStore } from "./store";
 import { App } from "./App";
 
+vi.mock("./api/client", () => ({
+  fetchProjects: vi.fn(),
+}));
+
 // Mock heavy child components to isolate App shell behavior
 vi.mock("./hooks/useSSE", () => ({ useSSE: () => ({ reconnect: vi.fn() }) }));
 vi.mock("./components/JobDetailScreen", () => ({
@@ -32,6 +36,8 @@ vi.mock("./components/RepoBoard", () => ({
   RepoBoard: () => <div data-testid="repo-board">RepoBoard</div>,
 }));
 
+import { fetchProjects } from "./api/client";
+
 async function renderApp(route = "/") {
   const result = render(
     <MemoryRouter initialEntries={[route]}>
@@ -43,6 +49,8 @@ async function renderApp(route = "/") {
 }
 
 beforeEach(() => {
+  vi.mocked(fetchProjects).mockReset();
+  vi.mocked(fetchProjects).mockResolvedValue({ items: [] } as never);
   useStore.setState({
     connectionStatus: "connected",
     terminalDrawerOpen: false,
@@ -79,7 +87,7 @@ describe("App", () => {
     expect(screen.getByText("Reconnecting\u2026")).toBeInTheDocument();
   });
 
-  it("routes / to /repos (retired flat DashboardScreen)", async () => {
+  it("routes / to /projects", async () => {
     await renderApp("/");
     await waitFor(() => expect(screen.getByTestId("repo-layout")).toBeInTheDocument());
   });
@@ -104,9 +112,21 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByTestId("history")).toBeInTheDocument());
   });
 
-  it("routes /repos/:repoPath/board to RepoBoard", async () => {
-    await renderApp("/repos/%2Frepos%2Ftest/board");
+  it("routes /projects/id/:projectId/board to RepoBoard", async () => {
+    await renderApp("/projects/id/proj-1/board");
     await waitFor(() => expect(screen.getByTestId("repo-board")).toBeInTheDocument());
+  });
+
+  it("redirects a legacy repository path containing a percent sign without decoding twice", async () => {
+    const repoPath = String.raw`C:\repos\100%done`;
+    vi.mocked(fetchProjects).mockResolvedValue({
+      items: [{ id: "proj-1", name: "Percent", repoPaths: [repoPath] }],
+    } as never);
+
+    await renderApp(`/projects/${encodeURIComponent(repoPath)}/board`);
+
+    await waitFor(() => expect(screen.getByTestId("repo-board")).toBeInTheDocument());
+    expect(fetchProjects).toHaveBeenCalledOnce();
   });
 
   it("toggles terminal drawer on button click", async () => {

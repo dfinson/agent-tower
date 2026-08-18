@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.lifespan import _fire_and_forget
 from backend.models.api_schemas import (
     ApprovalListResponse,
     ApprovalResponse,
@@ -29,7 +28,6 @@ if TYPE_CHECKING:
     from backend.models.domain import Approval
 
 router = APIRouter(tags=["approvals"], route_class=DishkaRoute)
-log = structlog.get_logger()
 
 
 def _to_response(approval: Approval) -> ApprovalResponse:
@@ -60,9 +58,11 @@ async def list_approvals(
 async def resolve_approval(
     approval_id: str,
     body: ResolveApprovalRequest,
+    background_tasks: BackgroundTasks,
     approval_service: FromDishka[ApprovalService],
     recipe_service: FromDishka[RecipeService],
     runtime_service: FromDishka[RuntimeService],
+    session: FromDishka[AsyncSession],
 ) -> ApprovalResponse:
     """Approve or reject a pending approval request.
 
@@ -79,14 +79,8 @@ async def resolve_approval(
         task_link_id = (approval.proposed_action or "").removeprefix("spawn_task:")
         job = await recipe_service.spawn_approved_task_link(task_link_id, parent_job_id=approval.job_id)
         if job is not None:
-
-            async def _setup_and_start() -> None:
-                try:
-                    await runtime_service.setup_and_start(job)
-                except Exception:
-                    log.warning("gated_task_link_spawn_setup_failed", job_id=job.id, exc_info=True)
-
-            _fire_and_forget(_setup_and_start(), name=f"gated-task-link-spawn-{job.id[:8]}")
+            await session.commit()
+            background_tasks.add_task(runtime_service.setup_and_start, job)
 
     return _to_response(approval)
 

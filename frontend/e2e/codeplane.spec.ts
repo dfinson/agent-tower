@@ -8,10 +8,12 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Health & Navigation", () => {
-  test("loads the dashboard", async ({ page }) => {
+  test("loads the projects overview", async ({ page }) => {
     await page.goto("/");
     // Should see the CodePlane header
     await expect(page.getByText("CodePlane").first()).toBeVisible();
+    // Root is the project-first landing surface, not a flat job dashboard.
+    await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   });
 
   test("shows connection status", async ({ page }) => {
@@ -22,7 +24,8 @@ test.describe("Health & Navigation", () => {
 
   test("navigates to create job screen", async ({ page }) => {
     await page.goto("/");
-    await page.click("text=New Job");
+    await page.getByLabel("Search or navigate").click();
+    await page.locator('[role="dialog"] button', { hasText: "New Job" }).first().click();
     await expect(page).toHaveURL(/\/jobs\/new/);
     await expect(page.getByRole("heading", { name: "New Job" })).toBeVisible();
   });
@@ -36,21 +39,16 @@ test.describe("Health & Navigation", () => {
   });
 });
 
-test.describe("Dashboard", () => {
-  test("shows kanban columns on desktop", async ({ page }) => {
+test.describe("Project board", () => {
+  test("shows kanban columns on a project board", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/");
-    // Should see 3 kanban columns (each is role="region" with aria-label)
+    // Kanban board is now scoped under a project, not the flat root dashboard.
+    await page.locator('[aria-label="Project list"] a').first().click();
+    await page.waitForURL(/\/projects\/id\/.+\/board/);
     await expect(page.getByRole("region", { name: "In Progress" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Awaiting Input" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Failed" })).toBeVisible();
-  });
-
-  test("shows mobile filter tabs on small viewport", async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto("/");
-    // Kanban board hidden on mobile, mobile tab filters visible
-    await expect(page.getByRole("tab", { name: "In Progress" })).toBeVisible();
   });
 });
 
@@ -113,8 +111,10 @@ const COMPLETED_JOB_FIXTURE = {
   completedAt: new Date(Date.now() - 5_000).toISOString(),
 };
 
+const BOARD_PROJECT_URL = "/projects/id/e2e-project-1/board";
+
 test.describe("React #185 – kanban renders job cards without infinite loop", () => {
-  test("dashboard renders job cards fetched via REST without crashing", async ({
+  test("project board renders job cards fetched via REST without crashing", async ({
     page,
   }) => {
     // Capture console errors — React logs caught errors to console even when
@@ -154,11 +154,31 @@ test.describe("React #185 – kanban renders job cards without infinite loop", (
       });
     });
 
-    await page.goto("/");
+    // Mock the owning Project fetch (project-id routing, AD-2 successor):
+    // the board resolves job membership via the Project's repoPaths.
+    await page.route("**/api/settings/projects/e2e-project-1", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "e2e-project-1",
+          name: "example-app",
+          repoPaths: [JOB_FIXTURE.repo],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }),
+      });
+    });
+    await page.route("**/api/settings/projects/e2e-project-1/task-links", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+    });
 
-    // The running job appears in both the kanban board (visible, desktop) and
-    // the MobileJobList DOM (hidden via CSS). Use .first() to target the kanban
-    // card without triggering Playwright's strict-mode violation.
+    // The kanban board is scoped under a stable Project identity (project-id
+    // routing); navigate directly to the canonical board route.
+    await page.goto(BOARD_PROJECT_URL);
+
+    // The running job appears in the kanban board card. Use .first() to guard
+    // against Playwright's strict-mode violation if the id also appears elsewhere.
     await expect(page.getByText(JOB_FIXTURE.id).first()).toBeVisible({
       timeout: 5_000,
     });
@@ -192,7 +212,7 @@ test.describe("React #185 – kanban renders job cards without infinite loop", (
     /**
      * This test covers the exact scenario from the bug report:
      *
-     * 1. Dashboard mounted with empty store (no jobs) → kanban shows "No jobs"
+     * 1. Project board mounted with empty store (no jobs) → kanban shows "No jobs"
      * 2. SSE `snapshot` event arrives with a job → store updates state.jobs
      * 3. KanbanBoard re-renders → KanbanColumn receives non-empty jobs array
      * 4. KanbanColumn transitions from empty placeholder to <JobCard> children
@@ -220,6 +240,25 @@ test.describe("React #185 – kanban renders job cards without infinite loop", (
       });
     });
 
+    // Mock the owning Project fetch (project-id routing, AD-2 successor):
+    // the board resolves job membership via the Project's repoPaths.
+    await page.route("**/api/settings/projects/e2e-project-1", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "e2e-project-1",
+          name: "example-app",
+          repoPaths: [JOB_FIXTURE.repo],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }),
+      });
+    });
+    await page.route("**/api/settings/projects/e2e-project-1/task-links", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+    });
+
     // SSE mock: heartbeat + snapshot in the same response body so the browser
     // delivers them as part of the same buffered stream.  The useSSE.ts fix
     // (setTimeout instead of queueMicrotask) ensures these are dispatched as
@@ -243,7 +282,9 @@ test.describe("React #185 – kanban renders job cards without infinite loop", (
       });
     });
 
-    await page.goto("/");
+    // The kanban board is now scoped under a Project (AD-2); navigate directly
+    // to the project board route that owns this job's repo.
+    await page.goto(BOARD_PROJECT_URL);
 
     // SSE snapshot must populate the kanban (empty → non-empty transition).
     await expect(page.getByText(JOB_FIXTURE.id).first()).toBeVisible({

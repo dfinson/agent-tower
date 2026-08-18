@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from backend.models.events import EventKind, SessionEvent
     from backend.persistence.event_repo import EventRepository
     from backend.persistence.job_repo import JobRepository
+    from backend.persistence.project_repo import ProjectRepository
     from backend.services.coderecon.coderecon_service import CodeReconService
     from backend.services.completers.naming_service import NamingService
     from backend.services.events.event_bus import EventBus
@@ -66,6 +67,7 @@ class JobService:
         event_repo: EventRepository | None = None,
         event_bus: EventBus | None = None,
         coderecon: CodeReconService | None = None,
+        project_repo: ProjectRepository | None = None,
     ) -> None:
         self._job_repo = job_repo
         self._git = git_service
@@ -74,6 +76,7 @@ class JobService:
         self._event_repo = event_repo
         self._event_bus = event_bus
         self._coderecon = coderecon
+        self._project_repo = project_repo
 
     @classmethod
     def from_session(
@@ -88,9 +91,11 @@ class JobService:
         """Construct from a DB session."""
         from backend.persistence.event_repo import EventRepository
         from backend.persistence.job_repo import JobRepository
+        from backend.persistence.project_repo import ProjectRepository
 
         job_repo = JobRepository(session)
         event_repo = EventRepository(session)
+        project_repo = ProjectRepository(session)
         if git_service is None:
             from backend.services.git.git_service import GitService
 
@@ -102,6 +107,7 @@ class JobService:
             naming_service=naming_service,
             event_repo=event_repo,
             event_bus=event_bus,
+            project_repo=project_repo,
         )
 
     def _resolve_repos(self) -> set[str]:
@@ -122,6 +128,37 @@ class JobService:
             else:
                 allowed.add(str(expanded.resolve()))
         return allowed
+
+    async def _resolve_project_member_repos(self) -> set[str]:
+        """Return every repo path that belongs to a Project.
+
+        A repo registered only via Project creation/editing (AD-5) is never
+        written back into the legacy ``config.repos`` allowlist — Project
+        membership is now an equally valid authorization source, not just the
+        legacy allowlist. Without this, a repo added exclusively through
+        "Create Project" could never have a job launched against it.
+        """
+        if self._project_repo is None:
+            return set()
+        projects = await self._project_repo.list()
+        return {str(Path(path).expanduser().resolve()) for project in projects for path in project.repo_paths}
+
+    async def validate_repo_async(self, repo: str) -> str:
+        """Validate a repo path against the legacy allowlist OR Project membership.
+
+        Returns the resolved path. Prefer this over the sync ``validate_repo``
+        wherever a Project repository is available, since Project membership
+        alone is sufficient authorization (AD-5) even if the repo was never
+        added to ``config.repos``.
+        """
+        resolved = str(Path(repo).expanduser().resolve())
+        try:
+            return self.validate_repo(repo)
+        except RepoNotAllowedError:
+            pass
+        if resolved in await self._resolve_project_member_repos():
+            return resolved
+        raise RepoNotAllowedError(f"Repository '{repo}' is not in the allowlist.")
 
     async def list_events_by_job(
         self,
@@ -302,7 +339,7 @@ class JobService:
             SDKModelMismatchError: if the requested model is incompatible
                 with the resolved SDK.
         """
-        resolved_repo = self.validate_repo(spec.repo)
+        resolved_repo = await self.validate_repo_async(spec.repo)
 
         if self._git is None:
             raise ServiceInitError("GitService required for job creation")
@@ -453,7 +490,6 @@ class JobService:
             await self._job_repo.update_state(job_id, JobState.failed, now)
             await self._job_repo.update_failure_reason(job_id, f"Worktree creation failed: {exc}")
             log.error("job_worktree_failed", job_id=job_id, error=str(exc))
-            await _emit_progress("failed")
             job = await self._job_repo.get(job_id)
             if job is None:
                 raise JobNotFoundError(f"Job {job_id} disappeared after state update") from exc
@@ -474,7 +510,6 @@ class JobService:
         validate_state_transition(JobState.preparing, JobState.queued)
         await self._job_repo.update_state(job_id, JobState.queued, now)
 
-        await _emit_progress("workspace_ready")
         log.info("job_workspace_ready", job_id=job_id, worktree_path=worktree_path, branch=branch_name)
 
         job = await self._job_repo.get(job_id)
