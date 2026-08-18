@@ -104,6 +104,7 @@ async def dispatch_tracker_write(
             ticket_ref=request.ticket_ref,
             action=request.action.value,
             value=request.value,
+            email=target["email"],
         )
         return
 
@@ -122,4 +123,5 @@ async def dispatch_tracker_write(
             ticket_ref=request.ticket_ref,
             action=request.action.value,
             value=request.value,
+            email=target["email"],
         )

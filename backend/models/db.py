@@ -534,6 +534,7 @@ class CredentialRow(Base):
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     label: Mapped[str] = mapped_column(String, nullable=False)
     base_url: Mapped[str] = mapped_column(String, nullable=False)
+    email: Mapped[str | None] = mapped_column(String, nullable=True)
     encrypted_secret: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -593,6 +594,7 @@ class TaskLinkRow(Base):
     repo_path: Mapped[str] = mapped_column(String, nullable=False)
     story_node_id: Mapped[str | None] = mapped_column(String, nullable=True)
     depends_on: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")  # JSON list
+    chain_root_id: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="")
     state: Mapped[str] = mapped_column(String, nullable=False, default="waiting", server_default="waiting")
     job_id: Mapped[str | None] = mapped_column(String, ForeignKey("jobs.id"), nullable=True)
     tracker_link_id: Mapped[str | None] = mapped_column(

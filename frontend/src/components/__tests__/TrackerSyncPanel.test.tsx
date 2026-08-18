@@ -41,6 +41,7 @@ beforeEach(() => {
         provider: "jira",
         label: "Acme Jira",
         baseUrl: "https://acme.atlassian.net",
+        email: "dev@example.com",
         createdAt: "2026-08-10T12:00:00Z",
       },
     ],
@@ -148,10 +149,15 @@ describe("TrackerSyncPanel", () => {
     render(<TrackerSyncPanel />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Assign task for PAY-42" }));
+    const createButton = screen.getByRole("button", { name: "Create TaskLink" });
+    expect(createButton).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Task repository"), {
+      target: { value: "/repos/payments" },
+    });
     fireEvent.change(screen.getByLabelText("Task prompt"), {
       target: { value: "Implement payment retry" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create TaskLink" }));
+    fireEvent.click(createButton);
 
     await waitFor(() => {
       expect(createManualTaskLink).toHaveBeenCalledWith("project-1", {

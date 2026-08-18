@@ -58,6 +58,7 @@ class TestCreateAndList:
             "provider": "github",
             "label": "My GitHub",
             "base_url": "https://api.github.com",
+            "email": None,
             "created_at": result["created_at"],
         }
         # No key in the returned dict ever carries the plaintext or the token.
@@ -68,7 +69,12 @@ class TestCreateAndList:
     async def test_list_all_never_exposes_secret(self, session: AsyncSession) -> None:
         repo = CredentialRepository(session)
         await repo.create(
-            credential_id="cred-1", provider="jira", label="Jira", base_url="https://x.atlassian.net", pat="tok"
+            credential_id="cred-1",
+            provider="jira",
+            label="Jira",
+            base_url="https://x.atlassian.net",
+            pat="tok",
+            email="dev@example.com",
         )
         await session.commit()
 
@@ -76,6 +82,7 @@ class TestCreateAndList:
         assert len(rows) == 1
         assert "encrypted_secret" not in rows[0]
         assert "pat" not in rows[0]
+        assert rows[0]["email"] == "dev@example.com"
 
     @pytest.mark.asyncio
     async def test_get_returns_none_when_missing(self, session: AsyncSession) -> None:

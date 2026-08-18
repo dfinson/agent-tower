@@ -42,54 +42,88 @@ export function RepoBoard() {
   const [taskLinks, setTaskLinks] = useState<TaskLinkResponse[]>([]);
   const [ingesting, setIngesting] = useState(false);
   const [startingId, setStartingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const hasJobs = useStore((state) => Object.keys(state.jobs).length > 0);
 
-  const repoPaths = project?.repoPaths ?? [];
+  const currentProject = project?.id === projectId ? project : null;
+  const repoPaths = currentProject?.repoPaths ?? [];
   const activeJobs = useStore(useShallow(selectActiveJobsForProject(repoPaths)));
   const signoffJobs = useStore(useShallow(selectSignoffJobsForProject(repoPaths)));
   const attentionJobs = useStore(useShallow(selectAttentionJobsForProject(repoPaths)));
 
   useEffect(() => {
-    if (!projectId) return;
     let cancelled = false;
-    fetchProject(projectId)
-      .then((proj) => { if (!cancelled) setProject(proj); })
-      .catch((err) => { if (!cancelled) console.error("Failed to fetch Project", err); });
-    return () => { cancelled = true; };
-  }, [projectId]);
+    setProject(null);
+    setTaskLinks([]);
+    setLoadError(null);
+    setLoading(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchJobs({ limit: 100, archived: false })
-      .then((result) => {
+    if (!projectId) {
+      setLoadError("No Project was selected.");
+      setLoading(false);
+      return () => { cancelled = true; };
+    }
+
+    const fetchEveryJob = async () => {
+      const items: JobSummary[] = [];
+      const seenCursors = new Set<string>();
+      let cursor: string | undefined;
+      do {
+        const params: { limit: number; archived: boolean; cursor?: string } = {
+          limit: 100,
+          archived: false,
+        };
+        if (cursor) params.cursor = cursor;
+        const page = await fetchJobs(params);
+        items.push(...(page.items as JobSummary[]));
+        const nextCursor = page.hasMore ? page.cursor ?? undefined : undefined;
+        if (nextCursor && seenCursors.has(nextCursor)) {
+          throw new Error("Job pagination returned a repeated cursor.");
+        }
+        if (nextCursor) seenCursors.add(nextCursor);
+        cursor = nextCursor;
+      } while (cursor);
+      return items;
+    };
+
+    Promise.all([
+      fetchProject(projectId),
+      fetchEveryJob(),
+      fetchProjectTaskLinks(projectId),
+    ])
+      .then(([nextProject, jobs, taskLinkResponse]) => {
         if (cancelled) return;
+        setProject(nextProject);
+        setTaskLinks(taskLinkResponse.items);
         useStore.setState((state) => {
           const updated = { ...state.jobs };
-          for (const job of result.items) updated[job.id] = enrichJob(job as JobSummary);
+          for (const job of jobs) updated[job.id] = enrichJob(job);
           return { jobs: updated };
         });
       })
       .catch((err) => {
-        if (!cancelled) console.error("Failed to fetch jobs", err);
+        if (cancelled) return;
+        setProject(null);
+        setTaskLinks([]);
+        setLoadError(err instanceof Error ? err.message : "Failed to load the Project board.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    if (!projectId) return;
-    let cancelled = false;
-    fetchProjectTaskLinks(projectId)
-      .then(({ items: links }) => { if (!cancelled) setTaskLinks(links); })
-      .catch((err) => {
-        if (!cancelled) console.error("Failed to fetch TaskLinks", err);
-      });
-    return () => { cancelled = true; };
   }, [projectId]);
 
-  if (loading && !hasJobs) return <KanbanSkeleton />;
+  if ((loading && !hasJobs) || (!loadError && project !== null && !currentProject)) {
+    return <KanbanSkeleton />;
+  }
+  if (loadError) {
+    return (
+      <div role="alert" className="rounded-lg border border-red-500/40 bg-card p-8 text-center">
+        <h1 className="text-lg font-semibold">Unable to load Project board</h1>
+        <p className="mt-2 text-sm text-muted-foreground">{loadError}</p>
+      </div>
+    );
+  }
 
   const handleIngest = async () => {
     if (!projectId) return;
@@ -134,7 +168,7 @@ export function RepoBoard() {
             <LayoutGrid size={16} className="text-muted-foreground" />
             Board
           </h1>
-          <p className="text-sm text-muted-foreground truncate">{project?.name ?? ""}</p>
+          <p className="text-sm text-muted-foreground truncate">{currentProject?.name ?? ""}</p>
         </div>
         <Button variant="outline" size="sm" disabled={ingesting} onClick={() => void handleIngest()}>
           <Download size={14} className={ingesting ? "animate-pulse" : ""} />

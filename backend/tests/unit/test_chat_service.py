@@ -226,7 +226,10 @@ class TestChatServiceMessages:
         completer = AsyncMock()
         completer.complete.return_value = "A useful response"
 
-        result = await ChatService(repo, completer=completer).send_turn("c1", content="Help me decide")
+        service = ChatService(repo, completer=completer)
+        user_message = await service.begin_turn("c1", content="Help me decide")
+        assert user_message is not None
+        result = await service.complete_turn("c1", user_message=user_message)
 
         assert result is not None
         assert result.state == "assistant"
@@ -255,7 +258,10 @@ class TestChatServiceMessages:
         completer = AsyncMock()
         completer.complete.side_effect = RuntimeError("offline")
 
-        result = await ChatService(repo, completer=completer).send_turn("c1", content="Hello")
+        service = ChatService(repo, completer=completer)
+        user_message = await service.begin_turn("c1", content="Hello")
+        assert user_message is not None
+        result = await service.complete_turn("c1", user_message=user_message)
 
         assert result is not None
         assert result.state == "error"

@@ -782,6 +782,7 @@ class TaskLink:
     updated_at: datetime
     state: TaskLinkState = TaskLinkState.waiting
     tracker_link_id: str | None = None
+    chain_root_id: str = ""
 
 
 @dataclass

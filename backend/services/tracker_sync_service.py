@@ -106,6 +106,7 @@ class TrackerSyncService:
                 base_url=credential["base_url"],
                 external_ref=external_ref,
                 token=token,
+                email=credential["email"],
             )
         except TrackerReferenceError as exc:
             raise TrackerLinkValidationError(str(exc)) from exc
@@ -139,6 +140,7 @@ class TrackerSyncService:
                     base_url=target["base_url"],
                     external_ref=target["external_ref"],
                     token=token,
+                    email=target["email"],
                 )
             except TrackerAdapterError as exc:
                 return await self._fail(link_id, str(exc))

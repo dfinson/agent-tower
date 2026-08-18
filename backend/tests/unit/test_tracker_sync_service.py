@@ -156,6 +156,7 @@ async def test_test_link_calls_provider_before_attachment(
         base_url="https://api.github.com",
         external_ref="acme/7",
         token="token",
+        email=None,
     )
 
 

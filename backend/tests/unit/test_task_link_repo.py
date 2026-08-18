@@ -88,6 +88,9 @@ class TestTaskLinkRepoUpsert:
         second = next(t for t in listed if t.story_node_id == "1-2-task")
         assert second.depends_on == ["/repo/a::1-1-task"]
         assert second.epic_id == "epic-1"
+        first = next(t for t in listed if t.story_node_id == "1-1-task")
+        assert second.chain_root_id == first.id
+        assert first.chain_root_id == first.id
 
     @pytest.mark.asyncio
     async def test_upsert_matches_by_project_repo_story_node(self, session: AsyncSession) -> None:
@@ -211,6 +214,8 @@ class TestCreateManual:
             "Implement part two",
         ]
         assert all(task.story_node_id is None for task in listed)
+        assert first.chain_root_id == first.id
+        assert second.chain_root_id == second.id
 
 
 class TestSetJobIdAndGetByJobId:

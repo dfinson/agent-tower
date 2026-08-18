@@ -69,6 +69,23 @@ class TestProjectServiceCreate:
 
         mock_repo.create.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_create_validates_every_repository_before_persistence(
+        self,
+        mock_repo: AsyncMock,
+        config: CPLConfig,
+    ) -> None:
+        git_service = AsyncMock()
+        git_service.validate_repo.side_effect = [True, False]
+        service = ProjectService(mock_repo, config, git_service)
+
+        with pytest.raises(StateConflictError, match="not a valid Git repository"):
+            await service.create("Test", ["/repo/valid", "/repo/not-git"])
+
+        assert git_service.validate_repo.await_count == 2
+        mock_repo.list_all_repo_paths.assert_not_awaited()
+        mock_repo.create.assert_not_awaited()
+
 
 class TestProjectServiceUpdate:
     @pytest.mark.asyncio
@@ -167,6 +184,30 @@ class TestProjectServiceUpdate:
             await service.update("proj-1", repo_paths=["/repo/a", "/repo/b"])
 
         mock_repo.update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_update_rejects_invalid_added_repository_before_persistence(
+        self,
+        mock_repo: AsyncMock,
+        config: CPLConfig,
+    ) -> None:
+        existing_path = ProjectService._resolve("/repo/a")
+        mock_repo.get.return_value = _make_project(
+            "proj-1",
+            "Test",
+            [existing_path],
+        )
+        git_service = AsyncMock()
+        git_service.validate_repo.side_effect = [True, False]
+
+        with pytest.raises(StateConflictError, match="not a valid Git repository"):
+            await ProjectService(mock_repo, config, git_service).update(
+                "proj-1",
+                repo_paths=["/repo/a", "/repo/not-git"],
+            )
+
+        mock_repo.list_all_repo_paths.assert_not_awaited()
+        mock_repo.update.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_update_missing_project_raises_not_found(self, mock_repo: AsyncMock, config: CPLConfig) -> None:

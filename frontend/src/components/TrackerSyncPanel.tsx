@@ -103,7 +103,7 @@ export function TrackerSyncPanel() {
   const linkedGroups = groups.filter((group) => group.links.length > 0);
 
   const handleAssign = async () => {
-    if (!assignment || !assignmentPrompt.trim()) return;
+    if (!assignment || !assignment.repoPath || !assignmentPrompt.trim()) return;
     setAssigning(true);
     try {
       await createManualTaskLink(assignment.projectId, {
@@ -207,7 +207,7 @@ export function TrackerSyncPanel() {
                                       projectId: project.id,
                                       trackerLinkId: link.id,
                                       ticketRef: ticket.id,
-                                      repoPath: project.repoPaths[0] ?? "",
+                                      repoPath: "",
                                     });
                                     setAssignmentPrompt(ticket.title);
                                   }}
@@ -226,6 +226,7 @@ export function TrackerSyncPanel() {
                                       value={assignment.repoPath}
                                       onChange={(event) => setAssignment({ ...assignment, repoPath: event.target.value })}
                                     >
+                                      <option value="">Select repository…</option>
                                       {project.repoPaths.map((repoPath) => <option key={repoPath} value={repoPath}>{repoPath}</option>)}
                                     </select>
                                   </label>
@@ -240,7 +241,7 @@ export function TrackerSyncPanel() {
                                   </label>
                                   <div className="flex justify-end gap-2">
                                     <Button variant="ghost" size="sm" onClick={() => setAssignment(null)}>Cancel</Button>
-                                    <Button size="sm" disabled={assigning || !assignmentPrompt.trim()} onClick={() => void handleAssign()}>
+                                    <Button size="sm" disabled={assigning || !assignment.repoPath || !assignmentPrompt.trim()} onClick={() => void handleAssign()}>
                                       {assigning ? "Assigning…" : "Create TaskLink"}
                                     </Button>
                                   </div>

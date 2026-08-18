@@ -122,12 +122,17 @@ class ChatService:
             return []
         return await self._repo.list_messages(chat_id)
 
-    async def send_turn(self, chat_id: str, *, content: str) -> ChatTurnResult | None:
-        """Persist a user message and its non-agentic assistant completion."""
-        user_message = await self.add_message(chat_id, role="user", content=content)
-        if user_message is None:
-            return None
+    async def begin_turn(self, chat_id: str, *, content: str) -> ChatMessage | None:
+        """Persist the user half of a turn before any provider I/O."""
+        return await self.add_message(chat_id, role="user", content=content)
 
+    async def complete_turn(
+        self,
+        chat_id: str,
+        *,
+        user_message: ChatMessage,
+    ) -> ChatTurnResult:
+        """Request and persist the assistant half after the user commit."""
         transcript = await self.build_transcript(chat_id)
         prompt = f"{_CHAT_SYSTEM_PROMPT}\n\nConversation:\n{transcript or ''}\nAssistant:"
         try:

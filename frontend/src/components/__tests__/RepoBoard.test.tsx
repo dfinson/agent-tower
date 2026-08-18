@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { useStore } from "../../store";
 import type { JobSummary } from "../../store";
 
@@ -123,6 +123,64 @@ describe("RepoBoard", () => {
     await waitFor(() => {
       expect(fetchJobs).toHaveBeenCalledWith({ limit: 100, archived: false });
     });
+  });
+
+  it("paginates through every global jobs page", async () => {
+      vi.mocked(fetchJobs)
+        .mockResolvedValueOnce({
+          items: [makeJob({ id: "other", repo: "/repos/other" })],
+          cursor: "other",
+          hasMore: true,
+        } as any)
+        .mockResolvedValueOnce({
+          items: [makeJob({ id: "project-job", title: "Page two job" })],
+          cursor: null,
+          hasMore: false,
+        } as any);
+
+      renderBoard();
+
+      expect(await screen.findByText("Page two job")).toBeInTheDocument();
+      expect(fetchJobs).toHaveBeenNthCalledWith(1, { limit: 100, archived: false });
+      expect(fetchJobs).toHaveBeenNthCalledWith(2, {
+        limit: 100,
+        archived: false,
+        cursor: "other",
+      });
+  });
+
+  it("clears the previous Project and renders an error after navigation fails", async () => {
+      vi.mocked(fetchProject)
+        .mockResolvedValueOnce(makeProject({ name: "First Project" }) as any)
+        .mockRejectedValueOnce(new Error("Project missing"));
+      vi.mocked(fetchJobs)
+        .mockResolvedValueOnce({ items: [], cursor: null, hasMore: false } as any)
+        .mockResolvedValueOnce({ items: [], cursor: null, hasMore: false } as any);
+      vi.mocked(fetchProjectTaskLinks)
+        .mockResolvedValueOnce({ items: [] } as any)
+        .mockResolvedValueOnce({ items: [] } as any);
+
+      render(
+        <MemoryRouter initialEntries={["/projects/id/proj-1/board"]}>
+          <Routes>
+            <Route
+              path="/projects/id/:projectId/board"
+              element={(
+                <>
+                  <Link to="/projects/id/missing/board">Open missing Project</Link>
+                  <RepoBoard />
+                </>
+              )}
+            />
+          </Routes>
+        </MemoryRouter>,
+      );
+
+      expect(await screen.findByText("First Project")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("link", { name: "Open missing Project" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Project missing");
+      expect(screen.queryByText("First Project")).not.toBeInTheDocument();
   });
 
   it("renders the Board heading and Project name", async () => {

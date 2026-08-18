@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Link2, MessageSquare, Play, Send, Unlink } from "lucide-react";
 import { toast } from "sonner";
@@ -36,49 +36,100 @@ export function ProjectChats() {
   const [sendState, setSendState] = useState<SendState>("idle");
   const [sendError, setSendError] = useState<string | null>(null);
   const [launchRepo, setLaunchRepo] = useState("");
+  const [actionProjectId, setActionProjectId] = useState(projectId ?? "");
   const [chainTaskLinkId, setChainTaskLinkId] = useState("");
   const [chatAction, setChatAction] = useState<ChatAction>("idle");
   const [actionError, setActionError] = useState<string | null>(null);
+  const selectionRequest = useRef(0);
+  const listRequest = useRef(0);
+  const taskLinksRequest = useRef(0);
+  const invalidateSelection = useCallback(() => {
+    selectionRequest.current += 1;
+  }, []);
 
   useEffect(() => setNewChatProjectId(projectId ?? ""), [projectId]);
 
   const selectChat = useCallback(async (chat: Chat) => {
+    const request = ++selectionRequest.current;
     setSelected(chat);
+    setMessages([]);
     setSendState("idle");
     setSendError(null);
     setLaunchRepo("");
+    setActionProjectId(chat.projectId ?? "");
     setChainTaskLinkId(chat.taskLinkId ?? "");
     setActionError(null);
     try {
-      setMessages(await fetchChatMessages(chat.id));
+      const nextMessages = await fetchChatMessages(chat.id);
+      if (selectionRequest.current === request) setMessages(nextMessages);
     } catch (error) {
-      setMessages([]);
-      toast.error(String(error));
+      if (selectionRequest.current === request) {
+        setSelected(null);
+        setMessages([]);
+        toast.error(String(error));
+      }
     }
   }, []);
 
   useEffect(() => {
-    let ignore = false;
+    let cancelled = false;
+    const request = ++listRequest.current;
+    invalidateSelection();
     setLoading(true);
-    Promise.all([
-      fetchChats(projectId),
-      fetchProjects(),
-      projectId ? fetchProjectTaskLinks(projectId) : Promise.resolve({ items: [] }),
-    ])
-      .then(([chatResponse, projectResponse, taskLinkResponse]) => {
-        if (ignore) return;
+    setChats([]);
+    setProjects([]);
+    setSelected(null);
+    setMessages([]);
+    setTaskLinks([]);
+    Promise.all([fetchChats(projectId), fetchProjects()])
+      .then(([chatResponse, projectResponse]) => {
+        if (cancelled || listRequest.current !== request) return;
         setChats(chatResponse.items);
         setProjects(projectResponse.items);
-        setTaskLinks(taskLinkResponse.items);
         if (chatId) {
           const deepLinked = chatResponse.items.find((chat) => chat.id === chatId);
           if (deepLinked) void selectChat(deepLinked);
+          else toast.error("Chat not found in this Project.");
         }
       })
-      .catch(() => { if (!ignore) toast.error("Failed to load chats"); })
-      .finally(() => { if (!ignore) setLoading(false); });
-    return () => { ignore = true; };
-  }, [chatId, projectId, selectChat]);
+      .catch(() => {
+        if (!cancelled && listRequest.current === request) {
+          setChats([]);
+          setProjects([]);
+          setSelected(null);
+          setMessages([]);
+          toast.error("Failed to load chats");
+        }
+      })
+      .finally(() => {
+        if (!cancelled && listRequest.current === request) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      invalidateSelection();
+    };
+  }, [chatId, invalidateSelection, projectId, selectChat]);
+
+  useEffect(() => {
+    const request = ++taskLinksRequest.current;
+    setTaskLinks([]);
+    setLaunchRepo("");
+    if (!actionProjectId) {
+      setChainTaskLinkId("");
+      return;
+    }
+    void fetchProjectTaskLinks(actionProjectId)
+      .then(({ items }) => {
+        if (taskLinksRequest.current === request) setTaskLinks(items);
+      })
+      .catch((error) => {
+        if (taskLinksRequest.current === request) {
+          setTaskLinks([]);
+          setChainTaskLinkId("");
+          setActionError(error instanceof Error ? error.message : String(error));
+        }
+      });
+  }, [actionProjectId]);
 
   function chatUrl(chat: Chat): string {
     return chat.projectId
@@ -110,6 +161,8 @@ export function ProjectChats() {
     if (!selected || !content || sendState === "sending" || sendState === "awaiting-assistant") return;
 
     const optimisticId = `sending-${Date.now()}`;
+    const request = selectionRequest.current;
+    const selectedChatId = selected.id;
     const optimistic: ChatMessage = {
       id: optimisticId,
       chatId: selected.id,
@@ -125,6 +178,7 @@ export function ProjectChats() {
 
     try {
       const turn = await sendChatTurn(selected.id, content);
+      if (selectionRequest.current !== request) return;
       setMessages((items) => [
         ...items.filter((item) => item.id !== optimisticId),
         turn.userMessage,
@@ -139,7 +193,15 @@ export function ProjectChats() {
       setMessage("");
       setSendState("assistant");
     } catch (error) {
-      setMessages((items) => items.filter((item) => item.id !== optimisticId));
+      if (selectionRequest.current !== request) return;
+      try {
+        const persisted = await fetchChatMessages(selectedChatId);
+        if (selectionRequest.current === request) setMessages(persisted);
+      } catch {
+        if (selectionRequest.current === request) {
+          setMessages((items) => items.filter((item) => item.id !== optimisticId));
+        }
+      }
       setSendState("error");
       setSendError(error instanceof Error ? error.message : String(error));
     }
@@ -149,6 +211,7 @@ export function ProjectChats() {
     setSelected(updated);
     setChats((items) => items.map((item) => item.id === updated.id ? updated : item));
     setChainTaskLinkId(updated.taskLinkId ?? "");
+    setActionProjectId(updated.projectId ?? "");
   }
 
   async function launchJob() {
@@ -259,8 +322,24 @@ export function ProjectChats() {
                   )}
                 </div>
               </div>
-              {selected.projectId && (
-                <div className="mt-4 grid gap-3 rounded-md border border-border bg-background p-3">
+              <div className="mt-4 grid gap-3 rounded-md border border-border bg-background p-3">
+                  {!selected.projectId && (
+                    <select
+                      aria-label="Project for Chat action"
+                      value={actionProjectId}
+                      onChange={(event) => {
+                        setActionProjectId(event.target.value);
+                        setChainTaskLinkId("");
+                        setActionError(null);
+                      }}
+                      className="h-9 rounded-md border border-border bg-background px-2 text-xs"
+                    >
+                      <option value="">Select Project for actions…</option>
+                      {projects.map((project) => (
+                        <option key={project.id} value={project.id}>{project.name}</option>
+                      ))}
+                    </select>
+                  )}
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                     <select
                       aria-label="Repository for launched Job"
@@ -269,7 +348,7 @@ export function ProjectChats() {
                       className="h-9 rounded-md border border-border bg-background px-2 text-xs"
                     >
                       <option value="">Select repository for Job…</option>
-                      {projects.find((project) => project.id === selected.projectId)?.repoPaths.map((repo) => (
+                      {projects.find((project) => project.id === actionProjectId)?.repoPaths.map((repo) => (
                         <option key={repo} value={repo}>{repo}</option>
                       ))}
                     </select>
@@ -322,7 +401,6 @@ export function ProjectChats() {
                     <p role="alert" className="text-xs text-red-500">{actionError}</p>
                   )}
                 </div>
-              )}
               <div className="mt-4 space-y-2 max-h-80 overflow-y-auto" aria-live="polite">
                 {messages.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No messages yet.</p>

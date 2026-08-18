@@ -515,6 +515,7 @@ class TaskLinkResponse(CamelModel):
     repo_path: str
     story_node_id: str | None
     depends_on: list[str]
+    chain_root_id: str
     state: Literal["waiting", "ready", "running", "completed", "failed"]
     job_id: str | None
     tracker_link_id: str | None

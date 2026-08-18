@@ -2172,33 +2172,33 @@ export interface paths {
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        get: operations["preview_proxy_api_preview__port___path__head"];
+        get: operations["preview_proxy_api_preview__port___path__delete"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        put: operations["preview_proxy_api_preview__port___path__head"];
+        put: operations["preview_proxy_api_preview__port___path__delete"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        post: operations["preview_proxy_api_preview__port___path__head"];
+        post: operations["preview_proxy_api_preview__port___path__delete"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        delete: operations["preview_proxy_api_preview__port___path__head"];
+        delete: operations["preview_proxy_api_preview__port___path__delete"];
         options?: never;
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        head: operations["preview_proxy_api_preview__port___path__head"];
+        head: operations["preview_proxy_api_preview__port___path__delete"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        patch: operations["preview_proxy_api_preview__port___path__head"];
+        patch: operations["preview_proxy_api_preview__port___path__delete"];
         trace?: never;
     };
     "/api/jobs/{job_id}/share": {
@@ -3886,6 +3886,8 @@ export interface components {
             baseUrl: string;
             /** Pat */
             pat: string;
+            /** Email */
+            email?: string | null;
         };
         /** CreateJobRequest */
         CreateJobRequest: {
@@ -4038,6 +4040,8 @@ export interface components {
             label: string;
             /** Baseurl */
             baseUrl: string;
+            /** Email */
+            email: string | null;
             /** Createdat */
             createdAt: string;
         };
@@ -7290,6 +7294,8 @@ export interface components {
             storyNodeId: string | null;
             /** Dependson */
             dependsOn: string[];
+            /** Chainrootid */
+            chainRootId: string;
             /**
              * State
              * @enum {string}
@@ -11749,7 +11755,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__head: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -11779,7 +11785,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__head: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -11809,7 +11815,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__head: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -11839,7 +11845,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__head: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -11869,7 +11875,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__head: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -11899,7 +11905,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__head: {
+    preview_proxy_api_preview__port___path__delete: {
         parameters: {
             query?: never;
             header?: never;

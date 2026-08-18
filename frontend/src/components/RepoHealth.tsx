@@ -25,7 +25,7 @@ function fetchHealth(repoPath: string): Promise<HealthData> {
 
 export function RepoHealth() {
   const { projectId, repoPath } = useParams<{ projectId: string; repoPath: string }>();
-  const decoded = repoPath ? decodeURIComponent(repoPath) : "";
+  const decoded = repoPath ?? "";
   const repoName = pathBasename(decoded) || decoded;
 
   const [loading, setLoading] = useState(true);
@@ -53,7 +53,7 @@ export function RepoHealth() {
       .catch(() => { if (!ignore) toast.error("Failed to load health data"); })
       .finally(() => { if (!ignore) setLoading(false); });
     return () => { ignore = true; };
-  }, [decoded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [decoded]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-5">

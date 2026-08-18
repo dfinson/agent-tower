@@ -86,7 +86,7 @@ async def test_github_projects_rejects_invalid_external_ref() -> None:
 async def test_jira_normalizes_issue_search_response() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/rest/api/3/search/jql"
-        assert request.headers["authorization"] == "Bearer secret"
+        assert request.headers["authorization"] == "Basic ZGV2QGFjbWUudGVzdDpzZWNyZXQ="
         assert 'project = "PAY"' in request.url.params["jql"]
         return httpx.Response(
             200,
@@ -108,6 +108,7 @@ async def test_jira_normalizes_issue_search_response() -> None:
             base_url="https://acme.atlassian.net/",
             external_ref="PAY",
             token="secret",
+            email="dev@acme.test",
         )
 
     assert tickets == [
@@ -171,6 +172,7 @@ async def test_adapter_wraps_http_errors_without_exposing_token() -> None:
                 base_url="https://acme.atlassian.net",
                 external_ref="PAY",
                 token="secret",
+                email="dev@acme.test",
             )
 
     assert "secret" not in str(exc_info.value)
@@ -224,10 +226,11 @@ async def test_jira_transition_reads_options_then_performs_one_write() -> None:
             ticket_ref="PAY-42",
             action="transition",
             value="Done",
+            email="dev@acme.test",
         )
 
     assert methods == ["GET", "POST"]
-    assert all(request.headers["authorization"] == "Bearer secret" for request in requests)
+    assert all(request.headers["authorization"] == "Basic ZGV2QGFjbWUudGVzdDpzZWNyZXQ=" for request in requests)
 
 
 @pytest.mark.asyncio

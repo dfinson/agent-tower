@@ -17,7 +17,7 @@ function formatCost(usd: number): string {
 
 export function RepoCost() {
   const { projectId, repoPath } = useParams<{ projectId: string; repoPath: string }>();
-  const decoded = repoPath ? decodeURIComponent(repoPath) : "";
+  const decoded = repoPath ?? "";
   const repoName = pathBasename(decoded) || decoded;
 
   const [loading, setLoading] = useState(true);

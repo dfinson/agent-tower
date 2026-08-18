@@ -271,8 +271,13 @@ class RequestProvider(Provider):
         return ProjectRepository(session)
 
     @provide
-    def project_service(self, project_repo: ProjectRepository, config: CPLConfig) -> ProjectService:
-        return ProjectService(project_repo, config)
+    def project_service(
+        self,
+        project_repo: ProjectRepository,
+        config: CPLConfig,
+        git_service: GitService,
+    ) -> ProjectService:
+        return ProjectService(project_repo, config, git_service)
 
     @provide
     def task_link_repo(self, session: AsyncSession) -> TaskLinkRepository:

@@ -36,6 +36,7 @@ class TrackerAdapterInterface(Protocol):
         base_url: str,
         external_ref: str,
         token: str,
+        email: str | None = None,
     ) -> None: ...
 
     async def fetch_tickets(
@@ -44,6 +45,7 @@ class TrackerAdapterInterface(Protocol):
         base_url: str,
         external_ref: str,
         token: str,
+        email: str | None = None,
     ) -> list[TrackerTicket]: ...
 
     async def write(
@@ -55,6 +57,7 @@ class TrackerAdapterInterface(Protocol):
         ticket_ref: str,
         action: str,
         value: str,
+        email: str | None = None,
     ) -> None: ...
 
 
@@ -86,8 +89,14 @@ class _HttpTrackerAdapter:
         base_url: str,
         external_ref: str,
         token: str,
+        email: str | None = None,
     ) -> None:
-        await self.fetch_tickets(base_url=base_url, external_ref=external_ref, token=token)  # type: ignore[attr-defined]
+        await self.fetch_tickets(  # type: ignore[attr-defined]
+            base_url=base_url,
+            external_ref=external_ref,
+            token=token,
+            email=email,
+        )
 
 
 class GitHubProjectsTrackerAdapter(_HttpTrackerAdapter):
@@ -138,7 +147,9 @@ class GitHubProjectsTrackerAdapter(_HttpTrackerAdapter):
         base_url: str,
         external_ref: str,
         token: str,
+        email: str | None = None,
     ) -> list[TrackerTicket]:
+        del email
         owner, separator, raw_number = external_ref.partition("/")
         if not separator or not owner or not raw_number.isdigit():
             raise TrackerReferenceError("GitHub external ref must use owner/project-number")
@@ -211,7 +222,9 @@ class GitHubProjectsTrackerAdapter(_HttpTrackerAdapter):
         ticket_ref: str,
         action: str,
         value: str,
+        email: str | None = None,
     ) -> None:
+        del email
         del external_ref
         match = re.fullmatch(r"([^/\s]+)/([^#/\s]+)#(\d+)", ticket_ref)
         if match is None:
@@ -263,14 +276,18 @@ class JiraTrackerAdapter(_HttpTrackerAdapter):
         base_url: str,
         external_ref: str,
         token: str,
+        email: str | None = None,
     ) -> list[TrackerTicket]:
         if re.fullmatch(r"[A-Z][A-Z0-9_]{1,19}", external_ref) is None:
             raise TrackerReferenceError("Jira external ref must be an uppercase project key")
         escaped_ref = external_ref.replace("\\", "\\\\").replace('"', '\\"')
+        if not email:
+            raise TrackerAdapterError("Jira credential is missing an account email")
+        auth = base64.b64encode(f"{email}:{token}".encode()).decode()
         payload = await self._request_json(
             "GET",
             f"{base_url.rstrip('/')}/rest/api/3/search/jql",
-            headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
+            headers={"Authorization": "Basic " + auth, "Accept": "application/json"},
             params={
                 "jql": f'project = "{escaped_ref}" ORDER BY updated DESC',
                 "fields": "summary,status",
@@ -309,12 +326,16 @@ class JiraTrackerAdapter(_HttpTrackerAdapter):
         ticket_ref: str,
         action: str,
         value: str,
+        email: str | None = None,
     ) -> None:
         del external_ref
         if re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", ticket_ref) is None:
             raise TrackerReferenceError("Jira ticket ref must use PROJECT-123")
         issue_url = f"{base_url.rstrip('/')}/rest/api/3/issue/{quote(ticket_ref, safe='-')}"
-        headers = {"Authorization": "Bearer " + token, "Accept": "application/json"}
+        if not email:
+            raise TrackerAdapterError("Jira credential is missing an account email")
+        auth = base64.b64encode(f"{email}:{token}".encode()).decode()
+        headers = {"Authorization": "Basic " + auth, "Accept": "application/json"}
         if action == "comment":
             await self._request_no_content(
                 "POST",
@@ -374,7 +395,9 @@ class AzureDevOpsTrackerAdapter(_HttpTrackerAdapter):
         base_url: str,
         external_ref: str,
         token: str,
+        email: str | None = None,
     ) -> list[TrackerTicket]:
+        del email
         if not external_ref.strip() or any(char in external_ref for char in "\\/#?"):
             raise TrackerReferenceError("Azure DevOps external ref must be a project name")
         auth = base64.b64encode(f":{token}".encode()).decode()
@@ -442,7 +465,9 @@ class AzureDevOpsTrackerAdapter(_HttpTrackerAdapter):
         ticket_ref: str,
         action: str,
         value: str,
+        email: str | None = None,
     ) -> None:
+        del email
         if not ticket_ref.isdigit():
             raise TrackerReferenceError("Azure DevOps ticket ref must be a numeric work item ID")
         auth = base64.b64encode(f":{token}".encode()).decode()

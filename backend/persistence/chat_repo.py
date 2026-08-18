@@ -7,9 +7,9 @@ Chat is structurally incapable of a git operation.
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from backend.models.db import ChatMessageRow, ChatRow
+from backend.models.db import ChatMessageRow, ChatRow, TaskLinkRow
 from backend.models.domain import Chat, ChatMessage
 from backend.persistence.repository import BaseRepository
 
@@ -108,10 +108,17 @@ class ChatRepository(BaseRepository):
         row = result.scalars().first()
         return self._to_domain(row) if row is not None else None
 
-    async def get_attached_open_chat_for_task_link(self, task_link_id: str) -> Chat | None:
-        """Find the open Chat that gates this exact TaskLink chain."""
-        stmt = select(ChatRow).where(
-            ChatRow.task_link_id == task_link_id,
+    async def get_attached_open_chat_for_chain(self, chain_root_id: str) -> Chat | None:
+        """Find an open Chat attached anywhere in the requested chain."""
+        attached_chain_id = func.coalesce(
+            func.nullif(TaskLinkRow.chain_root_id, ""),
+            TaskLinkRow.id,
+        )
+        stmt = select(ChatRow).join(
+            TaskLinkRow,
+            TaskLinkRow.id == ChatRow.task_link_id,
+        ).where(
+            attached_chain_id == chain_root_id,
             ChatRow.status == "open",
         )
         result = await self._session.execute(stmt)

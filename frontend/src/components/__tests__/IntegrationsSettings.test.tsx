@@ -28,6 +28,36 @@ beforeEach(() => {
   vi.mocked(deleteCredential).mockReset();
 });
 
+it("requires and submits the Jira account email", async () => {
+  render(<IntegrationsSettings />);
+  await screen.findByText(/fine-grained PAT/);
+  fireEvent.click(screen.getByRole("button", { name: "Jira" }));
+  fireEvent.change(screen.getByLabelText("Label"), { target: { value: "Jira" } });
+  fireEvent.change(screen.getByLabelText("Base URL"), {
+    target: { value: "https://acme.atlassian.net" },
+  });
+  fireEvent.change(screen.getByLabelText("Personal Access Token"), {
+    target: { value: "token" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /Register Credential/ }));
+  expect(createCredential).not.toHaveBeenCalled();
+
+  fireEvent.change(screen.getByLabelText("Jira account email"), {
+    target: { value: "dev@acme.test" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /Register Credential/ }));
+
+  await waitFor(() => {
+    expect(createCredential).toHaveBeenCalledWith({
+      provider: "jira",
+      label: "Jira",
+      baseUrl: "https://acme.atlassian.net",
+      pat: "token",
+      email: "dev@acme.test",
+    });
+  });
+});
+
 describe("IntegrationsSettings", () => {
   it("renders the empty state after loading", async () => {
     render(<IntegrationsSettings />);
@@ -44,6 +74,7 @@ describe("IntegrationsSettings", () => {
           provider: "github",
           label: "My GitHub",
           baseUrl: "https://api.github.com",
+          email: null,
           createdAt: "2026-01-01T00:00:00Z",
         },
       ],
@@ -73,6 +104,7 @@ describe("IntegrationsSettings", () => {
       provider: "github",
       label: "New Cred",
       baseUrl: "https://api.github.com",
+      email: null,
       createdAt: "2026-01-01T00:00:00Z",
     });
 
@@ -92,6 +124,7 @@ describe("IntegrationsSettings", () => {
         label: "New Cred",
         baseUrl: "https://api.github.com",
         pat: "ghp_sentinel",
+        email: null,
       });
     });
   });
@@ -118,6 +151,7 @@ describe("IntegrationsSettings", () => {
           provider: "jira",
           label: "Jira Cred",
           baseUrl: "https://x.atlassian.net",
+          email: "dev@example.com",
           createdAt: "2026-01-01T00:00:00Z",
         },
       ],

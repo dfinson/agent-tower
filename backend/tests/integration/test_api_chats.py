@@ -17,8 +17,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from sqlalchemy import select
 
-from backend.models.db import ProjectRow, TaskLinkRow
+from backend.models.db import ChatMessageRow, ProjectRow, TaskLinkRow
 
 if TYPE_CHECKING:
     from unittest.mock import AsyncMock
@@ -172,6 +173,37 @@ class TestAddChatMessage:
 
 
 class TestSendChatTurn:
+    @pytest.mark.asyncio
+    async def test_user_message_is_committed_before_provider_completion(
+        self,
+        client: AsyncClient,
+        mock_utility_session: AsyncMock,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        chat_id = (await client.post("/api/chats", json={"title": "Thinking"})).json()["id"]
+
+        async def complete(_prompt: str) -> str:
+            async with session_factory() as observer:
+                rows = (
+                    await observer.execute(
+                        select(ChatMessageRow).where(ChatMessageRow.chat_id == chat_id)
+                    )
+                ).scalars().all()
+            assert [(row.role, row.content) for row in rows] == [
+                ("user", "Persist this first")
+            ]
+            return "Now reply"
+
+        mock_utility_session.complete.side_effect = complete
+
+        response = await client.post(
+            f"/api/chats/{chat_id}/turns",
+            json={"content": "Persist this first"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["assistantMessage"]["content"] == "Now reply"
+
     @pytest.mark.asyncio
     async def test_turn_returns_and_persists_assistant_response(
         self,

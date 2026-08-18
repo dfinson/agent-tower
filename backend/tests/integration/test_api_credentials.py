@@ -90,7 +90,7 @@ class TestProviderGuidance:
         """Story 3.5 AC3/NFR3: the create-Credential schema is PAT-only."""
         field_names = set(CreateCredentialRequest.model_fields)
         assert not any("oauth" in name.lower() for name in field_names)
-        assert field_names == {"provider", "label", "base_url", "pat"}
+        assert field_names == {"provider", "label", "base_url", "pat", "email"}
 
 
 class TestCreateCredential:
@@ -121,13 +121,34 @@ class TestCreateCredential:
     async def test_created_credential_appears_in_list(self, client: AsyncClient) -> None:
         await client.post(
             "/api/settings/credentials",
-            json={"provider": "jira", "label": "Jira", "baseUrl": "https://x.atlassian.net", "pat": "tok"},
+            json={
+                "provider": "jira",
+                "label": "Jira",
+                "baseUrl": "https://x.atlassian.net",
+                "pat": "tok",
+                "email": "dev@example.com",
+            },
         )
         resp = await client.get("/api/settings/credentials")
         creds = resp.json()["credentials"]
         assert len(creds) == 1
         assert creds[0]["provider"] == "jira"
+        assert creds[0]["email"] == "dev@example.com"
         assert "pat" not in creds[0]
+
+    @pytest.mark.asyncio
+    async def test_jira_requires_account_email(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/api/settings/credentials",
+            json={
+                "provider": "jira",
+                "label": "Jira",
+                "baseUrl": "https://x.atlassian.net",
+                "pat": "tok",
+            },
+        )
+
+        assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_rejects_unknown_provider(self, client: AsyncClient) -> None:

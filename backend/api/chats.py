@@ -138,10 +138,16 @@ async def send_chat_turn(
     session: FromDishka[AsyncSession],
 ) -> ChatTurnResponse:
     """Persist a user message and return its assistant completion or failure state."""
-    result = await service.send_turn(chat_id, content=body.content)
-    if result is None:
+    user_message = await service.begin_turn(chat_id, content=body.content)
+    if user_message is None:
         raise HTTPException(status_code=404, detail="Chat not found")
+
+    # The provider may take an arbitrary amount of time or fail. Make the
+    # user's message durable and visible to other sessions before awaiting it.
     await session.commit()
+    result = await service.complete_turn(chat_id, user_message=user_message)
+    if result.assistant_message is not None:
+        await session.commit()
     return ChatTurnResponse(
         user_message=_message_to_response(result.user_message),
         assistant_message=(

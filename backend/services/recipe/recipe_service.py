@@ -381,7 +381,7 @@ class RecipeService:
         project_links = await self._task_link_repo.list_by_project(completed_link.project_id)
         links_by_key = {key: link for link in project_links if (key := self._composite_key(link)) is not None}
 
-        gated = await self._is_chain_gated(completed_link.id)
+        gated = await self._is_chain_gated(completed_link.chain_root_id or completed_link.id)
         pending_spawn_actions: set[str] | None = None
         if gated:
             assert self._approval_service is not None  # narrowed by _is_chain_gated
@@ -442,15 +442,15 @@ class RecipeService:
 
         return spawned
 
-    async def _is_chain_gated(self, task_link_id: str) -> bool:
-        """Whether this exact TaskLink chain is gated behind approval.
+    async def _is_chain_gated(self, chain_root_id: str) -> bool:
+        """Whether this persisted TaskLink chain is gated behind approval.
 
         A Chat attached to another TaskLink in the same Project must not gate
         this chain.
         """
         if self._chat_repo is None or self._approval_service is None:
             return False
-        attached_chat = await self._chat_repo.get_attached_open_chat_for_task_link(task_link_id)
+        attached_chat = await self._chat_repo.get_attached_open_chat_for_chain(chain_root_id)
         return attached_chat is not None
 
     async def _maybe_route_tracker_write(self, task_link: TaskLink, job_id: str) -> None:

@@ -128,7 +128,7 @@ class TestGetAttachedOpenChatForProject:
         assert found is None
 
 
-class TestGetAttachedOpenChatForTaskLink:
+class TestGetAttachedOpenChatForChain:
     @pytest.mark.asyncio
     async def test_gating_is_scoped_to_the_exact_attached_chain(self, session: AsyncSession) -> None:
         project_id = await _make_project(session)
@@ -137,9 +137,41 @@ class TestGetAttachedOpenChatForTaskLink:
         chat = await _make_chat(session, project_id=project_id, task_link_id=attached)
         repo = ChatRepository(session)
 
-        found = await repo.get_attached_open_chat_for_task_link(attached)
-        not_found = await repo.get_attached_open_chat_for_task_link(unrelated)
+        found = await repo.get_attached_open_chat_for_chain(attached)
+        not_found = await repo.get_attached_open_chat_for_chain(unrelated)
 
         assert found is not None
         assert found.id == chat.id
         assert not_found is None
+
+    @pytest.mark.asyncio
+    async def test_attached_root_gates_a_successor_in_the_same_chain(
+        self,
+        session: AsyncSession,
+    ) -> None:
+        project_id = await _make_project(session)
+        task_repo = TaskLinkRepository(session)
+        root, successor = await task_repo.upsert_many(
+            project_id,
+            [
+                {
+                    "repo_path": "/repo/a",
+                    "story_node_id": "1-1-root",
+                    "depends_on": [],
+                    "epic_id": None,
+                },
+                {
+                    "repo_path": "/repo/a",
+                    "story_node_id": "1-2-successor",
+                    "depends_on": ["/repo/a::1-1-root"],
+                    "epic_id": None,
+                },
+            ],
+        )
+        await _make_chat(session, project_id=project_id, task_link_id=root.id)
+
+        found = await ChatRepository(session).get_attached_open_chat_for_chain(
+            successor.chain_root_id
+        )
+
+        assert found is not None

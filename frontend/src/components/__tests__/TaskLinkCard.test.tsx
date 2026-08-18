@@ -11,6 +11,7 @@ function makeTaskLink(overrides: Partial<TaskLinkResponse> = {}): TaskLinkRespon
     repoPath: "/repos/frontend",
     storyNodeId: "4-4-see-tasklink-cards",
     dependsOn: [],
+    chainRootId: "tl-1",
     state: "ready",
     jobId: null,
     trackerLinkId: null,

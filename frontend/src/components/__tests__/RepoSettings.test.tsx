@@ -64,6 +64,7 @@ describe("RepoSettings", () => {
         provider: "github",
         label: "Alpha GitHub",
         baseUrl: "https://api.github.com",
+        email: null,
         createdAt: "2024-01-01T00:00:00Z",
       }],
     } as unknown as Awaited<ReturnType<typeof fetchCredentials>>);

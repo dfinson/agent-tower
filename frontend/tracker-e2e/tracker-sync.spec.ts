@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:18765";
 const JIRA_TOKEN = "local-e2e-token";
+const JIRA_EMAIL = "tracker-e2e@codeplane.local";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 let backend: ChildProcess | undefined;
@@ -69,6 +70,7 @@ async function requestJson<T>(
 }
 
 async function startFakeJira(): Promise<string> {
+  const jiraAuthorization = `Basic ${Buffer.from(`${JIRA_EMAIL}:${JIRA_TOKEN}`).toString("base64")}`;
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     if (request.method === "GET" && url.pathname === "/rest/api/3/search/jql") {
@@ -78,7 +80,7 @@ async function startFakeJira(): Promise<string> {
         return;
       }
       const validRequest =
-        request.headers.authorization === `Bearer ${JIRA_TOKEN}` &&
+        request.headers.authorization === jiraAuthorization &&
         url.searchParams.get("jql")?.includes('project = "TEST"') &&
         url.searchParams.get("fields") === "summary,status" &&
         url.searchParams.get("maxResults") === "100";
@@ -389,6 +391,7 @@ test.beforeAll(async () => {
           label: "Local Jira",
           baseUrl: jiraBaseUrl,
           pat: JIRA_TOKEN,
+          email: JIRA_EMAIL,
         }),
       },
     );

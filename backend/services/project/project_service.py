@@ -19,14 +19,21 @@ if TYPE_CHECKING:
 
     from backend.config import CPLConfig
     from backend.persistence.project_repo import ProjectRepository
+    from backend.services.git.git_service import GitService
 
 
 class ProjectService:
     """Orchestrates Project creation and membership edits."""
 
-    def __init__(self, project_repo: ProjectRepository, config: CPLConfig) -> None:
+    def __init__(
+        self,
+        project_repo: ProjectRepository,
+        config: CPLConfig,
+        git_service: GitService | None = None,
+    ) -> None:
         self._project_repo = project_repo
         self._config = config
+        self._git_service = git_service
 
     @staticmethod
     def _resolve(repo_path: str) -> str:
@@ -42,11 +49,22 @@ class ProjectService:
             if owner is not None:
                 raise RepoAlreadyAssignedError(f"Repo path '{path}' already belongs to Project '{owner}'.")
 
+    async def _assert_valid_repositories(self, repo_paths: builtins.list[str]) -> None:
+        """Validate the full proposed membership before any persistence write."""
+        if self._git_service is None:
+            return
+        for path in repo_paths:
+            if not await self._git_service.validate_repo(path):
+                raise StateConflictError(
+                    f"Repository '{path}' does not exist or is not a valid Git repository."
+                )
+
     async def create(self, name: str, repo_paths: builtins.list[str]) -> Project:
         """Create a new Project, registering each repo path via the existing clone/register logic."""
         resolved = [self._resolve(p) for p in repo_paths]
         if not resolved:
             raise StateConflictError("A Project must contain at least one repository.")
+        await self._assert_valid_repositories(resolved)
         await self._assert_repo_paths_available(resolved, exclude_project_id=None)
 
         project_id = str(uuid.uuid4())
@@ -81,6 +99,7 @@ class ProjectService:
             resolved_repo_paths = [self._resolve(p) for p in repo_paths]
             if not resolved_repo_paths:
                 raise StateConflictError("A Project must contain at least one repository.")
+            await self._assert_valid_repositories(resolved_repo_paths)
             await self._assert_repo_paths_available(resolved_repo_paths, exclude_project_id=project_id)
             removed = sorted(set(existing.repo_paths) - set(resolved_repo_paths))
             if removed:

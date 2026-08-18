@@ -37,12 +37,22 @@ class CredentialRepository(BaseRepository):
         row = result.scalar_one_or_none()
         return _row_to_dict(row) if row else None
 
-    async def create(self, *, credential_id: str, provider: str, label: str, base_url: str, pat: str) -> dict[str, Any]:
+    async def create(
+        self,
+        *,
+        credential_id: str,
+        provider: str,
+        label: str,
+        base_url: str,
+        pat: str,
+        email: str | None = None,
+    ) -> dict[str, Any]:
         row = CredentialRow(
             id=credential_id,
             provider=provider,
             label=label,
             base_url=base_url,
+            email=email,
             encrypted_secret=encrypt_secret(pat),
             created_at=datetime.now(UTC).isoformat(),
         )
@@ -77,5 +87,6 @@ def _row_to_dict(row: CredentialRow) -> dict[str, Any]:
         "provider": row.provider,
         "label": row.label,
         "base_url": row.base_url,
+        "email": row.email,
         "created_at": row.created_at,
     }

@@ -37,6 +37,7 @@ export function IntegrationsSettings() {
   const [provider, setProvider] = useState<CredentialProvider>("github");
   const [label, setLabel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [email, setEmail] = useState("");
   const [pat, setPat] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -60,15 +61,22 @@ export function IntegrationsSettings() {
   }, [load]);
 
   const handleCreate = async () => {
-    if (!label.trim() || !baseUrl.trim() || !pat.trim()) {
-      toast.error("Provider, label, base URL, and PAT are all required.");
+    if (!label.trim() || !baseUrl.trim() || !pat.trim() || (provider === "jira" && !email.trim())) {
+      toast.error("Provider, label, base URL, token, and Jira account email (for Jira) are required.");
       return;
     }
     setCreating(true);
     try {
-      await createCredential({ provider, label: label.trim(), baseUrl: baseUrl.trim(), pat: pat.trim() });
+      await createCredential({
+        provider,
+        label: label.trim(),
+        baseUrl: baseUrl.trim(),
+        pat: pat.trim(),
+        email: provider === "jira" ? email.trim() : null,
+      });
       setLabel("");
       setBaseUrl("");
+      setEmail("");
       setPat("");
       toast.success("Credential registered.");
       await load();
@@ -127,6 +135,7 @@ export function IntegrationsSettings() {
                 {cred.provider.replace("_", " ")}
               </span>
               <p className="text-muted-foreground">{cred.baseUrl}</p>
+              {cred.email && <p className="text-muted-foreground">{cred.email}</p>}
             </div>
             <Button
               variant="ghost"
@@ -180,6 +189,18 @@ export function IntegrationsSettings() {
             placeholder="https://api.github.com"
           />
         </div>
+        {provider === "jira" && (
+          <div className="space-y-1.5">
+            <Label htmlFor="credential-email">Jira account email</Label>
+            <Input
+              id="credential-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+            />
+          </div>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor="credential-pat">Personal Access Token</Label>
           <Input

@@ -61,6 +61,7 @@ def _task_link_to_response(task_link: TaskLink) -> TaskLinkResponse:
         repo_path=task_link.repo_path,
         story_node_id=task_link.story_node_id,
         depends_on=task_link.depends_on,
+        chain_root_id=task_link.chain_root_id,
         state=task_link.state,
         job_id=task_link.job_id,
         tracker_link_id=task_link.tracker_link_id,

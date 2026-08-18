@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 vi.mock("../../api/client", () => ({
@@ -45,6 +45,17 @@ function renderChats() {
   return render(
     <MemoryRouter initialEntries={["/projects/id/project-1/chats/chat-1"]}>
       <Routes>
+        <Route path="/projects/id/:projectId/chats/:chatId" element={<ProjectChats />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+function renderChatsAt(path: string) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/chats/:chatId" element={<ProjectChats />} />
         <Route path="/projects/id/:projectId/chats/:chatId" element={<ProjectChats />} />
       </Routes>
     </MemoryRouter>,
@@ -169,5 +180,74 @@ describe("ProjectChats", () => {
     await waitFor(() => expect(attachChatToChain).toHaveBeenCalledWith("chat-1", "task-1"));
     fireEvent.click(screen.getByRole("button", { name: /Detach chain/i }));
     await waitFor(() => expect(detachChatFromChain).toHaveBeenCalledWith("chat-1"));
+  });
+
+  it("exposes scoped actions for an unscoped Chat after explicit Project selection", async () => {
+    const unscoped = { ...chat, projectId: null };
+    vi.mocked(fetchChats).mockResolvedValue({ items: [unscoped] } as any);
+    vi.mocked(launchJobFromChat).mockResolvedValue({ id: "job-1" } as any);
+
+    renderChatsAt("/chats/chat-1");
+
+    const projectSelect = await screen.findByLabelText("Project for Chat action");
+    expect(screen.getByRole("button", { name: /Launch Job/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Attach chain/i })).toBeDisabled();
+
+    fireEvent.change(projectSelect, { target: { value: "project-1" } });
+    await waitFor(() =>
+      expect(fetchProjectTaskLinks).toHaveBeenCalledWith("project-1"),
+    );
+    fireEvent.change(screen.getByLabelText("Repository for launched Job"), {
+      target: { value: "/repo/payments" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Launch Job/i }));
+
+    await waitFor(() =>
+      expect(launchJobFromChat).toHaveBeenCalledWith("chat-1", {
+        repo: "/repo/payments",
+      }),
+    );
+  });
+
+  it("ignores a stale message fetch after selecting another Chat", async () => {
+    const chatTwo = {
+      ...chat,
+      id: "chat-2",
+      title: "Second chat",
+    };
+    vi.mocked(fetchChats).mockResolvedValue({ items: [chat, chatTwo] } as any);
+    let resolveFirst!: (messages: any[]) => void;
+    vi.mocked(fetchChatMessages).mockImplementation((id) => {
+      if (id === "chat-1") {
+        return new Promise((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      return Promise.resolve([{
+        id: "new-message",
+        chatId: "chat-2",
+        role: "user",
+        content: "Current selection",
+        createdAt: "2026-08-17T10:01:00Z",
+      }] as any);
+    });
+
+    renderChats();
+    await screen.findByText("Second chat");
+    fireEvent.click(screen.getByRole("link", { name: /Second chat/i }));
+    expect(await screen.findByText("Current selection")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirst([{
+        id: "stale-message",
+        chatId: "chat-1",
+        role: "user",
+        content: "Stale selection",
+        createdAt: "2026-08-17T10:00:00Z",
+      }]);
+    });
+
+    expect(screen.queryByText("Stale selection")).not.toBeInTheDocument();
+    expect(screen.getByText("Current selection")).toBeInTheDocument();
   });
 });

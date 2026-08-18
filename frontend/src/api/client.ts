@@ -724,6 +724,7 @@ export interface Credential {
   provider: CredentialProvider;
   label: string;
   baseUrl: string;
+  email: string | null;
   createdAt: string;
 }
 
@@ -732,6 +733,7 @@ export interface CreateCredentialRequest {
   label: string;
   baseUrl: string;
   pat: string;
+  email?: string | null;
 }
 
 export function fetchCredentials(): Promise<{ credentials: Credential[] }> {

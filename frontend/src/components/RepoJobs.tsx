@@ -54,7 +54,7 @@ interface JobRow {
 
 export function RepoJobs() {
   const { projectId, repoPath } = useParams<{ projectId: string; repoPath: string }>();
-  const decoded = repoPath ? decodeURIComponent(repoPath) : "";
+  const decoded = repoPath ?? "";
   const repoName = pathBasename(decoded) || decoded;
 
   const [loading, setLoading] = useState(true);

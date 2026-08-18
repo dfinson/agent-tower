@@ -125,6 +125,23 @@ describe("CreateProjectDialog", () => {
     expect(onCreated).not.toHaveBeenCalled();
   });
 
+  it("surfaces repository validation failures without persisting a Project", async () => {
+    vi.mocked(createProject).mockRejectedValueOnce(
+      new Error("Repository '/home/user/repo-a' does not exist or is not a valid Git repository."),
+    );
+    render(<CreateProjectDialog open onClose={() => {}} onCreated={vi.fn()} />);
+
+    await screen.findByText("repo-a");
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.change(screen.getByLabelText("Project name"), {
+      target: { value: "My Project" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
+
+    expect(await screen.findByText(/not a valid Git repository/)).toBeInTheDocument();
+    expect(screen.getByText("/home/user/repo-a")).toBeInTheDocument();
+  });
+
   it("rolls back staged registration when creation fails and reports retained files", async () => {
     vi.mocked(registerRepo).mockResolvedValueOnce({
       path: "/home/user/cloned-repo",
