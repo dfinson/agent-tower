@@ -13,6 +13,7 @@ import pytest
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from unittest.mock import AsyncMock
 
     from httpx import AsyncClient
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -312,6 +313,7 @@ class TestStartTaskLink:
         client: AsyncClient,
         tmp_path: Path,
         session_factory: async_sessionmaker[AsyncSession],
+        mock_runtime_service: AsyncMock,
     ) -> None:
         from sqlalchemy import select
 
@@ -336,12 +338,20 @@ class TestStartTaskLink:
         )
         task_link_id = created.json()["id"]
 
+        async def assert_job_is_committed(job: object) -> None:
+            async with session_factory() as session:
+                persisted = await session.get(JobRow, job.id)
+            assert persisted is not None
+
+        mock_runtime_service.setup_and_start.side_effect = assert_job_is_committed
+
         started = await client.post(
             f"/api/settings/projects/{project_id}/task-links/{task_link_id}/start"
         )
         assert started.status_code == 200
         assert started.json()["state"] == "running"
         assert started.json()["jobId"]
+        mock_runtime_service.setup_and_start.assert_awaited_once()
 
         duplicate = await client.post(
             f"/api/settings/projects/{project_id}/task-links/{task_link_id}/start"

@@ -20,6 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.responses import Response
 
 from backend.models.schemas.base import CamelModel
+from backend.persistence.credential_repo import CredentialRepository
+from backend.persistence.project_repo import ProjectRepository
 from backend.persistence.tracker_link_repo import (
     TrackerLinkCredentialNotFoundError,
     TrackerLinkProjectNotFoundError,
@@ -99,6 +101,25 @@ async def create_tracker_link(
 ) -> TrackerLinkResponse:
     link_id = str(uuid.uuid4())
     async with sf() as session:
+        if await ProjectRepository(session).get(project_id) is None:
+            raise HTTPException(status_code=404, detail=f"Project '{project_id}' does not exist")
+        if await CredentialRepository(session).get(body.credential_id) is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Credential '{body.credential_id}' does not exist",
+            )
+
+    try:
+        await tracker_sync_service.test_link(
+            credential_id=body.credential_id,
+            external_ref=body.external_ref,
+        )
+    except TrackerLinkValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except TrackerSyncError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    async with sf() as session:
         repo = TrackerLinkRepository(session)
         try:
             result = await repo.create(
@@ -111,15 +132,6 @@ async def create_tracker_link(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except TrackerLinkCredentialNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        try:
-            await tracker_sync_service.test_link(
-                credential_id=body.credential_id,
-                external_ref=body.external_ref,
-            )
-        except TrackerLinkValidationError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except TrackerSyncError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
         await session.commit()
     log.info("tracker_link.created", tracker_link_id=link_id, project_id=project_id, credential_id=body.credential_id)
     return _to_response(result)

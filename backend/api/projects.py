@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, BackgroundTasks
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.api_schemas import (
     CreateManualTaskLinkRequest,
@@ -191,8 +192,10 @@ async def start_task_link(
     background_tasks: BackgroundTasks,
     recipe_service: FromDishka[RecipeService],
     runtime_service: FromDishka[RuntimeService],
+    session: FromDishka[AsyncSession],
 ) -> TaskLinkResponse:
     """Atomically claim and start one ready TaskLink."""
     task_link, job = await recipe_service.start_task_link(project_id, task_link_id)
+    await session.commit()
     background_tasks.add_task(runtime_service.setup_and_start, job)
     return _task_link_to_response(task_link)

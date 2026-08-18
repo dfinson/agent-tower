@@ -1,20 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, CheckCircle2, MessageSquare, Send } from "lucide-react";
+import { AlertCircle, CheckCircle2, Link2, MessageSquare, Play, Send, Unlink } from "lucide-react";
 import { toast } from "sonner";
 import {
+  attachChatToChain,
   createChat,
+  detachChatFromChain,
   fetchChatMessages,
   fetchChats,
+  fetchProjectTaskLinks,
   fetchProjects,
+  launchJobFromChat,
   sendChatTurn,
 } from "../api/client";
-import type { Chat, ChatMessage, ProjectResponse } from "../api/types";
+import type { Chat, ChatMessage, ProjectResponse, TaskLinkResponse } from "../api/types";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Spinner } from "./ui/spinner";
 
 type SendState = "idle" | "sending" | "awaiting-assistant" | "assistant" | "error";
+type ChatAction = "idle" | "launching" | "attaching" | "detaching";
 
 export function ProjectChats() {
   const { projectId, chatId } = useParams<{ projectId?: string; chatId?: string }>();
@@ -23,12 +28,17 @@ export function ProjectChats() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [selected, setSelected] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [taskLinks, setTaskLinks] = useState<TaskLinkResponse[]>([]);
   const [newChatProjectId, setNewChatProjectId] = useState(projectId ?? "");
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [sendState, setSendState] = useState<SendState>("idle");
   const [sendError, setSendError] = useState<string | null>(null);
+  const [launchRepo, setLaunchRepo] = useState("");
+  const [chainTaskLinkId, setChainTaskLinkId] = useState("");
+  const [chatAction, setChatAction] = useState<ChatAction>("idle");
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => setNewChatProjectId(projectId ?? ""), [projectId]);
 
@@ -36,6 +46,9 @@ export function ProjectChats() {
     setSelected(chat);
     setSendState("idle");
     setSendError(null);
+    setLaunchRepo("");
+    setChainTaskLinkId(chat.taskLinkId ?? "");
+    setActionError(null);
     try {
       setMessages(await fetchChatMessages(chat.id));
     } catch (error) {
@@ -47,11 +60,16 @@ export function ProjectChats() {
   useEffect(() => {
     let ignore = false;
     setLoading(true);
-    Promise.all([fetchChats(projectId), fetchProjects()])
-      .then(([chatResponse, projectResponse]) => {
+    Promise.all([
+      fetchChats(projectId),
+      fetchProjects(),
+      projectId ? fetchProjectTaskLinks(projectId) : Promise.resolve({ items: [] }),
+    ])
+      .then(([chatResponse, projectResponse, taskLinkResponse]) => {
         if (ignore) return;
         setChats(chatResponse.items);
         setProjects(projectResponse.items);
+        setTaskLinks(taskLinkResponse.items);
         if (chatId) {
           const deepLinked = chatResponse.items.find((chat) => chat.id === chatId);
           if (deepLinked) void selectChat(deepLinked);
@@ -75,10 +93,13 @@ export function ProjectChats() {
         title: title.trim(),
         projectId: newChatProjectId || null,
       });
-      setChats((items) => [chat, ...items]);
+      const scopedChat = newChatProjectId
+        ? { ...chat, projectId: newChatProjectId }
+        : chat;
+      setChats((items) => [scopedChat, ...items]);
       setTitle("");
-      navigate(chatUrl(chat));
-      await selectChat(chat);
+      navigate(chatUrl(scopedChat));
+      await selectChat(scopedChat);
     } catch (error) {
       toast.error(String(error));
     }
@@ -114,12 +135,68 @@ export function ProjectChats() {
         setSendError(turn.error ?? "The assistant could not respond.");
         return;
       }
+
       setMessage("");
       setSendState("assistant");
     } catch (error) {
       setMessages((items) => items.filter((item) => item.id !== optimisticId));
       setSendState("error");
       setSendError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function updateSelectedChat(updated: Chat) {
+    setSelected(updated);
+    setChats((items) => items.map((item) => item.id === updated.id ? updated : item));
+    setChainTaskLinkId(updated.taskLinkId ?? "");
+  }
+
+  async function launchJob() {
+    if (!selected || !launchRepo) {
+      setActionError("Select a repository before launching a Job.");
+      return;
+    }
+    setChatAction("launching");
+    setActionError(null);
+    try {
+      const job = await launchJobFromChat(selected.id, { repo: launchRepo });
+      toast.success("Job launched from Chat");
+      navigate(`/jobs/${encodeURIComponent(job.id)}`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChatAction("idle");
+    }
+  }
+
+  async function attachChain() {
+    if (!selected || !chainTaskLinkId) {
+      setActionError("Select a Task Recipe chain to attach.");
+      return;
+    }
+    setChatAction("attaching");
+    setActionError(null);
+    try {
+      updateSelectedChat(await attachChatToChain(selected.id, chainTaskLinkId));
+      toast.success("Chat attached to chain");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChatAction("idle");
+    }
+  }
+
+  async function detachChain() {
+    if (!selected) return;
+    setChatAction("detaching");
+    setActionError(null);
+    try {
+      updateSelectedChat(await detachChatFromChain(selected.id));
+      toast.success("Chat detached from chain");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChatAction("idle");
     }
   }
 
@@ -182,6 +259,70 @@ export function ProjectChats() {
                   )}
                 </div>
               </div>
+              {selected.projectId && (
+                <div className="mt-4 grid gap-3 rounded-md border border-border bg-background p-3">
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <select
+                      aria-label="Repository for launched Job"
+                      value={launchRepo}
+                      onChange={(event) => setLaunchRepo(event.target.value)}
+                      className="h-9 rounded-md border border-border bg-background px-2 text-xs"
+                    >
+                      <option value="">Select repository for Job…</option>
+                      {projects.find((project) => project.id === selected.projectId)?.repoPaths.map((repo) => (
+                        <option key={repo} value={repo}>{repo}</option>
+                      ))}
+                    </select>
+                    <Button
+                      size="sm"
+                      onClick={() => void launchJob()}
+                      loading={chatAction === "launching"}
+                      disabled={!launchRepo || chatAction !== "idle"}
+                    >
+                      <Play size={12} /> Launch Job
+                    </Button>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <select
+                      aria-label="Task Recipe chain"
+                      value={chainTaskLinkId}
+                      onChange={(event) => setChainTaskLinkId(event.target.value)}
+                      className="h-9 rounded-md border border-border bg-background px-2 text-xs"
+                    >
+                      <option value="">Select Task Recipe chain…</option>
+                      {taskLinks.map((link) => (
+                        <option key={link.id} value={link.id}>
+                          {link.storyNodeId ?? link.trackerTicketRef ?? link.id}
+                        </option>
+                      ))}
+                    </select>
+                    {selected.taskLinkId ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void detachChain()}
+                        loading={chatAction === "detaching"}
+                        disabled={chatAction !== "idle"}
+                      >
+                        <Unlink size={12} /> Detach chain
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void attachChain()}
+                        loading={chatAction === "attaching"}
+                        disabled={!chainTaskLinkId || chatAction !== "idle"}
+                      >
+                        <Link2 size={12} /> Attach chain
+                      </Button>
+                    )}
+                  </div>
+                  {actionError && (
+                    <p role="alert" className="text-xs text-red-500">{actionError}</p>
+                  )}
+                </div>
+              )}
               <div className="mt-4 space-y-2 max-h-80 overflow-y-auto" aria-live="polite">
                 {messages.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No messages yet.</p>

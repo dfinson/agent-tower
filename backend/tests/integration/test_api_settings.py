@@ -157,6 +157,19 @@ class TestListRepos:
         assert resp.status_code == 200
         assert "/test/repo" in resp.json()["items"]
 
+    @pytest.mark.asyncio
+    async def test_returns_project_only_repos(self, client: AsyncClient) -> None:
+        created = await client.post(
+            "/api/settings/projects",
+            json={"name": "Project only", "repoPaths": ["/test/project-only"]},
+        )
+        assert created.status_code == 201
+
+        resp = await client.get("/api/settings/repos")
+
+        assert resp.status_code == 200
+        assert created.json()["repoPaths"][0] in resp.json()["items"]
+
 
 class TestGetRepoDetail:
     """GET /api/settings/repos/{repo_path}"""
@@ -376,6 +389,25 @@ class TestCleanupWorktrees:
         resp = await client.post("/api/settings/cleanup-worktrees")
         assert resp.status_code == 200
         assert resp.json() == {"removed": 0}
+
+    @pytest.mark.asyncio
+    async def test_cleans_project_only_repositories(
+        self,
+        client: AsyncClient,
+        mock_git_service: AsyncMock,
+    ) -> None:
+        created = await client.post(
+            "/api/settings/projects",
+            json={"name": "Project only", "repoPaths": ["/test/project-cleanup"]},
+        )
+        assert created.status_code == 201
+        mock_git_service.cleanup_worktrees.reset_mock()
+
+        resp = await client.post("/api/settings/cleanup-worktrees")
+
+        assert resp.status_code == 200
+        cleaned = {call.args[0] for call in mock_git_service.cleanup_worktrees.await_args_list}
+        assert created.json()["repoPaths"][0] in cleaned
 
 
 # ---------------------------------------------------------------------------

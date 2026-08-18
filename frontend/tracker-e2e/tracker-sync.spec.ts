@@ -418,12 +418,6 @@ test("navigates project-first scope and manages membership and tracker attachmen
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   await page.getByRole("button", { name: /Tracker E2E Project/ }).click();
   await expect(page).toHaveURL(
-    `${backendBaseUrl}/projects/id/${projectId}`,
-  );
-  await expect(page.getByText("2 member repositories")).toBeVisible();
-
-  await page.getByRole("link", { name: "Agent Runs" }).click();
-  await expect(page).toHaveURL(
     `${backendBaseUrl}/projects/id/${projectId}/board`,
   );
   await expect(page.getByRole("region", { name: "In Progress" })).toBeVisible();
@@ -571,8 +565,8 @@ test("starts the assigned TaskLink, preserves context, and returns through its c
   const chatId = page.url().split("/").pop() ?? "";
   expect(chatId).not.toBe("");
 
-  // There is no chain-attachment control in ProjectChats yet. Seed the real
-  // backend association, then exercise only the UI context and return links.
+  // Seed the real backend association so the linked-chain return path can be
+  // verified independently of the TaskLink start flow.
   await requestJson(`${backendBaseUrl}/api/chats/${chatId}/attach-chain`, {
     method: "POST",
     body: JSON.stringify({ taskLinkId }),

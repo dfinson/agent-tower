@@ -6,7 +6,7 @@ import base64
 import re
 from dataclasses import dataclass
 from typing import Any, Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -101,8 +101,8 @@ class GitHubProjectsTrackerAdapter(_HttpTrackerAdapter):
             nodes {
               id
               content {
-                ... on Issue { number title url }
-                ... on PullRequest { number title url }
+                ... on Issue { number title url repository { nameWithOwner } }
+                ... on PullRequest { number title url repository { nameWithOwner } }
                 ... on DraftIssue { title }
               }
               status: fieldValueByName(name: "Status") {
@@ -118,8 +118,8 @@ class GitHubProjectsTrackerAdapter(_HttpTrackerAdapter):
             nodes {
               id
               content {
-                ... on Issue { number title url }
-                ... on PullRequest { number title url }
+                ... on Issue { number title url repository { nameWithOwner } }
+                ... on PullRequest { number title url repository { nameWithOwner } }
                 ... on DraftIssue { title }
               }
               status: fieldValueByName(name: "Status") {
@@ -146,7 +146,7 @@ class GitHubProjectsTrackerAdapter(_HttpTrackerAdapter):
         payload = await self._request_json(
             "POST",
             f"{base_url.rstrip('/')}/graphql",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": "Bearer " + token},
             json={
                 "query": self._QUERY,
                 "variables": {"owner": owner, "number": int(raw_number)},
@@ -176,9 +176,25 @@ class GitHubProjectsTrackerAdapter(_HttpTrackerAdapter):
             if not isinstance(content, dict):
                 continue
             status = node.get("status")
+            number = content.get("number")
+            repository = content.get("repository")
+            name_with_owner = (
+                repository.get("nameWithOwner")
+                if isinstance(repository, dict)
+                else None
+            )
+            if not name_with_owner and number and content.get("url"):
+                parts = urlparse(str(content["url"])).path.strip("/").split("/")
+                if len(parts) >= 4 and parts[-2] in {"issues", "pull"}:
+                    name_with_owner = "/".join(parts[:2])
+            ticket_id = (
+                f"{name_with_owner}#{number}"
+                if name_with_owner and number
+                else str(number or node.get("id") or "")
+            )
             tickets.append(
                 TrackerTicket(
-                    id=str(content.get("number") or node.get("id") or ""),
+                    id=ticket_id,
                     title=str(content.get("title") or "Untitled"),
                     status=str(status.get("name") if isinstance(status, dict) else "No status"),
                     url=str(content["url"]) if content.get("url") else None,
@@ -206,7 +222,7 @@ class GitHubProjectsTrackerAdapter(_HttpTrackerAdapter):
             f"{quote(repo, safe='')}/issues/{issue_number}"
         )
         headers = {
-            "Authorization": f"Bearer {token}",
+            "Authorization": "Bearer " + token,
             "Accept": "application/vnd.github+json",
         }
         if action == "comment":
@@ -254,7 +270,7 @@ class JiraTrackerAdapter(_HttpTrackerAdapter):
         payload = await self._request_json(
             "GET",
             f"{base_url.rstrip('/')}/rest/api/3/search/jql",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
             params={
                 "jql": f'project = "{escaped_ref}" ORDER BY updated DESC',
                 "fields": "summary,status",
@@ -298,7 +314,7 @@ class JiraTrackerAdapter(_HttpTrackerAdapter):
         if re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", ticket_ref) is None:
             raise TrackerReferenceError("Jira ticket ref must use PROJECT-123")
         issue_url = f"{base_url.rstrip('/')}/rest/api/3/issue/{quote(ticket_ref, safe='-')}"
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        headers = {"Authorization": "Bearer " + token, "Accept": "application/json"}
         if action == "comment":
             await self._request_no_content(
                 "POST",

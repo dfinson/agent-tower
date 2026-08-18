@@ -1057,10 +1057,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     os.environ["CODERECON__FEATURES__CROSS_ENCODER"] = str(config.coderecon.cross_encoder).lower()
     await coderecon_service.start()
 
-    # Index all registered repos in the background (non-blocking)
-    if config.repos and coderecon_service.available:
+    # Index all Project-owned and legacy repositories in the background.
+    async with session_factory() as session:
+        from backend.persistence.project_repo import ProjectRepository
+        from backend.services.project.repo_membership import list_managed_repo_paths
+
+        startup_repo_paths = await list_managed_repo_paths(config, ProjectRepository(session))
+    if startup_repo_paths and coderecon_service.available:
         _fire_and_forget(
-            coderecon_service.index_repos(config.repos),
+            coderecon_service.index_repos(startup_repo_paths),
             name="coderecon-startup-index",
         )
 

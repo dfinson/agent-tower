@@ -4,10 +4,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 vi.mock("../../api/client", () => ({
+  attachChatToChain: vi.fn(),
   createChat: vi.fn(),
+  detachChatFromChain: vi.fn(),
   fetchChatMessages: vi.fn(),
   fetchChats: vi.fn(),
+  fetchProjectTaskLinks: vi.fn(),
   fetchProjects: vi.fn(),
+  launchJobFromChat: vi.fn(),
   sendChatTurn: vi.fn(),
 }));
 
@@ -16,9 +20,13 @@ vi.mock("sonner", () => ({
 }));
 
 import {
+  attachChatToChain,
+  detachChatFromChain,
   fetchChatMessages,
   fetchChats,
+  fetchProjectTaskLinks,
   fetchProjects,
+  launchJobFromChat,
   sendChatTurn,
 } from "../../api/client";
 import { ProjectChats } from "../ProjectChats";
@@ -50,6 +58,23 @@ beforeEach(() => {
     items: [{ id: "project-1", name: "Payments", repoPaths: ["/repo/payments"] }],
   } as any);
   vi.mocked(fetchChatMessages).mockResolvedValue([]);
+  vi.mocked(fetchProjectTaskLinks).mockResolvedValue({
+    items: [{
+      id: "task-1",
+      projectId: "project-1",
+      repoPath: "/repo/payments",
+      storyNodeId: "5-2-launch",
+      dependsOn: [],
+      jobId: null,
+      trackerTicketRef: null,
+      promptOverride: null,
+      epicId: "5",
+      state: "ready",
+      trackerLinkId: null,
+      createdAt: "2026-08-17T10:00:00Z",
+      updatedAt: "2026-08-17T10:00:00Z",
+    }],
+  } as any);
 });
 
 describe("ProjectChats", () => {
@@ -112,5 +137,37 @@ describe("ProjectChats", () => {
 
     expect(await screen.findByText("Assistant unavailable")).toBeInTheDocument();
     await waitFor(() => expect(input).toHaveValue("Try this"));
+  });
+
+  it("requires an explicit repository and launches a Job from the Chat", async () => {
+    vi.mocked(launchJobFromChat).mockResolvedValue({ id: "job-1" } as any);
+    renderChats();
+
+    const launch = await screen.findByRole("button", { name: /Launch Job/i });
+    expect(launch).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Repository for launched Job"), {
+      target: { value: "/repo/payments" },
+    });
+    fireEvent.click(launch);
+
+    await waitFor(() => {
+      expect(launchJobFromChat).toHaveBeenCalledWith("chat-1", { repo: "/repo/payments" });
+    });
+  });
+
+  it("attaches and detaches the selected Task Recipe chain", async () => {
+    vi.mocked(attachChatToChain).mockResolvedValue({ ...chat, taskLinkId: "task-1" } as any);
+    vi.mocked(detachChatFromChain).mockResolvedValue(chat as any);
+    renderChats();
+
+    await screen.findByRole("button", { name: /Attach chain/i });
+    fireEvent.change(screen.getByLabelText("Task Recipe chain"), {
+      target: { value: "task-1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Attach chain/i }));
+
+    await waitFor(() => expect(attachChatToChain).toHaveBeenCalledWith("chat-1", "task-1"));
+    fireEvent.click(screen.getByRole("button", { name: /Detach chain/i }));
+    await waitFor(() => expect(detachChatFromChain).toHaveBeenCalledWith("chat-1"));
   });
 });

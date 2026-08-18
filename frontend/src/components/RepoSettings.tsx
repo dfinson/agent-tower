@@ -8,6 +8,7 @@ import {
   fetchTrackerLinks,
   fetchCredentials,
   createTrackerLink,
+  detachTrackerLink,
   updateProject,
 } from "../api/client";
 import type { Credential } from "../api/client";
@@ -34,10 +35,20 @@ export function RepoSettings() {
   const [saving, setSaving] = useState(false);
   const [attachingTracker, setAttachingTracker] = useState(false);
   const [removalConfirmOpen, setRemovalConfirmOpen] = useState(false);
+  const [trackerLinkToDetach, setTrackerLinkToDetach] = useState<TrackerLinkResponse | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
+    setLoadError(null);
+    setProject(null);
+    setDetail(null);
+    setProjectName("");
+    setRepoPaths([]);
+    setTrackerLinks([]);
+    setCredentials([]);
+    setSelectedCredentialId("");
     try {
       const [proj, credentialsResp] = await Promise.all([
         fetchProject(projectId),
@@ -57,6 +68,14 @@ export function RepoSettings() {
       const trackerResp = await fetchTrackerLinks(proj.id);
       setTrackerLinks(trackerResp.trackerLinks ?? []);
     } catch {
+      setProject(null);
+      setDetail(null);
+      setProjectName("");
+      setRepoPaths([]);
+      setTrackerLinks([]);
+      setCredentials([]);
+      setSelectedCredentialId("");
+      setLoadError("Project details could not be loaded. Check the Project ID and try again.");
       toast.error("Failed to load Project details");
     } finally {
       setLoading(false);
@@ -125,10 +144,32 @@ export function RepoSettings() {
     }
   }, [externalRef, project, selectedCredentialId]);
 
+  const confirmDetachTrackerLink = useCallback(async () => {
+    if (!project || !trackerLinkToDetach) return;
+    try {
+      await detachTrackerLink(project.id, trackerLinkToDetach.id);
+      setTrackerLinks((links) => links.filter((link) => link.id !== trackerLinkToDetach.id));
+      setTrackerLinkToDetach(null);
+      toast.success("Board link detached");
+    } catch (error) {
+      toast.error(String(error));
+      throw error;
+    }
+  }, [project, trackerLinkToDetach]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div role="alert" className="max-w-4xl mx-auto rounded-lg border border-red-500/40 bg-card p-8 text-center">
+        <h1 className="text-lg font-semibold">Unable to load Project settings</h1>
+        <p className="mt-2 text-sm text-muted-foreground">{loadError}</p>
       </div>
     );
   }
@@ -275,9 +316,19 @@ export function RepoSettings() {
                   <div key={link.id} className="rounded-md border border-border bg-background px-3 py-2">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-xs font-medium">{link.externalRef}</p>
-                      <span className="text-[10px] text-muted-foreground">
-                        {credentialMap[link.credentialId]?.label ?? link.credentialId}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-muted-foreground">
+                          {credentialMap[link.credentialId]?.label ?? link.credentialId}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={`Detach ${link.externalRef}`}
+                          className="text-muted-foreground hover:text-red-500"
+                          onClick={() => setTrackerLinkToDetach(link)}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     </div>
                     <p className="text-[11px] text-muted-foreground">
                       {link.summary?.lastSyncedAt ? `Last synced ${new Date(link.summary.lastSyncedAt).toLocaleString()}` : "Awaiting sync"}
@@ -358,6 +409,18 @@ export function RepoSettings() {
                 ))}
               </ul>
             </div>
+          </ConfirmDialog>
+          <ConfirmDialog
+            open={trackerLinkToDetach !== null}
+            onClose={() => setTrackerLinkToDetach(null)}
+            onConfirm={confirmDetachTrackerLink}
+            title="Detach tracker link?"
+            description="This removes the TrackerLink from this Project. The global credential remains available."
+            confirmLabel="Detach tracker link"
+          >
+            <p className="text-sm text-muted-foreground">
+              {trackerLinkToDetach?.externalRef}
+            </p>
           </ConfirmDialog>
         </div>
       )}

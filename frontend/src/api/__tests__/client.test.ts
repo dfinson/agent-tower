@@ -39,6 +39,10 @@ import {
   transcribeAudio,
   fetchModels,
   fetchSDKs,
+  launchJobFromChat,
+  attachChatToChain,
+  detachChatFromChain,
+  detachTrackerLink,
   ApiError,
 } from "../client";
 
@@ -388,6 +392,41 @@ describe("unregisterRepo", () => {
     mockFetch.mockResolvedValueOnce(noContentResponse());
     await unregisterRepo("/repos/a");
     expect(getFirstFetchInit().method).toBe("DELETE");
+  });
+
+  describe("Project Chat actions", () => {
+    it("launches a Job from a Chat", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ jobId: "job-1" }));
+      await launchJobFromChat("chat/1", { repo: "/repos/a" });
+
+      expect(getFirstFetchUrl()).toBe("/api/chats/chat%2F1/launch-job");
+      expect(getFirstFetchInit().method).toBe("POST");
+      expect(JSON.parse(getFirstFetchInit().body as string)).toEqual({ repo: "/repos/a" });
+    });
+
+    it("attaches and detaches a Chat chain", async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ id: "chat-1", attachedTaskLinkId: "task/1" }))
+        .mockResolvedValueOnce(jsonResponse({ id: "chat-1", attachedTaskLinkId: null }));
+
+      await attachChatToChain("chat-1", "task/1");
+      expect(getFirstFetchUrl()).toBe("/api/chats/chat-1/attach-chain");
+      expect(JSON.parse(getFirstFetchInit().body as string)).toEqual({ taskLinkId: "task/1" });
+
+      await detachChatFromChain("chat-1");
+      expect(String(mockFetch.mock.calls[1]?.[0])).toBe("/api/chats/chat-1/detach-chain");
+      expect(mockFetch.mock.calls[1]?.[1]).toEqual(expect.objectContaining({ method: "POST" }));
+    });
+  });
+
+  describe("detachTrackerLink", () => {
+    it("deletes a Project-scoped TrackerLink", async () => {
+      mockFetch.mockResolvedValueOnce(noContentResponse());
+      await detachTrackerLink("project/1", "link/1");
+
+      expect(getFirstFetchUrl()).toBe("/api/projects/project%2F1/tracker-links/link%2F1");
+      expect(getFirstFetchInit().method).toBe("DELETE");
+    });
   });
 });
 

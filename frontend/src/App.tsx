@@ -119,7 +119,7 @@ function RouteFallback() {
  */
 function LegacyRepoRedirect({ suffix, repoScoped }: { suffix: string; repoScoped?: boolean }) {
   const { repoPath } = useParams<{ repoPath: string }>();
-  const decoded = repoPath ? decodeURIComponent(repoPath) : "";
+  const decoded = repoPath ?? "";
   const [target, setTarget] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {

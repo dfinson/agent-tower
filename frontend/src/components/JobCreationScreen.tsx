@@ -117,7 +117,7 @@ export function JobCreationScreen() {
           })),
         );
         setRepos(items);
-        setRepo((prev) => prev ?? items[0]?.value ?? null);
+        setRepo((prev) => prev && items.some((item) => item.value === prev) ? prev : null);
       })
       .catch(() => toast.error("Failed to load Projects"));
   }, []);
@@ -273,6 +273,11 @@ export function JobCreationScreen() {
               className="flex-1"
             />
           </div>
+          {!repo && repos.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Choose the repository this Job should modify. CodePlane will not select one automatically.
+            </p>
+          )}
 
           <PromptWithVoice
             value={prompt}

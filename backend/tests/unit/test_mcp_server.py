@@ -694,55 +694,81 @@ class TestRepoTool:
         assert "error" in result
 
     @pytest.mark.asyncio
-    async def test_register_local(self, mcp_server, tmp_path) -> None:
-        repo_dir = tmp_path / "myrepo"
-        repo_dir.mkdir()
+    async def test_register_requires_project_lifecycle(self, mcp_server) -> None:
         with patch("backend.mcp.server.load_config") as mock_cfg:
             cfg = MagicMock()
             cfg.server.host = "127.0.0.1"
             cfg.server.port = 8080
             mock_cfg.return_value = cfg
 
-            mock_response = MagicMock()
-            mock_response.status_code = 201
-            mock_response.json.return_value = {"path": str(repo_dir), "source": str(repo_dir), "cloned": False}
-
             with patch("httpx.AsyncClient") as mock_client_cls:
                 client = AsyncMock()
-                client.post = AsyncMock(return_value=mock_response)
                 client.__aenter__ = AsyncMock(return_value=client)
                 client.__aexit__ = AsyncMock(return_value=False)
                 mock_client_cls.return_value = client
 
-                result = await _tool(mcp_server, "codeplane_repo")(action="register", source=str(repo_dir))
-                assert result["cloned"] is False
+                result = await _tool(mcp_server, "codeplane_repo")(action="register", source="/test/repo")
+                assert "codeplane_project" in result["error"]
+                client.post.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_remove(self, mcp_server) -> None:
+    async def test_remove_requires_project_lifecycle(self, mcp_server) -> None:
         with patch("backend.mcp.server.load_config") as mock_cfg:
             cfg = MagicMock()
             cfg.server.host = "127.0.0.1"
             cfg.server.port = 8080
             mock_cfg.return_value = cfg
 
-            mock_response = MagicMock()
-            mock_response.status_code = 204
-            mock_response.raise_for_status = MagicMock()
-
             with patch("httpx.AsyncClient") as mock_client_cls:
                 client = AsyncMock()
-                client.delete = AsyncMock(return_value=mock_response)
                 client.__aenter__ = AsyncMock(return_value=client)
                 client.__aexit__ = AsyncMock(return_value=False)
                 mock_client_cls.return_value = client
 
                 result = await _tool(mcp_server, "codeplane_repo")(action="remove", repo_path="/test/repo")
-                assert result["status"] == "removed"
+                assert "codeplane_project" in result["error"]
+                client.delete.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_remove_missing_path(self, mcp_server) -> None:
         result = await _tool(mcp_server, "codeplane_repo")(action="remove", repo_path=None)
-        assert "error" in result
+        assert "codeplane_project" in result["error"]
+
+
+# ── Project tool ─────────────────────────────────────────────────────
+
+
+class TestProjectTool:
+    @pytest.mark.asyncio
+    async def test_update_forwards_repo_removal_confirmation(self, mcp_server) -> None:
+        with patch("backend.mcp.server.load_config") as mock_cfg:
+            cfg = MagicMock()
+            cfg.server.host = "127.0.0.1"
+            cfg.server.port = 8080
+            mock_cfg.return_value = cfg
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = {"id": "proj-1"}
+
+            with patch("httpx.AsyncClient") as mock_client_cls:
+                client = AsyncMock()
+                client.patch = AsyncMock(return_value=response)
+                client.__aenter__ = AsyncMock(return_value=client)
+                client.__aexit__ = AsyncMock(return_value=False)
+                mock_client_cls.return_value = client
+
+                result = await _tool(mcp_server, "codeplane_project")(
+                    action="update",
+                    project_id="proj-1",
+                    repo_paths=["/test/repo"],
+                    confirm_repo_removal=True,
+                )
+
+        assert result == {"id": "proj-1"}
+        client.patch.assert_awaited_once_with(
+            "http://127.0.0.1:8080/api/settings/projects/proj-1",
+            json={"repoPaths": ["/test/repo"], "confirmRepoRemoval": True},
+        )
 
 
 # ── Health tool ──────────────────────────────────────────────────────
@@ -770,6 +796,10 @@ class TestHealthTool:
         with (
             patch("backend.mcp.server.GitService") as mock_git_cls,
             patch("backend.mcp.server.load_config") as mock_cfg,
+            patch(
+                "backend.persistence.project_repo.ProjectRepository.list_all_repo_paths",
+                new=AsyncMock(return_value={"/test/project-only": "proj-1"}),
+            ),
         ):
             cfg = MagicMock()
             cfg.repos = ["/test/repo"]
@@ -779,4 +809,6 @@ class TestHealthTool:
             mock_git_cls.return_value = git
 
             result = await _tool(mcp_server, "codeplane_health")(action="cleanup")
-            assert result["removed"] == 3
+            assert result["removed"] == 6
+            cleaned = {call.args[0] for call in git.cleanup_worktrees.await_args_list}
+            assert cleaned == {"/test/repo", "/test/project-only"}

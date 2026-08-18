@@ -54,6 +54,33 @@ async def _create_credential(client: AsyncClient) -> str:
 
 class TestCreateTrackerLink:
     @pytest.mark.asyncio
+    async def test_validates_before_starting_insert_transaction(
+        self,
+        client: AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+        mock_tracker_sync_service: AsyncMock,
+    ) -> None:
+        from sqlalchemy import func, select
+
+        from backend.models.db import TrackerLinkRow
+
+        await _seed_project(session_factory)
+        credential_id = await _create_credential(client)
+
+        async def assert_no_pending_insert(**_: str) -> None:
+            async with session_factory() as session:
+                count = await session.scalar(select(func.count()).select_from(TrackerLinkRow))
+            assert count == 0
+
+        mock_tracker_sync_service.test_link.side_effect = assert_no_pending_insert
+        resp = await client.post(
+            "/api/projects/proj-1/tracker-links",
+            json={"credentialId": credential_id, "externalRef": "ORG/board-1"},
+        )
+
+        assert resp.status_code == 201
+
+    @pytest.mark.asyncio
     async def test_attach_credential_to_project_creates_tracker_link(
         self,
         client: AsyncClient,

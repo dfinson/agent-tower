@@ -83,6 +83,7 @@ describe("CreateProjectDialog", () => {
       path: "/home/user/cloned-repo",
       source: "https://example.com/repo.git",
       cloned: true,
+      registered: true,
     });
     render(<CreateProjectDialog open onClose={() => {}} onCreated={vi.fn()} />);
 
@@ -129,7 +130,9 @@ describe("CreateProjectDialog", () => {
       path: "/home/user/cloned-repo",
       source: "https://example.com/repo.git",
       cloned: true,
+      registered: true,
     });
+
     vi.mocked(createProject).mockRejectedValueOnce(new Error("Project save failed"));
     render(<CreateProjectDialog open onClose={() => {}} onCreated={vi.fn()} />);
 
@@ -146,5 +149,28 @@ describe("CreateProjectDialog", () => {
     expect(
       await screen.findByText(/Repository files and any completed index remain at: \/home\/user\/cloned-repo/),
     ).toBeInTheDocument();
+  });
+
+  it("does not compensate a pre-existing registration when project creation fails", async () => {
+    vi.mocked(registerRepo).mockResolvedValueOnce({
+      path: "/home/user/existing-repo",
+      source: "/home/user/existing-repo",
+      cloned: false,
+      registered: false,
+    });
+    vi.mocked(createProject).mockRejectedValueOnce(new Error("Project save failed"));
+    render(<CreateProjectDialog open onClose={() => {}} onCreated={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clone / register" }));
+    fireEvent.change(screen.getByPlaceholderText("Local path or git clone URL"), {
+      target: { value: "/home/user/existing-repo" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Register repository" }));
+    await screen.findByText("/home/user/existing-repo");
+    fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "My Project" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
+
+    expect(await screen.findByText(/Project save failed/)).toBeInTheDocument();
+    expect(unregisterRepo).not.toHaveBeenCalled();
   });
 });

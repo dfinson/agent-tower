@@ -131,7 +131,9 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
     try {
       const res = await registerRepo(cloneSource.trim(), cloneTo.trim() || undefined);
       addRepoPath(res.path);
-      setStagedRepoPaths((items) => (items.includes(res.path) ? items : [...items, res.path]));
+      if (res.registered) {
+        setStagedRepoPaths((items) => (items.includes(res.path) ? items : [...items, res.path]));
+      }
       setCloneSource("");
       setCloneTo("");
     } catch (err) {

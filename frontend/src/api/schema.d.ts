@@ -1226,7 +1226,7 @@ export interface paths {
         };
         /**
          * List Repos
-         * @description List registered repository paths.
+         * @description List every Project-owned or legacy-registered repository path.
          */
         get: operations["list_repos_api_settings_repos_get"];
         put?: never;
@@ -1336,7 +1336,7 @@ export interface paths {
         put?: never;
         /**
          * Cleanup Worktrees
-         * @description Clean up completed job worktrees for all registered repos.
+         * @description Clean up completed job worktrees for all managed repositories.
          */
         post: operations["cleanup_worktrees_api_settings_cleanup_worktrees_post"];
         delete?: never;
@@ -2172,33 +2172,33 @@ export interface paths {
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        get: operations["preview_proxy_api_preview__port___path__delete"];
+        get: operations["preview_proxy_api_preview__port___path__head"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        put: operations["preview_proxy_api_preview__port___path__delete"];
+        put: operations["preview_proxy_api_preview__port___path__head"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        post: operations["preview_proxy_api_preview__port___path__delete"];
+        post: operations["preview_proxy_api_preview__port___path__head"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        delete: operations["preview_proxy_api_preview__port___path__delete"];
+        delete: operations["preview_proxy_api_preview__port___path__head"];
         options?: never;
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        head: operations["preview_proxy_api_preview__port___path__delete"];
+        head: operations["preview_proxy_api_preview__port___path__head"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        patch: operations["preview_proxy_api_preview__port___path__delete"];
+        patch: operations["preview_proxy_api_preview__port___path__head"];
         trace?: never;
     };
     "/api/jobs/{job_id}/share": {
@@ -6129,6 +6129,8 @@ export interface components {
             source: string;
             /** Cloned */
             cloned: boolean;
+            /** Registered */
+            registered: boolean;
         };
         /**
          * RepoCostSummary
@@ -11747,7 +11749,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__head: {
         parameters: {
             query?: never;
             header?: never;
@@ -11777,7 +11779,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__head: {
         parameters: {
             query?: never;
             header?: never;
@@ -11807,7 +11809,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__head: {
         parameters: {
             query?: never;
             header?: never;
@@ -11837,7 +11839,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__head: {
         parameters: {
             query?: never;
             header?: never;
@@ -11867,7 +11869,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__head: {
         parameters: {
             query?: never;
             header?: never;
@@ -11897,7 +11899,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__delete: {
+    preview_proxy_api_preview__port___path__head: {
         parameters: {
             query?: never;
             header?: never;

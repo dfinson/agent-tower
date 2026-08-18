@@ -18,6 +18,7 @@ import type {
   JobListResponse,
   RepoDetailResponse,
   RepoListResponse,
+  RegisterRepoResponse,
   ProjectListSummaryResponse,
   ProjectListResponse,
   ProjectResponse,
@@ -506,11 +507,37 @@ export function fetchChatMessages(chatId: string): Promise<ChatMessage[]> {
   return request(`/chats/${encodeURIComponent(chatId)}/messages`);
 }
 
+export function launchJobFromChat(
+  chatId: string,
+  body: import("./types").LaunchJobFromChatRequest,
+): Promise<import("./types").CreateJobResponse> {
+  return request(`/chats/${encodeURIComponent(chatId)}/launch-job`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function attachChatToChain(
+  chatId: string,
+  taskLinkId: string,
+): Promise<Chat> {
+  return request(`/chats/${encodeURIComponent(chatId)}/attach-chain`, {
+    method: "POST",
+    body: JSON.stringify({ taskLinkId }),
+  });
+}
+
+export function detachChatFromChain(chatId: string): Promise<Chat> {
+  return request(`/chats/${encodeURIComponent(chatId)}/detach-chain`, {
+    method: "POST",
+  });
+}
+
 export function fetchRepoDetail(repoPath: string): Promise<RepoDetailResponse> {
   return request(`/settings/repos/${encodeURIComponent(repoPath)}`);
 }
 
-export function registerRepo(source: string, cloneTo?: string): Promise<{ path: string; source: string; cloned: boolean }> {
+export function registerRepo(source: string, cloneTo?: string): Promise<RegisterRepoResponse> {
   return request("/settings/repos", {
     method: "POST",
     body: JSON.stringify({ source, clone_to: cloneTo }),
@@ -742,6 +769,13 @@ export function createTrackerLink(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+export function detachTrackerLink(projectId: string, linkId: string): Promise<void> {
+  return request(
+    `/projects/${encodeURIComponent(projectId)}/tracker-links/${encodeURIComponent(linkId)}`,
+    { method: "DELETE" },
+  );
 }
 
 export function refreshTrackerLink(projectId: string, linkId: string): Promise<TrackerSummaryResponse> {

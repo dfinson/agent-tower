@@ -96,7 +96,7 @@ export function ProjectsOverview() {
   useEffect(() => { load(); }, [load]);
 
   function openProject(project: ProjectSummaryResponse) {
-    navigate(`/projects/id/${encodeURIComponent(project.id)}`);
+    navigate(`/projects/id/${encodeURIComponent(project.id)}/board`);
   }
 
   if (loading) {

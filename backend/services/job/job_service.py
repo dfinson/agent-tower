@@ -492,7 +492,6 @@ class JobService:
             await self._job_repo.update_state(job_id, JobState.failed, now)
             await self._job_repo.update_failure_reason(job_id, f"Worktree creation failed: {exc}")
             log.error("job_worktree_failed", job_id=job_id, error=str(exc))
-            await _emit_progress("failed")
             job = await self._job_repo.get(job_id)
             if job is None:
                 raise JobNotFoundError(f"Job {job_id} disappeared after state update") from exc
@@ -513,7 +512,6 @@ class JobService:
         validate_state_transition(JobState.preparing, JobState.queued)
         await self._job_repo.update_state(job_id, JobState.queued, now)
 
-        await _emit_progress("workspace_ready")
         log.info("job_workspace_ready", job_id=job_id, worktree_path=worktree_path, branch=branch_name)
 
         job = await self._job_repo.get(job_id)

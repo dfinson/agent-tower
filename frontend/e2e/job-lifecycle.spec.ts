@@ -222,6 +222,8 @@ test.describe("Job Creation", () => {
     // Fill prompt
     const textarea = page.locator("textarea").first();
     await expect(textarea).toBeVisible();
+    await page.getByRole("button", { name: "Select a repository…" }).click();
+    await page.getByText("test-repo · test-repo").click();
     await textarea.fill("Fix the bug in auth module");
 
     // Submit

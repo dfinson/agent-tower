@@ -869,7 +869,7 @@ class TestHandleJobCompletedGating:
         mock_task_link_repo.set_job_id.return_value = _make_task_link(
             id="link-b", story_node_id="1-2-b", depends_on=["/repo/a::1-1-a"], job_id="job-2"
         )
-        mock_chat_repo.get_attached_open_chat_for_project.return_value = None
+        mock_chat_repo.get_attached_open_chat_for_task_link.return_value = None
 
         service = RecipeService(
             mock_task_link_repo,
@@ -882,6 +882,7 @@ class TestHandleJobCompletedGating:
         result = await service.handle_job_completed("job-1", resolution="merged")
 
         assert result == [new_job]
+        mock_chat_repo.get_attached_open_chat_for_task_link.assert_awaited_once_with("link-a")
         mock_job_service.create_job.assert_awaited_once()
         mock_approval_service.create_request.assert_not_awaited()
 
@@ -900,7 +901,7 @@ class TestHandleJobCompletedGating:
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
         mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
-        mock_chat_repo.get_attached_open_chat_for_project.return_value = object()  # any truthy Chat
+        mock_chat_repo.get_attached_open_chat_for_task_link.return_value = object()
         mock_approval_service.list_pending.return_value = []
 
         service = RecipeService(
@@ -920,6 +921,7 @@ class TestHandleJobCompletedGating:
         call = mock_approval_service.create_request.call_args
         assert call.kwargs["job_id"] == "job-1"
         assert call.kwargs["proposed_action"] == "spawn_task:link-b"
+        mock_chat_repo.get_attached_open_chat_for_task_link.assert_awaited_once_with("link-a")
 
     @pytest.mark.asyncio
     async def test_gated_project_never_double_requests_pending_approval(
@@ -936,7 +938,7 @@ class TestHandleJobCompletedGating:
         mock_task_link_repo.get_by_job_id.return_value = completed_link
         mock_task_link_repo.list_by_project.return_value = [completed_link, dependent]
         mock_job_repo.get.return_value = _make_job(id="job-1", state=JobState.completed, resolution="merged")
-        mock_chat_repo.get_attached_open_chat_for_project.return_value = object()
+        mock_chat_repo.get_attached_open_chat_for_task_link.return_value = object()
         mock_approval_service.list_pending.return_value = [
             _make_approval(proposed_action="spawn_task:link-b")
         ]

@@ -48,6 +48,7 @@ from backend.persistence.project_repo import ProjectRepository
 from backend.services.adapters.platform_adapter import PlatformRegistry, detect_platform
 from backend.services.coderecon.coderecon_service import CodeReconService
 from backend.services.git.git_service import GitError, GitService
+from backend.services.project.repo_membership import list_managed_repo_paths
 
 router = APIRouter(tags=["settings"], route_class=DishkaRoute)
 
@@ -133,11 +134,12 @@ async def update_settings(
 
 
 @router.get("/settings/repos", response_model=RepoListResponse)
-def list_repos(
+async def list_repos(
     config: FromDishka[CPLConfig],
+    project_repo: FromDishka[ProjectRepository],
 ) -> RepoListResponse:
-    """List registered repository paths."""
-    return RepoListResponse(items=config.repos)
+    """List every Project-owned or legacy-registered repository path."""
+    return RepoListResponse(items=await list_managed_repo_paths(config, project_repo))
 
 
 @router.get("/settings/repos/{repo_path:path}/health", response_model=RepoHealthResponse)
@@ -429,7 +431,7 @@ async def register_repo_endpoint(
         register_repo(config, cloned_path)
         if coderecon.available:
             asyncio.create_task(coderecon.ensure_repo_indexed(cloned_path))
-        return RegisterRepoResponse(path=cloned_path, source=source, cloned=True)
+        return RegisterRepoResponse(path=cloned_path, source=source, cloned=True, registered=True)
 
     # Local path
     resolved = str(Path(source).expanduser().resolve())
@@ -439,10 +441,16 @@ async def register_repo_endpoint(
             status_code=400,
             detail=f"Not a valid git repository: {source}",
         )
+    newly_registered = resolved not in config.repos
     register_repo(config, resolved)
     if coderecon.available:
         asyncio.create_task(coderecon.ensure_repo_indexed(resolved))
-    return RegisterRepoResponse(path=resolved, source=source, cloned=False)
+    return RegisterRepoResponse(
+        path=resolved,
+        source=source,
+        cloned=False,
+        registered=newly_registered,
+    )
 
 
 @router.post("/settings/repos/create", response_model=CreateRepoResponse, status_code=201)
@@ -487,11 +495,12 @@ def unregister_repo_endpoint(
 @router.post("/settings/cleanup-worktrees", response_model=CleanupWorktreesResponse)
 async def cleanup_worktrees(
     config: FromDishka[CPLConfig],
+    project_repo: FromDishka[ProjectRepository],
     git_service: FromDishka[GitService],
 ) -> CleanupWorktreesResponse:
-    """Clean up completed job worktrees for all registered repos."""
+    """Clean up completed job worktrees for all managed repositories."""
     total = 0
-    for repo in config.repos:
+    for repo in await list_managed_repo_paths(config, project_repo):
         try:
             count = await git_service.cleanup_worktrees(repo)
             total += count

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import type {
   ProjectResponse,
   RepoDetailResponse,
@@ -15,6 +15,7 @@ vi.mock("../../api/client", () => ({
   fetchCredentials: vi.fn(),
   fetchTrackerLinks: vi.fn(),
   createTrackerLink: vi.fn(),
+  detachTrackerLink: vi.fn(),
   updateProject: vi.fn(),
 }));
 
@@ -24,6 +25,7 @@ vi.mock("sonner", () => ({
 
 import {
   createTrackerLink,
+  detachTrackerLink,
   fetchCredentials,
   fetchProject,
   fetchRepoDetail,
@@ -111,6 +113,11 @@ describe("RepoSettings", () => {
     expect(screen.getByLabelText(/select tracker credential/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/board or org ref/i)).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: "Detach Alpha board" }));
+    expect(await screen.findByText("Detach tracker link?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Detach tracker link" }));
+    await waitFor(() => expect(detachTrackerLink).toHaveBeenCalledWith("project-1", "link-1"));
+
     fireEvent.change(screen.getByLabelText(/board or org ref/i), { target: { value: "Alpha board v2" } });
     fireEvent.click(screen.getByRole("button", { name: /attach/i }));
 
@@ -143,5 +150,41 @@ describe("RepoSettings", () => {
 
     expect(await screen.findByText("Remove repositories from this Project?")).toBeInTheDocument();
     expect(screen.getByText(/Historical Jobs remain in Job History/)).toBeInTheDocument();
+  });
+
+  it("clears the previous Project when navigation fails", async () => {
+    vi.mocked(fetchProject)
+      .mockResolvedValueOnce({
+        id: "project-1",
+        name: "Alpha project",
+        repoPaths: ["/repo/app"],
+        createdAt: "2024-01-01T00:00:00Z",
+        updatedAt: "2024-01-02T00:00:00Z",
+      } as unknown as ProjectResponse)
+      .mockRejectedValueOnce(new Error("missing"));
+    vi.mocked(fetchCredentials).mockResolvedValue({ credentials: [] });
+    vi.mocked(fetchTrackerLinks).mockResolvedValue({ trackerLinks: [] } as TrackerLinkListResponse);
+
+    render(
+      <MemoryRouter initialEntries={["/projects/id/project-1"]}>
+        <Routes>
+          <Route
+            path="/projects/id/:projectId"
+            element={(
+              <>
+                <Link to="/projects/id/missing">Open missing Project</Link>
+                <RepoSettings />
+              </>
+            )}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Alpha project")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "Open missing Project" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load Project settings");
+    expect(screen.queryByText("Alpha project")).not.toBeInTheDocument();
   });
 });

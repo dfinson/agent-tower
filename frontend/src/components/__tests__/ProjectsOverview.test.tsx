@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 vi.mock("../../api/client", () => ({
   fetchProjectsSummary: vi.fn(),
@@ -74,6 +74,24 @@ describe("ProjectsOverview", () => {
     expect(screen.getByText("2 active")).toBeInTheDocument();
     expect(screen.getByText("1 awaiting")).toBeInTheDocument();
     expect(screen.getByText("3 failed")).toBeInTheDocument();
+  });
+
+  it("opens a Project card on its board", async () => {
+    vi.mocked(fetchProjectsSummary).mockResolvedValueOnce({
+      items: [makeSummary()],
+    } as any);
+
+    render(
+      <MemoryRouter initialEntries={["/projects"]}>
+        <Routes>
+          <Route path="/projects" element={<ProjectsOverview />} />
+          <Route path="/projects/id/:projectId/board" element={<div>Project board</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /My Project/i }));
+    expect(await screen.findByText("Project board")).toBeInTheDocument();
   });
 
   it("fetches the summary exactly once on mount, not per project (batch call)", async () => {

@@ -558,10 +558,12 @@ class RuntimeService:
                 await session.commit()
 
             if updated_job.state == JobState.failed:
+                await self._emit_setup_progress(job.id, "failed")
                 await self._publish_state_event(job.id, JobState.preparing, JobState.failed)
                 return updated_job
 
             # Publish preparing → queued transition
+            await self._emit_setup_progress(job.id, "workspace_ready")
             await self._publish_state_event(job.id, JobState.preparing, JobState.queued)
 
             await self.start_or_enqueue(

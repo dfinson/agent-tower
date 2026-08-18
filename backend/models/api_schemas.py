@@ -427,6 +427,7 @@ class RegisterRepoResponse(CamelModel):
     path: str
     source: str
     cloned: bool
+    registered: bool
 
 
 class RepoListResponse(CamelModel):

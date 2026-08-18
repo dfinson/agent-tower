@@ -94,8 +94,9 @@ test.describe("Job Creation — Form Rendering", () => {
 
     await expect(page.locator("textarea").first()).toBeVisible({ timeout: 5_000 });
 
-    // Repository combobox should show the test repo
-    await expect(page.getByText("test-repo").first()).toBeVisible();
+    const repositoryPicker = page.getByRole("button", { name: "Select a repository…" });
+    await repositoryPicker.click();
+    await expect(page.getByText("Test Project · test-repo")).toBeVisible();
   });
 });
 
@@ -220,6 +221,8 @@ test.describe("Job Creation — Validation", () => {
     const textarea = page.locator("textarea").first();
     await expect(textarea).toBeVisible({ timeout: 5_000 });
     await textarea.fill("Fix the authentication bug");
+    await page.getByRole("button", { name: "Select a repository…" }).click();
+    await page.getByText("Test Project · test-repo").click();
 
     const createBtn = page.locator("button", { hasText: "Create Job" });
     await createBtn.click();

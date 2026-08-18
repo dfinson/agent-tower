@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Outlet, useParams, useNavigate, useLocation, Link } from "react-router-dom";
+import { Link, Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { FolderGit2, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { fetchProjects } from "../api/client";
@@ -47,6 +47,10 @@ export function RepoLayout() {
     ? `${projectUrl}/repos/${encodeURIComponent(repoPath)}`
     : null;
   const repoView = location.pathname.match(/\/(jobs|health|cost|settings)$/)?.[1] ?? "jobs";
+
+  if (!loading && activeProject && repoPath && !activeProject.repoPaths.includes(repoPath)) {
+    return <Navigate to={`${projectUrl}/board`} replace />;
+  }
 
   return (
     <div className="flex h-full min-h-0">

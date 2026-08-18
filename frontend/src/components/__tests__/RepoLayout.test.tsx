@@ -21,6 +21,8 @@ function renderLayout(route = "/projects") {
   return render(
     <MemoryRouter initialEntries={[route]}>
       <Routes>
+        <Route path="/projects/id/:projectId/board" element={<div>Project board</div>} />
+        <Route path="/projects/id/:projectId/repos/:repoPath/*" element={<RepoLayout />} />
         <Route path="/projects/id/:projectId/*" element={<RepoLayout />} />
         <Route path="/projects/*" element={<RepoLayout />} />
       </Routes>
@@ -90,5 +92,19 @@ describe("RepoLayout project sidebar", () => {
     const selector = await screen.findByLabelText("Repository");
     expect(selector).toHaveValue("");
     expect(screen.getByText("Select a member repository for Jobs, Health, Cost, and index status.")).toBeInTheDocument();
+  });
+
+  it("redirects a repository path that is not a member of the active Project", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{
+        id: "multi",
+        name: "multi-project",
+        repoPaths: ["/repos/api"],
+      }],
+    } as any);
+
+    renderLayout("/projects/id/multi/repos/%2Frepos%2Fother/jobs");
+
+    expect(await screen.findByText("Project board")).toBeInTheDocument();
   });
 });

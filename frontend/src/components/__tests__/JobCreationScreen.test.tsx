@@ -86,6 +86,12 @@ async function renderScreen() {
   });
 }
 
+function selectRepository() {
+  fireEvent.change(screen.getByTestId("combo-Repository"), {
+    target: { value: "/repos/my-app" },
+  });
+}
+
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
@@ -144,19 +150,30 @@ describe("JobCreationScreen", () => {
     expect(screen.getByText("Repository")).toBeInTheDocument();
   });
 
+  it("requires an explicit repository selection", async () => {
+    await renderScreen();
+
+    expect(screen.getByTestId("combo-Repository")).toHaveValue("");
+    expect(screen.getByText(/will not select one automatically/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create Job" })).toBeDisabled();
+  });
+
   it("renders Create Job button", async () => {
     await renderScreen();
+    selectRepository();
     expect(screen.getByText("Create Job")).toBeInTheDocument();
   });
 
   it("renders permission mode buttons", async () => {
     await renderScreen();
+    selectRepository();
     expect(screen.getByText("Autonomous")).toBeInTheDocument();
     expect(screen.getByText("Supervised")).toBeInTheDocument();
   });
 
   it("renders model selection in the main form", async () => {
     await renderScreen();
+    selectRepository();
     expect(screen.getByText("Model")).toBeInTheDocument();
     expect(screen.queryByText("Advanced options")).toBeInTheDocument();
   });
@@ -164,6 +181,7 @@ describe("JobCreationScreen", () => {
   it("submits a job", async () => {
     vi.mocked(createJob).mockResolvedValueOnce({ id: "j-new" } as any);
     await renderScreen();
+    selectRepository();
 
     const textarea = screen.getByTestId("prompt-input");
     fireEvent.change(textarea, { target: { value: "Fix the bug" } });
@@ -179,6 +197,7 @@ describe("JobCreationScreen", () => {
     vi.mocked(createJob).mockResolvedValueOnce({ id: "j-auto" } as any);
 
     await renderScreen();
+    selectRepository();
 
     fireEvent.change(screen.getByTestId("prompt-input"), { target: { value: "Ship it" } });
     fireEvent.click(screen.getByText("Create Job"));
@@ -194,6 +213,7 @@ describe("JobCreationScreen", () => {
     vi.mocked(createJob).mockResolvedValueOnce({ id: "j-model" } as any);
 
     await renderScreen();
+    selectRepository();
 
     expect(screen.getByTestId("combo-Model")).toHaveValue("gpt-5.4");
 

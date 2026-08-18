@@ -35,6 +35,7 @@ async def test_github_projects_normalizes_issue_and_draft_items() -> None:
                                             "number": 12,
                                             "title": "Fix checkout",
                                             "url": "https://github.com/acme/shop/issues/12",
+                                            "repository": {"nameWithOwner": "acme/shop"},
                                         },
                                         "status": {"name": "In progress"},
                                     },
@@ -61,7 +62,7 @@ async def test_github_projects_normalizes_issue_and_draft_items() -> None:
 
     assert tickets == [
         TrackerTicket(
-            id="12",
+            id="acme/shop#12",
             title="Fix checkout",
             status="In progress",
             url="https://github.com/acme/shop/issues/12",
@@ -196,15 +197,18 @@ async def test_github_comment_performs_one_provider_write() -> None:
     assert len(requests) == 1
     assert requests[0].method == "POST"
     assert requests[0].url.path == "/repos/acme/shop/issues/42/comments"
+    assert requests[0].headers["authorization"] == "Bearer secret"
     assert json.loads(requests[0].content) == {"body": "Ready for review"}
 
 
 @pytest.mark.asyncio
 async def test_jira_transition_reads_options_then_performs_one_write() -> None:
     methods: list[str] = []
+    requests: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
         methods.append(request.method)
+        requests.append(request)
         if request.method == "GET":
             return httpx.Response(
                 200,
@@ -223,6 +227,7 @@ async def test_jira_transition_reads_options_then_performs_one_write() -> None:
         )
 
     assert methods == ["GET", "POST"]
+    assert all(request.headers["authorization"] == "Bearer secret" for request in requests)
 
 
 @pytest.mark.asyncio
