@@ -1059,10 +1059,22 @@ def _cloudflared_already_running(token: str) -> bool:
             if pid == our_pid or pid in our_descendants:
                 continue
             cmdline = " ".join(proc.info.get("cmdline") or ())
-            if not any(marker in cmdline for marker in markers):
-                log.debug("cloudflared_foreign_connector_ignored", pid=pid)
-                continue
-            return True
+            if any(marker in cmdline for marker in markers):
+                return True
+            # The token-run invocation we use (``cloudflared tunnel run``)
+            # carries the token via the ``TUNNEL_TOKEN`` env var, not argv —
+            # so a cmdline-only check never matches it and every restart
+            # spawns a duplicate connector, leaving the previous one
+            # orphaned (Cloudflare's edge then load-balances across both
+            # until the stale one's heartbeat lapses, causing intermittent
+            # 502s in the interim). Check the env var too.
+            try:
+                env_token = proc.environ().get("TUNNEL_TOKEN")
+            except (psutil.Error, OSError):
+                env_token = None
+            if env_token and any(marker in env_token for marker in markers):
+                return True
+            log.debug("cloudflared_foreign_connector_ignored", pid=pid)
         except (psutil.Error, OSError):
             continue
     return False

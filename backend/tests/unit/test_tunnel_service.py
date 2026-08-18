@@ -1323,13 +1323,23 @@ class TestCloudflaredDetectionIsPortable:
     TOKEN = base64.b64encode(json.dumps({"a": "acct", "t": "tunnel-uuid", "s": "secret"}).encode()).decode()
 
     @classmethod
-    def _proc(cls, pid: int, name: str, cmdline: list[str] | None = None) -> object:
+    def _proc(
+        cls,
+        pid: int,
+        name: str,
+        cmdline: list[str] | None = None,
+        environ: dict[str, str] | None = None,
+    ) -> object:
         stub = MagicMock()
         stub.info = {
             "pid": pid,
             "name": name,
             "cmdline": cmdline if cmdline is not None else ["cloudflared", "tunnel", "run", "--token", cls.TOKEN],
         }
+        # Real connectors (``cloudflared tunnel run``) carry the token via the
+        # TUNNEL_TOKEN env var rather than argv; default to no env match so
+        # tests exercising cmdline-only matching stay unaffected.
+        stub.environ.return_value = environ if environ is not None else {}
         return stub
 
     def test_detects_windows_executable_name(self) -> None:
@@ -1410,6 +1420,56 @@ class TestCloudflaredDetectionIsPortable:
             patch.object(psutil, "process_iter", return_value=[self._proc(555, "cloudflared")]),
             patch.object(psutil, "Process", return_value=parent),
             patch.object(os, "getpid", return_value=111),
+        ):
+            assert _cloudflared_already_running(self.TOKEN) is False
+
+    def test_detects_a_token_run_connector_via_its_env_var(self) -> None:
+        """``_start_cloudflare`` spawns ``cloudflared tunnel run`` with the token
+        passed via the ``TUNNEL_TOKEN`` env var, not argv. Before this fix,
+        cmdline-only matching never recognized such a connector as ours, so
+        every ``cpl up --remote --provider cloudflare`` spawned a duplicate
+        connector alongside it. Cloudflare's edge then load-balanced across
+        both, causing intermittent 502s against the orphaned one until its
+        heartbeat lapsed.
+        """
+        import psutil
+
+        proc = self._proc(
+            999,
+            "cloudflared.exe",
+            cmdline=["cloudflared", "tunnel", "--no-autoupdate", "run"],
+            environ={"TUNNEL_TOKEN": self.TOKEN},
+        )
+        with (
+            patch.object(psutil, "process_iter", return_value=[proc]),
+            patch.object(psutil, "Process", side_effect=psutil.NoSuchProcess(1)),
+        ):
+            assert _cloudflared_already_running(self.TOKEN) is True
+
+    def test_ignores_a_token_run_connector_for_a_different_tunnel_via_env(self) -> None:
+        import psutil
+
+        other = base64.b64encode(json.dumps({"a": "b", "t": "someone-else", "s": "x"}).encode()).decode()
+        proc = self._proc(
+            999,
+            "cloudflared.exe",
+            cmdline=["cloudflared", "tunnel", "--no-autoupdate", "run"],
+            environ={"TUNNEL_TOKEN": other},
+        )
+        with (
+            patch.object(psutil, "process_iter", return_value=[proc]),
+            patch.object(psutil, "Process", side_effect=psutil.NoSuchProcess(1)),
+        ):
+            assert _cloudflared_already_running(self.TOKEN) is False
+
+    def test_ignores_a_connector_whose_environ_is_unreadable(self) -> None:
+        import psutil
+
+        proc = self._proc(999, "cloudflared.exe", cmdline=["cloudflared", "tunnel", "--no-autoupdate", "run"])
+        proc.environ.side_effect = psutil.AccessDenied(999)
+        with (
+            patch.object(psutil, "process_iter", return_value=[proc]),
+            patch.object(psutil, "Process", side_effect=psutil.NoSuchProcess(1)),
         ):
             assert _cloudflared_already_running(self.TOKEN) is False
 
