@@ -15,7 +15,7 @@ import { fetchJobs, fetchProject, fetchProjectTaskLinks, ingestProjectTasks, sta
 import type { ProjectResponse, TaskLinkResponse } from "../api/types";
 import { KanbanColumn } from "./KanbanColumn";
 import { KanbanSkeleton } from "./KanbanSkeleton";
-import { TaskLinkCard } from "./TaskLinkCard";
+import { TaskLinkCard, type TaskLinkDependencyView } from "./TaskLinkCard";
 import { Button } from "./ui/button";
 import { KANBAN_COLUMNS } from "../constants/kanban";
 
@@ -34,6 +34,27 @@ function taskLabel(taskLink: TaskLinkResponse): string {
 
 function taskCardId(taskLinkId: string): string {
   return `task-link-card-${taskLinkId}`;
+}
+
+function taskDependencyKey(taskLink: TaskLinkResponse): string | null {
+  if (taskLink.storyNodeId) return `${taskLink.repoPath}::${taskLink.storyNodeId}`;
+  if (taskLink.trackerTicketRef) return `${taskLink.repoPath}::${taskLink.trackerTicketRef}`;
+  return null;
+}
+
+function humanizeTaskLabel(label: string): string {
+  return label
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function humanizeTaskState(state: TaskLinkResponse["state"]): string {
+  if (state === "running" || state === "starting") return "in progress";
+  return state.replace(/_/g, " ");
+}
+
+function formatTaskDependency(taskLink: TaskLinkResponse): string {
+  return `${humanizeTaskLabel(taskLabel(taskLink))} (${humanizeTaskState(taskLink.state)})`;
 }
 
 function buildNewJobUrl(projectId: string | undefined, project: ProjectResponse | null): string {
@@ -85,6 +106,14 @@ export function RepoBoard() {
     [taskLinkId, taskLinks],
   );
   const missingDeepLinkedTask = Boolean(taskLinkId) && !loading && !highlightedTask;
+  const dependencyIndex = useMemo(() => {
+    const index = new Map<string, TaskLinkResponse>();
+    for (const taskLink of taskLinks) {
+      const key = taskDependencyKey(taskLink);
+      if (key) index.set(key, taskLink);
+    }
+    return index;
+  }, [taskLinks]);
   const newJobUrl = buildNewJobUrl(projectId, currentProject);
 
   useEffect(() => {
@@ -267,6 +296,21 @@ export function RepoBoard() {
         </div>
       )}
 
+      {taskLinks.length === 0 && (
+        <div className="mb-4 rounded-lg border border-border bg-card px-4 py-4">
+          <h2 className="text-sm font-semibold">No tracker tasks yet.</h2>
+          <p className="mt-1 text-sm text-muted-foreground">To see tasks here:</p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+            <li>Connect a tracker credential.</li>
+            <li>Add a tracker link in Project settings.</li>
+            <li>Click Ingest tasks.</li>
+          </ol>
+          <Button asChild variant="outline" size="sm" className="mt-3">
+            <Link to={`/projects/id/${encodeURIComponent(projectId ?? "")}/settings`}>Open Project settings</Link>
+          </Button>
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-3 h-[calc(100dvh-200px)] max-lg:grid-cols-2 max-sm:grid-cols-1">
         <KanbanColumn
           title={KANBAN_COLUMNS.IN_PROGRESS}
@@ -279,6 +323,12 @@ export function RepoBoard() {
                     <TaskLinkCard
                       key={taskLink.id}
                       taskLink={taskLink}
+                      dependencies={taskLink.dependsOn.map((dependency) => {
+                        const matchedTask = dependencyIndex.get(dependency);
+                        return matchedTask
+                          ? { id: dependency, label: formatTaskDependency(matchedTask), resolved: true } satisfies TaskLinkDependencyView
+                          : { id: dependency, label: dependency, resolved: false } satisfies TaskLinkDependencyView;
+                      })}
                       highlighted={taskLink.id === highlightedTask?.id}
                       starting={startingId === taskLink.id}
                       onStart={(link) => void handleStart(link)}
@@ -295,3 +345,4 @@ export function RepoBoard() {
     </div>
   );
 }
+

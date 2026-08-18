@@ -5,8 +5,15 @@ import type { TaskLinkResponse } from "../api/types";
 import { pathBasename } from "../lib/paths";
 import { Button } from "./ui/button";
 
+export interface TaskLinkDependencyView {
+  id: string;
+  label: string;
+  resolved: boolean;
+}
+
 interface TaskLinkCardProps {
   taskLink: TaskLinkResponse;
+  dependencies?: TaskLinkDependencyView[];
   highlighted?: boolean;
   starting?: boolean;
   onStart?: (taskLink: TaskLinkResponse) => void;
@@ -29,8 +36,50 @@ function StateIcon({ state }: { state: TaskLinkResponse["state"] }) {
   return <Clock3 size={11} />;
 }
 
+function DependencyList({ dependencies }: { dependencies: TaskLinkDependencyView[] }) {
+  if (dependencies.length === 0) return <span>None</span>;
+
+  const visibleDependencies = dependencies.slice(0, 2);
+  const hiddenCount = dependencies.length - visibleDependencies.length;
+
+  return (
+    <div className="space-y-1">
+      <ul className="space-y-1">
+        {visibleDependencies.map((dependency) => (
+          <li
+            key={dependency.id}
+            className={dependency.resolved ? "text-foreground/80" : "font-mono text-[11px] text-muted-foreground/80"}
+            title={dependency.resolved ? undefined : dependency.id}
+          >
+            {dependency.label}
+          </li>
+        ))}
+      </ul>
+      {hiddenCount > 0 && (
+        <details className="text-[11px] text-muted-foreground">
+          <summary className="cursor-pointer list-none hover:text-foreground">
+            +{hiddenCount} more blocker{hiddenCount === 1 ? "" : "s"}
+          </summary>
+          <ul className="mt-1 space-y-1">
+            {dependencies.slice(2).map((dependency) => (
+              <li
+                key={dependency.id}
+                className={dependency.resolved ? "text-foreground/80" : "font-mono text-[11px] text-muted-foreground/80"}
+                title={dependency.resolved ? undefined : dependency.id}
+              >
+                {dependency.label}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
 export const TaskLinkCard = memo(function TaskLinkCard({
   taskLink,
+  dependencies,
   highlighted = false,
   starting = false,
   onStart,
@@ -42,6 +91,11 @@ export const TaskLinkCard = memo(function TaskLinkCard({
     ? `Story ${taskLink.storyNodeId}`
     : `Tracker ${taskLink.trackerTicketRef}`;
   const navigable = Boolean(taskLink.jobId);
+  const dependencyViews = dependencies ?? taskLink.dependsOn.map((dependency) => ({
+    id: dependency,
+    label: dependency.split("::").pop() ?? dependency,
+    resolved: true,
+  }));
 
   const openJob = () => {
     if (taskLink.jobId) navigate(`/jobs/${taskLink.jobId}`);
@@ -78,8 +132,10 @@ export const TaskLinkCard = memo(function TaskLinkCard({
       <dl className="space-y-1 text-xs text-muted-foreground">
         <div className="flex gap-1.5"><dt className="font-medium">Source:</dt><dd>{source}</dd></div>
         <div className="flex gap-1.5">
-          <dt className="font-medium">Dependencies:</dt>
-          <dd>{taskLink.dependsOn.length ? taskLink.dependsOn.map((dep) => dep.split("::").pop()).join(", ") : "None"}</dd>
+          <dt className="font-medium">Waiting for:</dt>
+          <dd className="flex-1 min-w-0">
+            <DependencyList dependencies={dependencyViews} />
+          </dd>
         </div>
         <div className="flex gap-1.5">
           <dt className="font-medium">Job:</dt>
@@ -109,3 +165,4 @@ export const TaskLinkCard = memo(function TaskLinkCard({
     </div>
   );
 });
+

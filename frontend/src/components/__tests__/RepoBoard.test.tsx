@@ -216,6 +216,33 @@ describe("RepoBoard", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Task no longer exists in this project.");
   });
 
+  it("shows persistent tracker-task guidance when the Project has no task links", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({ items: [] } as any);
+
+    renderBoard();
+
+    expect(await screen.findByText("No tracker tasks yet.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Project settings" })).toHaveAttribute(
+      "href",
+      "/projects/id/proj-1/settings",
+    );
+  });
+
+  it("shows human-readable blocker names for waiting TaskLinks", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
+      items: [
+        makeTaskLink({ id: "dep-1", storyNodeId: "add-auth", state: "running" }),
+        makeTaskLink({ id: "blocked-1", storyNodeId: "ship-ui", state: "waiting", dependsOn: ["/repos/test::add-auth"] }),
+      ],
+    } as any);
+
+    renderBoard();
+
+    expect(await screen.findByText("Add Auth (in progress)")).toBeInTheDocument();
+  });
+
   it("renders the Board heading and Project name", async () => {
     vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
     vi.mocked(fetchProject).mockResolvedValueOnce(makeProject({ name: "my-app" }) as any);
@@ -398,4 +425,5 @@ describe("RepoBoard", () => {
     expect(await screen.findByText("ingested-task")).toBeInTheDocument();
   });
 });
+
 

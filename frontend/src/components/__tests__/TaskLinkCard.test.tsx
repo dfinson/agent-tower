@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { TaskLinkResponse } from "../../api/types";
-import { TaskLinkCard } from "../TaskLinkCard";
+import { TaskLinkCard, type TaskLinkDependencyView } from "../TaskLinkCard";
 
 function makeTaskLink(overrides: Partial<TaskLinkResponse> = {}): TaskLinkResponse {
   return {
@@ -25,11 +25,11 @@ function makeTaskLink(overrides: Partial<TaskLinkResponse> = {}): TaskLinkRespon
   };
 }
 
-function renderCard(taskLink = makeTaskLink(), onStart = vi.fn()) {
+function renderCard(taskLink = makeTaskLink(), onStart = vi.fn(), dependencies?: TaskLinkDependencyView[]) {
   return render(
     <MemoryRouter initialEntries={["/projects/id/proj-1/board"]}>
       <Routes>
-        <Route path="/projects/id/:projectId/board" element={<TaskLinkCard taskLink={taskLink} onStart={onStart} />} />
+        <Route path="/projects/id/:projectId/board" element={<TaskLinkCard taskLink={taskLink} onStart={onStart} dependencies={dependencies} />} />
         <Route path="/jobs/:jobId" element={<div>Job detail</div>} />
       </Routes>
     </MemoryRouter>,
@@ -37,18 +37,32 @@ function renderCard(taskLink = makeTaskLink(), onStart = vi.fn()) {
 }
 
 describe("TaskLinkCard", () => {
-  it("shows explicit state, source, dependencies, repository, and linked Job", () => {
-    renderCard(makeTaskLink({
-      state: "running",
-      jobId: "job-7",
-      dependsOn: ["/repos/api::api-task"],
-    }));
+  it("shows explicit state, source, resolved blockers, repository, and linked Job", () => {
+    renderCard(
+      makeTaskLink({
+        state: "running",
+        jobId: "job-7",
+        dependsOn: ["/repos/api::api-task"],
+      }),
+      vi.fn(),
+      [{ id: "/repos/api::api-task", label: "Add auth (running)", resolved: true }],
+    );
 
     expect(screen.getByText("running")).toBeInTheDocument();
     expect(screen.getByText("Story 4-4-see-tasklink-cards")).toBeInTheDocument();
-    expect(screen.getByText("api-task")).toBeInTheDocument();
+    expect(screen.getByText("Add auth (running)")).toBeInTheDocument();
     expect(screen.getByText("job-7")).toBeInTheDocument();
     expect(screen.getByText("frontend")).toBeInTheDocument();
+  });
+
+  it("de-emphasizes unresolved blocker identifiers instead of crashing", () => {
+    renderCard(
+      makeTaskLink({ dependsOn: ["/repos/api::missing-task"] }),
+      vi.fn(),
+      [{ id: "/repos/api::missing-task", label: "/repos/api::missing-task", resolved: false }],
+    );
+
+    expect(screen.getByText("/repos/api::missing-task")).toHaveClass("font-mono");
   });
 
   it.each(["waiting", "ready", "running", "completed", "failed"] as const)(
