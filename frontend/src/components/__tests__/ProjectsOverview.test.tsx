@@ -185,7 +185,7 @@ describe("ProjectsOverview", () => {
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
     expect(screen.getByText("Beta")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Filter Projects by name"), { target: { value: "alp" } });
+    fireEvent.change(screen.getByLabelText("Filter projects"), { target: { value: "alp" } });
 
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.queryByText("Beta")).not.toBeInTheDocument();
@@ -204,7 +204,7 @@ describe("ProjectsOverview", () => {
 
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
 
-    fireEvent.change(screen.getByLabelText("Filter Projects by name"), { target: { value: "zzz" } });
+    fireEvent.change(screen.getByLabelText("Filter projects"), { target: { value: "zzz" } });
 
     expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
     expect(screen.getByText('No Projects match "zzz"')).toBeInTheDocument();
@@ -252,3 +252,4 @@ describe("ProjectsOverview", () => {
     expect(badge.className).not.toMatch(/alarming/);
   });
 });
+

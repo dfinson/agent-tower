@@ -27,6 +27,7 @@ export function RepoLayout() {
   const [filterQuery, setFilterQuery] = useState("");
   const [loadFailed, setLoadFailed] = useState(false);
   const [selectedRepoPath, setSelectedRepoPath] = useState<string | undefined>(undefined);
+  const [expandedProjectRepoListId, setExpandedProjectRepoListId] = useState<string | null>(null);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -133,8 +134,8 @@ export function RepoLayout() {
                 type="text"
                 value={filterQuery}
                 onChange={(e) => setFilterQuery(e.target.value)}
-                placeholder="Filter..."
-                aria-label="Filter Projects by name"
+                placeholder="Filter projects"
+                aria-label="Filter projects"
                 className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </div>
@@ -153,30 +154,54 @@ export function RepoLayout() {
             </p>
           ) : (
             filteredProjects.map((project) => {
+              const repoDisclosureId = `project-repos-${project.id}`;
+              const repoListExpanded = expandedProjectRepoListId === project.id;
               return (
-                <Link
-                  key={project.id}
-                  to={`/projects/id/${encodeURIComponent(project.id)}/board`}
-                  title={project.repoPaths.join(", ")}
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-2 text-sm transition-colors",
-                    project.id === projectId
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                  )}
-                >
-                  <FolderGit2 size={14} className="shrink-0" />
-                  {!collapsed && (
-                    <>
-                      <span className="flex-1 truncate">{project.name}</span>
-                      {project.repoPaths.length > 1 && (
-                        <span className="text-[10px] text-muted-foreground shrink-0">
-                          {project.repoPaths.length} repos
-                        </span>
+                <div key={project.id} className="px-1 py-0.5">
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to={`/projects/id/${encodeURIComponent(project.id)}/board`}
+                      title={project.repoPaths.join(", ")}
+                      className={cn(
+                        "flex flex-1 items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors",
+                        project.id === projectId
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
                       )}
-                    </>
+                    >
+                      <FolderGit2 size={14} className="shrink-0" />
+                      {!collapsed && (
+                        <>
+                          <span className="flex-1 truncate">{project.name}</span>
+                          {project.repoPaths.length > 1 && (
+                            <span className="text-[10px] text-muted-foreground shrink-0">
+                              {project.repoPaths.length} repos
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </Link>
+                    {!collapsed && project.repoPaths.length > 0 && (
+                      <button
+                        type="button"
+                        aria-label="Show repositories in this project"
+                        aria-expanded={repoListExpanded}
+                        aria-controls={repoDisclosureId}
+                        className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                        onClick={() => setExpandedProjectRepoListId((current) => current === project.id ? null : project.id)}
+                      >
+                        {repoListExpanded ? <ChevronLeft size={12} className="rotate-[-90deg]" /> : <ChevronRight size={12} className="rotate-90" />}
+                      </button>
+                    )}
+                  </div>
+                  {!collapsed && repoListExpanded && project.repoPaths.length > 0 && (
+                    <ul id={repoDisclosureId} className="mt-1 ml-6 space-y-1 text-[11px] text-muted-foreground">
+                      {project.repoPaths.map((path) => (
+                        <li key={path}>{pathBasename(path) || path}</li>
+                      ))}
+                    </ul>
                   )}
-                </Link>
+                </div>
               );
             })
           )}

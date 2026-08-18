@@ -87,7 +87,7 @@ describe("RepoLayout project sidebar", () => {
     await waitFor(() => expect(screen.getByText("alpha-project")).toBeInTheDocument());
     expect(screen.getByText("beta-project")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Filter Projects by name"), {
+    fireEvent.change(screen.getByLabelText("Filter projects"), {
       target: { value: "ALPHA" },
     });
 
@@ -104,7 +104,7 @@ describe("RepoLayout project sidebar", () => {
 
     await waitFor(() => expect(screen.getByText("alpha-project")).toBeInTheDocument());
 
-    fireEvent.change(screen.getByLabelText("Filter Projects by name"), {
+    fireEvent.change(screen.getByLabelText("Filter projects"), {
       target: { value: "zzz" },
     });
 
@@ -118,7 +118,7 @@ describe("RepoLayout project sidebar", () => {
     renderLayout();
 
     await waitFor(() => expect(screen.getByText("No Projects")).toBeInTheDocument());
-    expect(screen.queryByLabelText("Filter Projects by name")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Filter projects")).not.toBeInTheDocument();
   });
 
   it("keeps multi-repo projects unselected but shows a disabled repository sub-nav", async () => {
@@ -150,6 +150,18 @@ describe("RepoLayout project sidebar", () => {
     await waitFor(() => expect(screen.getByLabelText("Repository")).toHaveValue("/repos/api"));
     expect(screen.queryByText("Select a repository above to view Jobs, Health, and Cost.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Jobs" })).not.toBeDisabled();
+  });
+
+  it("reveals repository basenames through an accessible disclosure", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "multi", name: "multi-project", repoPaths: ["/repos/api", "/repos/web"] }],
+    } as any);
+
+    renderLayout("/projects/id/multi");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Show repositories in this project" }));
+    expect(screen.getAllByText("api").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("web").length).toBeGreaterThan(0);
   });
 
   it("labels the project board tab consistently", async () => {
@@ -271,3 +283,4 @@ describe("RepoLayout project sidebar", () => {
     expect(screen.getAllByText("created-project")).toHaveLength(2);
   });
 });
+
