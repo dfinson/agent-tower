@@ -7,6 +7,7 @@ import { Button } from "./ui/button";
 
 interface TaskLinkCardProps {
   taskLink: TaskLinkResponse;
+  highlighted?: boolean;
   starting?: boolean;
   onStart?: (taskLink: TaskLinkResponse) => void;
 }
@@ -30,6 +31,7 @@ function StateIcon({ state }: { state: TaskLinkResponse["state"] }) {
 
 export const TaskLinkCard = memo(function TaskLinkCard({
   taskLink,
+  highlighted = false,
   starting = false,
   onStart,
 }: TaskLinkCardProps) {
@@ -47,9 +49,10 @@ export const TaskLinkCard = memo(function TaskLinkCard({
 
   return (
     <div
+      id={`task-link-card-${taskLink.id}`}
       className={`w-full shrink-0 rounded-lg border border-border bg-background p-3 overflow-hidden ${
         taskLink.state === "waiting" ? "opacity-60" : ""
-      } ${navigable ? "cursor-pointer hover:border-primary/40" : ""}`}
+      } ${navigable ? "cursor-pointer hover:border-primary/40" : ""} ${highlighted ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
       aria-label={`Task recipe: ${label} — ${taskLink.state}`}
       role={navigable ? "link" : undefined}
       tabIndex={navigable ? 0 : undefined}

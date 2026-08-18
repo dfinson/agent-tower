@@ -74,11 +74,12 @@ function makeProject(overrides: Partial<any> = {}) {
   };
 }
 
-function renderBoard(projectId = "proj-1") {
+function renderBoard(projectId = "proj-1", route?: string) {
   return render(
-    <MemoryRouter initialEntries={[`/projects/id/${encodeURIComponent(projectId)}/board`]}>
+    <MemoryRouter initialEntries={[route ?? `/projects/id/${encodeURIComponent(projectId)}/board`]}>
       <Routes>
         <Route path="/projects/id/:projectId/board" element={<RepoBoard />} />
+        <Route path="/projects/id/:projectId/board/task/:taskLinkId" element={<RepoBoard />} />
         <Route path="/jobs/new" element={<div>New job screen</div>} />
       </Routes>
     </MemoryRouter>,
@@ -192,6 +193,27 @@ describe("RepoBoard", () => {
       "href",
       "/jobs/new?projectId=proj-1&repo=%2Frepos%2Ftest",
     );
+  });
+
+  it("shows a persistent task deep-link banner and highlights the matching TaskLink card", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({ items: [makeTaskLink({ id: "tl-1", storyNodeId: "add-sca" })] } as any);
+
+    renderBoard("proj-1", "/projects/id/proj-1/board/task/tl-1");
+
+    expect(await screen.findByText("Viewing task")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear" }).closest("div")).toHaveTextContent("add-sca");
+    expect(screen.getByLabelText("Task recipe: add-sca — ready")).toHaveClass("ring-2");
+    expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
+  });
+
+  it("shows an inline message when a deep-linked TaskLink no longer exists", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({ items: [] } as any);
+
+    renderBoard("proj-1", "/projects/id/proj-1/board/task/missing-task");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Task no longer exists in this project.");
   });
 
   it("renders the Board heading and Project name", async () => {
@@ -376,3 +398,4 @@ describe("RepoBoard", () => {
     expect(await screen.findByText("ingested-task")).toBeInTheDocument();
   });
 });
+

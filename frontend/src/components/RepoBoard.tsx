@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Download, LayoutGrid, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
@@ -28,6 +28,14 @@ function lifecycleSignature(jobs: Record<string, JobSummary>, repoPaths: string[
     .join("|");
 }
 
+function taskLabel(taskLink: TaskLinkResponse): string {
+  return taskLink.storyNodeId ?? taskLink.trackerTicketRef ?? taskLink.id;
+}
+
+function taskCardId(taskLinkId: string): string {
+  return `task-link-card-${taskLinkId}`;
+}
+
 function buildNewJobUrl(projectId: string | undefined, project: ProjectResponse | null): string {
   const params = new URLSearchParams();
   const singleRepoPath = project?.repoPaths.length === 1 ? project.repoPaths[0] : undefined;
@@ -53,7 +61,8 @@ function buildNewJobUrl(projectId: string | undefined, project: ProjectResponse 
  * in this same rendering pass.
  */
 export function RepoBoard() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const { projectId, taskLinkId } = useParams<{ projectId: string; taskLinkId?: string }>();
+  const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
   const [project, setProject] = useState<ProjectResponse | null>(null);
@@ -71,7 +80,18 @@ export function RepoBoard() {
   const signoffJobs = useStore(useShallow(selectSignoffJobsForProject(repoPaths)));
   const attentionJobs = useStore(useShallow(selectAttentionJobsForProject(repoPaths)));
 
+  const highlightedTask = useMemo(
+    () => (taskLinkId ? taskLinks.find((taskLink) => taskLink.id === taskLinkId) ?? null : null),
+    [taskLinkId, taskLinks],
+  );
+  const missingDeepLinkedTask = Boolean(taskLinkId) && !loading && !highlightedTask;
   const newJobUrl = buildNewJobUrl(projectId, currentProject);
+
+  useEffect(() => {
+    if (!highlightedTask) return;
+    const card = document.getElementById(taskCardId(highlightedTask.id));
+    card?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [highlightedTask]);
 
   useEffect(() => {
     let cancelled = false;
@@ -225,6 +245,28 @@ export function RepoBoard() {
         </div>
       </div>
 
+      {highlightedTask && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+          <p>
+            <span>Viewing task</span>{" "}
+            <span className="font-medium">{taskLabel(highlightedTask)}</span>.
+          </p>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate(`/projects/id/${encodeURIComponent(projectId ?? "")}/board`)}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
+
+      {missingDeepLinkedTask && (
+        <div role="alert" className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+          Task no longer exists in this project.
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-3 h-[calc(100dvh-200px)] max-lg:grid-cols-2 max-sm:grid-cols-1">
         <KanbanColumn
           title={KANBAN_COLUMNS.IN_PROGRESS}
@@ -237,6 +279,7 @@ export function RepoBoard() {
                     <TaskLinkCard
                       key={taskLink.id}
                       taskLink={taskLink}
+                      highlighted={taskLink.id === highlightedTask?.id}
                       starting={startingId === taskLink.id}
                       onStart={(link) => void handleStart(link)}
                     />
