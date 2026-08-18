@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Download, LayoutGrid } from "lucide-react";
+import { ArrowLeft, Download, LayoutGrid, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -26,6 +26,15 @@ function lifecycleSignature(jobs: Record<string, JobSummary>, repoPaths: string[
     .map((job) => `${job.id}:${job.state}`)
     .sort()
     .join("|");
+}
+
+function buildNewJobUrl(projectId: string | undefined, project: ProjectResponse | null): string {
+  const params = new URLSearchParams();
+  const singleRepoPath = project?.repoPaths.length === 1 ? project.repoPaths[0] : undefined;
+  if (projectId) params.set("projectId", projectId);
+  if (singleRepoPath) params.set("repo", singleRepoPath);
+  const query = params.toString();
+  return query ? `/jobs/new?${query}` : "/jobs/new";
 }
 
 /**
@@ -61,6 +70,8 @@ export function RepoBoard() {
   const activeJobs = useStore(useShallow(selectActiveJobsForProject(repoPaths)));
   const signoffJobs = useStore(useShallow(selectSignoffJobsForProject(repoPaths)));
   const attentionJobs = useStore(useShallow(selectAttentionJobsForProject(repoPaths)));
+
+  const newJobUrl = buildNewJobUrl(projectId, currentProject);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +121,7 @@ export function RepoBoard() {
         useStore.setState((state) => {
           const updated = { ...state.jobs };
           for (const job of jobs) updated[job.id] = enrichJob(job);
+          reconciledLifecycleSignature.current = lifecycleSignature(updated, nextProject.repoPaths);
           return { jobs: updated };
         });
       })
@@ -199,10 +211,18 @@ export function RepoBoard() {
           </h1>
           <p className="text-sm text-muted-foreground truncate">{currentProject?.name ?? ""}</p>
         </div>
-        <Button variant="outline" size="sm" disabled={ingesting} onClick={() => void handleIngest()}>
-          <Download size={14} className={ingesting ? "animate-pulse" : ""} />
-          {ingesting ? "Ingesting…" : "Ingest tasks"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button asChild size="sm">
+            <Link to={newJobUrl}>
+              <Plus size={14} />
+              New Job
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" disabled={ingesting} onClick={() => void handleIngest()}>
+            <Download size={14} className={ingesting ? "animate-pulse" : ""} />
+            {ingesting ? "Ingesting…" : "Ingest tasks"}
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3 h-[calc(100dvh-200px)] max-lg:grid-cols-2 max-sm:grid-cols-1">

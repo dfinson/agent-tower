@@ -39,12 +39,13 @@ vi.mock("../ui/tooltip", () => ({
 
 // Mock Combobox to render a simple select
 vi.mock("../ui/combobox", () => ({
-  Combobox: ({ label, items, value, onChange }: any) => (
+  Combobox: ({ label, items, value, onChange, disabled }: any) => (
     <div>
       <label>{label}</label>
       <select
         data-testid={`combo-${label}`}
         value={value ?? ""}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value || null)}
       >
         <option value="">Select…</option>
@@ -69,13 +70,13 @@ import {
 import { JobCreationScreen } from "../JobCreationScreen";
 import { useStore, _resetSdkInitForTesting } from "../../store";
 
-async function renderScreen() {
+async function renderScreen(route = "/jobs/new") {
   // Simulate App.tsx calling initSdksAndModels on mount, so the store is
   // pre-populated with SDK + model data before the component renders.
   await useStore.getState().initSdksAndModels();
 
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[route]}>
       <JobCreationScreen />
     </MemoryRouter>,
   );
@@ -148,6 +149,44 @@ describe("JobCreationScreen", () => {
   it("renders Repository label", async () => {
     await renderScreen();
     expect(screen.getByText("Repository")).toBeInTheDocument();
+  });
+
+  it("prefills and locks the repository for a single-repo Project flow", async () => {
+    vi.mocked(createJob).mockResolvedValueOnce({ id: "j-project" } as any);
+
+    await renderScreen("/jobs/new?projectId=p1&repo=%2Frepos%2Fmy-app");
+
+    expect(screen.getByTestId("combo-Repository")).toHaveValue("/repos/my-app");
+    expect(screen.getByTestId("combo-Repository")).toBeDisabled();
+    expect(screen.getByText(/Creating this Job in Project/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("prompt-input"), { target: { value: "Fix the bug" } });
+    fireEvent.click(screen.getByText("Create Job"));
+
+    await waitFor(() => {
+      expect(createJob).toHaveBeenCalledWith(expect.objectContaining({
+        projectId: "p1",
+        repo: "/repos/my-app",
+      }));
+    });
+  });
+
+  it("scopes repository choices to the requested multi-repo Project without auto-selecting one", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [
+        { id: "p1", name: "My Project", repoPaths: ["/repos/api", "/repos/web"] },
+        { id: "p2", name: "Other Project", repoPaths: ["/repos/other"] },
+      ],
+    } as any);
+
+    await renderScreen("/jobs/new?projectId=p1");
+
+    const select = screen.getByTestId("combo-Repository");
+    expect(select).toHaveValue("");
+    expect(screen.getByText(/will not select one automatically/i)).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "My Project · api" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "My Project · web" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Other Project · other" })).not.toBeInTheDocument();
   });
 
   it("requires an explicit repository selection", async () => {

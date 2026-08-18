@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ChevronDown, ChevronRight, PlaneTakeoff } from "lucide-react";
 import { toast } from "sonner";
 import { createJob, fetchProjects, fetchRepoDetail, suggestNames, fetchModelComparison, warmUtilitySession, releaseUtilitySession, fetchPolicySettings } from "../api/client";
-import type { SDKInfo } from "../api/types";
+import type { ProjectResponse, SDKInfo } from "../api/types";
 import { useStore } from "../store";
 import { PromptWithVoice } from "./VoiceButton";
 import { SidecarPicker } from "./SidecarPicker";
@@ -14,6 +14,13 @@ import { Combobox } from "./ui/combobox";
 import { Tooltip } from "./ui/tooltip";
 import { pathBasename } from "../lib/paths";
 
+interface RepoOption {
+  value: string;
+  label: string;
+  projectId: string;
+  projectName: string;
+}
+
 function sdkStatusDescription(sdk: SDKInfo): string | undefined {
   if (!sdk.enabled) return sdk.hint || "Not installed";
   if (sdk.status === "not_configured") return sdk.hint || "Not authenticated";
@@ -22,6 +29,9 @@ function sdkStatusDescription(sdk: SDKInfo): string | undefined {
 
 export function JobCreationScreen() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedProjectId = searchParams.get("projectId");
+  const requestedRepo = searchParams.get("repo");
 
   // SDK + model data from the central store
   const sdks = useStore((s) => s.sdks);
@@ -32,8 +42,10 @@ export function JobCreationScreen() {
   const modelsLoadingBySdk = useStore((s) => s.modelsLoadingBySdk);
   const loadModelsForSdk = useStore((s) => s.loadModelsForSdk);
 
-  const [repos, setRepos] = useState<{ value: string; label: string }[]>([]);
+  const [repos, setRepos] = useState<RepoOption[]>([]);
   const [repo, setRepo] = useState<string | null>(null);
+  const [scopedProject, setScopedProject] = useState<ProjectResponse | null>(null);
+  const [repoLocked, setRepoLocked] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [baseRef, setBaseRef] = useState("");
   const [baseRefEdited, setBaseRefEdited] = useState(false);
@@ -110,17 +122,34 @@ export function JobCreationScreen() {
       });
     fetchProjects()
       .then((r) => {
-        const items = r.items.flatMap((project) =>
+        const scoped = requestedProjectId
+          ? r.items.find((project) => project.id === requestedProjectId) ?? null
+          : null;
+        const sourceProjects = scoped ? [scoped] : r.items;
+        const items = sourceProjects.flatMap((project) =>
           project.repoPaths.map((path) => ({
             value: path,
             label: `${project.name} · ${pathBasename(path) || path}`,
+            projectId: project.id,
+            projectName: project.name,
           })),
         );
+        const singleScopedRepo = scoped?.repoPaths.length === 1 ? scoped.repoPaths[0] : null;
+        const requestedRepoValue = requestedRepo && items.some((item) => item.value === requestedRepo)
+          ? requestedRepo
+          : null;
+
+        setScopedProject(scoped);
+        setRepoLocked(Boolean(singleScopedRepo));
         setRepos(items);
-        setRepo((prev) => prev && items.some((item) => item.value === prev) ? prev : null);
+        setRepo((prev) => {
+          if (singleScopedRepo) return singleScopedRepo;
+          if (requestedRepoValue) return requestedRepoValue;
+          return prev && items.some((item) => item.value === prev) ? prev : null;
+        });
       })
       .catch(() => toast.error("Failed to load Projects"));
-  }, []);
+  }, [requestedProjectId, requestedRepo]);
 
   useEffect(() => {
     if (branchEdited) return;
@@ -194,6 +223,8 @@ export function JobCreationScreen() {
     return () => { cancelled = true; };
   }, [model, repo]);
 
+  const selectedProjectId = repos.find((item) => item.value === repo)?.projectId ?? scopedProject?.id ?? null;
+
   const validateField = useCallback((field: string, value: string) => {
     setErrors(prev => {
       const next = { ...prev };
@@ -236,6 +267,7 @@ export function JobCreationScreen() {
         model: model || undefined,
         sdk: activeSdk !== defaultSdk ? activeSdk : undefined,
         sessionToken: sessionTokenRef.current ?? undefined,
+        projectId: selectedProjectId ?? undefined,
         mode: mode !== "standard" ? mode : undefined,
       });
       jobCreatedRef.current = true;
@@ -246,7 +278,7 @@ export function JobCreationScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [repo, prompt, voiceState, baseRef, branch, branchEdited, model, navigate, preset, mode, activeSdk, defaultSdk]);
+  }, [repo, prompt, voiceState, baseRef, branch, branchEdited, model, navigate, preset, mode, activeSdk, defaultSdk, selectedProjectId]);
 
   const enabledSdks = sdks.filter((s) => s.enabled);
   const showSdkSelector = enabledSdks.length > 1;
@@ -266,18 +298,29 @@ export function JobCreationScreen() {
               items={repos}
               value={repo}
               onChange={(newRepo) => {
+                if (repoLocked) return;
                 setRepo(newRepo);
                 setBaseRef("");
                 setBaseRefEdited(false);
               }}
               className="flex-1"
+              disabled={repoLocked}
             />
           </div>
-          {!repo && repos.length > 0 && (
+          {scopedProject && (
+            <p className="text-xs text-muted-foreground">
+              Creating this Job in Project <span className="font-medium text-foreground">{scopedProject.name}</span>.
+            </p>
+          )}
+          {repoLocked ? (
+            <p className="text-xs text-muted-foreground">
+              This Project has one repository, so CodePlane preselected it.
+            </p>
+          ) : !repo && repos.length > 0 ? (
             <p className="text-xs text-muted-foreground">
               Choose the repository this Job should modify. CodePlane will not select one automatically.
             </p>
-          )}
+          ) : null}
 
           <PromptWithVoice
             value={prompt}

@@ -19,6 +19,7 @@ interface ComboboxProps {
   label?: string;
   clearable?: boolean;
   className?: string;
+  disabled?: boolean;
 }
 
 export function Combobox({
@@ -29,6 +30,7 @@ export function Combobox({
   label,
   clearable,
   className,
+  disabled = false,
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -51,11 +53,15 @@ export function Combobox({
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       {label && <Label>{label}</Label>}
-      <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Root open={open} onOpenChange={(nextOpen) => { if (!disabled) setOpen(nextOpen); }}>
         <Popover.Trigger asChild>
           <button
             type="button"
-            className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            disabled={disabled}
+            className={cn(
+              "flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring",
+              disabled && "cursor-not-allowed opacity-60",
+            )}
           >
             <span className={cn("truncate", !selected && "text-muted-foreground")}>
               {selected ? selected.label : placeholder}
