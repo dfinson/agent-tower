@@ -121,7 +121,7 @@ describe("RepoLayout project sidebar", () => {
     expect(screen.queryByLabelText("Filter Projects by name")).not.toBeInTheDocument();
   });
 
-  it("does not silently select the first member repository", async () => {
+  it("keeps multi-repo projects unselected but shows a disabled repository sub-nav", async () => {
     vi.mocked(fetchProjects).mockResolvedValueOnce({
       items: [{
         id: "multi",
@@ -134,7 +134,22 @@ describe("RepoLayout project sidebar", () => {
 
     const selector = await screen.findByLabelText("Repository");
     expect(selector).toHaveValue("");
-    expect(screen.getByText("Select a member repository for Jobs, Health, Cost, and index status.")).toBeInTheDocument();
+    expect(screen.getByText("Select a repository above to view Jobs, Health, and Cost.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Jobs" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Health" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cost" })).toBeDisabled();
+  });
+
+  it("auto-selects the only repository and enables the repository sub-nav", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "single", name: "single-project", repoPaths: ["/repos/api"] }],
+    } as any);
+
+    renderLayout("/projects/id/single");
+
+    await waitFor(() => expect(screen.getByLabelText("Repository")).toHaveValue("/repos/api"));
+    expect(screen.queryByText("Select a repository above to view Jobs, Health, and Cost.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Jobs" })).not.toBeDisabled();
   });
 
   it("labels the project board tab consistently", async () => {
@@ -144,8 +159,8 @@ describe("RepoLayout project sidebar", () => {
 
     renderLayout("/projects/id/multi");
 
-    expect(await screen.findByRole("link", { name: "Board" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Agent Runs" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Board" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Agent Runs" })).not.toBeInTheDocument();
   });
 
   it("labels the project-scoped settings action clearly", async () => {
