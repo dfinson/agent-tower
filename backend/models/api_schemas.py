@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 class CreateJobRequest(CamelModel):
     repo: str
     prompt: str
+    project_id: str | None = None
     base_ref: str | None = None
     branch: str | None = None
     title: str | None = None
@@ -232,6 +233,7 @@ class JobResponse(CamelModel):
     id: str
     repo: str
     prompt: str
+    project_id: str | None = None
     title: str | None = None
     description: str | None = None
     state: JobState
@@ -277,6 +279,7 @@ class JobResponse(CamelModel):
             id=job.id,
             repo=job.repo,
             prompt=job.prompt,
+            project_id=job.project_id,
             title=job.title,
             description=job.description,
             state=job.state,

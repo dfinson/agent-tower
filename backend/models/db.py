@@ -21,6 +21,7 @@ class JobRow(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     repo: Mapped[str] = mapped_column(String, nullable=False)
+    project_id: Mapped[str | None] = mapped_column(String, ForeignKey("projects.id"), nullable=True)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     state: Mapped[str] = mapped_column(String, nullable=False)
     base_ref: Mapped[str] = mapped_column(String, nullable=False)

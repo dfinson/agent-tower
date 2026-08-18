@@ -697,6 +697,7 @@ class JobSpec:
 
     repo: str
     prompt: str
+    project_id: str | None = None
     base_ref: str | None = None
     branch: str | None = None
     title: str | None = None
@@ -839,6 +840,7 @@ class Job:
     session_id: str | None
     created_at: datetime
     updated_at: datetime
+    project_id: str | None = None
     completed_at: datetime | None = None
     pr_url: str | None = None
     merge_status: GitMergeOutcome | None = None

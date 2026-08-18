@@ -6,7 +6,7 @@ import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
 import { formatJobTerminalLabel } from "../lib/terminalLabels";
-import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot, fetchProjects, fetchProjectTaskLinks } from "../api/client";
+import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot, fetchProject, fetchProjectTaskLinks } from "../api/client";
 import { CuratedFeed } from "./CuratedFeed";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { lazyRetry } from "../lib/lazyRetry";
@@ -109,20 +109,18 @@ export function JobDetailScreen() {
     : "/projects";
 
   useEffect(() => {
-    if (!job?.repo) {
+    if (!job?.projectId) {
       setOwningProject(null);
       return;
     }
     let ignore = false;
-    fetchProjects()
-      .then((response) => {
-        if (!ignore) {
-          setOwningProject(response.items.find((project) => project.repoPaths.includes(job.repo)) ?? null);
-        }
+    fetchProject(job.projectId)
+      .then((project) => {
+        if (!ignore) setOwningProject(project);
       })
       .catch(() => { if (!ignore) setOwningProject(null); });
     return () => { ignore = true; };
-  }, [job?.repo]);
+  }, [job?.projectId]);
 
   useEffect(() => {
     if (!owningProject || !jobId) {
@@ -601,7 +599,7 @@ export function JobDetailScreen() {
           </>
         ) : (
           <>
-            <Link to="/projects" className="hover:text-foreground">Projects</Link>
+            <span>Original project is unavailable</span>
             <span>/</span>
           </>
         )}

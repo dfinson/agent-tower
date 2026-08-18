@@ -20,6 +20,7 @@ from backend.models.domain import (
     JobNotFoundError,
     JobSpec,
     JobState,
+    ProjectNotFoundError,
     RepoNotAllowedError,
     Resolution,
     ServiceInitError,
@@ -159,6 +160,18 @@ class JobService:
         if resolved in await self._resolve_project_member_repos():
             return resolved
         raise RepoNotAllowedError(f"Repository '{repo}' is not in the allowlist.")
+
+    async def _resolve_job_project_id(self, resolved_repo: str, project_id: str | None) -> str | None:
+        """Resolve or validate the immutable Project owner for a new job."""
+        if project_id is not None:
+            if self._project_repo is None:
+                raise ServiceInitError("ProjectRepository required to validate project-scoped jobs")
+            if await self._project_repo.get(project_id) is None:
+                raise ProjectNotFoundError(f"Project '{project_id}' does not exist.")
+            return project_id
+        if self._project_repo is None:
+            return None
+        return await self._project_repo.resolve_project_id_for_repo_path(resolved_repo)
 
     async def list_events_by_job(
         self,
@@ -340,6 +353,7 @@ class JobService:
                 with the resolved SDK.
         """
         resolved_repo = await self.validate_repo_async(spec.repo)
+        project_id = await self._resolve_job_project_id(resolved_repo, spec.project_id)
 
         if self._git is None:
             raise ServiceInitError("GitService required for job creation")
@@ -367,6 +381,7 @@ class JobService:
                 id=job_id,
                 repo=resolved_repo,
                 prompt=spec.prompt,
+                project_id=project_id,
                 state=JobState.failed,
                 base_ref=base_ref,
                 branch=None,
@@ -416,6 +431,7 @@ class JobService:
             id=job_id,
             repo=resolved_repo,
             prompt=spec.prompt,
+            project_id=project_id,
             state=initial_state,
             base_ref=base_ref,
             branch=branch,

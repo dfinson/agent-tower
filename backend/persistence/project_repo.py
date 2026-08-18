@@ -11,6 +11,11 @@ from sqlalchemy import func, select
 from backend.models.db import JobRow, ProjectRow, TaskLinkRow, TrackerLinkRow
 from backend.models.domain import Project, ProjectMembershipImpact
 from backend.persistence.repository import BaseRepository
+from backend.services.project.repo_membership import (
+    normalize_repo_path,
+    parse_project_repo_paths,
+    resolve_matching_project_id,
+)
 
 if TYPE_CHECKING:
     import builtins
@@ -41,7 +46,7 @@ class ProjectRepository(BaseRepository):
         return Project(
             id=row.id,
             name=row.name,
-            repo_paths=json.loads(row.repo_paths) if row.repo_paths else [],
+            repo_paths=parse_project_repo_paths(row.repo_paths),
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -74,11 +79,17 @@ class ProjectRepository(BaseRepository):
         return [self._to_domain(row) for row in result.scalars().all()]
 
     async def find_by_repo_path(self, repo_path: str) -> Project | None:
-        """Return the Project that owns ``repo_path``, if any."""
+        """Return the first Project that owns ``repo_path``, if any."""
+        normalized_repo = normalize_repo_path(repo_path)
         for project in await self.list():
-            if repo_path in project.repo_paths:
+            if any(normalize_repo_path(path) == normalized_repo for path in project.repo_paths):
                 return project
         return None
+
+    async def resolve_project_id_for_repo_path(self, repo_path: str) -> str | None:
+        """Return the sole owning Project ID for ``repo_path``, if unambiguous."""
+        result = await self._session.execute(select(ProjectRow.id, ProjectRow.repo_paths))
+        return resolve_matching_project_id(repo_path, result.all())
 
     async def list_all_repo_paths(self, exclude_project_id: str | None = None) -> dict[str, str]:
         """Return a mapping of ``repo_path -> project_id`` across all Projects.
@@ -94,7 +105,7 @@ class ProjectRepository(BaseRepository):
         result = await self._session.execute(stmt)
         mapping: dict[str, str] = {}
         for row in result.scalars().all():
-            for path in json.loads(row.repo_paths) if row.repo_paths else []:
+            for path in parse_project_repo_paths(row.repo_paths):
                 mapping[path] = row.id
         return mapping
 

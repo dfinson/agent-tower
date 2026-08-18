@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
@@ -24,6 +25,7 @@ from backend.models.domain import (
 )
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
+from backend.persistence.project_repo import ProjectRepository
 from backend.services.git.git_service import GitService
 from backend.services.job.job_service import (
     JobNotFoundError,
@@ -71,6 +73,7 @@ def job_service(
         job_repo=JobRepository(session),
         git_service=git_service,
         config=config,
+        project_repo=ProjectRepository(session),
     )
 
 
@@ -177,7 +180,7 @@ class TestJobService:
         assert job.id != ""
         assert not job.id.startswith("job-")  # no more sequential job-N IDs
         assert job.state == JobState.preparing
-        assert job.repo == "/repos/test"
+        assert job.repo == str(Path("/repos/test").resolve())
         assert job.prompt == "Fix the bug"
         # Branch is stored but worktree is not created yet (background task)
 
@@ -195,6 +198,85 @@ class TestJobService:
             )
 
     @pytest.mark.asyncio
+    async def test_create_job_with_explicit_project_id_round_trips(
+        self,
+        job_service: JobService,
+        session: AsyncSession,
+    ) -> None:
+        await ProjectRepository(session).create("proj-1", "Payments", ["/repos/test"])
+        await session.commit()
+
+        with patch.object(
+            job_service._git,
+            "get_default_branch",
+            new_callable=AsyncMock,
+            return_value="main",
+        ):
+            job = await job_service.create_job(
+                JobSpec(
+                    repo="/repos/test",
+                    prompt="Fix the bug",
+                    project_id="proj-1",
+                )
+            )
+            await session.commit()
+
+        assert job.project_id == "proj-1"
+        fetched = await job_service.get_job(job.id)
+        assert fetched is not None
+        assert fetched.project_id == "proj-1"
+
+    @pytest.mark.asyncio
+    async def test_create_job_resolves_project_id_when_repo_has_single_match(
+        self,
+        job_service: JobService,
+        session: AsyncSession,
+    ) -> None:
+        await ProjectRepository(session).create("proj-1", "Payments", ["/repos/test"])
+        await session.commit()
+
+        with patch.object(
+            job_service._git,
+            "get_default_branch",
+            new_callable=AsyncMock,
+            return_value="main",
+        ):
+            job = await job_service.create_job(JobSpec(repo="/repos/test", prompt="Fix the bug"))
+            await session.commit()
+
+        assert job.project_id == "proj-1"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("projects", "label"),
+        [
+            ([("proj-1", ["/repos/other"])], "no-match"),
+            ([("proj-1", ["/repos/test"]), ("proj-2", ["/repos/test"])], "multi-match"),
+        ],
+    )
+    async def test_create_job_leaves_project_id_none_for_zero_or_multiple_matches(
+        self,
+        job_service: JobService,
+        session: AsyncSession,
+        projects: list[tuple[str, list[str]]],
+        label: str,
+    ) -> None:
+        project_repo = ProjectRepository(session)
+        for project_id, repo_paths in projects:
+            await project_repo.create(project_id, label, repo_paths)
+        await session.commit()
+
+        with patch.object(
+            job_service._git,
+            "get_default_branch",
+            new_callable=AsyncMock,
+            return_value="main",
+        ):
+            job = await job_service.create_job(JobSpec(repo="/repos/test", prompt="Fix the bug"))
+            await session.commit()
+
+        assert job.project_id is None
+
     async def test_create_job_allowed_via_project_membership(
         self,
         session: AsyncSession,
