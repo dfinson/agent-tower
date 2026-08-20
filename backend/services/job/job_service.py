@@ -171,9 +171,7 @@ class JobService:
             if project is None:
                 raise ProjectNotFoundError(f"Project '{project_id}' does not exist.")
             if resolved_repo not in {normalize_repo_path(path) for path in project.repo_paths}:
-                raise RepoNotAllowedError(
-                    f"Repository '{resolved_repo}' is not a member of Project '{project_id}'."
-                )
+                raise RepoNotAllowedError(f"Repository '{resolved_repo}' is not a member of Project '{project_id}'.")
             return project_id
         if self._project_repo is None:
             return None
