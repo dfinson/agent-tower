@@ -273,6 +273,20 @@ class JobResponse(CamelModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
 
+    @field_validator("project_id", mode="before")
+    @classmethod
+    def _normalize_project_id(cls, value: Any) -> str | None:
+        """Coerce UUID-like ids and discard mock values that aren't real project IDs."""
+        from uuid import UUID
+
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        if isinstance(value, UUID):
+            return str(value)
+        return None
+
     @classmethod
     def from_domain(cls, job: Job, **overrides: Any) -> JobResponse:
         """Build a JobResponse from a domain Job, with optional field overrides."""

@@ -46,6 +46,10 @@ export function Combobox({
     : items;
 
   useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 0);
     else setSearch("");
   }, [open]);

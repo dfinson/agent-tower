@@ -227,6 +227,24 @@ class TestJobService:
         assert fetched.project_id == "proj-1"
 
     @pytest.mark.asyncio
+    async def test_create_job_rejects_explicit_project_id_for_non_member_repo(
+        self,
+        job_service: JobService,
+        session: AsyncSession,
+    ) -> None:
+        await ProjectRepository(session).create("proj-1", "Payments", ["/repos/other"])
+        await session.commit()
+
+        with pytest.raises(RepoNotAllowedError, match="is not a member"):
+            await job_service.create_job(
+                JobSpec(
+                    repo="/repos/test",
+                    prompt="Fix the bug",
+                    project_id="proj-1",
+                )
+            )
+
+    @pytest.mark.asyncio
     async def test_create_job_resolves_project_id_when_repo_has_single_match(
         self,
         job_service: JobService,

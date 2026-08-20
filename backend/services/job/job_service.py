@@ -30,6 +30,7 @@ from backend.models.domain import (
 from backend.services.adapters.agent_adapter import validate_sdk_model
 from backend.services.completers.naming_service import NamingError
 from backend.services.git.git_service import GitError
+from backend.services.project.repo_membership import normalize_repo_path
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -166,8 +167,13 @@ class JobService:
         if project_id is not None:
             if self._project_repo is None:
                 raise ServiceInitError("ProjectRepository required to validate project-scoped jobs")
-            if await self._project_repo.get(project_id) is None:
+            project = await self._project_repo.get(project_id)
+            if project is None:
                 raise ProjectNotFoundError(f"Project '{project_id}' does not exist.")
+            if resolved_repo not in {normalize_repo_path(path) for path in project.repo_paths}:
+                raise RepoNotAllowedError(
+                    f"Repository '{resolved_repo}' is not a member of Project '{project_id}'."
+                )
             return project_id
         if self._project_repo is None:
             return None

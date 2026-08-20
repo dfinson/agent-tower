@@ -108,8 +108,10 @@ export function JobCreationScreen() {
   }, [activeSdk, modelsBySdk, defaultModelBySdk]);
 
   useEffect(() => {
+    let cancelled = false;
     fetchPolicySettings()
       .then((policy) => {
+        if (cancelled) return;
         const p = policy.config.preset;
         if (p === "autonomous" || p === "supervised" || p === "locked") {
           setPreset(p);
@@ -117,11 +119,13 @@ export function JobCreationScreen() {
         setSettingsLoaded(true);
       })
       .catch(() => {
+        if (cancelled) return;
         toast.error("Failed to load policy settings");
         setSettingsLoaded(true); // fall back to hardcoded defaults so the form is usable
       });
     fetchProjects()
       .then((r) => {
+        if (cancelled) return;
         const scoped = requestedProjectId
           ? r.items.find((project) => project.id === requestedProjectId) ?? null
           : null;
@@ -148,7 +152,10 @@ export function JobCreationScreen() {
           return prev && items.some((item) => item.value === prev) ? prev : null;
         });
       })
-      .catch(() => toast.error("Failed to load Projects"));
+      .catch(() => {
+        if (!cancelled) toast.error("Failed to load Projects");
+      });
+    return () => { cancelled = true; };
   }, [requestedProjectId, requestedRepo]);
 
   useEffect(() => {

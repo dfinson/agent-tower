@@ -97,9 +97,9 @@ export function RepoBoard() {
   const jobLifecycleSignature = useStore((state) => lifecycleSignature(state.jobs, repoPaths));
   const reconciledLifecycleSignature = useRef<string | null>(null);
 
-  const activeJobs = useStore(useShallow(selectActiveJobsForProject(repoPaths)));
-  const signoffJobs = useStore(useShallow(selectSignoffJobsForProject(repoPaths)));
-  const attentionJobs = useStore(useShallow(selectAttentionJobsForProject(repoPaths)));
+  const activeJobs = useStore(useShallow(selectActiveJobsForProject(projectId ?? "", repoPaths)));
+  const signoffJobs = useStore(useShallow(selectSignoffJobsForProject(projectId ?? "", repoPaths)));
+  const attentionJobs = useStore(useShallow(selectAttentionJobsForProject(projectId ?? "", repoPaths)));
 
   const highlightedTask = useMemo(
     () => (taskLinkId ? taskLinks.find((taskLink) => taskLink.id === taskLinkId) ?? null : null),
@@ -345,4 +345,3 @@ export function RepoBoard() {
     </div>
   );
 }
-

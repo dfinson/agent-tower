@@ -119,6 +119,10 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
       setError("Enter a folder name for the cloned repository.");
       return;
     }
+    if (folderName === "." || folderName === ".." || /[\\/]/.test(folderName)) {
+      setError("Folder name must be a single directory.");
+      return;
+    }
 
     setAddingRepo(true);
     setError(null);

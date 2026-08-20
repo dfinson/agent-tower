@@ -552,7 +552,7 @@ class GitService:
     @staticmethod
     def is_remote_url(source: str) -> bool:
         """Determine if a source string is a remote URL vs local path."""
-        return bool(re.match(r"(https?://|git@|ssh://)", source))
+        return bool(re.match(r"(https?://|git://|file://|git@|ssh://)", source))
 
     async def list_branches(self, repo_path: str) -> set[str]:
         """Return a set of all branch names (local + remote, without remote prefix)."""

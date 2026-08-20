@@ -51,6 +51,8 @@ class TestIsRemoteUrl:
 
     def test_ssh_protocol_url(self) -> None:
         assert GitService.is_remote_url("ssh://git@github.com/org/repo.git") is True
+        assert GitService.is_remote_url("git://example.com/org/repo.git") is True
+        assert GitService.is_remote_url("file:///tmp/repo.git") is True
 
     def test_local_path_not_remote(self) -> None:
         assert GitService.is_remote_url("/repos/test") is False

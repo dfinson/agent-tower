@@ -52,7 +52,14 @@ export function DirectoryField({ label, value, onChange }: DirectoryFieldProps) 
         <span className="truncate font-mono">{browseCurrent || value || "~"}</span>
       </div>
       {value && <p className="text-[11px] text-muted-foreground">Selected: <span className="font-mono">{value}</span></p>}
-      {browseError && <p className="text-xs text-red-500">{browseError}</p>}
+      {browseError && (
+        <div className="flex items-center justify-between gap-2 text-xs text-red-500">
+          <p>{browseError}</p>
+          <Button type="button" size="sm" variant="outline" onClick={() => void loadBrowse(browseCurrent || value || undefined)} disabled={browseLoading}>
+            Retry
+          </Button>
+        </div>
+      )}
       <div className="max-h-48 overflow-y-auto rounded-md border border-border divide-y divide-border">
         {browseParent !== null && (
           <button
@@ -71,7 +78,7 @@ export function DirectoryField({ label, value, onChange }: DirectoryFieldProps) 
           </Button>
         </div>
         {browseLoading ? (
-          <p className="px-3 py-2 text-xs text-muted-foreground">Loading…</p>
+          <p className="px-3 py-2 text-xs text-muted-foreground">Loading...</p>
         ) : browseItems.length === 0 ? (
           <p className="px-3 py-2 text-xs text-muted-foreground">No subdirectories</p>
         ) : (
