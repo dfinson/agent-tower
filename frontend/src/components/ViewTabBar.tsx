@@ -36,6 +36,7 @@ interface ViewTabBarProps {
   mobileBehavior?: "hidden" | "visible";
   className?: string;
   itemClassName?: string;
+  ariaLabel?: string;
 }
 
 function wrapWithTooltip(content: string | undefined, child: ReactNode, key: string) {
@@ -61,6 +62,7 @@ export function ViewTabBar({
   mobileBehavior = "hidden",
   className,
   itemClassName,
+  ariaLabel,
 }: ViewTabBarProps) {
   const visibleTabs: ViewTabBarItem[] = items
     ? items.filter((item) => !item.hidden)
@@ -86,7 +88,11 @@ export function ViewTabBar({
   );
 
   return (
-    <div className={containerClassName}>
+    <div
+      className={containerClassName}
+      role={ariaLabel ? "navigation" : undefined}
+      aria-label={ariaLabel}
+    >
       {visibleTabs.map(({ id, icon: Icon, label, tip, disabled = false, disabledTip, badgeCount }) => {
         const tooltip = disabled ? disabledTip ?? tip : tip;
         const isActive = activeTab === id;

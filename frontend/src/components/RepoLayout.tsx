@@ -236,6 +236,7 @@ export function RepoLayout() {
                   variant="inline"
                   mobileBehavior="visible"
                   className="gap-0"
+                  ariaLabel="Project navigation"
                 />
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <label htmlFor="project-repository" className="text-xs text-muted-foreground">
@@ -270,6 +271,7 @@ export function RepoLayout() {
                       variant="inline"
                       mobileBehavior="visible"
                       className="gap-0"
+                      ariaLabel="Repository navigation"
                     />
                     {!repoScopedUrl && (
                       <span className="mt-2 block text-xs text-muted-foreground">
@@ -295,5 +297,4 @@ export function RepoLayout() {
     </div>
   );
 }
-
 
