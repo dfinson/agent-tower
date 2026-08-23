@@ -557,7 +557,7 @@ test("starts the assigned TaskLink, preserves context, and returns through its c
   await expect(page).toHaveURL(
     `${backendBaseUrl}/projects/id/${projectId}/board`,
   );
-  await page.getByRole("link", { name: "Chats", exact: true }).click();
+  await page.getByRole("button", { name: "Chats", exact: true }).click();
 
   await page.getByPlaceholder("New chat title").fill("Supervise TEST-1");
   await expect(page.getByLabel("Chat Project")).toHaveValue(projectId);
