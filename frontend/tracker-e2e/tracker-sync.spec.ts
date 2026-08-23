@@ -425,7 +425,7 @@ test("navigates project-first scope and manages membership and tracker attachmen
   );
   await expect(page.getByRole("region", { name: "In Progress" })).toBeVisible();
 
-  await page.getByLabel("Repository").selectOption(memberRepoPath);
+  await page.getByLabel("Repository", { exact: true }).selectOption(memberRepoPath);
   await expect(page).toHaveURL(
     `${backendBaseUrl}/projects/id/${projectId}/repos/${encodeURIComponent(memberRepoPath)}/jobs`,
   );
