@@ -433,7 +433,7 @@ test("navigates project-first scope and manages membership and tracker attachmen
     page.getByRole("navigation", { name: "Repository navigation" }),
   ).toBeVisible();
 
-  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Project Settings" }),
   ).toBeVisible();
