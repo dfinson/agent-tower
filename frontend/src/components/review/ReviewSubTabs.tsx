@@ -1,5 +1,5 @@
 /**
- * Sub-tab bar for the Review tab — switches between Changes and Story.
+ * Sub-tab bar for the Review tab - switches between Changes and Story.
  */
 import { BookOpen, GitBranch } from "lucide-react";
 import { ViewTabBar } from "../ViewTabBar";

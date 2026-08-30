@@ -75,7 +75,9 @@ export function RepoLayout() {
       ? "board"
       : location.pathname.startsWith(`${projectUrl}/chats`)
         ? "chats"
-        : "settings";
+        : location.pathname.startsWith(`${projectUrl}/settings`)
+          ? "settings"
+          : "";
   const repoTabs: ViewTabBarItem[] = (["jobs", "health", "cost"] as const).map((view) => ({
     id: view,
     label: view === "jobs" ? "Jobs" : view.charAt(0).toUpperCase() + view.slice(1),

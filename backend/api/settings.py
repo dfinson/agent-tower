@@ -483,9 +483,15 @@ async def create_repo_endpoint(
     coderecon: FromDishka[CodeReconService],
 ) -> CreateRepoResponse:
     """Create a new git repository and register it."""
-    resolved = Path(body.path).expanduser().resolve()
+    parent = Path(body.path).expanduser().resolve()
+    resolved = parent
     if body.name:
-        resolved = resolved / body.name
+        name = body.name.strip()
+        if name in ("", ".", "..") or "/" in name or "\\" in name:
+            raise HTTPException(status_code=400, detail="Repository name must be a single directory name")
+        resolved = parent / name
+        if resolved.parent != parent:
+            raise HTTPException(status_code=400, detail="Repository name must be a single directory name")
 
     if (resolved / ".git").is_dir():
         raise HTTPException(status_code=409, detail=f"A git repository already exists at {resolved}")
