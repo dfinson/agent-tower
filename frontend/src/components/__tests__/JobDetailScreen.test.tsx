@@ -164,7 +164,7 @@ describe("JobDetailScreen", () => {
     );
 
     expect(await screen.findByText("Original project is unavailable")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Projects" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Projects" })).toHaveAttribute("href", "/projects");
   });
 
   it("renders Project, repository, Task, and Job breadcrumbs with deep links", async () => {

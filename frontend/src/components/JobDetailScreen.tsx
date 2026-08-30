@@ -599,6 +599,8 @@ export function JobDetailScreen() {
           </>
         ) : (
           <>
+            <Link to="/projects" className="hover:text-foreground">Projects</Link>
+            <span>/</span>
             <span>Original project is unavailable</span>
             <span>/</span>
           </>
