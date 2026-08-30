@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.models.db import Base, JobRow
+from backend.models.db import Base, JobRow, ProjectRow
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
 
@@ -32,9 +32,20 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
     # Create a job for FK
     async with factory() as session:
         session.add(
+            ProjectRow(
+                id="proj-1",
+                name="Test Project",
+                repo_paths='["/test"]',
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+        )
+        await session.flush()
+        session.add(
             JobRow(
                 id="merge-job",
                 repo="/test",
+                project_id="proj-1",
                 prompt="test",
                 state="review",
                 base_ref="main",

@@ -15,7 +15,6 @@ from uuid import uuid4
 
 import pytest
 
-from backend.config import CPLConfig
 from backend.models.db import JobRow
 
 if TYPE_CHECKING:
@@ -215,10 +214,12 @@ class TestResolveApproval:
 
         job_id = f"job-{uuid4().hex[:8]}"
         async with session_factory() as session:
+            project = await ProjectRepository(session).create("proj-gated", "Gated Project", [repo_path])
             session.add(
                 JobRow(
                     id=job_id,
                     repo=repo_path,
+                    project_id=project.id,
                     prompt="Test prompt",
                     state="completed",
                     resolution="merged",
@@ -229,7 +230,6 @@ class TestResolveApproval:
             )
             await session.commit()
 
-            project = await ProjectRepository(session).create("proj-gated", "Gated Project", [repo_path])
             task_link_repo = TaskLinkRepository(session)
             created = await task_link_repo.upsert_many(
                 project.id,
@@ -249,7 +249,6 @@ class TestResolveApproval:
             job_id, "Ready to spawn", proposed_action=f"spawn_task:{dependent_link.id}"
         )
 
-        monkeypatch.setattr("backend.services.job.job_service.load_config", lambda: CPLConfig(repos=[repo_path]))
         runtime_started = asyncio.Event()
         persisted_at_runtime_start: dict[str, bool] = {}
 

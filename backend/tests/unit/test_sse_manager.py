@@ -50,6 +50,7 @@ def _make_job_domain(job_id: str = "job-1", state: str = "running") -> Job:
     now = datetime.now(UTC)
     return Job(
         id=job_id,
+        project_id="proj-1",
         repo="/repos/test",
         prompt="Fix the bug",
         state=state,

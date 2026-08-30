@@ -232,6 +232,7 @@ def _make_plan_job(
     now = datetime.now(UTC)
     return Job(
         id=job_id,
+        project_id="proj-1",
         repo=repo,
         prompt="Implement feature X",
         state=JobState.queued,
@@ -250,9 +251,15 @@ async def _create_db_job(
     job: Job,
 ) -> None:
     async with session_factory() as session:
+        from backend.persistence.project_repo import ProjectRepository
+
+        existing = await ProjectRepository(session).get(job.project_id)
+        if existing is None:
+            await ProjectRepository(session).create(job.project_id, "Test Project", [job.repo])
         row = JobRow(
             id=job.id,
             repo=job.repo,
+            project_id=job.project_id,
             prompt=job.prompt,
             state=job.state,
             base_ref=job.base_ref,

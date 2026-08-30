@@ -40,6 +40,7 @@ def _make_job(job_id: str = "job-1", **overrides: Any) -> Job:
     now = _now()
     defaults = {
         "id": job_id,
+        "project_id": "proj-1",
         "repo": "/repos/test",
         "prompt": "Fix the bug",
         "state": JobState.review,

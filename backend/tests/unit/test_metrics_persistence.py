@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-from backend.models.db import Base, JobRow
+from backend.models.db import Base, JobRow, ProjectRow
 from backend.models.domain import JobState
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
@@ -31,9 +31,20 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
     async with factory() as sess:
         now = datetime.now(UTC)
         sess.add(
+            ProjectRow(
+                id="proj-1",
+                name="Test Project",
+                repo_paths='["/repos/test"]',
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await sess.flush()
+        sess.add(
             JobRow(
                 id="job-1",
                 repo="/repos/test",
+                project_id="proj-1",
                 prompt="Fix the bug",
                 state=JobState.running,
                 base_ref="main",

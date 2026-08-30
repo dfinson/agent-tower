@@ -262,6 +262,10 @@ class TestCopilotControlPlane:
 
         copilot_watcher._git._run_git = AsyncMock(side_effect=_run_git)  # type: ignore[attr-defined]
 
+        async with db_session() as session:
+            await ProjectRepository(session).create("project-1", "Canonical", [repo_path])
+            await session.commit()
+
         job = await copilot_watcher._create_job(session_id, repo_path)
 
         assert job is not None
@@ -319,9 +323,13 @@ async def _insert_job(
     external_session_id: str,
 ) -> None:
     async with db_session() as session:
+        existing = await ProjectRepository(session).get("proj-1")
+        if existing is None:
+            await ProjectRepository(session).create("proj-1", "Test Project", ["C:\\repo\\myproject"])
         await JobRepository(session).create(
             Job(
                 id=job_id,
+                project_id="proj-1",
                 repo="C:\\repo\\myproject",
                 prompt="",
                 state=JobState.running,

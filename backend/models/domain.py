@@ -832,6 +832,9 @@ class Job:
 
     id: str
     repo: str
+    project_id: str
+    """The Project that owns this repo (AD-5) — never null; a Job cannot
+    exist without an owning Project."""
     prompt: str
     state: JobState
     base_ref: str
@@ -840,7 +843,6 @@ class Job:
     session_id: str | None
     created_at: datetime
     updated_at: datetime
-    project_id: str | None = None
     completed_at: datetime | None = None
     pr_url: str | None = None
     merge_status: GitMergeOutcome | None = None

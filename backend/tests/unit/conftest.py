@@ -16,6 +16,7 @@ def make_job(**overrides: Any) -> Job:
     now = datetime.now(UTC)
     defaults: dict[str, Any] = {
         "id": "job-1",
+        "project_id": "proj-1",
         "repo": "/repos/test",
         "prompt": "Fix the bug",
         "state": "running",

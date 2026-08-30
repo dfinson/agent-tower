@@ -31,6 +31,7 @@ function makeJob(overrides: Partial<JobSummary> = {}): JobSummary {
   return {
     id: "job-1",
     repo: "/repos/test",
+    projectId: "proj-1",
     prompt: "Fix the bug",
     state: "running",
     baseRef: "main",
@@ -253,11 +254,11 @@ describe("RepoBoard", () => {
 
   it("shows only jobs belonging to the Project's member repos, excluding other repos", async () => {
     const jobA = makeJob({ id: "job-a", repo: "/repos/test", title: "Job A", state: "running" });
-    const jobB = makeJob({ id: "job-b", repo: "/repos/other", title: "Job B", state: "running" });
+    const jobB = makeJob({ id: "job-b", repo: "/repos/other", projectId: "proj-2", title: "Job B", state: "running" });
     vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [jobA, jobB], cursor: null } as any);
     renderBoard("proj-1");
     await waitFor(() => expect(screen.getByText("Job A")).toBeInTheDocument());
-    // Job B belongs to a repo outside this Project's membership and must never appear (CAP-1).
+    // Job B belongs to a different Project and must never appear (CAP-1 / AD-5).
     expect(screen.queryByText("Job B")).not.toBeInTheDocument();
   });
 

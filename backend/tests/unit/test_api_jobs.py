@@ -15,6 +15,7 @@ def _make_job(job_id: str, *, resolution: Resolution | None = Resolution.unresol
     now = datetime.now(UTC)
     return Job(
         id=job_id,
+        project_id="proj-1",
         repo="/tmp/repo",
         prompt="prompt",
         state=JobState.review,

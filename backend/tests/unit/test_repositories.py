@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-from backend.models.db import Base
+from backend.models.db import Base, ProjectRow
 from backend.models.domain import Artifact
 from backend.models.events import EventKind, new_event
 from backend.persistence.artifact_repo import ArtifactRepository
@@ -32,6 +32,16 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as sess:
+        sess.add(
+            ProjectRow(
+                id="proj-1",
+                name="Test Project",
+                repo_paths='["/repos/test"]',
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+        )
+        await sess.commit()
         yield sess
 
     await engine.dispose()

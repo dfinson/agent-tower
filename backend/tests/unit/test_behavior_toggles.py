@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.models.db import Base, JobRow
+from backend.models.db import Base, JobRow, ProjectRow
 from backend.models.events import EventKind, SessionEvent, new_event
 from backend.services.events.event_bus import EventBus
 from backend.services.trail import TrailService
@@ -173,9 +173,20 @@ class TestToggleDbRoundTrip:
     async def test_stall_detection_persists(self, session_factory) -> None:
         async with session_factory() as session:
             now = datetime.now(UTC)
+            session.add(
+                ProjectRow(
+                    id="proj-stall",
+                    name="Test Project",
+                    repo_paths='["https://example.com/repo"]',
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            await session.commit()
             row = JobRow(
                 id="j-stall",
                 repo="https://example.com/repo",
+                project_id="proj-stall",
                 prompt="test",
                 base_ref="main",
                 state="queued",
@@ -197,9 +208,20 @@ class TestToggleDbRoundTrip:
     async def test_plan_tracking_persists(self, session_factory) -> None:
         async with session_factory() as session:
             now = datetime.now(UTC)
+            session.add(
+                ProjectRow(
+                    id="proj-plan",
+                    name="Test Project",
+                    repo_paths='["https://example.com/repo"]',
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            await session.commit()
             row = JobRow(
                 id="j-plan",
                 repo="https://example.com/repo",
+                project_id="proj-plan",
                 prompt="test",
                 base_ref="main",
                 state="queued",
@@ -221,9 +243,20 @@ class TestToggleDbRoundTrip:
     async def test_toggles_default_to_none(self, session_factory) -> None:
         async with session_factory() as session:
             now = datetime.now(UTC)
+            session.add(
+                ProjectRow(
+                    id="proj-default",
+                    name="Test Project",
+                    repo_paths='["https://example.com/repo"]',
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            await session.commit()
             row = JobRow(
                 id="j-default",
                 repo="https://example.com/repo",
+                project_id="proj-default",
                 prompt="test",
                 base_ref="main",
                 state="queued",

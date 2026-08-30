@@ -204,6 +204,7 @@ class TestGetRepoDetail:
             json={"name": "Active jobs", "repoPaths": [str(tmp_path)]},
         )
         assert created.status_code == 201
+        project_id = created.json()["id"]
         repo_path = created.json()["repoPaths"][0]
 
         active_states = ("preparing", "queued", "running", "waiting_for_approval", "review")
@@ -214,6 +215,7 @@ class TestGetRepoDetail:
                     JobRow(
                         id=f"job-{uuid4().hex[:8]}",
                         repo=repo_path,
+                        project_id=project_id,
                         prompt="Count me",
                         state=state,
                         base_ref="main",

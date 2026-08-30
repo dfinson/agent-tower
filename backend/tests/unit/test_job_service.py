@@ -52,23 +52,22 @@ def config(tmp_path: object) -> CPLConfig:
     return CPLConfig(repos=["/repos/test"])
 
 
-@pytest.fixture(autouse=True)
-def patch_job_service_load_config(monkeypatch: pytest.MonkeyPatch, config: CPLConfig) -> None:
-    """Patch job_service.load_config so _resolve_repos uses the test config."""
-    monkeypatch.setattr("backend.services.job.job_service.load_config", lambda: config)
-
-
 @pytest.fixture
 def git_service(config: CPLConfig) -> GitService:
     return GitService(config)
 
 
 @pytest.fixture
-def job_service(
+async def job_service(
     session: AsyncSession,
     config: CPLConfig,
     git_service: GitService,
 ) -> JobService:
+    # A Job can never exist without an owning Project (AD-5) — seed a default
+    # Project owning "/repos/test" so existing tests that don't care about
+    # Project-resolution specifics keep working.
+    await ProjectRepository(session).create("proj-default", "Default", ["/repos/test"])
+    await session.commit()
     return JobService(
         job_repo=JobRepository(session),
         git_service=git_service,
@@ -189,6 +188,8 @@ class TestJobService:
         self,
         job_service: JobService,
     ) -> None:
+        """A repo that belongs to zero Projects is never job-eligible —
+        there is no legacy allowlist fallback (AD-5)."""
         with pytest.raises(RepoNotAllowedError):
             await job_service.create_job(
                 JobSpec(
@@ -250,7 +251,7 @@ class TestJobService:
         job_service: JobService,
         session: AsyncSession,
     ) -> None:
-        await ProjectRepository(session).create("proj-1", "Payments", ["/repos/test"])
+        await ProjectRepository(session).create("proj-solo", "Payments", ["/repos/solo"])
         await session.commit()
 
         with patch.object(
@@ -259,41 +260,36 @@ class TestJobService:
             new_callable=AsyncMock,
             return_value="main",
         ):
-            job = await job_service.create_job(JobSpec(repo="/repos/test", prompt="Fix the bug"))
+            job = await job_service.create_job(JobSpec(repo="/repos/solo", prompt="Fix the bug"))
             await session.commit()
 
-        assert job.project_id == "proj-1"
+        assert job.project_id == "proj-solo"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("projects", "label"),
         [
-            ([("proj-1", ["/repos/other"])], "no-match"),
-            ([("proj-1", ["/repos/test"]), ("proj-2", ["/repos/test"])], "multi-match"),
+            ([], "no-match"),
+            ([("proj-a", ["/repos/ambiguous"]), ("proj-b", ["/repos/ambiguous"])], "multi-match"),
         ],
     )
-    async def test_create_job_leaves_project_id_none_for_zero_or_multiple_matches(
+    async def test_create_job_rejects_zero_or_multiple_matches(
         self,
         job_service: JobService,
         session: AsyncSession,
         projects: list[tuple[str, list[str]]],
         label: str,
     ) -> None:
+        """A repo with zero or ambiguous (>1) owning Projects is never
+        job-eligible — the atomic unit is a Project, and a Job can never
+        exist without exactly one resolvable owner (AD-5)."""
         project_repo = ProjectRepository(session)
         for project_id, repo_paths in projects:
             await project_repo.create(project_id, label, repo_paths)
         await session.commit()
 
-        with patch.object(
-            job_service._git,
-            "get_default_branch",
-            new_callable=AsyncMock,
-            return_value="main",
-        ):
-            job = await job_service.create_job(JobSpec(repo="/repos/test", prompt="Fix the bug"))
-            await session.commit()
-
-        assert job.project_id is None
+        with pytest.raises(RepoNotAllowedError):
+            await job_service.create_job(JobSpec(repo="/repos/ambiguous", prompt="Fix the bug"))
 
     async def test_create_job_allowed_via_project_membership(
         self,
@@ -301,10 +297,9 @@ class TestJobService:
         config: CPLConfig,
         git_service: GitService,
     ) -> None:
-        """A repo that belongs only to a Project (not config.repos) may still
-        launch a job — Project membership is an equally valid authorization
-        source (AD-5), since Project creation never populates the legacy
-        allowlist."""
+        """A repo that belongs to exactly one Project is job-eligible even if
+        it was never added to the legacy ``config.repos`` — Project
+        membership is the sole authorization source (AD-5)."""
         from backend.persistence.project_repo import ProjectRepository
 
         project_repo = ProjectRepository(session)
@@ -338,15 +333,14 @@ class TestJobService:
         assert job.state == JobState.preparing
 
     @pytest.mark.asyncio
-    async def test_create_job_still_rejects_repo_in_neither_allowlist_nor_project(
+    async def test_create_job_still_rejects_repo_in_no_project(
         self,
         session: AsyncSession,
         config: CPLConfig,
         git_service: GitService,
     ) -> None:
-        """A repo absent from both config.repos AND all Project repo_paths
-        must remain rejected — adding Project-membership authorization must
-        not accidentally widen the allowlist to all paths."""
+        """A repo absent from all Project repo_paths must remain rejected —
+        there is no legacy allowlist to fall back to (AD-5)."""
         from backend.persistence.project_repo import ProjectRepository
 
         project_repo = ProjectRepository(session)

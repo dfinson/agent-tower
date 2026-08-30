@@ -47,11 +47,12 @@ async def _make_credential(session: AsyncSession, credential_id: str = "cred-1")
     return str(row["id"])
 
 
-async def _make_job(session: AsyncSession, job_id: str = "job-1") -> None:
+async def _make_job(session: AsyncSession, job_id: str = "job-1", project_id: str = "proj-1") -> None:
     session.add(
         JobRow(
             id=job_id,
             repo="/repo/a",
+            project_id=project_id,
             prompt="do work",
             state="running",
             base_ref="main",
@@ -90,6 +91,7 @@ async def test_resolves_ticket_and_tracker_link_for_jobs_task_link(session: Asyn
 
 @pytest.mark.asyncio
 async def test_raises_when_job_has_no_task_link(session: AsyncSession) -> None:
+    await _make_project(session)
     await _make_job(session)
 
     with pytest.raises(TrackerResolutionError, match="no associated TaskLink"):

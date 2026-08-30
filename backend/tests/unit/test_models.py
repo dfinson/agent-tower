@@ -99,6 +99,7 @@ def test_job_domain_model() -> None:
     now = datetime.now(UTC)
     job = Job(
         id="job-1",
+        project_id="proj-1",
         repo="/repos/a",
         prompt="Fix it",
         state="running",

@@ -52,6 +52,7 @@ async def _create_job(
     now = datetime.now(UTC)
     job = Job(
         id=job_id,
+        project_id="proj-1",
         repo="C:/repo",
         prompt="Audit the repository",
         state=JobState.review,
@@ -65,6 +66,11 @@ async def _create_job(
         artifact_collection_status=status,
     )
     async with serialized_write(session_factory) as session:
+        from backend.persistence.project_repo import ProjectRepository
+
+        existing = await ProjectRepository(session).get("proj-1")
+        if existing is None:
+            await ProjectRepository(session).create("proj-1", "Test Project", ["C:/repo"])
         await JobRepository(session).create(job)
 
 

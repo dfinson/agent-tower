@@ -15,6 +15,7 @@ from backend.models.db import Base
 from backend.models.domain import JobSpec
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
+from backend.persistence.project_repo import ProjectRepository
 from backend.services.events.event_bus import EventBus
 from backend.services.git.git_service import GitService
 from backend.services.job.approval_service import ApprovalService
@@ -33,13 +34,16 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
     factory = async_sessionmaker(engine, expire_on_commit=False)
     # Create job rows for FK constraints
     from backend.models.db import JobRow
+    from backend.persistence.project_repo import ProjectRepository
 
     async with factory() as session:
+        await ProjectRepository(session).create("proj-1", "Test Project", ["/test", "/test/repo"])
         for jid in ["job-1", "job-2"]:
             session.add(
                 JobRow(
                     id=jid,
                     repo="/test",
+                    project_id="proj-1",
                     prompt="test",
                     state="running",
                     base_ref="main",
@@ -57,12 +61,6 @@ def config() -> CPLConfig:
     cfg = CPLConfig()
     cfg.repos = ["/test/repo"]
     return cfg
-
-
-@pytest.fixture(autouse=True)
-def patch_job_service_load_config(monkeypatch: pytest.MonkeyPatch, config: CPLConfig) -> None:
-    """Patch job_service.load_config so _resolve_repos uses the test config."""
-    monkeypatch.setattr("backend.services.job.job_service.load_config", lambda: config)
 
 
 @pytest.fixture
@@ -233,7 +231,12 @@ class TestJobStateMachineIntegration:
             git.get_default_branch = AsyncMock(return_value="main")
             git.create_worktree = AsyncMock(return_value=("/test/worktree", "fix/branch"))
 
-            svc = JobService(job_repo=JobRepository(session), git_service=git, config=config)
+            svc = JobService(
+                job_repo=JobRepository(session),
+                git_service=git,
+                config=config,
+                project_repo=ProjectRepository(session),
+            )
             job = await svc.create_job(JobSpec(repo="/test/repo", prompt="Fix bug"))
             await session.commit()
 
@@ -256,7 +259,12 @@ class TestJobStateMachineIntegration:
             git.get_default_branch = AsyncMock(return_value="main")
             git.create_worktree = AsyncMock(return_value=("/test/worktree", "fix/b"))
 
-            svc = JobService(job_repo=JobRepository(session), git_service=git, config=config)
+            svc = JobService(
+                job_repo=JobRepository(session),
+                git_service=git,
+                config=config,
+                project_repo=ProjectRepository(session),
+            )
             job = await svc.create_job(JobSpec(repo="/test/repo", prompt="Fix bug"))
             await session.commit()
 

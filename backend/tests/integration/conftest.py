@@ -275,7 +275,6 @@ async def app(
 
     # -- config overrides (for non-dishka load_config calls) ----
     monkeypatch.setattr("backend.config.load_config", _test_config)
-    monkeypatch.setattr("backend.services.job.job_service.load_config", _test_config)
 
     yield application
 
@@ -305,7 +304,12 @@ SeedJobFn = Callable[..., Coroutine[Any, Any, str]]
 def seed_job(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> SeedJobFn:
-    """Return an async factory that inserts a job row and returns its ID."""
+    """Return an async factory that inserts a job row and returns its ID.
+
+    A Job can never exist without an owning Project (AD-5) — this seeds (or
+    reuses) a default Project owning the job's repo unless the caller passes
+    an explicit ``project_id`` override.
+    """
 
     async def _seed(
         state: str = "running",
@@ -313,11 +317,22 @@ def seed_job(
         **overrides: Any,
     ) -> str:
         job_id = job_id or f"job-{uuid4().hex[:8]}"
+        repo = overrides.pop("repo", "/test/repo")
+        project_id = overrides.pop("project_id", None)
         async with session_factory() as session:
+            if project_id is None:
+                from backend.persistence.project_repo import ProjectRepository
+
+                project_repo = ProjectRepository(session)
+                project_id = "proj-default"
+                existing = await project_repo.get(project_id)
+                if existing is None:
+                    await project_repo.create(project_id, "Default", [repo])
             session.add(
                 JobRow(
                     id=job_id,
-                    repo="/test/repo",
+                    repo=repo,
+                    project_id=project_id,
                     prompt="Test prompt",
                     state=state,
                     base_ref="main",

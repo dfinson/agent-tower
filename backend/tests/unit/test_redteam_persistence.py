@@ -27,6 +27,7 @@ from backend.persistence.artifact_repo import ArtifactRepository
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.job_repo import JobRepository
+from backend.persistence.project_repo import ProjectRepository
 
 
 @pytest.fixture
@@ -37,6 +38,8 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as sess:
+        await ProjectRepository(sess).create("proj-1", "Test Project", ["/repos/test"])
+        await sess.commit()
         yield sess
     await engine.dispose()
 
@@ -49,6 +52,7 @@ def _make_job(
     now = created_at or datetime.now(UTC)
     return Job(
         id=job_id,
+        project_id="proj-1",
         repo="/repos/test",
         prompt="Fix the bug",
         state=state,
@@ -254,6 +258,7 @@ class TestBoundaryValues:
         repo = JobRepository(session)
         job = Job(
             id="job-empty",
+            project_id="proj-1",
             repo="",
             prompt="",
             state=JobState.queued,
@@ -288,6 +293,7 @@ class TestBoundaryValues:
         repo = JobRepository(session)
         job = Job(
             id="job-日本語",
+            project_id="proj-1",
             repo="/repos/ñ/café",
             prompt="修复这个错误 🐛",
             state="running",

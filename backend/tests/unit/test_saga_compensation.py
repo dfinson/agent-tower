@@ -7,7 +7,7 @@ the job transitions to 'failed' state with a failure reason.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -79,17 +79,18 @@ class TestJobCreationCompensation:
         git_service.list_worktree_names = MagicMock(return_value=set())
 
         config = _make_config()
+        project_repo = AsyncMock()
+        project_repo.resolve_project_id_for_repo_path = AsyncMock(return_value="proj-1")
+        project_repo.get = AsyncMock(return_value=MagicMock(repo_paths=["/repos/test"]))
 
         svc = JobService(
             job_repo=job_repo,
             git_service=git_service,
             config=config,
+            project_repo=project_repo,
         )
 
-        with (
-            patch.object(svc, "validate_repo", return_value="/repos/test"),
-            pytest.raises(Exception, match="DB write failed"),
-        ):
+        with pytest.raises(Exception, match="DB write failed"):
             await svc.create_job(JobSpec(repo="/repos/test", prompt="Fix the bug"))
 
         # No worktree was created, so no cleanup needed
@@ -109,15 +110,18 @@ class TestJobCreationCompensation:
         git_service.list_worktree_names = MagicMock(return_value=set())
 
         config = _make_config()
+        project_repo = AsyncMock()
+        project_repo.resolve_project_id_for_repo_path = AsyncMock(return_value="proj-1")
+        project_repo.get = AsyncMock(return_value=MagicMock(repo_paths=["/repos/test"]))
 
         svc = JobService(
             job_repo=job_repo,
             git_service=git_service,
             config=config,
+            project_repo=project_repo,
         )
 
-        with patch.object(svc, "validate_repo", return_value="/repos/test"):
-            job = await svc.create_job(JobSpec(repo="/repos/test", prompt="Fix the bug"))
+        job = await svc.create_job(JobSpec(repo="/repos/test", prompt="Fix the bug"))
 
         assert job.state == JobState.preparing
         # No worktree created during create_job phase

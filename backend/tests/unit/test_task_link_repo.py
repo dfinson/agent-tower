@@ -38,12 +38,13 @@ async def _make_project(session: AsyncSession) -> str:
     return project.id
 
 
-async def _make_job(session: AsyncSession, job_id: str) -> None:
+async def _make_job(session: AsyncSession, job_id: str, project_id: str = "proj-1") -> None:
     now = datetime.now(UTC)
     session.add(
         JobRow(
             id=job_id,
             repo="/repo/a",
+            project_id=project_id,
             prompt="do the thing",
             state=JobState.completed,
             base_ref="main",
@@ -367,6 +368,7 @@ class TestTaskLinkLifecycle:
             JobRow(
                 id="job-not-attached",
                 repo="/repo/a",
+                project_id=project_id,
                 prompt="do the thing",
                 state=JobState.preparing,
                 base_ref="main",

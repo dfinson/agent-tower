@@ -113,9 +113,13 @@ async def _insert_job(
     external_session_id: str,
 ) -> None:
     async with db_session() as session:
+        from backend.persistence.project_repo import ProjectRepository
+
+        await ProjectRepository(session).create("proj-1", "Test Project", ["C:\\repo\\myproject"])
         await JobRepository(session).create(
             Job(
                 id=job_id,
+                project_id="proj-1",
                 repo="C:\\repo\\myproject",
                 prompt="",
                 state=JobState.running,

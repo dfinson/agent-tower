@@ -21,7 +21,9 @@ class JobRow(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     repo: Mapped[str] = mapped_column(String, nullable=False)
-    project_id: Mapped[str | None] = mapped_column(String, ForeignKey("projects.id"), nullable=True)
+    # A Job never exists without an owning Project — the atomic unit is a
+    # Project (AD-5); repos and jobs do not exist independently of one.
+    project_id: Mapped[str] = mapped_column(String, ForeignKey("projects.id"), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     state: Mapped[str] = mapped_column(String, nullable=False)
     base_ref: Mapped[str] = mapped_column(String, nullable=False)

@@ -1,5 +1,12 @@
 """Add immutable Project ownership to jobs.
 
+A Job can never exist without an owning Project (AD-5) — ``project_id`` is
+NOT NULL. Any job whose repo cannot be unambiguously attributed to exactly
+one Project during backfill is deleted rather than left dangling: there are
+no production users yet, so an orphaned job has no real-world value and
+carrying "project_id may be null" complexity forward across the whole
+codebase is a worse outcome than dropping a few unattributable dev rows.
+
 Revision ID: 0072
 Revises: 0071
 """
@@ -41,6 +48,9 @@ def _backfill_job_project_ids() -> None:
             sa.text("UPDATE jobs SET project_id = :project_id WHERE id = :job_id"),
             updates,
         )
+    # Jobs whose repo has zero or ambiguous (>1) owning Projects cannot be
+    # attributed — delete them rather than leave project_id NULL.
+    conn.execute(sa.text("DELETE FROM jobs WHERE project_id IS NULL"))
 
 
 def upgrade() -> None:
@@ -54,6 +64,8 @@ def upgrade() -> None:
                 ["id"],
             )
     _backfill_job_project_ids()
+    with op.batch_alter_table("jobs", recreate="always") as batch_op:
+        batch_op.alter_column("project_id", nullable=False)
 
 
 def downgrade() -> None:

@@ -43,6 +43,24 @@ def _patch_for_job_creation(
     )
 
 
+@pytest.fixture(autouse=True)
+async def _seed_default_project(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A Job can never exist without an owning Project (AD-5).
+
+    ``/test/repo`` is the default repo used across this file's create-job
+    tests — seed a Project owning it so ``JobService.create_job`` resolves it.
+    """
+    from backend.persistence.project_repo import ProjectRepository
+
+    async with session_factory() as session:
+        project_repo = ProjectRepository(session)
+        if (await project_repo.get("proj-default")) is None:
+            await project_repo.create("proj-default", "Default", ["/test/repo"])
+        await session.commit()
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
@@ -105,25 +123,24 @@ class TestJobsCrud:
         assert resp.status_code == 400
 
     async def test_newly_registered_repo_immediately_usable(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
     ) -> None:
-        """Regression: _resolve_repos must re-read config from disk on each call.
+        """Regression: a repo newly added to a Project must be usable without a server restart.
 
-        Before the fix, JobService._resolve_repos() checked the stale in-memory
-        CPLConfig singleton loaded at startup, so repos registered after startup
-        were invisible and job creation returned 400.
+        A Job can never exist without an owning Project (AD-5) — job creation
+        resolves the owning Project for the repo on every call, so a repo
+        added to a Project's repo_paths after startup must work immediately.
         """
-        from backend.config import CPLConfig
+        from backend.persistence.project_repo import ProjectRepository
 
-        shared_config = CPLConfig(repos=[])
-        monkeypatch.setattr("backend.services.job.job_service.load_config", lambda: shared_config)
-
-        # Repo not yet in the allowlist — must be rejected
+        # Repo not yet owned by any Project — must be rejected
         resp = await client.post("/api/jobs", json=_create_body(repo="/new/repo"))
         assert resp.status_code == 400
 
-        # Simulate what register_repo does (add to the shared config)
-        shared_config.repos.append("/new/repo")
+        # Simulate what registering a repo to a Project does
+        async with session_factory() as session:
+            await ProjectRepository(session).create("proj-new-repo", "New Repo Project", ["/new/repo"])
+            await session.commit()
 
         # Job creation must now succeed without a server restart
         resp = await client.post("/api/jobs", json=_create_body(repo="/new/repo"))

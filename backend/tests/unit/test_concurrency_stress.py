@@ -31,6 +31,11 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        from backend.persistence.project_repo import ProjectRepository
+
+        await ProjectRepository(session).create("proj-1", "Test Project", ["/repos/test"])
+        await session.commit()
     yield factory
     await engine.dispose()
 
@@ -39,6 +44,7 @@ def _make_job(job_id: str = "job-1", state: str = "queued") -> Job:
     now = datetime.now(UTC)
     return Job(
         id=job_id,
+        project_id="proj-1",
         repo="/repos/test",
         prompt="Fix the bug",
         state=JobState(state),
