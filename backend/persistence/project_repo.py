@@ -79,12 +79,19 @@ class ProjectRepository(BaseRepository):
         return [self._to_domain(row) for row in result.scalars().all()]
 
     async def find_by_repo_path(self, repo_path: str) -> Project | None:
-        """Return the first Project that owns ``repo_path``, if any."""
+        """Return the sole owning Project for ``repo_path``, if unambiguous.
+
+        Mirrors the "refuse to guess" contract of ``resolve_matching_project_id``:
+        if more than one Project claims membership of the same repo path, this
+        returns ``None`` rather than picking one arbitrarily.
+        """
         normalized_repo = normalize_repo_path(repo_path)
-        for project in await self.list():
-            if any(normalize_repo_path(path) == normalized_repo for path in project.repo_paths):
-                return project
-        return None
+        matches = [
+            project
+            for project in await self.list()
+            if any(normalize_repo_path(path) == normalized_repo for path in project.repo_paths)
+        ]
+        return matches[0] if len(matches) == 1 else None
 
     async def resolve_project_id_for_repo_path(self, repo_path: str) -> str | None:
         """Return the sole owning Project ID for ``repo_path``, if unambiguous."""
