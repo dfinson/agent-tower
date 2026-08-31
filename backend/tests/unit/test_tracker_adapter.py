@@ -72,6 +72,86 @@ async def test_github_projects_normalizes_issue_and_draft_items() -> None:
 
 
 @pytest.mark.asyncio
+async def test_github_projects_tolerates_partial_not_found_for_user_owned_project() -> None:
+    """A user-owned project number causes GitHub to return a top-level
+    NOT_FOUND error for the `organization` branch alongside valid `user` data
+    in the same response — that partial error must not fail the request."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload["variables"] == {"owner": "dfinson", "number": 1}
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "organization": None,
+                    "user": {
+                        "projectV2": {
+                            "items": {
+                                "nodes": [
+                                    {
+                                        "id": "item-1",
+                                        "content": {
+                                            "number": 86,
+                                            "title": "E2E tracker sync test issue",
+                                            "url": "https://github.com/dfinson/codeplane/issues/86",
+                                            "repository": {"nameWithOwner": "dfinson/codeplane"},
+                                        },
+                                        "status": None,
+                                    },
+                                ]
+                            }
+                        }
+                    },
+                },
+                "errors": [
+                    {
+                        "type": "NOT_FOUND",
+                        "path": ["organization"],
+                        "message": "Could not resolve to an Organization with the login of 'dfinson'.",
+                    }
+                ],
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        tickets = await GitHubProjectsTrackerAdapter(client).fetch_tickets(
+            base_url="https://api.github.com",
+            external_ref="dfinson/1",
+            token="secret",
+        )
+
+    assert tickets == [
+        TrackerTicket(
+            id="dfinson/codeplane#86",
+            title="E2E tracker sync test issue",
+            status="No status",
+            url="https://github.com/dfinson/codeplane/issues/86",
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_github_projects_fails_when_neither_owner_type_resolves() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": {"organization": None, "user": None},
+                "errors": [{"type": "NOT_FOUND", "path": ["organization"], "message": "not found"}],
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        with pytest.raises(TrackerAdapterError, match="query failed"):
+            await GitHubProjectsTrackerAdapter(client).fetch_tickets(
+                base_url="https://api.github.com",
+                external_ref="ghost/1",
+                token="secret",
+            )
+
+
+@pytest.mark.asyncio
 async def test_github_projects_rejects_invalid_external_ref() -> None:
     async with httpx.AsyncClient() as client:
         with pytest.raises(TrackerAdapterError, match="owner/project-number"):

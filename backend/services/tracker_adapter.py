@@ -163,14 +163,18 @@ class GitHubProjectsTrackerAdapter(_HttpTrackerAdapter):
                 "variables": {"owner": owner, "number": int(raw_number)},
             },
         )
-        if payload.get("errors"):
-            raise TrackerAdapterError("GitHub Projects query failed")
-
         data = payload.get("data")
-        if not isinstance(data, dict):
-            raise TrackerAdapterError("GitHub Projects returned an invalid response")
-        owner_data = data.get("organization") or data.get("user")
+        owner_data = data.get("organization") or data.get("user") if isinstance(data, dict) else None
+
+        # GitHub's schema requires querying both `organization(login:)` and
+        # `user(login:)` in one request since we don't know the owner type up
+        # front. Whichever one doesn't match the login always resolves to a
+        # top-level NOT_FOUND GraphQL error alongside valid data for the other
+        # — that partial error is expected and must not fail the request as
+        # long as one of the two branches resolved to real project data.
         if not isinstance(owner_data, dict):
+            if payload.get("errors"):
+                raise TrackerAdapterError("GitHub Projects query failed")
             raise TrackerAdapterError("GitHub Project was not found")
         try:
             nodes = owner_data["projectV2"]["items"]["nodes"]
