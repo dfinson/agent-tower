@@ -84,30 +84,66 @@ function sortByUpdatedDesc(jobs: JobSummary[]): JobSummary[] {
   );
 }
 
-// Classifier predicates (AD-1: one shared job-status classifier, reused by both the
-// flat cross-repo selectors below and the repo-scoped `*ForRepo` variants used by
-// RepoBoard — never re-implemented at a second call site).
-function isActiveJob(j: JobSummary): boolean {
+// Classifier predicates (AD-1: one shared job-status classifier, reused by the flat
+// cross-repo selectors below, the repo-scoped `*ForRepo` variants used by RepoBoard,
+// and the mobile segmented list — never re-implemented at a second call site.
+// These are exported precisely so no caller has an excuse to re-derive them.)
+//
+// AD-1a (totality): the four predicates below partition the ENTIRE
+// state × resolution space of an unarchived job into exactly one column — every
+// cell maps to one bucket, none to zero, none to two. A job that matches no
+// predicate is invisible on the board, and (because History lists archived jobs
+// only) invisible in the whole UI. Regression-guarded by selectors.test.ts, which
+// enumerates all 8 states × 6 resolutions. If you add a JobState or Resolution,
+// extend a predicate here or that test fails by design.
+export function isActiveJob(j: JobSummary): boolean {
   return !j.archivedAt && (j.state === "preparing" || j.state === "queued" || j.state === "running");
 }
 
-/** Sign-off: everything that needs operator attention before archival.
+/** Sign-off: everything that needs an operator decision before it can finish.
  *  - waiting_for_approval
  *  - review (agent done, awaiting operator decision) — not archived
  *  - completed but still unresolved (operator hasn't decided yet)
+ *  - completed with a `conflict` resolution: terminal in name only. The work
+ *    cannot land until a human resolves the conflict, so it belongs with the
+ *    work that needs input, NOT in Done.
  */
-function isSignoffJob(j: JobSummary): boolean {
+export function isSignoffJob(j: JobSummary): boolean {
   return (
     !j.archivedAt &&
     (j.state === "waiting_for_approval" ||
       j.state === "review" ||
-      (j.state === "completed" && (!j.resolution || j.resolution === "unresolved")))
+      (j.state === "completed" &&
+        (!j.resolution || j.resolution === "unresolved" || j.resolution === "conflict")))
   );
 }
 
 /** Attention: failed jobs that haven't been archived. */
-function isAttentionJob(j: JobSummary): boolean {
+export function isAttentionJob(j: JobSummary): boolean {
   return !j.archivedAt && j.state === "failed";
+}
+
+/** Done: work that reached a real conclusion and owes the operator nothing.
+ *
+ *  Done is a BOARD column, not a synonym for archived. Landed work stays visible
+ *  here until the operator archives it (or the configured Auto-archive window
+ *  elapses). Nothing leaves the board because an agent merged something — it
+ *  leaves because the operator decided it should.
+ *
+ *  Covers: completed+merged / +pr_created / +discarded, and every `canceled` job.
+ *  `discarded` and `canceled` are conclusions the operator already made, so they
+ *  need no further input — but they still get a visible resting place rather than
+ *  silently vanishing.
+ */
+export function isDoneJob(j: JobSummary): boolean {
+  return (
+    !j.archivedAt &&
+    (j.state === "canceled" ||
+      (j.state === "completed" &&
+        (j.resolution === "merged" ||
+          j.resolution === "pr_created" ||
+          j.resolution === "discarded")))
+  );
 }
 
 export const selectActiveJobs = (state: AppState): JobSummary[] =>
@@ -118,6 +154,9 @@ export const selectSignoffJobs = (state: AppState): JobSummary[] =>
 
 export const selectAttentionJobs = (state: AppState): JobSummary[] =>
   sortByUpdatedDesc(Object.values(state.jobs).filter(isAttentionJob));
+
+export const selectDoneJobs = (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter(isDoneJob));
 
 // Repo-scoped variants (CAP-1 / Story 2.3, RepoBoard.tsx). AD-2: repo scoping travels
 // via the URL route param — `repoPath` is passed in by the caller, not read from
@@ -130,6 +169,9 @@ export const selectSignoffJobsForRepo = (repoPath: string) => (state: AppState):
 
 export const selectAttentionJobsForRepo = (repoPath: string) => (state: AppState): JobSummary[] =>
   sortByUpdatedDesc(Object.values(state.jobs).filter((j) => j.repo === repoPath && isAttentionJob(j)));
+
+export const selectDoneJobsForRepo = (repoPath: string) => (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => j.repo === repoPath && isDoneJob(j)));
 
 // Project-scoped variants — true multi-repo aggregation across every member
 // repo of a Project (not just a single reduced repo path). Used by the
@@ -147,6 +189,9 @@ export const selectSignoffJobsForProject = (projectId: string) => (state: AppSta
 
 export const selectAttentionJobsForProject = (projectId: string) => (state: AppState): JobSummary[] =>
   sortByUpdatedDesc(Object.values(state.jobs).filter((j) => j.projectId === projectId && isAttentionJob(j)));
+
+export const selectDoneJobsForProject = (projectId: string) => (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => j.projectId === projectId && isDoneJob(j)));
 
 /** Archived jobs loaded into the store (for the history browser). */
 export const selectArchivedJobs = (state: AppState): JobSummary[] =>

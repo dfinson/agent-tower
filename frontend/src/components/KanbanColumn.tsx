@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { PlayCircle, CheckCircle2 } from "lucide-react";
+import { PlayCircle, CheckCircle2, Archive } from "lucide-react";
 import type { JobSummary } from "../store";
 import { JobCard } from "./JobCard";
 import { Button } from "./ui/button";
@@ -11,6 +11,12 @@ interface KanbanColumnProps {
   hasMore?: boolean;
   /** Non-job cards (e.g. TaskLink recipe cards, Story 4.4) rendered after the job list. */
   extraCards?: React.ReactNode;
+  /**
+   * How many cards `extraCards` renders. The header badge counts jobs + extras, so a
+   * column can never show "0" above visibly-rendered cards — the desync that made a
+   * completed chain look stuck under an "In Progress (0)" header.
+   */
+  extraCardCount?: number;
 }
 
 export const KanbanColumn = memo(function KanbanColumn({
@@ -19,13 +25,14 @@ export const KanbanColumn = memo(function KanbanColumn({
   onLoadMore,
   hasMore,
   extraCards,
+  extraCardCount = 0,
 }: KanbanColumnProps) {
   return (
     <div className="flex flex-col overflow-hidden h-full rounded-lg border border-border bg-card" role="region" aria-label={title}>
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <span className="text-sm font-semibold text-muted-foreground">{title}</span>
         <span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-          {jobs.length}
+          {jobs.length + extraCardCount}
         </span>
       </div>
 
@@ -67,6 +74,19 @@ export const KanbanColumn = memo(function KanbanColumn({
                   <div className="text-center">
                     <p className="text-sm font-medium text-muted-foreground">All clear</p>
                     <p className="text-xs text-muted-foreground/70 mt-1">No failures or issues</p>
+                  </div>
+                </div>
+              );
+            }
+            if (title === "Done") {
+              return (
+                <div className="flex flex-col items-center gap-3 px-4 py-6">
+                  <div className="rounded-full bg-muted p-3">
+                    <Archive className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-muted-foreground">Nothing finished yet</p>
+                    <p className="text-xs text-muted-foreground/70 mt-1">Landed work stays here until you archive it</p>
                   </div>
                 </div>
               );
