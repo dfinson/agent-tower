@@ -413,6 +413,11 @@ class TunnelWatchdog:
             return True
         return self._health_ok()
 
+    #: Statuses Cloudflare/relay edges return when they answered but could not
+    #: reach the origin behind the connector. Only these indicate a connector
+    #: fault that a restart can repair.
+    _RELAY_FAILURE_STATUSES = frozenset({502, 503, 504})
+
     def _health_ok(self, *, use_tunnel_url: bool = False) -> bool:
         import urllib.error
         import urllib.request
@@ -421,10 +426,28 @@ class TunnelWatchdog:
             url = f"{self.tunnel_url}/api/health"
         else:
             url = f"http://127.0.0.1:{self._local_port}/api/health"
+        remote = use_tunnel_url or not self._local_port
         try:
             req = urllib.request.Request(url, method="GET")
             with urllib.request.urlopen(req, timeout=self._HTTP_TIMEOUT) as resp:  # noqa: S310
+                if remote:
+                    return resp.status not in self._RELAY_FAILURE_STATUSES
                 return bool(resp.status == 200)
+        except urllib.error.HTTPError as exc:
+            # An HTTPError means the edge answered with a definite status, so
+            # the relay itself is reachable. For the *remote* probe that is the
+            # only question being asked: an access-control rejection (Cloudflare
+            # Access returns 403 to this probe, because it carries no session
+            # cookie and no browser User-Agent) says nothing about whether the
+            # connector can reach the origin, and restarting on it produced an
+            # endless ~100s restart cycle that took the public hostname down
+            # for a few seconds each time. Only a bad-gateway class status is
+            # evidence of a fault a restart can repair.
+            if remote and exc.code not in self._RELAY_FAILURE_STATUSES:
+                log.debug("tunnel_relay_gated", url=url, status=exc.code)
+                return True
+            log.debug("tunnel_health_check_failed", url=url, status=exc.code)
+            return False
         except (urllib.error.URLError, OSError, TimeoutError):
             log.debug("tunnel_health_check_failed", url=url)
             return False
