@@ -2,7 +2,7 @@ import { useState, useMemo, useRef } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Search, ArrowDownUp } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { useStore, selectSignoffJobs, selectActiveJobs, selectAttentionJobs } from "../store";
+import { useStore, selectSignoffJobs, selectActiveJobs, selectAttentionJobs, selectDoneJobs } from "../store";
 import type { JobSummary } from "../store";
 import { KanbanColumn } from "./KanbanColumn";
 import { KANBAN_COLUMNS } from "../constants/kanban";
@@ -49,6 +49,7 @@ export function KanbanBoard() {
   const activeJobs = useStore(useShallow(selectActiveJobs));
   const signoffJobs = useStore(useShallow(selectSignoffJobs));
   const attentionJobs = useStore(useShallow(selectAttentionJobs));
+  const doneJobs = useStore(useShallow(selectDoneJobs));
 
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
@@ -70,6 +71,8 @@ export function KanbanBoard() {
   const filteredSignoff = useMemo(() => process(signoffJobs), [signoffJobs, query, sort]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const filteredAttention = useMemo(() => process(attentionJobs), [attentionJobs, query, sort]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const filteredDone = useMemo(() => process(doneJobs), [doneJobs, query, sort]);
 
   const currentSortLabel = SORT_OPTIONS.find((o) => o.key === sort)!.label;
 
@@ -130,10 +133,11 @@ export function KanbanBoard() {
       </div>
 
       {/* Board */}
-      <div className="grid grid-cols-3 gap-3 flex-1 min-h-0 max-lg:grid-cols-2">
+      <div className="grid grid-cols-4 gap-3 flex-1 min-h-0 max-xl:grid-cols-2">
         <KanbanColumn title={KANBAN_COLUMNS.IN_PROGRESS} jobs={filteredActive} />
         <KanbanColumn title={KANBAN_COLUMNS.AWAITING_INPUT} jobs={filteredSignoff} />
         <KanbanColumn title={KANBAN_COLUMNS.FAILED} jobs={filteredAttention} />
+        <KanbanColumn title={KANBAN_COLUMNS.DONE} jobs={filteredDone} />
       </div>
     </div>
   );

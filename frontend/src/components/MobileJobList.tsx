@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PlayCircle, CheckCircle2, Search, Plus } from "lucide-react";
-import { useStore, selectJobs } from "../store";
+import { PlayCircle, CheckCircle2, Search, Plus, Archive } from "lucide-react";
+import { useStore, selectJobs, isActiveJob, isSignoffJob, isAttentionJob, isDoneJob } from "../store";
 import type { JobSummary } from "../store";
 import { JobCard } from "./JobCard";
 import { cn } from "../lib/utils";
@@ -14,27 +14,27 @@ const TABS = [
   KANBAN_COLUMNS.IN_PROGRESS,
   KANBAN_COLUMNS.AWAITING_INPUT,
   KANBAN_COLUMNS.FAILED,
+  KANBAN_COLUMNS.DONE,
 ] as const;
 
+/**
+ * Maps a tab to the shared classifier predicate (AD-1). This deliberately holds no
+ * state logic of its own — it delegates to `store/selectors.ts` so mobile and desktop
+ * can never disagree about which column a job belongs in. Previously this file
+ * re-implemented the predicates inline, which meant every classifier change had to be
+ * made twice or the two surfaces silently drifted.
+ */
+const TAB_PREDICATES: Record<KanbanColumn, (j: JobSummary) => boolean> = {
+  [KANBAN_COLUMNS.IN_PROGRESS]: isActiveJob,
+  [KANBAN_COLUMNS.AWAITING_INPUT]: isSignoffJob,
+  [KANBAN_COLUMNS.FAILED]: isAttentionJob,
+  [KANBAN_COLUMNS.DONE]: isDoneJob,
+};
+
 function filterForTab(jobs: Record<string, JobSummary>, tab: KanbanColumn): JobSummary[] {
+  const predicate = TAB_PREDICATES[tab];
   return Object.values(jobs)
-    .filter((j) => {
-      switch (tab) {
-        case KANBAN_COLUMNS.IN_PROGRESS:
-          return !j.archivedAt && (j.state === "preparing" || j.state === "queued" || j.state === "running");
-        case KANBAN_COLUMNS.AWAITING_INPUT:
-          return (
-            !j.archivedAt &&
-            (j.state === "waiting_for_approval" ||
-              j.state === "review" ||
-              (j.state === "completed" && (!j.resolution || j.resolution === "unresolved")))
-          );
-        case KANBAN_COLUMNS.FAILED:
-          return !j.archivedAt && j.state === "failed";
-        default:
-          return false;
-      }
-    })
+    .filter((j) => predicate(j))
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 }
 
@@ -139,6 +139,19 @@ export function MobileJobList() {
                   <div className="text-center">
                     <p className="text-sm font-medium text-muted-foreground">All clear</p>
                     <p className="text-xs text-muted-foreground/70 mt-1">No failures or issues</p>
+                  </div>
+                </div>
+              );
+            }
+            if (tab === KANBAN_COLUMNS.DONE) {
+              return (
+                <div className="flex flex-col items-center gap-3 px-4 py-6">
+                  <div className="rounded-full bg-muted p-3">
+                    <Archive className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-muted-foreground">Nothing finished yet</p>
+                    <p className="text-xs text-muted-foreground/70 mt-1">Landed work stays here until you archive it</p>
                   </div>
                 </div>
               );

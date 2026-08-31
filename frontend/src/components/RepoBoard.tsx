@@ -9,6 +9,7 @@ import {
   selectActiveJobsForProject,
   selectSignoffJobsForProject,
   selectAttentionJobsForProject,
+  selectDoneJobsForProject,
 } from "../store";
 import type { JobSummary } from "../store";
 import { fetchJobs, fetchProject, fetchProjectTaskLinks, ingestProjectTasks, startTaskLink } from "../api/client";
@@ -78,8 +79,17 @@ function buildNewJobUrl(projectId: string | undefined, project: ProjectResponse 
  *
  * Story 4.4 / CAP-10: also fetches the owning Project's TaskLinks (a second,
  * independent call — `GET /settings/projects/:id/task-links`, AD-11) and renders
- * them as chained-recipe cards in the "In Progress" column, alongside job cards,
- * in this same rendering pass.
+ * them as chained-recipe cards alongside job cards, in this same rendering pass.
+ * TaskLink cards are bucketed by their own state — active states to "In Progress",
+ * `completed` to "Done", `failed` to "Failed" — so a card never contradicts the
+ * column heading above it.
+ *
+ * Columns are the four buckets of the shared classifier in `store/selectors.ts`,
+ * which partitions the whole state × resolution space (AD-1a). "Done" holds work
+ * that landed and owes the operator nothing; it is a resting place on the board,
+ * NOT a synonym for archived. Work leaves the board only when the operator
+ * archives it or the configured Auto-archive window elapses — never merely because
+ * an agent merged something.
  */
 export function RepoBoard() {
   const { projectId, taskLinkId } = useParams<{ projectId: string; taskLinkId?: string }>();
@@ -100,6 +110,7 @@ export function RepoBoard() {
   const activeJobs = useStore(useShallow(selectActiveJobsForProject(projectId ?? "")));
   const signoffJobs = useStore(useShallow(selectSignoffJobsForProject(projectId ?? "")));
   const attentionJobs = useStore(useShallow(selectAttentionJobsForProject(projectId ?? "")));
+  const doneJobs = useStore(useShallow(selectDoneJobsForProject(projectId ?? "")));
 
   const highlightedTask = useMemo(
     () => (taskLinkId ? taskLinks.find((taskLink) => taskLink.id === taskLinkId) ?? null : null),
@@ -115,6 +126,36 @@ export function RepoBoard() {
     return index;
   }, [taskLinks]);
   const newJobUrl = buildNewJobUrl(projectId, currentProject);
+
+  // TaskLink chain cards are bucketed by their own state so a card never contradicts
+  // the column it sits in. A `completed` TaskLink is only ever set once its job
+  // resolved successfully (recipe_service `_refresh_states`), so it belongs in Done —
+  // the same lane as the landed job work it represents.
+  const activeTaskLinks = useMemo(
+    () =>
+      taskLinks.filter(
+        (t) => t.state === "waiting" || t.state === "ready" || t.state === "starting" || t.state === "running",
+      ),
+    [taskLinks],
+  );
+  const doneTaskLinks = useMemo(() => taskLinks.filter((t) => t.state === "completed"), [taskLinks]);
+  const failedTaskLinks = useMemo(() => taskLinks.filter((t) => t.state === "failed"), [taskLinks]);
+
+  const renderTaskLinkCard = (taskLink: TaskLinkResponse) => (
+    <TaskLinkCard
+      key={taskLink.id}
+      taskLink={taskLink}
+      dependencies={taskLink.dependsOn.map((dependency) => {
+        const matchedTask = dependencyIndex.get(dependency);
+        return matchedTask
+          ? { id: dependency, label: formatTaskDependency(matchedTask), resolved: true } satisfies TaskLinkDependencyView
+          : { id: dependency, label: dependency, resolved: false } satisfies TaskLinkDependencyView;
+      })}
+      highlighted={taskLink.id === highlightedTask?.id}
+      starting={startingId === taskLink.id}
+      onStart={(link) => void handleStart(link)}
+    />
+  );
 
   useEffect(() => {
     if (!highlightedTask) return;
@@ -311,36 +352,29 @@ export function RepoBoard() {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-3 h-[calc(100dvh-200px)] max-lg:grid-cols-2 max-sm:grid-cols-1">
+      <div className="grid grid-cols-4 gap-3 h-[calc(100dvh-200px)] max-xl:grid-cols-2 max-sm:grid-cols-1">
         <KanbanColumn
           title={KANBAN_COLUMNS.IN_PROGRESS}
           jobs={activeJobs}
-          extraCards={
-            taskLinks.length > 0 ? (
-              <>
-                {taskLinks.map((taskLink) => {
-                  return (
-                    <TaskLinkCard
-                      key={taskLink.id}
-                      taskLink={taskLink}
-                      dependencies={taskLink.dependsOn.map((dependency) => {
-                        const matchedTask = dependencyIndex.get(dependency);
-                        return matchedTask
-                          ? { id: dependency, label: formatTaskDependency(matchedTask), resolved: true } satisfies TaskLinkDependencyView
-                          : { id: dependency, label: dependency, resolved: false } satisfies TaskLinkDependencyView;
-                      })}
-                      highlighted={taskLink.id === highlightedTask?.id}
-                      starting={startingId === taskLink.id}
-                      onStart={(link) => void handleStart(link)}
-                    />
-                  );
-                })}
-              </>
-            ) : undefined
-          }
+          extraCardCount={activeTaskLinks.length}
+          extraCards={activeTaskLinks.length > 0 ? <>{activeTaskLinks.map(renderTaskLinkCard)}</> : undefined}
         />
-        <KanbanColumn title={KANBAN_COLUMNS.AWAITING_INPUT} jobs={signoffJobs} />
-        <KanbanColumn title={KANBAN_COLUMNS.FAILED} jobs={attentionJobs} />
+        <KanbanColumn
+          title={KANBAN_COLUMNS.AWAITING_INPUT}
+          jobs={signoffJobs}
+        />
+        <KanbanColumn
+          title={KANBAN_COLUMNS.FAILED}
+          jobs={attentionJobs}
+          extraCardCount={failedTaskLinks.length}
+          extraCards={failedTaskLinks.length > 0 ? <>{failedTaskLinks.map(renderTaskLinkCard)}</> : undefined}
+        />
+        <KanbanColumn
+          title={KANBAN_COLUMNS.DONE}
+          jobs={doneJobs}
+          extraCardCount={doneTaskLinks.length}
+          extraCards={doneTaskLinks.length > 0 ? <>{doneTaskLinks.map(renderTaskLinkCard)}</> : undefined}
+        />
       </div>
     </div>
   );
