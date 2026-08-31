@@ -31,6 +31,7 @@ function makeJob(overrides: Partial<JobSummary> = {}): JobSummary {
   return {
     id: "job-1",
     repo: "/repos/test",
+    projectId: "proj-1",
     prompt: "Fix the bug",
     state: "running",
     baseRef: "main",
@@ -74,11 +75,13 @@ function makeProject(overrides: Partial<any> = {}) {
   };
 }
 
-function renderBoard(projectId = "proj-1") {
+function renderBoard(projectId = "proj-1", route?: string) {
   return render(
-    <MemoryRouter initialEntries={[`/projects/id/${encodeURIComponent(projectId)}/board`]}>
+    <MemoryRouter initialEntries={[route ?? `/projects/id/${encodeURIComponent(projectId)}/board`]}>
       <Routes>
         <Route path="/projects/id/:projectId/board" element={<RepoBoard />} />
+        <Route path="/projects/id/:projectId/board/task/:taskLinkId" element={<RepoBoard />} />
+        <Route path="/jobs/new" element={<div>New job screen</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -183,6 +186,64 @@ describe("RepoBoard", () => {
       expect(screen.queryByText("First Project")).not.toBeInTheDocument();
   });
 
+  it("links the primary New Job action to the scoped project", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    renderBoard();
+
+    expect(await screen.findByRole("link", { name: "New Job" })).toHaveAttribute(
+      "href",
+      "/jobs/new?projectId=proj-1&repo=%2Frepos%2Ftest",
+    );
+  });
+
+  it("shows a persistent task deep-link banner and highlights the matching TaskLink card", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({ items: [makeTaskLink({ id: "tl-1", storyNodeId: "add-sca" })] } as any);
+
+    renderBoard("proj-1", "/projects/id/proj-1/board/task/tl-1");
+
+    expect(await screen.findByText("Viewing task")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear" }).closest("div")).toHaveTextContent("add-sca");
+    expect(screen.getByLabelText("Task recipe: add-sca — ready")).toHaveClass("ring-2");
+    expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
+  });
+
+  it("shows an inline message when a deep-linked TaskLink no longer exists", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({ items: [] } as any);
+
+    renderBoard("proj-1", "/projects/id/proj-1/board/task/missing-task");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Task no longer exists in this project.");
+  });
+
+  it("shows persistent tracker-task guidance when the Project has no task links", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({ items: [] } as any);
+
+    renderBoard();
+
+    expect(await screen.findByText("No tracker tasks yet.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Project settings" })).toHaveAttribute(
+      "href",
+      "/projects/id/proj-1/settings",
+    );
+  });
+
+  it("shows human-readable blocker names for waiting TaskLinks", async () => {
+    vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
+    vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
+      items: [
+        makeTaskLink({ id: "dep-1", storyNodeId: "add-auth", state: "running" }),
+        makeTaskLink({ id: "blocked-1", storyNodeId: "ship-ui", state: "waiting", dependsOn: ["/repos/test::add-auth"] }),
+      ],
+    } as any);
+
+    renderBoard();
+
+    expect(await screen.findByText("Add Auth (in progress)")).toBeInTheDocument();
+  });
+
   it("renders the Board heading and Project name", async () => {
     vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
     vi.mocked(fetchProject).mockResolvedValueOnce(makeProject({ name: "my-app" }) as any);
@@ -193,11 +254,11 @@ describe("RepoBoard", () => {
 
   it("shows only jobs belonging to the Project's member repos, excluding other repos", async () => {
     const jobA = makeJob({ id: "job-a", repo: "/repos/test", title: "Job A", state: "running" });
-    const jobB = makeJob({ id: "job-b", repo: "/repos/other", title: "Job B", state: "running" });
+    const jobB = makeJob({ id: "job-b", repo: "/repos/other", projectId: "proj-2", title: "Job B", state: "running" });
     vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [jobA, jobB], cursor: null } as any);
     renderBoard("proj-1");
     await waitFor(() => expect(screen.getByText("Job A")).toBeInTheDocument());
-    // Job B belongs to a repo outside this Project's membership and must never appear (CAP-1).
+    // Job B belongs to a different Project and must never appear (CAP-1 / AD-5).
     expect(screen.queryByText("Job B")).not.toBeInTheDocument();
   });
 
@@ -296,14 +357,13 @@ describe("RepoBoard", () => {
     } as any);
     vi.mocked(fetchProjectTaskLinks)
       .mockResolvedValueOnce({ items: [runningLink] } as any)
-      .mockResolvedValueOnce({ items: [runningLink] } as any)
       .mockResolvedValueOnce({
         items: [{ ...runningLink, state: "completed" }],
       } as any);
 
     renderBoard();
     expect(await screen.findByLabelText("Task recipe: live-task — running")).toBeInTheDocument();
-    await waitFor(() => expect(fetchProjectTaskLinks).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchProjectTaskLinks).toHaveBeenCalledTimes(1));
 
     act(() => {
       useStore.getState().dispatchSSEEvent("job.completed", {
@@ -313,7 +373,7 @@ describe("RepoBoard", () => {
     });
 
     expect(await screen.findByLabelText("Task recipe: live-task — completed")).toBeInTheDocument();
-    expect(fetchProjectTaskLinks).toHaveBeenCalledTimes(3);
+    expect(fetchProjectTaskLinks).toHaveBeenCalledTimes(2);
   });
 
   it("reconciles an auto-spawned TaskLink when its new Job enters the store", async () => {
@@ -321,14 +381,13 @@ describe("RepoBoard", () => {
     vi.mocked(fetchJobs).mockResolvedValueOnce({ items: [], cursor: null } as any);
     vi.mocked(fetchProjectTaskLinks)
       .mockResolvedValueOnce({ items: [readyLink] } as any)
-      .mockResolvedValueOnce({ items: [readyLink] } as any)
       .mockResolvedValueOnce({
         items: [{ ...readyLink, state: "running", jobId: "job-auto" }],
       } as any);
 
     renderBoard();
     expect(await screen.findByLabelText("Task recipe: auto-task — ready")).toBeInTheDocument();
-    await waitFor(() => expect(fetchProjectTaskLinks).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchProjectTaskLinks).toHaveBeenCalledTimes(1));
 
     act(() => {
       useStore.setState((state) => ({
@@ -340,7 +399,7 @@ describe("RepoBoard", () => {
     });
 
     expect(await screen.findByLabelText("Task recipe: auto-task — running")).toHaveTextContent("job-auto");
-    expect(fetchProjectTaskLinks).toHaveBeenCalledTimes(3);
+    expect(fetchProjectTaskLinks).toHaveBeenCalledTimes(2);
   });
 
   it("starts a ready root task through the TaskLink API", async () => {
@@ -367,3 +426,5 @@ describe("RepoBoard", () => {
     expect(await screen.findByText("ingested-task")).toBeInTheDocument();
   });
 });
+
+

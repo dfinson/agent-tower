@@ -537,10 +537,10 @@ export function fetchRepoDetail(repoPath: string): Promise<RepoDetailResponse> {
   return request(`/settings/repos/${encodeURIComponent(repoPath)}`);
 }
 
-export function registerRepo(source: string, cloneTo?: string): Promise<RegisterRepoResponse> {
+export function registerRepo(source: string, cloneTo?: string, mode?: "register" | "clone"): Promise<RegisterRepoResponse> {
   return request("/settings/repos", {
     method: "POST",
-    body: JSON.stringify({ source, clone_to: cloneTo }),
+    body: JSON.stringify({ source, clone_to: cloneTo, mode }),
   });
 }
 

@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-from backend.models.db import Base, StepRow
+from backend.models.db import Base, ProjectRow, StepRow
 from backend.persistence.cost_attribution_repo import CostAttributionRepository
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.file_access_repo import FileAccessRepository
@@ -53,6 +53,16 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
     factory = async_sessionmaker(engine, expire_on_commit=False)
     # Seed a job for FK constraints
     async with factory() as sess:
+        sess.add(
+            ProjectRow(
+                id="proj-1",
+                name="Test Project",
+                repo_paths='["/repos/test"]',
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+        )
+        await sess.commit()
         job_repo = JobRepository(sess)
         await job_repo.create(make_job(id="job-1", worktree_path="/repos/test"))
         await sess.commit()
@@ -63,6 +73,16 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
 
 async def _seed_job(session: AsyncSession) -> None:
     """Insert a job so FK constraints are satisfied."""
+    session.add(
+        ProjectRow(
+            id="proj-1",
+            name="Test Project",
+            repo_paths='["/repos/test"]',
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+    )
+    await session.commit()
     repo = JobRepository(session)
     await repo.create(make_job(id="job-1", worktree_path="/repos/test"))
     await session.commit()

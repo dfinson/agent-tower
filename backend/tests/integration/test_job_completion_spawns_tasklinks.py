@@ -35,12 +35,13 @@ if TYPE_CHECKING:
     from backend.services.events.event_bus import EventBus
 
 
-async def _seed_completed_job(session: AsyncSession, job_id: str, repo: str) -> None:
+async def _seed_completed_job(session: AsyncSession, job_id: str, repo: str, project_id: str) -> None:
     now = datetime.now(UTC)
     session.add(
         JobRow(
             id=job_id,
             repo=repo,
+            project_id=project_id,
             prompt="do the first task",
             state=JobState.completed,
             base_ref="main",
@@ -68,7 +69,6 @@ class TestJobCompletionSpawnsTaskLinks:
     ) -> None:
         repo_path = str(Path(str(tmp_path)).resolve())
         config = CPLConfig(repos=[repo_path])
-        monkeypatch.setattr("backend.services.job.job_service.load_config", lambda: config)
 
         async with session_factory() as session:
             project = await ProjectRepository(session).create("proj-1", "Test Project", [repo_path])
@@ -94,7 +94,7 @@ class TestJobCompletionSpawnsTaskLinks:
             first_link = next(link for link in created if link.story_node_id == "1-1-first")
             second_link = next(link for link in created if link.story_node_id == "1-2-second")
 
-            await _seed_completed_job(session, "job-first", repo_path)
+            await _seed_completed_job(session, "job-first", repo_path, project.id)
             await task_link_repo.set_job_id(first_link.id, "job-first")
             await session.commit()
 
@@ -157,7 +157,6 @@ class TestJobCompletionSpawnsTaskLinks:
 
         repo_path = str(Path(str(tmp_path)).resolve())
         config = CPLConfig(repos=[repo_path])
-        monkeypatch.setattr("backend.services.job.job_service.load_config", lambda: config)
 
         approval_service = ApprovalService(session_factory=session_factory)
 
@@ -185,7 +184,7 @@ class TestJobCompletionSpawnsTaskLinks:
             first_link = next(link for link in created if link.story_node_id == "1-1-first")
             second_link = next(link for link in created if link.story_node_id == "1-2-second")
 
-            await _seed_completed_job(session, "job-first-gated", repo_path)
+            await _seed_completed_job(session, "job-first-gated", repo_path, project.id)
             await task_link_repo.set_job_id(first_link.id, "job-first-gated")
             await session.commit()
 

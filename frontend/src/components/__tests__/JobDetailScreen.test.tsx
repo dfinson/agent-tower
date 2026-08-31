@@ -27,6 +27,7 @@ vi.mock("../../api/client", () => ({
   fetchMultiSession: vi.fn().mockResolvedValue(null),
   fetchReviewStory: vi.fn().mockResolvedValue(null),
   fetchProjects: vi.fn().mockResolvedValue({ items: [] }),
+  fetchProject: vi.fn(),
   fetchProjectTaskLinks: vi.fn().mockResolvedValue({ items: [] }),
 }));
 
@@ -76,7 +77,7 @@ import {
   fetchArtifacts,
   fetchJob,
   fetchJobDiff,
-  fetchProjects,
+  fetchProject,
   fetchProjectTaskLinks,
   resolveJob,
   rerunJob,
@@ -89,6 +90,7 @@ function makeJob(overrides: Partial<JobSummary> = {}): JobSummary {
     id: "job-1",
     repo: "/repos/test",
     prompt: "Fix the bug",
+    projectId: "project-1",
     title: "Fix bug",
     state: "review",
     baseRef: "main",
@@ -111,7 +113,7 @@ beforeEach(() => {
   vi.mocked(fetchJobDiff).mockReset();
   vi.mocked(resolveJob).mockReset();
   vi.mocked(fetchArtifacts).mockReset();
-  vi.mocked(fetchProjects).mockReset();
+  vi.mocked(fetchProject).mockReset();
   vi.mocked(fetchProjectTaskLinks).mockReset();
   vi.mocked(fetchArtifacts).mockResolvedValue({
     items: [],
@@ -120,7 +122,7 @@ beforeEach(() => {
     collectionUpdatedAt: null,
   });
   vi.mocked(fetchJobDiff).mockResolvedValue([]);
-  vi.mocked(fetchProjects).mockResolvedValue({ items: [] } as any);
+  vi.mocked(fetchProject).mockRejectedValue(new Error("missing project"));
   vi.mocked(fetchProjectTaskLinks).mockResolvedValue({ items: [] } as any);
   useStore.setState({
     jobs: {},
@@ -149,11 +151,29 @@ beforeEach(() => {
 });
 
 describe("JobDetailScreen", () => {
+  it("shows an unavailable-project breadcrumb for legacy jobs without projectId", async () => {
+    useStore.setState({ jobs: { "job-1": makeJob({ projectId: null }) } });
+    vi.mocked(fetchJob).mockResolvedValueOnce(makeJob({ projectId: null }) as any);
+
+    render(
+      <MemoryRouter initialEntries={["/jobs/job-1"]}>
+        <Routes>
+          <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Original project is unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Projects" })).toHaveAttribute("href", "/projects");
+  });
+
   it("renders Project, repository, Task, and Job breadcrumbs with deep links", async () => {
     useStore.setState({ jobs: { "job-1": makeJob() } });
     vi.mocked(fetchJob).mockResolvedValueOnce(makeJob() as any);
-    vi.mocked(fetchProjects).mockResolvedValueOnce({
-      items: [{ id: "project-1", name: "Payments", repoPaths: ["/repos/test"] }],
+    vi.mocked(fetchProject).mockResolvedValueOnce({
+      id: "project-1",
+      name: "Payments",
+      repoPaths: ["/repos/test"],
     } as any);
     vi.mocked(fetchProjectTaskLinks).mockResolvedValueOnce({
       items: [{
@@ -199,7 +219,7 @@ describe("JobDetailScreen", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole("button", { name: "Artifacts" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Artifacts/i })).toBeInTheDocument();
     await waitFor(() => expect(fetchArtifacts).toHaveBeenCalledTimes(1));
 
     act(() => {

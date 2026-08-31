@@ -697,6 +697,7 @@ class JobSpec:
 
     repo: str
     prompt: str
+    project_id: str | None = None
     base_ref: str | None = None
     branch: str | None = None
     title: str | None = None
@@ -831,6 +832,9 @@ class Job:
 
     id: str
     repo: str
+    project_id: str
+    """The Project that owns this repo (AD-5) — never null; a Job cannot
+    exist without an owning Project."""
     prompt: str
     state: JobState
     base_ref: str

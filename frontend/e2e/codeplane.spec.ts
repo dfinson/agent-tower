@@ -91,6 +91,7 @@ test.describe("Job Creation", () => {
 const JOB_FIXTURE = {
   id: "e2e-job-running-01",
   repo: "/repos/example-app",
+  projectId: "e2e-project-1",
   prompt: "Refactor the authentication module",
   state: "running",
   strategy: "single_agent",

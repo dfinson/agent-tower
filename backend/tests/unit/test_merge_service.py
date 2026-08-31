@@ -89,6 +89,7 @@ def _make_job(repo: str, job_id: str = "job-1", branch: str = "cpl/job-1") -> Jo
     now = datetime.now(UTC)
     return Job(
         id=job_id,
+        project_id="proj-1",
         repo=repo,
         prompt="test prompt",
         state="running",
@@ -103,6 +104,11 @@ def _make_job(repo: str, job_id: str = "job-1", branch: str = "cpl/job-1") -> Jo
 
 async def _insert_job(sf: async_sessionmaker[AsyncSession], job: Job) -> None:
     async with sf() as session:
+        from backend.persistence.project_repo import ProjectRepository
+
+        existing = await ProjectRepository(session).get(job.project_id)
+        if existing is None:
+            await ProjectRepository(session).create(job.project_id, "Test Project", [job.repo])
         await JobRepository(session).create(job)
         await session.commit()
 

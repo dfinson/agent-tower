@@ -425,7 +425,7 @@ test("navigates project-first scope and manages membership and tracker attachmen
   );
   await expect(page.getByRole("region", { name: "In Progress" })).toBeVisible();
 
-  await page.getByLabel("Repository").selectOption(memberRepoPath);
+  await page.getByLabel("Repository", { exact: true }).selectOption(memberRepoPath);
   await expect(page).toHaveURL(
     `${backendBaseUrl}/projects/id/${projectId}/repos/${encodeURIComponent(memberRepoPath)}/jobs`,
   );
@@ -433,7 +433,7 @@ test("navigates project-first scope and manages membership and tracker attachmen
     page.getByRole("navigation", { name: "Repository navigation" }),
   ).toBeVisible();
 
-  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Project Settings" }),
   ).toBeVisible();
@@ -557,7 +557,7 @@ test("starts the assigned TaskLink, preserves context, and returns through its c
   await expect(page).toHaveURL(
     `${backendBaseUrl}/projects/id/${projectId}/board`,
   );
-  await page.getByRole("link", { name: "Chats", exact: true }).click();
+  await page.getByRole("button", { name: "Chats", exact: true }).click();
 
   await page.getByPlaceholder("New chat title").fill("Supervise TEST-1");
   await expect(page.getByLabel("Chat Project")).toHaveValue(projectId);

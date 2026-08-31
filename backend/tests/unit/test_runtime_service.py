@@ -221,6 +221,7 @@ def _make_job(
     now = datetime.now(UTC)
     return Job(
         id=job_id,
+        project_id="proj-1",
         repo=repo,
         prompt="Fix the bug",
         state=state,
@@ -239,11 +240,17 @@ async def _create_db_job(
 ) -> None:
     """Insert a minimal job row so state transitions work."""
     from backend.models.db import JobRow
+    from backend.persistence.project_repo import ProjectRepository
 
     async with session_factory() as session:
+        project_repo = ProjectRepository(session)
+        existing = await project_repo.get(job.project_id)
+        if existing is None:
+            await project_repo.create(job.project_id, "Test Project", [job.repo])
         row = JobRow(
             id=job.id,
             repo=job.repo,
+            project_id=job.project_id,
             prompt=job.prompt,
             state=job.state,
             base_ref=job.base_ref,

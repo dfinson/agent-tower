@@ -426,12 +426,16 @@ async def register_repo_endpoint(
 ) -> RegisterRepoResponse:
     """Register a repository (local path or remote URL)."""
     source = body.source
+    inferred_clone = GitService.is_remote_url(source)
+    mode = body.mode or ("clone" if inferred_clone else "register")
 
-    if GitService.is_remote_url(source):
+    if mode == "clone":
+        if not inferred_clone:
+            raise HTTPException(status_code=400, detail="Clone mode requires a remote repository URL")
         if not body.clone_to:
             raise HTTPException(
                 status_code=400,
-                detail="clone_to path is required when registering a remote URL",
+                detail="clone_to path is required when cloning a remote URL",
             )
         clone_dir = str(Path(body.clone_to).expanduser().resolve())
         if Path(clone_dir).exists():
@@ -449,7 +453,9 @@ async def register_repo_endpoint(
             asyncio.create_task(coderecon.ensure_repo_indexed(cloned_path))
         return RegisterRepoResponse(path=cloned_path, source=source, cloned=True, registered=True)
 
-    # Local path
+    if inferred_clone:
+        raise HTTPException(status_code=400, detail="Register mode requires a local repository path")
+
     resolved = str(Path(source).expanduser().resolve())
     is_valid = await git_service.validate_repo(resolved)
     if not is_valid:
@@ -477,9 +483,15 @@ async def create_repo_endpoint(
     coderecon: FromDishka[CodeReconService],
 ) -> CreateRepoResponse:
     """Create a new git repository and register it."""
-    resolved = Path(body.path).expanduser().resolve()
+    parent = Path(body.path).expanduser().resolve()
+    resolved = parent
     if body.name:
-        resolved = resolved / body.name
+        name = body.name.strip()
+        if name in ("", ".", "..") or "/" in name or "\\" in name:
+            raise HTTPException(status_code=400, detail="Repository name must be a single directory name")
+        resolved = parent / name
+        if resolved.parent != parent:
+            raise HTTPException(status_code=400, detail="Repository name must be a single directory name")
 
     if (resolved / ".git").is_dir():
         raise HTTPException(status_code=409, detail=f"A git repository already exists at {resolved}")

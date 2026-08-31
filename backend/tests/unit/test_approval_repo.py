@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.models.db import Base, JobRow
+from backend.models.db import Base, JobRow, ProjectRow
 from backend.models.domain import Approval
 from backend.persistence.approval_repo import ApprovalRepository
 from backend.persistence.database import _set_sqlite_pragmas
@@ -26,11 +26,23 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as sess:
+        # Create a project row for FK constraints
+        sess.add(
+            ProjectRow(
+                id="proj-1",
+                name="Test Project",
+                repo_paths='["/test"]',
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+        )
+        await sess.flush()
         # Create a job row for FK constraints
         sess.add(
             JobRow(
                 id="job-1",
                 repo="/test",
+                project_id="proj-1",
                 prompt="test",
                 state="running",
                 base_ref="main",

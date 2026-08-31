@@ -87,7 +87,7 @@ describe("RepoLayout project sidebar", () => {
     await waitFor(() => expect(screen.getByText("alpha-project")).toBeInTheDocument());
     expect(screen.getByText("beta-project")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Filter Projects by name"), {
+    fireEvent.change(screen.getByLabelText("Filter projects"), {
       target: { value: "ALPHA" },
     });
 
@@ -104,7 +104,7 @@ describe("RepoLayout project sidebar", () => {
 
     await waitFor(() => expect(screen.getByText("alpha-project")).toBeInTheDocument());
 
-    fireEvent.change(screen.getByLabelText("Filter Projects by name"), {
+    fireEvent.change(screen.getByLabelText("Filter projects"), {
       target: { value: "zzz" },
     });
 
@@ -118,10 +118,10 @@ describe("RepoLayout project sidebar", () => {
     renderLayout();
 
     await waitFor(() => expect(screen.getByText("No Projects")).toBeInTheDocument());
-    expect(screen.queryByLabelText("Filter Projects by name")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Filter projects")).not.toBeInTheDocument();
   });
 
-  it("does not silently select the first member repository", async () => {
+  it("keeps multi-repo projects unselected but shows a disabled repository sub-nav", async () => {
     vi.mocked(fetchProjects).mockResolvedValueOnce({
       items: [{
         id: "multi",
@@ -134,7 +134,65 @@ describe("RepoLayout project sidebar", () => {
 
     const selector = await screen.findByLabelText("Repository");
     expect(selector).toHaveValue("");
-    expect(screen.getByText("Select a member repository for Jobs, Health, Cost, and index status.")).toBeInTheDocument();
+    expect(screen.getByText("Select a repository above to view Jobs, Health, and Cost.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Jobs" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Health" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cost" })).toBeDisabled();
+  });
+
+  it("auto-selects the only repository and enables the repository sub-nav", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "single", name: "single-project", repoPaths: ["/repos/api"] }],
+    } as any);
+
+    renderLayout("/projects/id/single");
+
+    await waitFor(() => expect(screen.getByLabelText("Repository")).toHaveValue("/repos/api"));
+    expect(screen.queryByText("Select a repository above to view Jobs, Health, and Cost.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Jobs" })).not.toBeDisabled();
+  });
+
+  it("reveals repository basenames through an accessible disclosure", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "multi", name: "multi-project", repoPaths: ["/repos/api", "/repos/web"] }],
+    } as any);
+
+    renderLayout("/projects/id/multi");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Show repositories in this project" }));
+    expect(screen.getAllByText("api").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("web").length).toBeGreaterThan(0);
+  });
+
+  it("labels the project board tab consistently", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "multi", name: "multi-project", repoPaths: ["/repos/api"] }],
+    } as any);
+
+    renderLayout("/projects/id/multi");
+
+    expect(await screen.findByRole("button", { name: "Board" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Agent Runs" })).not.toBeInTheDocument();
+  });
+
+  it("labels the project-scoped settings action clearly", async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce({
+      items: [{ id: "multi", name: "multi-project", repoPaths: ["/repos/api"] }],
+    } as any);
+
+    render(
+      <MemoryRouter initialEntries={["/projects/id/multi"]}>
+        <Routes>
+          <Route path="/projects" element={<RepoLayout />}>
+            <Route path="id/:projectId" element={<div>Overview</div>} />
+            <Route path="id/:projectId/settings" element={<div>Project settings page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Project settings" }));
+    expect(await screen.findByText("Project settings page")).toBeInTheDocument();
   });
 
   it("redirects a repository path that is not a member of the active Project", async () => {
@@ -225,3 +283,4 @@ describe("RepoLayout project sidebar", () => {
     expect(screen.getAllByText("created-project")).toHaveLength(2);
   });
 });
+

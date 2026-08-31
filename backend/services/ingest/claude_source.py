@@ -371,6 +371,7 @@ class ClaudeSessionStateWatcher(TraceForgeIngestBase):
         try:
             from backend.persistence.database import serialized_write
             from backend.persistence.job_repo import JobRepository
+            from backend.persistence.project_repo import ProjectRepository
 
             async with serialized_write(self._session_factory) as session:
                 repo = JobRepository(session)
@@ -385,12 +386,22 @@ class ClaudeSessionStateWatcher(TraceForgeIngestBase):
                         {"state": JobState.running, "new_state": JobState.running},
                     )
                     return existing
+                project_id = await ProjectRepository(session).resolve_project_id_for_repo_path(repo_path)
         except Exception:
             log.debug("claude_watcher_job_check_failed", job_id=job_id, exc_info=True)
+            return None
+
+        if project_id is None:
+            # A Job can never exist without an owning Project (AD-5) — a repo
+            # discovered by the watcher that no longer maps to exactly one
+            # Project is not job-eligible, even if it was previously managed.
+            log.warning("claude_watcher_repo_not_project_owned", repo=repo_path)
+            return None
 
         job = Job(
             id=job_id,
             repo=repo_path,
+            project_id=project_id,
             prompt="",
             state=JobState.running,
             base_ref=base_ref,

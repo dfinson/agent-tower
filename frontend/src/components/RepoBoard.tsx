@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Download, LayoutGrid } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, Download, LayoutGrid, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -15,7 +15,7 @@ import { fetchJobs, fetchProject, fetchProjectTaskLinks, ingestProjectTasks, sta
 import type { ProjectResponse, TaskLinkResponse } from "../api/types";
 import { KanbanColumn } from "./KanbanColumn";
 import { KanbanSkeleton } from "./KanbanSkeleton";
-import { TaskLinkCard } from "./TaskLinkCard";
+import { TaskLinkCard, type TaskLinkDependencyView } from "./TaskLinkCard";
 import { Button } from "./ui/button";
 import { KANBAN_COLUMNS } from "../constants/kanban";
 
@@ -26,6 +26,44 @@ function lifecycleSignature(jobs: Record<string, JobSummary>, repoPaths: string[
     .map((job) => `${job.id}:${job.state}`)
     .sort()
     .join("|");
+}
+
+function taskLabel(taskLink: TaskLinkResponse): string {
+  return taskLink.storyNodeId ?? taskLink.trackerTicketRef ?? taskLink.id;
+}
+
+function taskCardId(taskLinkId: string): string {
+  return `task-link-card-${taskLinkId}`;
+}
+
+function taskDependencyKey(taskLink: TaskLinkResponse): string | null {
+  if (taskLink.storyNodeId) return `${taskLink.repoPath}::${taskLink.storyNodeId}`;
+  if (taskLink.trackerTicketRef) return `${taskLink.repoPath}::${taskLink.trackerTicketRef}`;
+  return null;
+}
+
+function humanizeTaskLabel(label: string): string {
+  return label
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function humanizeTaskState(state: TaskLinkResponse["state"]): string {
+  if (state === "running" || state === "starting") return "in progress";
+  return state.replace(/_/g, " ");
+}
+
+function formatTaskDependency(taskLink: TaskLinkResponse): string {
+  return `${humanizeTaskLabel(taskLabel(taskLink))} (${humanizeTaskState(taskLink.state)})`;
+}
+
+function buildNewJobUrl(projectId: string | undefined, project: ProjectResponse | null): string {
+  const params = new URLSearchParams();
+  const singleRepoPath = project?.repoPaths.length === 1 ? project.repoPaths[0] : undefined;
+  if (projectId) params.set("projectId", projectId);
+  if (singleRepoPath) params.set("repo", singleRepoPath);
+  const query = params.toString();
+  return query ? `/jobs/new?${query}` : "/jobs/new";
 }
 
 /**
@@ -44,7 +82,8 @@ function lifecycleSignature(jobs: Record<string, JobSummary>, repoPaths: string[
  * in this same rendering pass.
  */
 export function RepoBoard() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const { projectId, taskLinkId } = useParams<{ projectId: string; taskLinkId?: string }>();
+  const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
   const [project, setProject] = useState<ProjectResponse | null>(null);
@@ -58,9 +97,30 @@ export function RepoBoard() {
   const jobLifecycleSignature = useStore((state) => lifecycleSignature(state.jobs, repoPaths));
   const reconciledLifecycleSignature = useRef<string | null>(null);
 
-  const activeJobs = useStore(useShallow(selectActiveJobsForProject(repoPaths)));
-  const signoffJobs = useStore(useShallow(selectSignoffJobsForProject(repoPaths)));
-  const attentionJobs = useStore(useShallow(selectAttentionJobsForProject(repoPaths)));
+  const activeJobs = useStore(useShallow(selectActiveJobsForProject(projectId ?? "")));
+  const signoffJobs = useStore(useShallow(selectSignoffJobsForProject(projectId ?? "")));
+  const attentionJobs = useStore(useShallow(selectAttentionJobsForProject(projectId ?? "")));
+
+  const highlightedTask = useMemo(
+    () => (taskLinkId ? taskLinks.find((taskLink) => taskLink.id === taskLinkId) ?? null : null),
+    [taskLinkId, taskLinks],
+  );
+  const missingDeepLinkedTask = Boolean(taskLinkId) && !loading && !highlightedTask;
+  const dependencyIndex = useMemo(() => {
+    const index = new Map<string, TaskLinkResponse>();
+    for (const taskLink of taskLinks) {
+      const key = taskDependencyKey(taskLink);
+      if (key) index.set(key, taskLink);
+    }
+    return index;
+  }, [taskLinks]);
+  const newJobUrl = buildNewJobUrl(projectId, currentProject);
+
+  useEffect(() => {
+    if (!highlightedTask) return;
+    const card = document.getElementById(taskCardId(highlightedTask.id));
+    card?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [highlightedTask]);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +170,7 @@ export function RepoBoard() {
         useStore.setState((state) => {
           const updated = { ...state.jobs };
           for (const job of jobs) updated[job.id] = enrichJob(job);
+          reconciledLifecycleSignature.current = lifecycleSignature(updated, nextProject.repoPaths);
           return { jobs: updated };
         });
       })
@@ -199,11 +260,56 @@ export function RepoBoard() {
           </h1>
           <p className="text-sm text-muted-foreground truncate">{currentProject?.name ?? ""}</p>
         </div>
-        <Button variant="outline" size="sm" disabled={ingesting} onClick={() => void handleIngest()}>
-          <Download size={14} className={ingesting ? "animate-pulse" : ""} />
-          {ingesting ? "Ingesting…" : "Ingest tasks"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button asChild size="sm">
+            <Link to={newJobUrl}>
+              <Plus size={14} />
+              New Job
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" disabled={ingesting} onClick={() => void handleIngest()}>
+            <Download size={14} className={ingesting ? "animate-pulse" : ""} />
+            {ingesting ? "Ingesting…" : "Ingest tasks"}
+          </Button>
+        </div>
       </div>
+
+      {highlightedTask && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+          <p>
+            <span>Viewing task</span>{" "}
+            <span className="font-medium">{taskLabel(highlightedTask)}</span>.
+          </p>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate(`/projects/id/${encodeURIComponent(projectId ?? "")}/board`)}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
+
+      {missingDeepLinkedTask && (
+        <div role="alert" className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+          Task no longer exists in this project.
+        </div>
+      )}
+
+      {taskLinks.length === 0 && (
+        <div className="mb-4 rounded-lg border border-border bg-card px-4 py-4">
+          <h2 className="text-sm font-semibold">No tracker tasks yet.</h2>
+          <p className="mt-1 text-sm text-muted-foreground">To see tasks here:</p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+            <li>Connect a tracker credential.</li>
+            <li>Add a tracker link in Project settings.</li>
+            <li>Click Ingest tasks.</li>
+          </ol>
+          <Button asChild variant="outline" size="sm" className="mt-3">
+            <Link to={`/projects/id/${encodeURIComponent(projectId ?? "")}/settings`}>Open Project settings</Link>
+          </Button>
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-3 h-[calc(100dvh-200px)] max-lg:grid-cols-2 max-sm:grid-cols-1">
         <KanbanColumn
@@ -217,6 +323,13 @@ export function RepoBoard() {
                     <TaskLinkCard
                       key={taskLink.id}
                       taskLink={taskLink}
+                      dependencies={taskLink.dependsOn.map((dependency) => {
+                        const matchedTask = dependencyIndex.get(dependency);
+                        return matchedTask
+                          ? { id: dependency, label: formatTaskDependency(matchedTask), resolved: true } satisfies TaskLinkDependencyView
+                          : { id: dependency, label: dependency, resolved: false } satisfies TaskLinkDependencyView;
+                      })}
+                      highlighted={taskLink.id === highlightedTask?.id}
                       starting={startingId === taskLink.id}
                       onStart={(link) => void handleStart(link)}
                     />

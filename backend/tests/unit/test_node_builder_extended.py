@@ -18,7 +18,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from traceforge.types import EventMetadata, ToolMotivation
 
-from backend.models.db import Base, JobRow, JobTelemetrySpanRow, TrailNodeRow
+from backend.models.db import Base, JobRow, JobTelemetrySpanRow, ProjectRow, TrailNodeRow
 from backend.models.events import EventKind, SessionEvent, new_event
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.trail.models import (
@@ -102,9 +102,20 @@ async def _insert_job_row(
 ) -> None:
     now = datetime.now(UTC)
     async with session_factory() as session:
+        session.add(
+            ProjectRow(
+                id="proj-1",
+                name="Test Project",
+                repo_paths='["/tmp/repo"]',
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await session.flush()
         row = JobRow(
             id=job_id,
             repo="/tmp/repo",
+            project_id="proj-1",
             prompt=prompt,
             state="running",
             branch="main",

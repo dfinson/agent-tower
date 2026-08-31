@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.models.db import Base, JobRow
+from backend.models.db import Base, JobRow, ProjectRow
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.services.job.approval_service import ApprovalService
 
@@ -33,11 +33,22 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
     factory = async_sessionmaker(engine, expire_on_commit=False)
     # Create job rows for FK constraints
     async with factory() as session:
+        session.add(
+            ProjectRow(
+                id="proj-1",
+                name="Test Project",
+                repo_paths='["/test"]',
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+        )
         for jid in ["job-1", "job-2", "job-3"]:
+            await session.flush()
             session.add(
                 JobRow(
                     id=jid,
                     repo="/test",
+                    project_id="proj-1",
                     prompt="test",
                     state="waiting_for_approval",
                     base_ref="main",

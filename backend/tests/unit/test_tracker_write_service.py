@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.models.db import Base, JobRow
+from backend.models.db import Base, JobRow, ProjectRow
 from backend.services.job.approval_service import ApprovalService
 from backend.services.tracker_write_service import (
     TrackerWriteAction,
@@ -31,9 +31,20 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
         session.add(
+            ProjectRow(
+                id="proj-1",
+                name="Test Project",
+                repo_paths='["/test"]',
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+        )
+        await session.flush()
+        session.add(
             JobRow(
                 id="job-1",
                 repo="/test",
+                project_id="proj-1",
                 prompt="test",
                 state="running",
                 base_ref="main",

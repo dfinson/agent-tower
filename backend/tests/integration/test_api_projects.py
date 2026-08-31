@@ -150,6 +150,7 @@ class TestProjectsSummary:
                     JobRow(
                         id="job-active",
                         repo=repo,
+                        project_id=project_id,
                         prompt="p",
                         state="running",
                         base_ref="main",
@@ -159,6 +160,7 @@ class TestProjectsSummary:
                     JobRow(
                         id="job-awaiting",
                         repo=repo,
+                        project_id=project_id,
                         prompt="p",
                         state="waiting_for_approval",
                         base_ref="main",
@@ -168,6 +170,7 @@ class TestProjectsSummary:
                     JobRow(
                         id="job-failed",
                         repo=repo,
+                        project_id=project_id,
                         prompt="p",
                         state="failed",
                         base_ref="main",

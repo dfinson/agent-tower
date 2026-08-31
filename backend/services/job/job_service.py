@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import glob
 import inspect
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,7 +10,6 @@ from typing import TYPE_CHECKING, cast
 
 import structlog
 
-from backend.config import load_config
 from backend.models.domain import (
     ACTIVE_STATES,
     TERMINAL_STATES,
@@ -20,6 +18,7 @@ from backend.models.domain import (
     JobNotFoundError,
     JobSpec,
     JobState,
+    ProjectNotFoundError,
     RepoNotAllowedError,
     Resolution,
     ServiceInitError,
@@ -29,6 +28,7 @@ from backend.models.domain import (
 from backend.services.adapters.agent_adapter import validate_sdk_model
 from backend.services.completers.naming_service import NamingError
 from backend.services.git.git_service import GitError
+from backend.services.project.repo_membership import normalize_repo_path
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -110,55 +110,41 @@ class JobService:
             project_repo=project_repo,
         )
 
-    def _resolve_repos(self) -> set[str]:
-        """Expand glob patterns and return the full set of allowed repo paths.
+    async def validate_repo_async(self, repo: str) -> str:
+        """Resolve a repo path (expand ``~``, make absolute).
 
-        Reads fresh from disk on every call so that repos registered after
-        app startup (via the settings API) are immediately visible.
+        Does not itself enforce Project membership — job creation enforces
+        that separately via :meth:`_resolve_job_project_id`, since the
+        ownership check must run once against the same repo/project pairing
+        (whether inferred or explicitly requested) rather than twice with
+        different uniqueness semantics.
         """
-        fresh_repos = load_config().repos
-        allowed: set[str] = set()
-        for pattern in fresh_repos:
-            expanded = Path(pattern).expanduser()
-            if "*" in pattern or "?" in pattern:
-                for match in glob.glob(str(expanded), recursive=True):
-                    p = Path(match).resolve()
-                    if p.is_dir() and (p / ".git").exists():
-                        allowed.add(str(p))
-            else:
-                allowed.add(str(expanded.resolve()))
-        return allowed
+        return str(Path(repo).expanduser().resolve())
 
-    async def _resolve_project_member_repos(self) -> set[str]:
-        """Return every repo path that belongs to a Project.
+    async def _resolve_job_project_id(self, resolved_repo: str, project_id: str | None) -> str:
+        """Resolve and validate the immutable Project owner for a new job.
 
-        A repo registered only via Project creation/editing (AD-5) is never
-        written back into the legacy ``config.repos`` allowlist — Project
-        membership is now an equally valid authorization source, not just the
-        legacy allowlist. Without this, a repo added exclusively through
-        "Create Project" could never have a job launched against it.
+        Always returns a Project ID — a Job can never exist without an
+        owning Project (AD-5). Raises if the repo does not unambiguously
+        belong to a Project, or if an explicitly requested ``project_id``
+        does not include the repo.
         """
         if self._project_repo is None:
-            return set()
-        projects = await self._project_repo.list()
-        return {str(Path(path).expanduser().resolve()) for project in projects for path in project.repo_paths}
-
-    async def validate_repo_async(self, repo: str) -> str:
-        """Validate a repo path against the legacy allowlist OR Project membership.
-
-        Returns the resolved path. Prefer this over the sync ``validate_repo``
-        wherever a Project repository is available, since Project membership
-        alone is sufficient authorization (AD-5) even if the repo was never
-        added to ``config.repos``.
-        """
-        resolved = str(Path(repo).expanduser().resolve())
-        try:
-            return self.validate_repo(repo)
-        except RepoNotAllowedError:
-            pass
-        if resolved in await self._resolve_project_member_repos():
-            return resolved
-        raise RepoNotAllowedError(f"Repository '{repo}' is not in the allowlist.")
+            raise ServiceInitError("ProjectRepository required to validate project-scoped jobs")
+        if project_id is not None:
+            project = await self._project_repo.get(project_id)
+            if project is None:
+                raise ProjectNotFoundError(f"Project '{project_id}' does not exist.")
+            if resolved_repo not in {normalize_repo_path(path) for path in project.repo_paths}:
+                raise RepoNotAllowedError(f"Repository '{resolved_repo}' is not a member of Project '{project_id}'.")
+            return project_id
+        resolved_project_id = await self._project_repo.resolve_project_id_for_repo_path(resolved_repo)
+        if resolved_project_id is None:
+            raise RepoNotAllowedError(
+                f"Repository '{resolved_repo}' does not belong to exactly one Project. "
+                "Create or update a Project to include this repository before launching jobs."
+            )
+        return resolved_project_id
 
     async def list_events_by_job(
         self,
@@ -193,14 +179,6 @@ class JobService:
             job_id: ProgressPreview(headline=headline, summary=summary)
             for job_id, (headline, summary) in previews.items()
         }
-
-    def validate_repo(self, repo: str) -> str:
-        """Validate a repo path is in the allowlist. Returns resolved path."""
-        resolved = str(Path(repo).expanduser().resolve())
-        allowed = self._resolve_repos()
-        if resolved not in allowed:
-            raise RepoNotAllowedError(f"Repository '{repo}' is not in the allowlist.")
-        return resolved
 
     async def _list_worktree_names(self, resolved_repo: str) -> set[str]:
         if self._git is None:
@@ -340,6 +318,7 @@ class JobService:
                 with the resolved SDK.
         """
         resolved_repo = await self.validate_repo_async(spec.repo)
+        project_id = await self._resolve_job_project_id(resolved_repo, spec.project_id)
 
         if self._git is None:
             raise ServiceInitError("GitService required for job creation")
@@ -367,6 +346,7 @@ class JobService:
                 id=job_id,
                 repo=resolved_repo,
                 prompt=spec.prompt,
+                project_id=project_id,
                 state=JobState.failed,
                 base_ref=base_ref,
                 branch=None,
@@ -416,6 +396,7 @@ class JobService:
             id=job_id,
             repo=resolved_repo,
             prompt=spec.prompt,
+            project_id=project_id,
             state=initial_state,
             base_ref=base_ref,
             branch=branch,

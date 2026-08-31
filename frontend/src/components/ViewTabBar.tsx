@@ -1,8 +1,9 @@
-import { Radio, TerminalSquare, FolderTree, BarChart3, Package, ScanSearch } from "lucide-react";
+import type { ReactNode } from "react";
+import { type LucideIcon, Radio, TerminalSquare, FolderTree, BarChart3, Package, ScanSearch } from "lucide-react";
 import { Tooltip } from "./ui/tooltip";
 import { cn } from "../lib/utils";
 
-const TAB_ITEMS = [
+const DEFAULT_TAB_ITEMS = [
   { id: "live", icon: Radio, label: "Live", tip: "Real-time agent activity feed" },
   { id: "files", icon: FolderTree, label: "Files", tip: "Browse the workspace file tree" },
   { id: "review", icon: ScanSearch, label: "Review", tip: "Review code changes and structural analysis", conditional: true },
@@ -10,64 +11,136 @@ const TAB_ITEMS = [
   { id: "artifacts", icon: Package, label: "Artifacts", tip: "Checkpoints, logs, and exported files", conditional: true },
 ] as const;
 
+export interface ViewTabBarItem {
+  id: string;
+  label: string;
+  icon?: LucideIcon;
+  tip?: string;
+  hidden?: boolean;
+  disabled?: boolean;
+  disabledTip?: string;
+  badgeCount?: number;
+}
+
 interface ViewTabBarProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
-  hasChanges: boolean;
-  hasArtifacts: boolean;
-  artifactCount: number;
-  hasWorktree: boolean;
-  jobTerminalCount: number;
-  onOpenTerminal: () => void;
+  hasChanges?: boolean;
+  hasArtifacts?: boolean;
+  artifactCount?: number;
+  hasWorktree?: boolean;
+  jobTerminalCount?: number;
+  onOpenTerminal?: () => void;
+  items?: ViewTabBarItem[];
+  variant?: "card" | "inline";
+  mobileBehavior?: "hidden" | "visible";
+  className?: string;
+  itemClassName?: string;
+  ariaLabel?: string;
+}
+
+function wrapWithTooltip(content: string | undefined, child: ReactNode, key: string) {
+  if (!content) return child;
+  return (
+    <Tooltip key={key} content={content} side="bottom">
+      {child}
+    </Tooltip>
+  );
 }
 
 export function ViewTabBar({
   activeTab,
   onTabChange,
-  hasChanges,
-  hasArtifacts,
-  artifactCount,
-  hasWorktree,
-  jobTerminalCount,
+  hasChanges = false,
+  hasArtifacts = false,
+  artifactCount = 0,
+  hasWorktree = false,
+  jobTerminalCount = 0,
   onOpenTerminal,
+  items,
+  variant = "card",
+  mobileBehavior = "hidden",
+  className,
+  itemClassName,
+  ariaLabel,
 }: ViewTabBarProps) {
-  const visibleTabs = TAB_ITEMS.filter((t) => {
-    if (t.id === "review") return hasChanges;
-    if (t.id === "artifacts") return hasArtifacts;
-    return true;
-  });
+  const visibleTabs: ViewTabBarItem[] = items
+    ? items.filter((item) => !item.hidden)
+    : DEFAULT_TAB_ITEMS.filter((tab) => {
+        if (tab.id === "review") return hasChanges;
+        if (tab.id === "artifacts") return hasArtifacts;
+        return true;
+      }).map((tab) => ({
+        id: tab.id,
+        label: tab.label,
+        icon: tab.icon,
+        tip: tab.tip,
+        badgeCount: tab.id === "artifacts" ? artifactCount : undefined,
+      }));
+
+  const containerClassName = cn(
+    "flex items-center overflow-x-auto scrollbar-none shrink-0",
+    mobileBehavior === "hidden" ? "hidden md:flex" : "flex",
+    variant === "card"
+      ? "gap-0.5 mx-3 mt-1.5 px-3 h-9 rounded-lg border border-border bg-card"
+      : "gap-1 border-b border-border",
+    className,
+  );
 
   return (
-    <div className="hidden md:flex items-center gap-0.5 mx-3 mt-1.5 px-3 h-9 rounded-lg border border-border bg-card shrink-0 overflow-x-auto scrollbar-none">
-      {visibleTabs.map(({ id, icon: Icon, label, tip }) => (
-        <Tooltip key={id} content={tip} side="bottom">
+    <div
+      className={containerClassName}
+      role={ariaLabel ? "navigation" : undefined}
+      aria-label={ariaLabel}
+    >
+      {visibleTabs.map(({ id, icon: Icon, label, tip, disabled = false, disabledTip, badgeCount }) => {
+        const tooltip = disabled ? disabledTip ?? tip : tip;
+        const isActive = activeTab === id;
+        const button = (
           <button
-            onClick={() => onTabChange(id)}
+            key={id}
+            type="button"
+            aria-current={isActive ? "page" : undefined}
+            aria-disabled={disabled || undefined}
+            disabled={disabled}
+            onClick={() => {
+              if (!disabled) onTabChange(id);
+            }}
             className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap relative",
-              activeTab === id
-                ? "text-primary"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+              "flex items-center gap-1.5 whitespace-nowrap relative transition-colors",
+              variant === "card"
+                ? "px-2.5 py-1.5 rounded-md text-xs font-medium"
+                : "px-3 py-2 text-xs font-medium border-b-2 -mb-px",
+              isActive
+                ? variant === "card"
+                  ? "text-primary"
+                  : "border-primary text-foreground"
+                : variant === "card"
+                  ? "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              disabled && "cursor-not-allowed text-muted-foreground/60 hover:bg-transparent hover:text-muted-foreground/60",
+              itemClassName,
             )}
           >
-            <Icon size={14} className="shrink-0" />
+            {Icon && <Icon size={variant === "card" ? 14 : 13} className="shrink-0" />}
             <span>{label}</span>
-            {id === "artifacts" && artifactCount > 0 && (
+            {badgeCount && badgeCount > 0 && (
               <span className="text-[9px] leading-none bg-muted text-muted-foreground rounded-full px-1 py-0.5 font-normal">
-                {artifactCount}
+                {badgeCount}
               </span>
             )}
-            {activeTab === id && (
-              <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-primary rounded-full" />
-            )}
+            {variant === "card" && isActive && <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-primary rounded-full" />}
           </button>
-        </Tooltip>
-      ))}
-      {hasWorktree && (
+        );
+
+        return wrapWithTooltip(tooltip, button, id);
+      })}
+      {!items && hasWorktree && onOpenTerminal && (
         <>
           <div className="w-px h-4 bg-border mx-1" />
           <Tooltip content="Open a shell in the job's worktree" side="bottom">
             <button
+              type="button"
               onClick={onOpenTerminal}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors whitespace-nowrap"
             >

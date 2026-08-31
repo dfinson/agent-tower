@@ -181,6 +181,7 @@ async def create_job(
     spec = JobSpec(
         repo=body.repo,
         prompt=body.prompt,
+        project_id=body.project_id,
         base_ref=body.base_ref,
         branch=body.branch,
         title=body.title,

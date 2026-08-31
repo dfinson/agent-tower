@@ -19,6 +19,7 @@ export interface JobSummary {
   id: string;
   repo: string;
   prompt: string;
+  projectId?: string | null;
   title?: string | null;
   description?: string | null;
   state: string;

@@ -10,7 +10,7 @@ from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import CPLConfig
-from backend.models.db import ArtifactRow, Base, JobRow
+from backend.models.db import ArtifactRow, Base, JobRow, ProjectRow
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.services.job.retention_service import RetentionService
 
@@ -61,9 +61,20 @@ class TestRunCleanup:
         old_time = datetime.now(UTC) - timedelta(days=30)
         async with session_factory() as session:
             session.add(
+                ProjectRow(
+                    id="proj-old",
+                    name="Test Project",
+                    repo_paths='["/test"]',
+                    created_at=old_time,
+                    updated_at=old_time,
+                )
+            )
+            await session.flush()
+            session.add(
                 JobRow(
                     id="job-old",
                     repo="/test",
+                    project_id="proj-old",
                     prompt="test",
                     state="completed",
                     base_ref="main",
@@ -103,9 +114,20 @@ class TestRunCleanup:
         now = datetime.now(UTC)
         async with session_factory() as session:
             session.add(
+                ProjectRow(
+                    id="proj-new",
+                    name="Test Project",
+                    repo_paths='["/test"]',
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            await session.flush()
+            session.add(
                 JobRow(
                     id="job-new",
                     repo="/test",
+                    project_id="proj-new",
                     prompt="test",
                     state="completed",
                     base_ref="main",

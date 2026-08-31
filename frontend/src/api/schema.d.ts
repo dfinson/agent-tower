@@ -3915,6 +3915,8 @@ export interface components {
             repo: string;
             /** Prompt */
             prompt: string;
+            /** Projectid */
+            projectId?: string | null;
             /** Baseref */
             baseRef?: string | null;
             /** Branch */
@@ -4926,6 +4928,8 @@ export interface components {
             repo: string;
             /** Prompt */
             prompt: string;
+            /** Projectid */
+            projectId?: string | null;
             /** Title */
             title?: string | null;
             /** Description */
@@ -6148,6 +6152,8 @@ export interface components {
             source: string;
             /** Cloneto */
             cloneTo?: string | null;
+            /** Mode */
+            mode?: "register" | "clone" | null;
         };
         /** RegisterRepoResponse */
         RegisterRepoResponse: {

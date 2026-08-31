@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from traceforge.types import EventMetadata, ToolMotivation
 
 from backend.models.api_schemas import ExecutionPhase
-from backend.models.db import Base, JobRow
+from backend.models.db import Base, JobRow, ProjectRow
 from backend.models.domain import JobState
 from backend.models.events import EventKind, new_event
 from backend.persistence.database import _set_sqlite_pragmas
@@ -88,9 +88,20 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
     async with factory() as sess:
         now = datetime.now(UTC)
         sess.add(
+            ProjectRow(
+                id="proj-1",
+                name="Test Project",
+                repo_paths='["/repos/test"]',
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await sess.flush()
+        sess.add(
             JobRow(
                 id="job-1",
                 repo="/repos/test",
+                project_id="proj-1",
                 prompt="Fix the bug",
                 state=JobState.running,
                 base_ref="main",
@@ -295,6 +306,7 @@ async def test_usage_cost_prefers_sdk_then_falls_back_to_model_pricing(
                 JobRow(
                     id=jid,
                     repo="/repos/test",
+                    project_id="proj-1",
                     prompt="x",
                     state=JobState.running,
                     base_ref="main",

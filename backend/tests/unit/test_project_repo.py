@@ -102,3 +102,32 @@ class TestProjectRepo:
 
         mapping = await repo.list_all_repo_paths(exclude_project_id="proj-1")
         assert mapping == {"/repo/c": "proj-2"}
+
+    @pytest.mark.asyncio
+    async def test_find_by_repo_path_returns_sole_owner(self, session: AsyncSession) -> None:
+        repo = ProjectRepository(session)
+        await repo.create("proj-1", "First", ["/repo/a"])
+        await repo.create("proj-2", "Second", ["/repo/b"])
+        await session.commit()
+
+        found = await repo.find_by_repo_path("/repo/a")
+        assert found is not None
+        assert found.id == "proj-1"
+
+    @pytest.mark.asyncio
+    async def test_find_by_repo_path_returns_none_for_no_match(self, session: AsyncSession) -> None:
+        repo = ProjectRepository(session)
+        await repo.create("proj-1", "First", ["/repo/a"])
+        await session.commit()
+
+        assert await repo.find_by_repo_path("/repo/nowhere") is None
+
+    @pytest.mark.asyncio
+    async def test_find_by_repo_path_returns_none_when_ambiguous(self, session: AsyncSession) -> None:
+        """Two Projects claiming the same repo path must not be resolved by insertion order."""
+        repo = ProjectRepository(session)
+        await repo.create("proj-1", "First", ["/repo/shared"])
+        await repo.create("proj-2", "Second", ["/repo/shared"])
+        await session.commit()
+
+        assert await repo.find_by_repo_path("/repo/shared") is None

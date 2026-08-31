@@ -169,8 +169,8 @@ export function ProjectsOverview() {
         type="text"
         value={filterQuery}
         onChange={(e) => setFilterQuery(e.target.value)}
-        placeholder="Filter Projects by name..."
-        aria-label="Filter Projects by name"
+        placeholder="Filter projects"
+        aria-label="Filter projects"
         className="w-full max-w-sm rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
       />
       {filteredProjects.length === 0 ? (
@@ -202,3 +202,4 @@ export function ProjectsOverview() {
     </div>
   );
 }
+

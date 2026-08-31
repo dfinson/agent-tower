@@ -284,9 +284,25 @@ class SessionStateWatcher(TraceForgeIngestBase):
 
         job_id = f"{repo_basename(repo_path)}-{hashlib.sha256(session_id.encode()).hexdigest()[:12]}"
         now = datetime.now(UTC)
+        try:
+            from backend.persistence.database import serialized_write
+            from backend.persistence.project_repo import ProjectRepository
+
+            async with serialized_write(self._session_factory) as session:
+                project_id = await ProjectRepository(session).resolve_project_id_for_repo_path(repo_path)
+        except Exception:
+            log.debug("session_state_watcher_project_lookup_failed", repo=repo_path, exc_info=True)
+            return None
+
+        if project_id is None:
+            # A Job can never exist without an owning Project (AD-5).
+            log.warning("session_state_watcher_repo_not_project_owned", repo=repo_path)
+            return None
+
         job = Job(
             id=job_id,
             repo=repo_path,
+            project_id=project_id,
             prompt="",
             state=JobState.running,
             base_ref=base_ref,

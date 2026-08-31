@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { FolderGit2, FolderOpen, GitBranch, Plus, Trash2 } from "lucide-react";
+import { FolderGit2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  browseDirectories,
   createProject,
   createRepo,
   registerRepo,
@@ -11,6 +10,7 @@ import {
 import type { ProjectResponse } from "../api/types";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { DirectoryField } from "./DirectoryField";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +21,7 @@ import {
   DialogFooter,
 } from "./ui/dialog";
 
-type AddRepoMode = "browse" | "clone" | "init";
+type AddRepoMode = "existing" | "clone" | "local";
 
 interface CreateProjectDialogProps {
   open: boolean;
@@ -29,33 +29,30 @@ interface CreateProjectDialogProps {
   onCreated: (project: ProjectResponse) => void;
 }
 
-interface BrowseEntry {
-  name: string;
-  path: string;
-  isGitRepo: boolean;
+function joinPath(parent: string, child: string): string {
+  const separator = parent.includes("\\") ? "\\" : "/";
+  if (parent.endsWith("/") || parent.endsWith("\\")) return `${parent}${child}`;
+  return `${parent}${separator}${child}`;
+}
+
+function suggestCloneFolderName(source: string): string {
+  const trimmed = source.trim().replace(/[\\/]+$/, "");
+  const lastSegment = trimmed.split(/[\\/]/).pop() ?? "repo";
+  return lastSegment.endsWith(".git") ? lastSegment.slice(0, -4) : lastSegment;
 }
 
 export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectDialogProps) {
   const [name, setName] = useState("");
   const [repoPaths, setRepoPaths] = useState<string[]>([]);
   const [stagedRepoPaths, setStagedRepoPaths] = useState<string[]>([]);
-  const [mode, setMode] = useState<AddRepoMode>("browse");
-
-  // Directory browser state
-  const [browsePath, setBrowsePath] = useState<string | null>(null);
-  const [browseParent, setBrowseParent] = useState<string | null>(null);
-  const [browseCurrent, setBrowseCurrent] = useState("");
-  const [browseItems, setBrowseItems] = useState<BrowseEntry[]>([]);
-  const [browseLoading, setBrowseLoading] = useState(false);
-  const [browseError, setBrowseError] = useState<string | null>(null);
-
-  // Clone / init inputs
+  const [mode, setMode] = useState<AddRepoMode>("existing");
+  const [existingRepoPath, setExistingRepoPath] = useState("");
   const [cloneSource, setCloneSource] = useState("");
-  const [cloneTo, setCloneTo] = useState("");
+  const [cloneDestination, setCloneDestination] = useState("");
+  const [cloneFolderName, setCloneFolderName] = useState("");
   const [initPath, setInitPath] = useState("");
   const [initName, setInitName] = useState("");
   const [addingRepo, setAddingRepo] = useState(false);
-
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,11 +60,11 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
     setName("");
     setRepoPaths([]);
     setStagedRepoPaths([]);
-    setMode("browse");
-    setBrowsePath(null);
-    setBrowseError(null);
+    setMode("existing");
+    setExistingRepoPath("");
     setCloneSource("");
-    setCloneTo("");
+    setCloneDestination("");
+    setCloneFolderName("");
     setInitPath("");
     setInitName("");
     setError(null);
@@ -77,28 +74,6 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
     if (!open) return;
     resetState();
   }, [open, resetState]);
-
-  const loadBrowse = useCallback(async (path?: string) => {
-    setBrowseLoading(true);
-    setBrowseError(null);
-    try {
-      const res = await browseDirectories(path);
-      setBrowseCurrent(res.current);
-      setBrowseParent(res.parent);
-      setBrowseItems(res.items);
-      setBrowsePath(res.current);
-    } catch (err) {
-      setBrowseError(err instanceof Error ? err.message : "Failed to browse directories");
-    } finally {
-      setBrowseLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (open && mode === "browse" && browsePath === null) {
-      void loadBrowse();
-    }
-  }, [open, mode, browsePath, loadBrowse]);
 
   function addRepoPath(path: string) {
     const trimmed = path.trim();
@@ -121,31 +96,56 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
     }
   }
 
-  const handleAddViaClone = useCallback(async () => {
-    if (!cloneSource.trim()) {
-      setError("Enter a repository URL or local path to clone/register.");
+  const handleAddExisting = useCallback(() => {
+    if (!existingRepoPath.trim()) {
+      setError("Choose an existing repository path to add.");
       return;
     }
+    setError(null);
+    addRepoPath(existingRepoPath);
+  }, [existingRepoPath]);
+
+  const handleAddViaClone = useCallback(async () => {
+    if (!cloneSource.trim()) {
+      setError("Enter a repository URL to clone.");
+      return;
+    }
+    if (!cloneDestination.trim()) {
+      setError("Choose a local destination for the cloned repository.");
+      return;
+    }
+    const folderName = (cloneFolderName.trim() || suggestCloneFolderName(cloneSource)).trim();
+    if (!folderName) {
+      setError("Enter a folder name for the cloned repository.");
+      return;
+    }
+    if (folderName === "." || folderName === ".." || /[\\/]/.test(folderName)) {
+      setError("Folder name must be a single directory.");
+      return;
+    }
+
     setAddingRepo(true);
     setError(null);
     try {
-      const res = await registerRepo(cloneSource.trim(), cloneTo.trim() || undefined);
+      const targetPath = joinPath(cloneDestination.trim(), folderName);
+      const res = await registerRepo(cloneSource.trim(), targetPath, "clone");
       addRepoPath(res.path);
       if (res.registered) {
         setStagedRepoPaths((items) => (items.includes(res.path) ? items : [...items, res.path]));
       }
       setCloneSource("");
-      setCloneTo("");
+      setCloneDestination("");
+      setCloneFolderName("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to register repository");
+      setError(err instanceof Error ? err.message : "Failed to clone repository");
     } finally {
       setAddingRepo(false);
     }
-  }, [cloneSource, cloneTo]);
+  }, [cloneDestination, cloneFolderName, cloneSource]);
 
   const handleAddViaInit = useCallback(async () => {
     if (!initPath.trim()) {
-      setError("Enter an absolute path for the new repository.");
+      setError("Choose a parent directory for the new repository.");
       return;
     }
     setAddingRepo(true);
@@ -161,7 +161,7 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
     } finally {
       setAddingRepo(false);
     }
-  }, [initPath, initName]);
+  }, [initName, initPath]);
 
   const handleCreate = useCallback(async () => {
     const trimmedName = name.trim();
@@ -274,95 +274,57 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
             <div className="flex gap-1 rounded-md bg-muted p-0.5 w-fit">
               <button
                 type="button"
-                className={`px-2.5 py-1 text-xs rounded-sm transition-colors ${mode === "browse" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                onClick={() => setMode("browse")}
+                className={`px-2.5 py-1 text-xs rounded-sm transition-colors ${mode === "existing" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setMode("existing")}
               >
-                Browse existing
+                Add existing repository
               </button>
               <button
                 type="button"
                 className={`px-2.5 py-1 text-xs rounded-sm transition-colors ${mode === "clone" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                 onClick={() => setMode("clone")}
               >
-                Clone / register
+                Clone repository
               </button>
               <button
                 type="button"
-                className={`px-2.5 py-1 text-xs rounded-sm transition-colors ${mode === "init" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                onClick={() => setMode("init")}
+                className={`px-2.5 py-1 text-xs rounded-sm transition-colors ${mode === "local" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setMode("local")}
               >
-                Init new
+                Create local repository
               </button>
             </div>
 
-            {mode === "browse" && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <FolderOpen size={12} />
-                  <span className="truncate font-mono">{browseCurrent || "~"}</span>
-                </div>
-                {browseError && <p className="text-xs text-red-500">{browseError}</p>}
-                <div className="max-h-48 overflow-y-auto rounded-md border border-border divide-y divide-border">
-                  {browseParent !== null && (
-                    <button
-                      type="button"
-                      className="w-full text-left px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent/50"
-                      onClick={() => loadBrowse(browseParent)}
-                      disabled={browseLoading}
-                    >
-                      .. (parent directory)
-                    </button>
-                  )}
-                  {browseLoading ? (
-                    <p className="px-3 py-2 text-xs text-muted-foreground">Loading…</p>
-                  ) : browseItems.length === 0 ? (
-                    <p className="px-3 py-2 text-xs text-muted-foreground">No subdirectories</p>
-                  ) : (
-                    browseItems.map((item) => (
-                      <div key={item.path} className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
-                        <button
-                          type="button"
-                          className="flex-1 min-w-0 text-left truncate hover:text-foreground text-muted-foreground"
-                          onClick={() => loadBrowse(item.path)}
-                        >
-                          {item.name}
-                        </button>
-                        {item.isGitRepo && (
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="flex items-center gap-1 text-[10px] text-green-500">
-                              <GitBranch size={10} /> git
-                            </span>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => addRepoPath(item.path)}
-                              disabled={repoPaths.includes(item.path)}
-                            >
-                              {repoPaths.includes(item.path) ? "Added" : "Add"}
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
+            {mode === "existing" && (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Browse to an existing local git repository, then add it to this Project.
+                </p>
+                <DirectoryField label="Repository path" value={existingRepoPath} onChange={setExistingRepoPath} />
+                <Button type="button" variant="secondary" onClick={handleAddExisting}>
+                  <Plus size={12} />
+                  Add repository
+                </Button>
               </div>
             )}
 
             {mode === "clone" && (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <p className="text-xs text-muted-foreground">
-                  Register an existing local path, or clone a remote URL into a new local directory.
+                  Clone a remote repository into a local destination, then add it to this Project.
                 </p>
                 <Input
                   value={cloneSource}
                   onChange={(event) => setCloneSource(event.target.value)}
-                  placeholder="Local path or git clone URL"
+                  placeholder="Repository URL"
+                  aria-label="Repository URL"
                 />
+                <DirectoryField label="Local destination" value={cloneDestination} onChange={setCloneDestination} />
                 <Input
-                  value={cloneTo}
-                  onChange={(event) => setCloneTo(event.target.value)}
-                  placeholder="Clone destination (optional, only for remote URLs)"
+                  value={cloneFolderName}
+                  onChange={(event) => setCloneFolderName(event.target.value)}
+                  placeholder="Folder name override (optional)"
+                  aria-label="Folder name override"
                 />
                 <Button
                   type="button"
@@ -371,25 +333,22 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
                   loading={addingRepo}
                 >
                   <Plus size={12} />
-                  Register repository
+                  Clone repository
                 </Button>
               </div>
             )}
 
-            {mode === "init" && (
-              <div className="space-y-2">
+            {mode === "local" && (
+              <div className="space-y-3">
                 <p className="text-xs text-muted-foreground">
-                  Initialize a brand-new git repository at an empty local path.
+                  Initialize a brand-new git repository in a local directory, then add it to this Project.
                 </p>
-                <Input
-                  value={initPath}
-                  onChange={(event) => setInitPath(event.target.value)}
-                  placeholder="/absolute/path/to/new-repo"
-                />
+                <DirectoryField label="Parent directory" value={initPath} onChange={setInitPath} />
                 <Input
                   value={initName}
                   onChange={(event) => setInitName(event.target.value)}
                   placeholder="Repository name (optional)"
+                  aria-label="Repository name"
                 />
                 <Button
                   type="button"

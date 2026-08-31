@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 class CreateJobRequest(CamelModel):
     repo: str
     prompt: str
+    project_id: str | None = None
     base_ref: str | None = None
     branch: str | None = None
     title: str | None = None
@@ -162,6 +163,7 @@ class SettingsResponse(CamelModel):
 class RegisterRepoRequest(CamelModel):
     source: str
     clone_to: str | None = None
+    mode: Literal["register", "clone"] | None = None
 
 
 class CreateRepoRequest(CamelModel):
@@ -232,6 +234,7 @@ class JobResponse(CamelModel):
     id: str
     repo: str
     prompt: str
+    project_id: str | None = None
     title: str | None = None
     description: str | None = None
     state: JobState
@@ -270,6 +273,20 @@ class JobResponse(CamelModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
 
+    @field_validator("project_id", mode="before")
+    @classmethod
+    def _normalize_project_id(cls, value: Any) -> str | None:
+        """Coerce UUID-like ids and discard mock values that aren't real project IDs."""
+        from uuid import UUID
+
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        if isinstance(value, UUID):
+            return str(value)
+        return None
+
     @classmethod
     def from_domain(cls, job: Job, **overrides: Any) -> JobResponse:
         """Build a JobResponse from a domain Job, with optional field overrides."""
@@ -277,6 +294,7 @@ class JobResponse(CamelModel):
             id=job.id,
             repo=job.repo,
             prompt=job.prompt,
+            project_id=job.project_id,
             title=job.title,
             description=job.description,
             state=job.state,

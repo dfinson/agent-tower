@@ -82,6 +82,12 @@ export function RepoOverview() {
       .then((proj) => {
         if (ignore) return;
         setProject(proj);
+        if (proj.repoPaths.length === 0) {
+          setSummary(null);
+          setFailedRepoCount(0);
+          setLoading(false);
+          return;
+        }
         return Promise.allSettled(proj.repoPaths.map((repoPath) => fetchRepoSummary(repoPath)))
           .then((results) => {
             if (ignore) return;
@@ -194,8 +200,14 @@ export function RepoOverview() {
       </div>
 
       {!summary ? (
-        <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground text-sm">
-          No member repository available for this Project yet.
+        <div className="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          <p>This project has no repositories. Add one in Project settings.</p>
+          <Link
+            to={`/projects/id/${encodeURIComponent(project.id)}/settings`}
+            className="mt-3 inline-flex text-xs text-primary hover:underline"
+          >
+            Open Project settings
+          </Link>
         </div>
       ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

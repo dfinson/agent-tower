@@ -381,6 +381,7 @@ def _make_job(*, id: str, state: JobState, resolution: str | None = None) -> Job
     now = datetime.now(UTC)
     return Job(
         id=id,
+        project_id="proj-1",
         repo="/repo/a",
         prompt="do the thing",
         state=state,

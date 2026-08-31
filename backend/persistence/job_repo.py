@@ -54,6 +54,7 @@ class JobRepository(BaseRepository):
         return Job(
             id=row.id,
             repo=row.repo,
+            project_id=row.project_id,
             prompt=row.prompt,
             state=_safe_job_state(row.state),
             base_ref=row.base_ref,
@@ -100,6 +101,7 @@ class JobRepository(BaseRepository):
         row = JobRow(
             id=job.id,
             repo=job.repo,
+            project_id=job.project_id,
             prompt=job.prompt,
             state=job.state,
             base_ref=job.base_ref,

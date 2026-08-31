@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 vi.mock("../../api/client", () => ({
@@ -140,8 +140,10 @@ describe("ProjectsOverview", () => {
     await waitFor(() => expect(screen.getByText("No Projects registered")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /New Project/i }));
 
-    await waitFor(() => expect(screen.getByText("new-repo")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    const repoRow = (await screen.findByText("new-repo")).closest("div");
+    if (!repoRow) throw new Error("Repository row not found");
+    fireEvent.click(within(repoRow).getByRole("button", { name: "Use" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
     fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "New Project" } });
     fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
 
@@ -185,7 +187,7 @@ describe("ProjectsOverview", () => {
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
     expect(screen.getByText("Beta")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Filter Projects by name"), { target: { value: "alp" } });
+    fireEvent.change(screen.getByLabelText("Filter projects"), { target: { value: "alp" } });
 
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.queryByText("Beta")).not.toBeInTheDocument();
@@ -204,7 +206,7 @@ describe("ProjectsOverview", () => {
 
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
 
-    fireEvent.change(screen.getByLabelText("Filter Projects by name"), { target: { value: "zzz" } });
+    fireEvent.change(screen.getByLabelText("Filter projects"), { target: { value: "zzz" } });
 
     expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
     expect(screen.getByText('No Projects match "zzz"')).toBeInTheDocument();
@@ -252,3 +254,4 @@ describe("ProjectsOverview", () => {
     expect(badge.className).not.toMatch(/alarming/);
   });
 });
+

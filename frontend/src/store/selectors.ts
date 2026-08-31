@@ -135,14 +135,18 @@ export const selectAttentionJobsForRepo = (repoPath: string) => (state: AppState
 // repo of a Project (not just a single reduced repo path). Used by the
 // project-identity-routed board so a multi-repo Project's board genuinely
 // shows jobs from all its member repos, not only the first one.
-export const selectActiveJobsForProject = (repoPaths: string[]) => (state: AppState): JobSummary[] =>
-  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => repoPaths.includes(j.repo) && isActiveJob(j)));
+//
+// Every Job has an owning Project (AD-5) — there is no legacy "no project"
+// state to fall back to a repo-path match for, so these match on
+// `projectId` alone.
+export const selectActiveJobsForProject = (projectId: string) => (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => j.projectId === projectId && isActiveJob(j)));
 
-export const selectSignoffJobsForProject = (repoPaths: string[]) => (state: AppState): JobSummary[] =>
-  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => repoPaths.includes(j.repo) && isSignoffJob(j)));
+export const selectSignoffJobsForProject = (projectId: string) => (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => j.projectId === projectId && isSignoffJob(j)));
 
-export const selectAttentionJobsForProject = (repoPaths: string[]) => (state: AppState): JobSummary[] =>
-  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => repoPaths.includes(j.repo) && isAttentionJob(j)));
+export const selectAttentionJobsForProject = (projectId: string) => (state: AppState): JobSummary[] =>
+  sortByUpdatedDesc(Object.values(state.jobs).filter((j) => j.projectId === projectId && isAttentionJob(j)));
 
 /** Archived jobs loaded into the store (for the history browser). */
 export const selectArchivedJobs = (state: AppState): JobSummary[] =>
