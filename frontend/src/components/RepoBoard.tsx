@@ -78,8 +78,10 @@ function buildNewJobUrl(projectId: string | undefined, project: ProjectResponse 
  *
  * Story 4.4 / CAP-10: also fetches the owning Project's TaskLinks (a second,
  * independent call — `GET /settings/projects/:id/task-links`, AD-11) and renders
- * them as chained-recipe cards in the "In Progress" column, alongside job cards,
- * in this same rendering pass.
+ * them as chained-recipe cards alongside job cards, bucketed into the same three
+ * columns as jobs by TaskLink state: active states (waiting/ready/starting/running)
+ * stay in "In Progress", `completed` moves to "Awaiting Input", `failed` moves to
+ * "Failed" — so a finished or failed chain never lingers permanently in "In Progress".
  */
 export function RepoBoard() {
   const { projectId, taskLinkId } = useParams<{ projectId: string; taskLinkId?: string }>();
@@ -114,6 +116,45 @@ export function RepoBoard() {
     }
     return index;
   }, [taskLinks]);
+
+  // TaskLink cards must move out of "In Progress" once their chain reaches a
+  // terminal state (Bug: previously every TaskLink, including `completed`
+  // and `failed`, was rendered unconditionally in the "In Progress" column
+  // forever — the column's count badge only reflects the job list, so a
+  // fully-completed chain looked stuck "in progress" with a "0" count next
+  // to it). Bucket TaskLink cards the same way job cards are already
+  // bucketed: active (waiting/ready/starting/running) stays in "In
+  // Progress", `failed` moves to "Failed", and `completed` moves to
+  // "Awaiting Input" (mirrors isSignoffJob's "completed but not yet
+  // resolved" bucket for jobs — a finished chain is still awaiting the
+  // operator's attention until acknowledged).
+  const activeTaskLinks = useMemo(
+    () => taskLinks.filter((taskLink) => taskLink.state !== "completed" && taskLink.state !== "failed"),
+    [taskLinks],
+  );
+  const completedTaskLinks = useMemo(
+    () => taskLinks.filter((taskLink) => taskLink.state === "completed"),
+    [taskLinks],
+  );
+  const failedTaskLinks = useMemo(
+    () => taskLinks.filter((taskLink) => taskLink.state === "failed"),
+    [taskLinks],
+  );
+  const renderTaskLinkCard = (taskLink: TaskLinkResponse) => (
+    <TaskLinkCard
+      key={taskLink.id}
+      taskLink={taskLink}
+      dependencies={taskLink.dependsOn.map((dependency) => {
+        const matchedTask = dependencyIndex.get(dependency);
+        return matchedTask
+          ? { id: dependency, label: formatTaskDependency(matchedTask), resolved: true } satisfies TaskLinkDependencyView
+          : { id: dependency, label: dependency, resolved: false } satisfies TaskLinkDependencyView;
+      })}
+      highlighted={taskLink.id === highlightedTask?.id}
+      starting={startingId === taskLink.id}
+      onStart={(link) => void handleStart(link)}
+    />
+  );
   const newJobUrl = buildNewJobUrl(projectId, currentProject);
 
   useEffect(() => {
@@ -315,32 +356,18 @@ export function RepoBoard() {
         <KanbanColumn
           title={KANBAN_COLUMNS.IN_PROGRESS}
           jobs={activeJobs}
-          extraCards={
-            taskLinks.length > 0 ? (
-              <>
-                {taskLinks.map((taskLink) => {
-                  return (
-                    <TaskLinkCard
-                      key={taskLink.id}
-                      taskLink={taskLink}
-                      dependencies={taskLink.dependsOn.map((dependency) => {
-                        const matchedTask = dependencyIndex.get(dependency);
-                        return matchedTask
-                          ? { id: dependency, label: formatTaskDependency(matchedTask), resolved: true } satisfies TaskLinkDependencyView
-                          : { id: dependency, label: dependency, resolved: false } satisfies TaskLinkDependencyView;
-                      })}
-                      highlighted={taskLink.id === highlightedTask?.id}
-                      starting={startingId === taskLink.id}
-                      onStart={(link) => void handleStart(link)}
-                    />
-                  );
-                })}
-              </>
-            ) : undefined
-          }
+          extraCards={activeTaskLinks.length > 0 ? <>{activeTaskLinks.map(renderTaskLinkCard)}</> : undefined}
         />
-        <KanbanColumn title={KANBAN_COLUMNS.AWAITING_INPUT} jobs={signoffJobs} />
-        <KanbanColumn title={KANBAN_COLUMNS.FAILED} jobs={attentionJobs} />
+        <KanbanColumn
+          title={KANBAN_COLUMNS.AWAITING_INPUT}
+          jobs={signoffJobs}
+          extraCards={completedTaskLinks.length > 0 ? <>{completedTaskLinks.map(renderTaskLinkCard)}</> : undefined}
+        />
+        <KanbanColumn
+          title={KANBAN_COLUMNS.FAILED}
+          jobs={attentionJobs}
+          extraCards={failedTaskLinks.length > 0 ? <>{failedTaskLinks.map(renderTaskLinkCard)}</> : undefined}
+        />
       </div>
     </div>
   );
