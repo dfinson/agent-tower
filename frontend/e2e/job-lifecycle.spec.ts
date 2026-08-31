@@ -22,6 +22,7 @@ const MOCK_JOB = {
   updatedAt: NOW,
   completedAt: null,
   repo: "/tmp/test-repo",
+  projectId: "project-1",
   branch: "cpl/job-1",
   baseRef: "main",
   worktreePath: null,
